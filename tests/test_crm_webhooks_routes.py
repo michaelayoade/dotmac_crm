@@ -1,4 +1,12 @@
+import asyncio
+import concurrent.futures
+
 from app.web.public import crm_webhooks
+
+
+def _run_async(coro):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(lambda: asyncio.run(coro)).result()
 
 
 def test_parse_meta_whatsapp_status_payload_detects_native_status_callbacks():
@@ -71,7 +79,7 @@ def test_meta_webhook_accepts_whatsapp_secret_fallback(monkeypatch):
 
     monkeypatch.setattr(crm_webhooks, "_enqueue_webhook_task", _enqueue)
 
-    response = __import__("asyncio").run(crm_webhooks.meta_webhook(_Request(), db=None))
+    response = _run_async(crm_webhooks.meta_webhook(_Request(), db=None))
 
     assert response["status"] == "ok"
     assert captured["channel"] == "meta"
