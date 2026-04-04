@@ -1016,9 +1016,7 @@ def process_whatsapp_webhook(
                 # Set read_at timestamp for read receipts
                 if new_status_str == "read":
                     try:
-                        message.read_at = datetime.fromtimestamp(
-                            int(status_update.timestamp), tz=UTC
-                        )
+                        message.read_at = datetime.fromtimestamp(int(status_update.timestamp), tz=UTC)
                     except (ValueError, OSError):
                         message.read_at = datetime.now(UTC)
 
