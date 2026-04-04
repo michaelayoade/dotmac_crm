@@ -401,7 +401,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             )
 
         meta_payload, status_count = _parse_meta_whatsapp_status_payload(payload)
-        if status_count:
+        if status_count and meta_payload is not None:
             enqueued = _enqueue_webhook_task(
                 webhook_tasks.process_meta_webhook.delay,
                 channel="whatsapp",
