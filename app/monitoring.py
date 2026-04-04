@@ -16,12 +16,28 @@ Usage (remote apps — explicit config):
 
 import logging
 import os
+from queue import Queue
+from urllib.parse import urlparse
 
 _MONITORING_SERVER = os.getenv("MONITORING_SERVER", "160.119.127.195")
 
 
+def _host_reachable(url: str, timeout: float = 3.0) -> bool:
+    """Quick TCP connect check — avoids blocking the app if the target is down."""
+    import socket
+
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 def setup_loki(app_name: str, server: str, environment: str, loki_url: str | None = None) -> None:
-    """Add a Loki HTTP handler to the root logger."""
+    """Add an async Loki handler to the root logger."""
     try:
         import logging_loki
     except ImportError:
@@ -35,7 +51,14 @@ def setup_loki(app_name: str, server: str, environment: str, loki_url: str | Non
         f"http://{_MONITORING_SERVER}:3100/loki/api/v1/push",
     )
 
-    handler = logging_loki.LokiHandler(
+    if not url or not _host_reachable(url):
+        logging.getLogger(__name__).warning(
+            "Loki endpoint unreachable (%s) — handler skipped", url
+        )
+        return
+
+    handler = logging_loki.LokiQueueHandler(
+        Queue(-1),
         url=url,
         tags={"app": app_name, "server": server, "environment": environment},
         version="1",
