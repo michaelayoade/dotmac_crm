@@ -1,7 +1,8 @@
 """Meta webhook processing service.
 
-Handles incoming webhooks from Facebook (Messenger) and Instagram (DMs).
-Processes webhook payloads and creates messages in the CRM system.
+Handles incoming webhooks from Facebook (Messenger), Instagram (DMs), and
+WhatsApp Business API (delivery status updates).
+Processes webhook payloads and creates/updates messages in the CRM system.
 
 Environment Variables:
     META_APP_SECRET: Required for webhook signature verification
@@ -42,6 +43,7 @@ from app.schemas.crm.inbox import (
     InstagramCommentPayload,
     InstagramDMWebhookPayload,
     MetaWebhookPayload,
+    WhatsAppStatusValue,
     _attachments_have_story_mention,
 )
 from app.schemas.crm.sales import LeadCreate
@@ -877,6 +879,178 @@ def _find_token_for_account(
         .filter(OAuthToken.is_active.is_(True))
         .first()
     )
+
+
+def _resolve_whatsapp_target_by_phone_number_id(
+    db: Session,
+    phone_number_id: str | None,
+) -> IntegrationTarget | None:
+    if not phone_number_id:
+        return None
+
+    targets = (
+        db.query(IntegrationTarget)
+        .join(ConnectorConfig, ConnectorConfig.id == IntegrationTarget.connector_config_id)
+        .filter(IntegrationTarget.target_type == IntegrationTargetType.crm)
+        .filter(IntegrationTarget.is_active.is_(True))
+        .filter(ConnectorConfig.connector_type == ConnectorType.whatsapp)
+        .filter(ConnectorConfig.is_active.is_(True))
+        .order_by(IntegrationTarget.created_at.desc())
+        .all()
+    )
+    for target in targets:
+        config = target.connector_config
+        if not config:
+            continue
+        metadata = config.metadata_ if isinstance(config.metadata_, dict) else {}
+        auth_config = config.auth_config if isinstance(config.auth_config, dict) else {}
+        candidate = metadata.get("phone_number_id") or auth_config.get("phone_number_id")
+        if candidate is not None and str(candidate) == str(phone_number_id):
+            return target
+    return None
+
+
+def process_whatsapp_webhook(
+    db: Session,
+    payload: MetaWebhookPayload,
+) -> list[dict]:
+    """Process WhatsApp Business API webhook payload.
+
+    Handles delivery status updates (sent, delivered, read, failed) for
+    outbound messages. Updates the corresponding message record in the DB
+    and broadcasts the status change via WebSocket.
+
+    Args:
+        db: Database session
+        payload: Validated MetaWebhookPayload with object=whatsapp_business_account
+
+    Returns:
+        List of result dicts with message_id and status
+    """
+    results = []
+
+    # WhatsApp status precedence: sent < delivered < read (never go backwards)
+    _STATUS_RANK = {"sent": 1, "delivered": 2, "read": 3, "failed": 0}
+
+    for entry in payload.entry:
+        for change in entry.changes or []:
+            if not isinstance(change, dict) or change.get("field") != "messages":
+                continue
+
+            value_data = change.get("value", {})
+            value_metadata = value_data.get("metadata") if isinstance(value_data, dict) else None
+            phone_number_id = value_metadata.get("phone_number_id") if isinstance(value_metadata, dict) else None
+            target = _resolve_whatsapp_target_by_phone_number_id(db, phone_number_id)
+            try:
+                value = WhatsAppStatusValue(**value_data)
+            except Exception:
+                logger.warning(
+                    "whatsapp_webhook_value_parse_failed entry_id=%s",
+                    entry.id,
+                )
+                continue
+
+            for status_update in value.statuses or []:
+                wa_message_id = status_update.id
+                new_status_str = status_update.status
+                if phone_number_id and not target:
+                    logger.warning(
+                        "whatsapp_status_target_not_found phone_number_id=%s wamid=%s",
+                        phone_number_id,
+                        wa_message_id,
+                    )
+                    results.append({"wamid": wa_message_id, "status": "skipped"})
+                    continue
+
+                message_query = (
+                    db.query(Message)
+                    .filter(Message.external_id == wa_message_id)
+                    .filter(Message.channel_type == ChannelType.whatsapp)
+                    .filter(Message.direction == MessageDirection.outbound)
+                )
+                if target is not None:
+                    message_query = message_query.filter(Message.channel_target_id == target.id)
+                message = message_query.first() if target is not None else None
+                if target is None:
+                    matches = message_query.limit(2).all()
+                    if len(matches) > 1:
+                        logger.warning(
+                            "whatsapp_status_ambiguous_message wamid=%s status=%s",
+                            wa_message_id,
+                            new_status_str,
+                        )
+                        results.append({"wamid": wa_message_id, "status": "skipped"})
+                        continue
+                    message = matches[0] if matches else None
+                if not message:
+                    logger.debug(
+                        "whatsapp_status_message_not_found wamid=%s status=%s",
+                        wa_message_id,
+                        new_status_str,
+                    )
+                    results.append({"wamid": wa_message_id, "status": "skipped"})
+                    continue
+
+                # Don't regress status (e.g. don't go from delivered back to sent)
+                current_rank = _STATUS_RANK.get(message.status.value, -1)
+                new_rank = _STATUS_RANK.get(new_status_str, -1)
+
+                if new_rank <= current_rank and new_status_str != "failed":
+                    results.append({"wamid": wa_message_id, "status": "no_change"})
+                    continue
+
+                # Map to MessageStatus enum
+                try:
+                    new_status = MessageStatus(new_status_str)
+                except ValueError:
+                    logger.warning(
+                        "whatsapp_status_unknown status=%s wamid=%s",
+                        new_status_str,
+                        wa_message_id,
+                    )
+                    results.append({"wamid": wa_message_id, "status": "unknown"})
+                    continue
+
+                message.status = new_status
+
+                # Set read_at timestamp for read receipts
+                if new_status_str == "read":
+                    try:
+                        message.read_at = datetime.fromtimestamp(
+                            int(status_update.timestamp), tz=UTC
+                        )
+                    except (ValueError, OSError):
+                        message.read_at = datetime.now(UTC)
+
+                # Store error details for failed messages
+                if new_status_str == "failed" and status_update.errors:
+                    meta = message.metadata_ if isinstance(message.metadata_, dict) else {}
+                    meta["whatsapp_errors"] = status_update.errors
+                    message.metadata_ = meta
+
+                db.commit()
+
+                # Broadcast status change to UI via WebSocket
+                try:
+                    from app.websocket.broadcaster import broadcast_message_status
+
+                    broadcast_message_status(
+                        str(message.id),
+                        str(message.conversation_id),
+                        message.status.value,
+                    )
+                except Exception:
+                    pass  # WebSocket broadcast is best-effort
+
+                logger.info(
+                    "whatsapp_status_updated wamid=%s message_id=%s status=%s",
+                    wa_message_id,
+                    message.id,
+                    new_status_str,
+                )
+                results.append({"wamid": wa_message_id, "status": "stored"})
+
+    return results
 
 
 def process_messenger_webhook(

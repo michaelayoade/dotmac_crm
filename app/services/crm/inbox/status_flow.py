@@ -27,7 +27,6 @@ _ALLOWED_TRANSITIONS: dict[ConversationStatus, set[ConversationStatus]] = {
     },
     ConversationStatus.resolved: {
         ConversationStatus.resolved,
-        ConversationStatus.open,
     },
 }
 

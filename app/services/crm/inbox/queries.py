@@ -338,16 +338,23 @@ def list_inbox_conversations(
         (Conversation.priority == ConversationPriority.low, 3),
         else_=4,
     )
+    # Keep active conversations ahead of resolved across inbox listing modes.
+    status_sort_expr = case(
+        (Conversation.status == ConversationStatus.resolved, 1),
+        else_=0,
+    )
 
     if db.bind is not None and db.bind.dialect.name == "sqlite":
         if sort_by == "priority":
             query = query.order_by(
                 priority_sort_expr,
+                status_sort_expr,
                 Conversation.last_message_at.desc(),
                 Conversation.updated_at.desc(),
             )
         else:
             query = query.order_by(
+                status_sort_expr,
                 Conversation.last_message_at.desc(),
                 Conversation.updated_at.desc(),
             )
@@ -502,11 +509,13 @@ def list_inbox_conversations(
     if sort_by == "priority":
         query = query.order_by(
             priority_sort_expr,
+            status_sort_expr,
             Conversation.last_message_at.desc().nullslast(),
             Conversation.updated_at.desc(),
         )
     else:
         query = query.order_by(
+            status_sort_expr,
             Conversation.last_message_at.desc().nullslast(),
             Conversation.updated_at.desc(),
         )

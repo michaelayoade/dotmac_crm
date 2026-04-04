@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.models.crm.enums import ChannelType, MessageDirection
+from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection
 from app.schemas.crm.inbox import EmailWebhookPayload, WhatsAppWebhookPayload
 from app.services.crm.inbox.handlers.base import (
     InboundDuplicateResult,
@@ -180,3 +180,49 @@ def test_email_handler_process_success():
         result = handler.process(_DummyDB(), payload)
         assert isinstance(result, InboundProcessResult)
         assert result.message_payload.external_id == "ext-1"
+
+
+def test_email_handler_creates_new_conversation_when_metadata_points_to_resolved():
+    handler = EmailHandler()
+    payload = EmailWebhookPayload(
+        contact_address="user@example.com",
+        contact_name="User",
+        message_id="mid-2",
+        subject="Hello",
+        body="Body",
+        received_at=None,
+        metadata={},
+        channel_target_id=None,
+    )
+
+    resolved_conversation = SimpleNamespace(
+        id="conv-resolved",
+        is_active=True,
+        status=ConversationStatus.resolved,
+    )
+
+    with (
+        patch("app.services.crm.inbox.handlers.email._resolve_integration_target") as mock_target,
+        patch("app.services.crm.inbox.handlers.email._resolve_connector_config") as mock_config,
+        patch("app.services.crm.inbox.handlers.email._is_self_email_message") as mock_self,
+        patch("app.services.crm.inbox.handlers.email._resolve_person_for_inbound") as mock_person,
+        patch("app.services.crm.inbox.handlers.email._find_duplicate_inbound_message") as mock_dedupe,
+        patch("app.services.crm.inbox.handlers.email._normalize_external_id") as mock_normalize,
+        patch("app.services.crm.inbox.handlers.email._resolve_conversation_from_email_metadata") as mock_resolve,
+        patch("app.services.crm.inbox.handlers.email.conversation_service") as mock_conv,
+    ):
+        mock_target.return_value = SimpleNamespace(id="target-1")
+        mock_config.return_value = None
+        mock_self.return_value = False
+        mock_person.return_value = (SimpleNamespace(id="person-1"), SimpleNamespace(id="chan-1"))
+        mock_normalize.return_value = "ext-2"
+        mock_dedupe.return_value = None
+        mock_resolve.return_value = resolved_conversation
+        mock_conv.resolve_open_conversation_for_channel.return_value = None
+        mock_conv.Conversations.create.return_value = SimpleNamespace(id="conv-new", is_active=True)
+
+        result = handler.process(_DummyDB(), payload)
+
+        assert isinstance(result, InboundProcessResult)
+        assert result.conversation_id == "conv-new"
+        mock_conv.Conversations.create.assert_called_once()

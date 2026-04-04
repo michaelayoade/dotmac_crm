@@ -266,6 +266,25 @@ def _extract_meta_whatsapp_messages(payload: dict, trace_id: str | None = None) 
     return messages
 
 
+def _parse_meta_whatsapp_status_payload(payload: dict) -> tuple[MetaWebhookPayload | None, int]:
+    try:
+        meta_payload = MetaWebhookPayload.model_validate(payload)
+    except Exception:
+        return None, 0
+
+    if meta_payload.object != "whatsapp_business_account":
+        return meta_payload, 0
+
+    status_count = 0
+    for entry in meta_payload.entry:
+        for change in entry.changes or []:
+            if not isinstance(change, dict):
+                continue
+            value = change.get("value") or {}
+            status_count += len(value.get("statuses") or [])
+    return meta_payload, status_count
+
+
 @router.get("/whatsapp")
 async def whatsapp_webhook_verify(
     hub_mode: str = Query(None, alias="hub.mode"),
@@ -380,6 +399,33 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 status_code=400,
                 content={"status": "error", "detail": "Invalid payload"},
             )
+
+        meta_payload, status_count = _parse_meta_whatsapp_status_payload(payload)
+        if status_count:
+            enqueued = _enqueue_webhook_task(
+                webhook_tasks.process_meta_webhook.delay,
+                channel="whatsapp",
+                payload=meta_payload.model_dump(),
+                trace_id=trace_id,
+            )
+            _record_channel_stat("whatsapp", ok=enqueued, events=status_count)
+            logger.info(
+                "whatsapp_status_webhook_enqueued events=%d enqueued=%s",
+                status_count,
+                enqueued,
+            )
+            if _should_sample():
+                logger.info(
+                    "webhook_enqueued channel=whatsapp trace_id=%s object=%s events=%s enqueued=%s latency_ms=%s",
+                    trace_id,
+                    meta_payload.object,
+                    status_count,
+                    enqueued,
+                    int((time.monotonic() - start_time) * 1000),
+                )
+            if enqueued:
+                return {"status": "ok", "processed": status_count}
+            return {"status": "accepted", "processed": 0, "failed": status_count}
 
         messages = _extract_meta_whatsapp_messages(payload, trace_id=trace_id)
         if not messages:

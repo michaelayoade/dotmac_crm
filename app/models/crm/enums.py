@@ -27,6 +27,8 @@ class MessageStatus(enum.Enum):
     received = "received"
     queued = "queued"
     sent = "sent"
+    delivered = "delivered"
+    read = "read"
     failed = "failed"
 
 
