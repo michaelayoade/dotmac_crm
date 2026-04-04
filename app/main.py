@@ -65,6 +65,7 @@ from app.errors import register_error_handlers
 from app.logging import configure_logging
 from app.middleware.api_rate_limit import APIRateLimitMiddleware, WebhookRateLimitMiddleware
 from app.models.domain_settings import DomainSetting, SettingDomain
+from app.monitoring import setup_monitoring
 from app.observability import ObservabilityMiddleware
 from app.services import audit as audit_service
 from app.services import branding_state
@@ -103,6 +104,7 @@ _AUDIT_SETTINGS_CACHE_TTL_SECONDS = 30.0
 _AUDIT_SETTINGS_LOCK = Lock()
 
 configure_logging()
+setup_monitoring()
 setup_otel(app)
 app.add_middleware(ObservabilityMiddleware)
 app.add_middleware(APIRateLimitMiddleware)  # Global API rate limiting
