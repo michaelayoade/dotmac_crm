@@ -2,9 +2,12 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from app.models.connector import ConnectorConfig, ConnectorType
+from app.models.crm.conversation import Conversation, Message
+from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.crm.sales import Lead
 from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.models.oauth_token import OAuthToken
+from app.models.person import Person
 from app.schemas.crm.inbox import MetaWebhookPayload
 from app.services import meta_webhooks
 
@@ -233,3 +236,292 @@ def test_process_facebook_leadgen_change_is_idempotent(db_session):
     assert len(second) == 1
     assert first[0]["lead_id"] == second[0]["lead_id"]
     assert db_session.query(Lead).count() == 1
+
+
+def test_process_whatsapp_webhook_updates_only_whatsapp_outbound_message(db_session):
+    person = Person(
+        first_name="Test",
+        last_name="Contact",
+        display_name="Test Contact",
+        email="whatsapp-status@example.com",
+        is_active=True,
+    )
+    db_session.add(person)
+    db_session.flush()
+
+    whatsapp_conversation = Conversation(person_id=person.id, status=ConversationStatus.open, is_active=True)
+    email_conversation = Conversation(person_id=person.id, status=ConversationStatus.open, is_active=True)
+    db_session.add_all([whatsapp_conversation, email_conversation])
+    db_session.flush()
+
+    whatsapp_message = Message(
+        conversation_id=whatsapp_conversation.id,
+        channel_type=ChannelType.whatsapp,
+        direction=MessageDirection.outbound,
+        status=MessageStatus.sent,
+        body="WhatsApp outbound",
+        external_id="wamid.same",
+    )
+    email_message = Message(
+        conversation_id=email_conversation.id,
+        channel_type=ChannelType.email,
+        direction=MessageDirection.outbound,
+        status=MessageStatus.sent,
+        body="Email outbound",
+        external_id="wamid.same",
+    )
+    db_session.add_all([whatsapp_message, email_message])
+    db_session.commit()
+
+    payload = MetaWebhookPayload(
+        object="whatsapp_business_account",
+        entry=[
+            {
+                "id": "waba_123",
+                "time": 1,
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "statuses": [
+                                {
+                                    "id": "wamid.same",
+                                    "status": "delivered",
+                                    "timestamp": "1712200000",
+                                    "recipient_id": "15551234567",
+                                }
+                            ]
+                        },
+                    }
+                ],
+            }
+        ],
+    )
+
+    with patch("app.websocket.broadcaster.broadcast_message_status") as mock_broadcast:
+        results = meta_webhooks.process_whatsapp_webhook(db_session, payload)
+
+    db_session.refresh(whatsapp_message)
+    db_session.refresh(email_message)
+
+    assert results == [{"wamid": "wamid.same", "status": "stored"}]
+    assert whatsapp_message.status == MessageStatus.delivered
+    assert email_message.status == MessageStatus.sent
+    mock_broadcast.assert_called_once_with(
+        str(whatsapp_message.id),
+        str(whatsapp_message.conversation_id),
+        MessageStatus.delivered.value,
+    )
+
+
+def test_process_whatsapp_webhook_scopes_by_whatsapp_target_phone_number_id(db_session):
+    person = Person(
+        first_name="Target",
+        last_name="Scoped",
+        display_name="Target Scoped",
+        email="whatsapp-target-scope@example.com",
+        is_active=True,
+    )
+    db_session.add(person)
+    db_session.flush()
+
+    config_a = ConnectorConfig(
+        name="WhatsApp Target A",
+        connector_type=ConnectorType.whatsapp,
+        metadata_={"phone_number_id": "phone-number-a"},
+        is_active=True,
+    )
+    config_b = ConnectorConfig(
+        name="WhatsApp Target B",
+        connector_type=ConnectorType.whatsapp,
+        metadata_={"phone_number_id": "phone-number-b"},
+        is_active=True,
+    )
+    db_session.add_all([config_a, config_b])
+    db_session.flush()
+
+    target_a = IntegrationTarget(
+        name="Target A",
+        target_type=IntegrationTargetType.crm,
+        connector_config_id=config_a.id,
+        is_active=True,
+    )
+    target_b = IntegrationTarget(
+        name="Target B",
+        target_type=IntegrationTargetType.crm,
+        connector_config_id=config_b.id,
+        is_active=True,
+    )
+    db_session.add_all([target_a, target_b])
+    db_session.flush()
+
+    conversation_a = Conversation(person_id=person.id, status=ConversationStatus.open, is_active=True)
+    conversation_b = Conversation(person_id=person.id, status=ConversationStatus.open, is_active=True)
+    db_session.add_all([conversation_a, conversation_b])
+    db_session.flush()
+
+    message_a = Message(
+        conversation_id=conversation_a.id,
+        channel_target_id=target_a.id,
+        channel_type=ChannelType.whatsapp,
+        direction=MessageDirection.outbound,
+        status=MessageStatus.sent,
+        body="WhatsApp outbound A",
+        external_id="wamid.shared",
+    )
+    message_b = Message(
+        conversation_id=conversation_b.id,
+        channel_target_id=target_b.id,
+        channel_type=ChannelType.whatsapp,
+        direction=MessageDirection.outbound,
+        status=MessageStatus.sent,
+        body="WhatsApp outbound B",
+        external_id="wamid.shared",
+    )
+    db_session.add_all([message_a, message_b])
+    db_session.commit()
+
+    payload = MetaWebhookPayload(
+        object="whatsapp_business_account",
+        entry=[
+            {
+                "id": "waba_123",
+                "time": 1,
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "metadata": {"phone_number_id": "phone-number-b"},
+                            "statuses": [
+                                {
+                                    "id": "wamid.shared",
+                                    "status": "delivered",
+                                    "timestamp": "1712200000",
+                                    "recipient_id": "15551234567",
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    )
+
+    with patch("app.websocket.broadcaster.broadcast_message_status") as mock_broadcast:
+        results = meta_webhooks.process_whatsapp_webhook(db_session, payload)
+
+    db_session.refresh(message_a)
+    db_session.refresh(message_b)
+
+    assert results == [{"wamid": "wamid.shared", "status": "stored"}]
+    assert message_a.status == MessageStatus.sent
+    assert message_b.status == MessageStatus.delivered
+    mock_broadcast.assert_called_once_with(
+        str(message_b.id),
+        str(message_b.conversation_id),
+        MessageStatus.delivered.value,
+    )
+
+
+def test_process_whatsapp_webhook_skips_ambiguous_match_without_phone_number_id(db_session):
+    person = Person(
+        first_name="Ambiguous",
+        last_name="Target",
+        display_name="Ambiguous Target",
+        email="whatsapp-ambiguous@example.com",
+        is_active=True,
+    )
+    db_session.add(person)
+    db_session.flush()
+
+    config_a = ConnectorConfig(
+        name="WhatsApp Ambiguous A",
+        connector_type=ConnectorType.whatsapp,
+        metadata_={"phone_number_id": "ambiguous-a"},
+        is_active=True,
+    )
+    config_b = ConnectorConfig(
+        name="WhatsApp Ambiguous B",
+        connector_type=ConnectorType.whatsapp,
+        metadata_={"phone_number_id": "ambiguous-b"},
+        is_active=True,
+    )
+    db_session.add_all([config_a, config_b])
+    db_session.flush()
+
+    target_a = IntegrationTarget(
+        name="Ambiguous Target A",
+        target_type=IntegrationTargetType.crm,
+        connector_config_id=config_a.id,
+        is_active=True,
+    )
+    target_b = IntegrationTarget(
+        name="Ambiguous Target B",
+        target_type=IntegrationTargetType.crm,
+        connector_config_id=config_b.id,
+        is_active=True,
+    )
+    db_session.add_all([target_a, target_b])
+    db_session.flush()
+
+    conversation_a = Conversation(person_id=person.id, status=ConversationStatus.open, is_active=True)
+    conversation_b = Conversation(person_id=person.id, status=ConversationStatus.open, is_active=True)
+    db_session.add_all([conversation_a, conversation_b])
+    db_session.flush()
+
+    message_a = Message(
+        conversation_id=conversation_a.id,
+        channel_target_id=target_a.id,
+        channel_type=ChannelType.whatsapp,
+        direction=MessageDirection.outbound,
+        status=MessageStatus.sent,
+        body="WhatsApp outbound A",
+        external_id="wamid.ambiguous",
+    )
+    message_b = Message(
+        conversation_id=conversation_b.id,
+        channel_target_id=target_b.id,
+        channel_type=ChannelType.whatsapp,
+        direction=MessageDirection.outbound,
+        status=MessageStatus.sent,
+        body="WhatsApp outbound B",
+        external_id="wamid.ambiguous",
+    )
+    db_session.add_all([message_a, message_b])
+    db_session.commit()
+
+    payload = MetaWebhookPayload(
+        object="whatsapp_business_account",
+        entry=[
+            {
+                "id": "waba_123",
+                "time": 1,
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "statuses": [
+                                {
+                                    "id": "wamid.ambiguous",
+                                    "status": "delivered",
+                                    "timestamp": "1712200000",
+                                    "recipient_id": "15551234567",
+                                }
+                            ]
+                        },
+                    }
+                ],
+            }
+        ],
+    )
+
+    with patch("app.websocket.broadcaster.broadcast_message_status") as mock_broadcast:
+        results = meta_webhooks.process_whatsapp_webhook(db_session, payload)
+
+    db_session.refresh(message_a)
+    db_session.refresh(message_b)
+
+    assert results == [{"wamid": "wamid.ambiguous", "status": "skipped"}]
+    assert message_a.status == MessageStatus.sent
+    assert message_b.status == MessageStatus.sent
+    mock_broadcast.assert_not_called()

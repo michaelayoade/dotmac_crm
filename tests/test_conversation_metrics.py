@@ -175,7 +175,7 @@ class TestResolvedAt:
         assert conv.resolution_time_seconds is not None
         assert conv.resolution_time_seconds >= 0
 
-    def test_cleared_on_reopen(self, db_session):
+    def test_reopen_from_resolved_is_blocked(self, db_session):
         from app.services.crm.inbox.conversation_status import update_conversation_status
 
         person = _make_person(db_session)
@@ -199,6 +199,6 @@ class TestResolvedAt:
         )
         db_session.refresh(conv)
 
-        assert result.kind == "updated"
-        assert conv.resolved_at is None
-        assert conv.resolution_time_seconds is None
+        assert result.kind == "invalid_transition"
+        assert conv.resolved_at is not None
+        assert conv.resolution_time_seconds is not None

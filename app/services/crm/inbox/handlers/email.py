@@ -178,6 +178,9 @@ class EmailHandler(InboundHandler):
             payload.subject,
             metadata,
         )
+        if conversation and conversation.status == ConversationStatus.resolved:
+            # Never reopen resolved threads from metadata links/tokens.
+            conversation = None
         try:
             person_uuid = coerce_uuid(person_id)
         except Exception:
@@ -187,6 +190,7 @@ class EmailHandler(InboundHandler):
             conversation = (
                 db.query(Conversation)
                 .filter(Conversation.person_id == person_uuid)
+                .filter(Conversation.status != ConversationStatus.resolved)
                 .filter(Conversation.subject.ilike(payload.subject))
                 .order_by(Conversation.updated_at.desc())
                 .first()

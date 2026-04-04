@@ -112,10 +112,35 @@ class MetaWebhookEntry(BaseModel):
 
 
 class MetaWebhookPayload(BaseModel):
-    """Full Meta webhook payload for Messenger/Instagram events."""
+    """Full Meta webhook payload for Messenger, Instagram, and WhatsApp Business events."""
 
-    object: Literal["page", "instagram"]
+    object: Literal["page", "instagram", "whatsapp_business_account"]
     entry: list[MetaWebhookEntry]
+
+
+# --------------------------------------------------------------------------
+# WhatsApp Business API Status Schemas
+# --------------------------------------------------------------------------
+
+
+class WhatsAppStatusUpdate(BaseModel):
+    """A single status update from the WhatsApp Business API."""
+
+    id: str  # wamid of the original outbound message
+    status: Literal["sent", "delivered", "read", "failed"]
+    timestamp: str
+    recipient_id: str
+    errors: list[dict] | None = None
+
+
+class WhatsAppStatusValue(BaseModel):
+    """The 'value' object inside a WhatsApp Business webhook change."""
+
+    messaging_product: str | None = None
+    metadata: dict | None = None
+    statuses: list[WhatsAppStatusUpdate] | None = None
+    messages: list[dict] | None = None
+    contacts: list[dict] | None = None
 
 
 class FacebookMessengerWebhookPayload(BaseModel):

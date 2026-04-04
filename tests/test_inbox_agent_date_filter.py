@@ -242,3 +242,33 @@ def test_team_assigned_filter_returns_team_only_assignments(db_session):
     assert conv_team_assigned.id in ids
     assert conv_agent_assigned.id not in ids
     assert conv_unassigned.id not in ids
+
+
+def test_agent_filter_orders_active_before_resolved_even_when_resolved_is_newer(db_session):
+    """Assigned queue should keep active conversations ahead of resolved ones."""
+    contact = _create_person(db_session, name="StatusOrder")
+    agent_person = _create_person(db_session, name="AgentOrder")
+    agent = _create_agent(db_session, agent_person)
+
+    now = datetime.now(UTC)
+    conv_open = _create_conversation(db_session, contact)
+    conv_resolved = _create_conversation(db_session, contact)
+    conv_resolved.status = ConversationStatus.resolved
+
+    _assign(db_session, conv_open, agent, assigned_at=now - timedelta(minutes=2))
+    _assign(db_session, conv_resolved, agent, assigned_at=now - timedelta(minutes=1))
+
+    # Force recency to prefer resolved so status precedence is exercised.
+    conv_open.last_message_at = None
+    conv_resolved.last_message_at = None
+    conv_open.updated_at = now - timedelta(minutes=10)
+    conv_resolved.updated_at = now
+    db_session.flush()
+
+    results = list_inbox_conversations(
+        db_session,
+        assignment="agent",
+        filter_agent_id=str(agent.id),
+    )
+    ids = [row[0].id for row in results]
+    assert ids.index(conv_open.id) < ids.index(conv_resolved.id)
