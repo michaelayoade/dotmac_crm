@@ -316,7 +316,9 @@ def process_meta_webhook(self, payload: dict, trace_id: str | None = None):
             logger.warning("meta_webhook_unknown_object object=%s", parsed.object)
             results = []
         if results is not None:
-            ok_count = len([item for item in results if item.get("status") in {"received", "stored", "skipped", "no_change"}])
+            ok_count = len(
+                [item for item in results if item.get("status") in {"received", "stored", "skipped", "no_change"}]
+            )
             fail_count = len(results) - ok_count
             logger.info(
                 "webhook_processed channel=meta trace_id=%s object=%s ok=%s failed=%s",
