@@ -577,7 +577,18 @@ async def meta_webhook(
             signature_valid = meta_webhooks.verify_webhook_signature(body, signature, app_secret)
         except Exception as exc:
             logger.warning("meta_webhook_signature_validation_failed error=%s", exc)
-            return Response(status_code=401)
+            signature_valid = False
+        # Fallback: try whatsapp_app_secret for WhatsApp Business webhooks
+        # arriving on the /meta endpoint.
+        if not signature_valid:
+            wa_secret = settings.get("whatsapp_app_secret")
+            if wa_secret and wa_secret != app_secret:
+                try:
+                    signature_valid = meta_webhooks.verify_webhook_signature(body, signature, wa_secret)
+                    if signature_valid:
+                        logger.info("meta_webhook_verified_with_whatsapp_secret")
+                except Exception:
+                    pass
         if not signature_valid:
             logger.warning("meta_webhook_signature_invalid")
             return Response(status_code=401)
