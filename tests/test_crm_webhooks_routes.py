@@ -41,9 +41,9 @@ def test_meta_webhook_accepts_whatsapp_secret_fallback(monkeypatch):
         raw_body = body
 
     class _Request:
-        state = _RequestState()
-
-        headers = {"X-Hub-Signature-256": "sha256=test"}
+        def __init__(self):
+            self.state = _RequestState()
+            self.headers = {"X-Hub-Signature-256": "sha256=test"}
 
         async def body(self):
             return body
