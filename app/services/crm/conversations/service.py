@@ -210,7 +210,10 @@ class Conversations(ListResponseMixin):
 class ConversationAssignments(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload):
-        conversation = db.get(Conversation, payload.conversation_id)
+        # Lock the conversation row to serialize concurrent assignment attempts.
+        conversation = (
+            db.query(Conversation).filter(Conversation.id == payload.conversation_id).with_for_update().first()
+        )
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")
         if not payload.team_id and not payload.agent_id:
@@ -262,8 +265,8 @@ class ConversationAssignments(ListResponseMixin):
             return assignment
         except IntegrityError:
             db.rollback()
-            # Idempotent fallback for races: if the same active assignment now exists, use it.
-            existing_active = (
+            # Idempotent fallback: only treat same assignment tuple as success.
+            existing_same_active = (
                 db.query(ConversationAssignment)
                 .filter(ConversationAssignment.conversation_id == payload.conversation_id)
                 .filter(ConversationAssignment.team_id == payload.team_id)
@@ -271,8 +274,8 @@ class ConversationAssignments(ListResponseMixin):
                 .filter(ConversationAssignment.is_active.is_(True))
                 .first()
             )
-            if existing_active:
-                return existing_active
+            if existing_same_active:
+                return existing_same_active
             raise HTTPException(status_code=409, detail="Conversation assignment conflict, please retry")
 
     @staticmethod

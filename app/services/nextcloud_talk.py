@@ -129,7 +129,10 @@ class NextcloudTalkClient:
 
         if not ok:
             message = meta.get("message") or meta.get("status") or "Unknown error"
-            logger.error("Nextcloud Talk OCS error statuscode=%s message=%r", statuscode, message)
+            message_text = str(message or "")
+            invite_not_found = statuscode in (404, "404") and "invite" in message_text.lower()
+            log_fn = logger.warning if invite_not_found else logger.error
+            log_fn("Nextcloud Talk OCS error statuscode=%s message=%r", statuscode, message)
             raise NextcloudTalkError(f"OCS error {statuscode}: {message}")
 
         return payload.get("ocs", {}).get("data")
@@ -160,23 +163,28 @@ class NextcloudTalkClient:
                     headers=self.headers,
                     auth=self.auth,
                 )
-                response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            response_text = (exc.response.text or "").strip()
-            response_snippet = response_text[:300] if response_text else ""
-            logger.error(
-                "Nextcloud Talk HTTP error: %s - %s",
-                exc.response.status_code,
-                exc.response.text,
-            )
-            if response_snippet:
-                raise NextcloudTalkError(f"HTTP error: {exc.response.status_code} - {response_snippet}") from exc
-            raise NextcloudTalkError(f"HTTP error: {exc.response.status_code}") from exc
         except httpx.RequestError as exc:
             logger.error("Nextcloud Talk request error: %s", exc)
             raise NextcloudTalkError(f"Request error: {exc}") from exc
 
-        return self._parse_ocs(response)
+        # Try OCS parsing first — gives structured error messages (e.g. "OCS error 404")
+        # that callers like _is_invite_target_error() can match on, instead of raw HTTP errors.
+        try:
+            return self._parse_ocs(response)
+        except NextcloudTalkError:
+            raise
+        except Exception:
+            # Response wasn't valid OCS JSON — fall back to HTTP status check.
+            if response.is_error:
+                response_text = (response.text or "").strip()
+                response_snippet = response_text[:300] if response_text else ""
+                logger.error(
+                    "Nextcloud Talk HTTP error: %s - %s",
+                    response.status_code,
+                    response_snippet,
+                )
+                raise NextcloudTalkError(f"HTTP error: {response.status_code}") from None
+            raise
 
     def list_rooms(self) -> list[dict]:
         data = self._request("GET", "/room", base_path=self.ocs_conversations_base_path)

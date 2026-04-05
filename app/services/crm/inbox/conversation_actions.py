@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Conversation
@@ -25,6 +26,7 @@ class AssignConversationResult:
     kind: Literal["forbidden", "not_found", "invalid_input", "error", "success"]
     conversation: Conversation | None = None
     contact: object | None = None
+    contact_person_id: str | None = None
     error_detail: str | None = None
 
 
@@ -85,9 +87,28 @@ def assign_conversation(
             assigned_by_id=assigned_by_value,
             update_lead_owner=False,
         )
+    except HTTPException as exc:
+        detail = str(exc.detail) if exc.detail is not None else "Assignment failed"
+        if exc.status_code == 403:
+            return AssignConversationResult(kind="forbidden", conversation=conversation, error_detail=detail)
+        if exc.status_code == 404:
+            return AssignConversationResult(kind="not_found", conversation=conversation, error_detail=detail)
+        return AssignConversationResult(kind="invalid_input", conversation=conversation, error_detail=detail)
     except Exception as exc:
         db.rollback()
-        return AssignConversationResult(kind="error", conversation=conversation, error_detail=str(exc))
+        contact_person_id: str | None = None
+        try:
+            # Capture plain identifier for downstream recovery UI without touching expired ORM state.
+            if conversation.person_id is not None:
+                contact_person_id = str(conversation.person_id)
+        except Exception:
+            contact_person_id = None
+        return AssignConversationResult(
+            kind="error",
+            conversation=conversation,
+            contact_person_id=contact_person_id,
+            error_detail=str(exc),
+        )
 
     try:
         contact = contact_service.get_person_with_relationships(db, str(conversation.person_id))
