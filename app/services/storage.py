@@ -12,12 +12,37 @@ Usage::
 from __future__ import annotations
 
 import logging
+from io import BytesIO
 from pathlib import Path
 from threading import Lock
+from typing import BinaryIO, Protocol
+from urllib.parse import urlparse
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class _ObjectResponse(Protocol):
+    def read(self) -> bytes: ...
+    def close(self) -> None: ...
+    def release_conn(self) -> None: ...
+
+
+class _ObjectStorageClient(Protocol):
+    def bucket_exists(self, bucket_name: str) -> bool: ...
+    def make_bucket(self, bucket_name: str) -> None: ...
+    def put_object(
+        self,
+        bucket_name: str,
+        object_name: str,
+        data: BinaryIO,
+        length: int,
+        content_type: str = "",
+    ) -> object: ...
+    def get_object(self, bucket_name: str, object_name: str) -> _ObjectResponse: ...
+    def remove_object(self, bucket_name: str, object_name: str) -> object: ...
+    def stat_object(self, bucket_name: str, object_name: str) -> object: ...
 
 
 class StorageBackend:
@@ -94,6 +119,138 @@ class LocalBackend(StorageBackend):
 
 
 # ---------------------------------------------------------------------------
+# S3/MinIO backend
+# ---------------------------------------------------------------------------
+
+
+class MinioBackend(StorageBackend):
+    """Writes files to MinIO/S3-compatible object storage."""
+
+    def __init__(
+        self,
+        endpoint_url: str | None = None,
+        access_key: str | None = None,
+        secret_key: str | None = None,
+        bucket: str | None = None,
+        public_url: str | None = None,
+        region: str | None = None,
+        client: _ObjectStorageClient | None = None,
+    ) -> None:
+        self._endpoint_url = endpoint_url or settings.s3_endpoint_url
+        self._bucket = (bucket or settings.s3_bucket).strip()
+        self._public_url = (public_url or settings.s3_public_url).rstrip("/")
+        self._region = region or settings.s3_region
+
+        if not self._bucket:
+            raise ValueError("S3 bucket is not configured.")
+
+        client_obj = client
+        if client_obj is None:
+            client_obj = self._build_client(
+                access_key=access_key or settings.s3_access_key,
+                secret_key=secret_key or settings.s3_secret_key,
+            )
+        self._client: _ObjectStorageClient = client_obj
+
+    def _build_client(self, access_key: str, secret_key: str) -> _ObjectStorageClient:
+        if not access_key or not secret_key:
+            raise ValueError("S3 credentials are not configured (S3_ACCESS_KEY / S3_SECRET_KEY).")
+        try:
+            from minio import Minio
+        except ImportError as exc:
+            raise RuntimeError(
+                "MinIO SDK is not installed. Install package 'minio' to use STORAGE_BACKEND=s3."
+            ) from exc
+
+        endpoint, secure = self._parse_endpoint(self._endpoint_url)
+        return Minio(
+            endpoint,
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=secure,
+            region=self._region or None,
+        )
+
+    @staticmethod
+    def _parse_endpoint(endpoint_url: str) -> tuple[str, bool]:
+        parsed = urlparse(endpoint_url)
+        if parsed.scheme:
+            if not parsed.netloc:
+                raise ValueError(f"Invalid S3 endpoint URL: {endpoint_url}")
+            return parsed.netloc, parsed.scheme.lower() == "https"
+        return endpoint_url, False
+
+    @staticmethod
+    def _normalize_key(key: str) -> str:
+        normalized = key.strip().lstrip("/")
+        if not normalized:
+            raise ValueError("Storage key cannot be empty.")
+        parts = [part for part in normalized.split("/") if part not in ("", ".")]
+        if any(part == ".." for part in parts):
+            raise ValueError(f"Invalid storage key (path traversal): {key}")
+        return "/".join(parts)
+
+    @staticmethod
+    def _is_not_found_error(exc: Exception) -> bool:
+        code = getattr(exc, "code", "") or ""
+        return code in {"NoSuchKey", "NoSuchObject", "NoSuchBucket", "NoSuchVersion"}
+
+    def ensure_bucket(self) -> None:
+        if not self._client.bucket_exists(self._bucket):
+            logger.info("Creating storage bucket '%s'", self._bucket)
+            self._client.make_bucket(self._bucket)
+
+    def put(self, key: str, data: bytes, content_type: str = "") -> str:
+        normalized = self._normalize_key(key)
+        self._client.put_object(
+            self._bucket,
+            normalized,
+            BytesIO(data),
+            length=len(data),
+            content_type=content_type or "application/octet-stream",
+        )
+        return self.url(normalized)
+
+    def get(self, key: str) -> bytes:
+        normalized = self._normalize_key(key)
+        try:
+            response = self._client.get_object(self._bucket, normalized)
+        except Exception as exc:
+            if self._is_not_found_error(exc):
+                raise FileNotFoundError(f"Storage key not found: {normalized}") from exc
+            raise
+        try:
+            return response.read()
+        finally:
+            if hasattr(response, "close"):
+                response.close()
+            if hasattr(response, "release_conn"):
+                response.release_conn()
+
+    def delete(self, key: str) -> None:
+        normalized = self._normalize_key(key)
+        try:
+            self._client.remove_object(self._bucket, normalized)
+        except Exception as exc:
+            if not self._is_not_found_error(exc):
+                raise
+
+    def url(self, key: str) -> str:
+        normalized = self._normalize_key(key)
+        return f"{self._public_url}/{self._bucket}/{normalized}"
+
+    def exists(self, key: str) -> bool:
+        normalized = self._normalize_key(key)
+        try:
+            self._client.stat_object(self._bucket, normalized)
+            return True
+        except Exception as exc:
+            if self._is_not_found_error(exc):
+                return False
+            raise
+
+
+# ---------------------------------------------------------------------------
 # Singleton
 # ---------------------------------------------------------------------------
 
@@ -101,8 +258,8 @@ class LocalBackend(StorageBackend):
 def _build_backend() -> StorageBackend:
     backend = settings.storage_backend
     if backend == "s3":
-        logger.warning("S3 storage backend is not enabled in this build; falling back to local storage.")
-        return LocalBackend()
+        logger.info("Using S3/MinIO storage backend (endpoint=%s, bucket=%s)", settings.s3_endpoint_url, settings.s3_bucket)
+        return MinioBackend()
     logger.info("Using local storage backend (root=%s)", settings.storage_local_root)
     return LocalBackend()
 
