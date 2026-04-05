@@ -123,7 +123,7 @@ class S3Backend(StorageBackend):
         )
 
     def _build_client(self, *, endpoint_url: str, access_key: str, secret_key: str, region: str):
-        import boto3  # type: ignore[import-not-found]
+        import boto3  # type: ignore[import-untyped]
 
         return boto3.client(
             "s3",
