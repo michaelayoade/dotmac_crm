@@ -258,7 +258,9 @@ class MinioBackend(StorageBackend):
 def _build_backend() -> StorageBackend:
     backend = settings.storage_backend
     if backend == "s3":
-        logger.info("Using S3/MinIO storage backend (endpoint=%s, bucket=%s)", settings.s3_endpoint_url, settings.s3_bucket)
+        logger.info(
+            "Using S3/MinIO storage backend (endpoint=%s, bucket=%s)", settings.s3_endpoint_url, settings.s3_bucket
+        )
         return MinioBackend()
     logger.info("Using local storage backend (root=%s)", settings.storage_local_root)
     return LocalBackend()
