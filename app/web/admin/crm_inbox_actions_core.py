@@ -1,5 +1,6 @@
 """CRM inbox core action routes (assignment and resolve)."""
 
+import html
 import json
 from typing import cast
 
@@ -192,19 +193,30 @@ def inbox_conversation_assignment(
             status_code=404,
         )
     if conversation_result.kind == "invalid_input":
+        detail = (conversation_result.error_detail or "Invalid agent or team selection.").strip()
+        safe_detail = html.escape(detail, quote=True)
         return HTMLResponse(
-            "<div class='p-4 text-sm text-red-500'>Invalid agent or team selection.</div>",
+            f"<div class='p-4 text-sm text-red-500'>{safe_detail}</div>",
             status_code=200,
         )
     if conversation_result.kind == "error":
         db.rollback()
-        logger.exception("Failed to assign conversation.")
+        logger.warning(
+            "Failed to assign conversation conversation_id=%s detail=%s",
+            conversation_id,
+            conversation_result.error_detail or "Assignment failed",
+        )
         if request.headers.get("HX-Request"):
             conversation = conversation_result.conversation
+            contact_person_id = (conversation_result.contact_person_id or "").strip() or None
+            if not contact_person_id and conversation is not None:
+                try:
+                    if conversation.person_id is not None:
+                        contact_person_id = str(conversation.person_id)
+                except Exception:
+                    contact_person_id = None
             contact = (
-                contact_service.get_person_with_relationships(db, str(conversation.contact_id))
-                if conversation
-                else None
+                contact_service.get_person_with_relationships(db, contact_person_id) if contact_person_id else None
             )
             if contact:
                 contact_details = format_contact_for_template(contact, db)

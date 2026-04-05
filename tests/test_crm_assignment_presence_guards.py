@@ -11,6 +11,7 @@ from app.models.crm.team import CrmAgent, CrmRoutingRule
 from app.models.person import Person
 from app.schemas.crm.conversation import ConversationCreate
 from app.services.crm import conversation as conversation_service
+from app.services.crm.inbox.conversation_actions import assign_conversation as inbox_assign_conversation
 from app.services.crm.inbox.routing import _list_active_agents, apply_routing_rules
 from app.services.crm.presence import agent_presence as agent_presence_service
 
@@ -56,6 +57,33 @@ def test_manual_assignment_rejects_agent_without_presence(db_session, crm_contac
             assigned_by_id=str(person.id),
         )
     assert exc.value.status_code == 409
+
+
+def test_inbox_assign_action_maps_conflict_to_invalid_input(db_session, crm_contact, crm_agent, crm_team, person):
+    conversation = conversation_service.Conversations.create(
+        db_session,
+        ConversationCreate(person_id=crm_contact.id),
+    )
+    db_session.add(
+        AgentPresence(
+            agent_id=crm_agent.id,
+            status=AgentPresenceStatus.offline,
+            manual_override_status=AgentPresenceStatus.offline,
+            last_seen_at=datetime.now(UTC),
+        )
+    )
+    db_session.commit()
+
+    result = inbox_assign_conversation(
+        db_session,
+        conversation_id=str(conversation.id),
+        agent_id=str(crm_agent.id),
+        team_id=str(crm_team.id),
+        assigned_by_id=str(person.id),
+    )
+
+    assert result.kind == "invalid_input"
+    assert "offline or unavailable" in (result.error_detail or "")
 
 
 def test_auto_assignment_drops_unavailable_agent_and_keeps_team(db_session, crm_contact, crm_agent, crm_team):

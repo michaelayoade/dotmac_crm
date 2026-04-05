@@ -8,9 +8,44 @@ from app.web.auth.dependencies import AuthenticationRequired
 
 logger = get_logger(__name__)
 
+_REDACTED = "[REDACTED]"
+_SENSITIVE_KEY_MARKERS = (
+    "password",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "authorization",
+    "cookie",
+)
+
 
 def _error_payload(code: str, message: str, details):
     return {"code": code, "message": message, "details": details}
+
+
+def _is_sensitive_key(key: str) -> bool:
+    normalized = key.strip().lower().replace("-", "_")
+    return any(marker in normalized for marker in _SENSITIVE_KEY_MARKERS)
+
+
+def _sanitize_validation_value(value, *, key: str | None = None):
+    if key and _is_sensitive_key(key):
+        return _REDACTED
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, UploadFile):
+        return value.filename or "upload"
+    if isinstance(value, dict):
+        return {
+            str(item_key): _sanitize_validation_value(item_value, key=str(item_key))
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, list | tuple | set):
+        return [_sanitize_validation_value(item) for item in value]
+    if isinstance(value, str | int | float | bool) or value is None:
+        return value
+    return str(value)
 
 
 def register_error_handlers(app) -> None:
@@ -43,26 +78,8 @@ def register_error_handlers(app) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
-        # Convert errors to JSON-serializable format.
-        def _sanitize_input(value):
-            if isinstance(value, bytes):
-                return value.decode("utf-8", errors="replace")
-            if isinstance(value, UploadFile):
-                return value.filename or "upload"
-            if isinstance(value, dict):
-                return {key: _sanitize_input(val) for key, val in value.items()}
-            if isinstance(value, list | tuple | set):
-                return [_sanitize_input(item) for item in value]
-            if isinstance(value, str | int | float | bool) or value is None:
-                return value
-            return str(value)
-
-        errors = []
-        for error in exc.errors():
-            error_copy = dict(error)
-            if "input" in error_copy:
-                error_copy["input"] = _sanitize_input(error_copy.get("input"))
-            errors.append(error_copy)
+        # Keep validation details serializable while redacting secrets from payload echoes.
+        errors = _sanitize_validation_value(exc.errors())
         return JSONResponse(
             status_code=422,
             content=_error_payload("validation_error", "Validation error", errors),
