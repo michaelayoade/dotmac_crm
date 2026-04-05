@@ -326,3 +326,92 @@ def test_inbound_routing_keeps_available_existing_assignee(db_session, crm_conta
     assert existing_assignment.is_active is True
     assert len(active_assignments) == 1
     assert active_assignments[0].id == existing_assignment.id
+
+
+def test_manual_assignment_same_target_is_idempotent(db_session, crm_contact, crm_agent, crm_team, person):
+    conversation = conversation_service.Conversations.create(
+        db_session,
+        ConversationCreate(person_id=crm_contact.id),
+    )
+    db_session.add(
+        AgentPresence(
+            agent_id=crm_agent.id,
+            status=AgentPresenceStatus.online,
+            manual_override_status=None,
+            last_seen_at=datetime.now(UTC),
+        )
+    )
+    db_session.commit()
+
+    first = conversation_service.assign_conversation(
+        db_session,
+        conversation_id=str(conversation.id),
+        agent_id=str(crm_agent.id),
+        team_id=str(crm_team.id),
+        assigned_by_id=str(person.id),
+    )
+    second = conversation_service.assign_conversation(
+        db_session,
+        conversation_id=str(conversation.id),
+        agent_id=str(crm_agent.id),
+        team_id=str(crm_team.id),
+        assigned_by_id=str(person.id),
+    )
+
+    assert first is not None
+    assert second is not None
+    assert second.id == first.id
+    assignments = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .all()
+    )
+    assert len(assignments) == 1
+    assert assignments[0].is_active is True
+
+
+def test_manual_assignment_reactivates_existing_inactive_tuple(db_session, crm_contact, crm_agent, crm_team, person):
+    conversation = conversation_service.Conversations.create(
+        db_session,
+        ConversationCreate(person_id=crm_contact.id),
+    )
+    db_session.add(
+        AgentPresence(
+            agent_id=crm_agent.id,
+            status=AgentPresenceStatus.online,
+            manual_override_status=None,
+            last_seen_at=datetime.now(UTC),
+        )
+    )
+    db_session.commit()
+
+    original = conversation_service.assign_conversation(
+        db_session,
+        conversation_id=str(conversation.id),
+        agent_id=str(crm_agent.id),
+        team_id=str(crm_team.id),
+        assigned_by_id=str(person.id),
+    )
+    conversation_service.unassign_conversation(
+        db_session,
+        conversation_id=str(conversation.id),
+    )
+    reassigned = conversation_service.assign_conversation(
+        db_session,
+        conversation_id=str(conversation.id),
+        agent_id=str(crm_agent.id),
+        team_id=str(crm_team.id),
+        assigned_by_id=str(person.id),
+    )
+
+    assert original is not None
+    assert reassigned is not None
+    assert reassigned.id == original.id
+    active = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .all()
+    )
+    assert len(active) == 1
+    assert active[0].id == original.id

@@ -283,3 +283,120 @@ def test_clear_cached_rooms_filters_by_instance(db_session, person):
     remaining = db_session.query(NextcloudTalkNotificationRoom).all()
     assert len(remaining) == 1
     assert remaining[0].notifier_username == "user-b"
+
+
+def test_forward_agent_notification_prefers_personal_nextcloud_username(db_session, person, monkeypatch):
+    _configure_talk_notifications(db_session)
+
+    calls = {"invite": None}
+
+    def _fake_get_account_credentials(_db, *, person_id):
+        assert person_id == str(person.id)
+        return {
+            "base_url": "https://cloud.example.com",
+            "username": "nc-user-123",
+            "app_password": "ignored",
+        }
+
+    def _fake_create_room(self, invite, room_type=1):
+        calls["invite"] = invite
+        return {"token": "room-token-personal"}
+
+    def _fake_post_message(self, room_token, message, options=None):
+        return {"id": "msg-1"}
+
+    monkeypatch.setattr(
+        "app.services.nextcloud_talk_accounts.get_account_credentials",
+        _fake_get_account_credentials,
+    )
+    monkeypatch.setattr(
+        "app.services.nextcloud_talk.NextcloudTalkClient.create_room_with_invite",
+        _fake_create_room,
+    )
+    monkeypatch.setattr(
+        "app.services.nextcloud_talk.NextcloudTalkClient.post_message",
+        _fake_post_message,
+    )
+
+    forwarded = nextcloud_talk_notifications.forward_agent_notification(
+        db_session,
+        person_id=str(person.id),
+        payload={"title": "Mentioned"},
+    )
+
+    assert forwarded is True
+    assert calls["invite"] == "nc-user-123"
+
+
+def test_forward_agent_notification_cools_down_repeated_invite_errors(db_session, person, monkeypatch):
+    _configure_talk_notifications(db_session)
+    nextcloud_talk_notifications._invite_failure_cache.clear()
+    calls = {"create": 0}
+
+    def _fake_create_room(self, invite, room_type=1):
+        calls["create"] += 1
+        raise NextcloudTalkError('HTTP error: 404 - {"error":"invite"}')
+
+    monkeypatch.setattr(
+        "app.services.nextcloud_talk.NextcloudTalkClient.create_room_with_invite",
+        _fake_create_room,
+    )
+
+    first = nextcloud_talk_notifications.forward_agent_notification(
+        db_session,
+        person_id=str(person.id),
+        payload={"title": "Ticket Assigned"},
+    )
+    second = nextcloud_talk_notifications.forward_agent_notification(
+        db_session,
+        person_id=str(person.id),
+        payload={"title": "Ticket Assigned"},
+    )
+
+    assert first is False
+    assert second is False
+    assert calls["create"] == 1
+    nextcloud_talk_notifications._invite_failure_cache.clear()
+
+
+def test_forward_agent_notification_ignores_personal_username_from_other_instance(db_session, person, monkeypatch):
+    _configure_talk_notifications(db_session)
+
+    calls = {"invite": None}
+
+    def _fake_get_account_credentials(_db, *, person_id):
+        assert person_id == str(person.id)
+        return {
+            "base_url": "https://other-cloud.example.com",
+            "username": "wrong-instance-user",
+            "app_password": "ignored",
+        }
+
+    def _fake_create_room(self, invite, room_type=1):
+        calls["invite"] = invite
+        return {"token": "room-token-fallback"}
+
+    def _fake_post_message(self, room_token, message, options=None):
+        return {"id": "msg-1"}
+
+    monkeypatch.setattr(
+        "app.services.nextcloud_talk_accounts.get_account_credentials",
+        _fake_get_account_credentials,
+    )
+    monkeypatch.setattr(
+        "app.services.nextcloud_talk.NextcloudTalkClient.create_room_with_invite",
+        _fake_create_room,
+    )
+    monkeypatch.setattr(
+        "app.services.nextcloud_talk.NextcloudTalkClient.post_message",
+        _fake_post_message,
+    )
+
+    forwarded = nextcloud_talk_notifications.forward_agent_notification(
+        db_session,
+        person_id=str(person.id),
+        payload={"title": "Mentioned"},
+    )
+
+    assert forwarded is True
+    assert calls["invite"] == "Test User"

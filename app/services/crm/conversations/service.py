@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from fastapi import HTTPException
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.crm.conversation import (
@@ -217,17 +218,62 @@ class ConversationAssignments(ListResponseMixin):
                 status_code=400,
                 detail="Conversation assignment requires team_id or agent_id",
             )
-        db.query(ConversationAssignment).filter(
-            ConversationAssignment.conversation_id == payload.conversation_id,
-            ConversationAssignment.is_active.is_(True),
-        ).update({"is_active": False, "updated_at": _now()})
-        assignment = ConversationAssignment(**payload.model_dump())
-        if assignment.assigned_at is None:
-            assignment.assigned_at = _now()
-        db.add(assignment)
-        db.commit()
-        db.refresh(assignment)
-        return assignment
+        assigned_at_value = payload.assigned_at or _now()
+        try:
+            existing = (
+                db.query(ConversationAssignment)
+                .filter(ConversationAssignment.conversation_id == payload.conversation_id)
+                .filter(ConversationAssignment.team_id == payload.team_id)
+                .filter(ConversationAssignment.agent_id == payload.agent_id)
+                .first()
+            )
+
+            if existing and existing.is_active:
+                if payload.assigned_by_id is not None:
+                    existing.assigned_by_id = payload.assigned_by_id
+                if payload.assigned_at is not None:
+                    existing.assigned_at = assigned_at_value
+                db.commit()
+                db.refresh(existing)
+                return existing
+
+            deactivate_query = db.query(ConversationAssignment).filter(
+                ConversationAssignment.conversation_id == payload.conversation_id,
+                ConversationAssignment.is_active.is_(True),
+            )
+            if existing:
+                deactivate_query = deactivate_query.filter(ConversationAssignment.id != existing.id)
+            deactivate_query.update({"is_active": False, "updated_at": _now()})
+
+            if existing:
+                existing.is_active = True
+                existing.assigned_at = assigned_at_value
+                existing.assigned_by_id = payload.assigned_by_id
+                db.commit()
+                db.refresh(existing)
+                return existing
+
+            assignment = ConversationAssignment(**payload.model_dump())
+            if assignment.assigned_at is None:
+                assignment.assigned_at = assigned_at_value
+            db.add(assignment)
+            db.commit()
+            db.refresh(assignment)
+            return assignment
+        except IntegrityError:
+            db.rollback()
+            # Idempotent fallback for races: if the same active assignment now exists, use it.
+            existing_active = (
+                db.query(ConversationAssignment)
+                .filter(ConversationAssignment.conversation_id == payload.conversation_id)
+                .filter(ConversationAssignment.team_id == payload.team_id)
+                .filter(ConversationAssignment.agent_id == payload.agent_id)
+                .filter(ConversationAssignment.is_active.is_(True))
+                .first()
+            )
+            if existing_active:
+                return existing_active
+            raise HTTPException(status_code=409, detail="Conversation assignment conflict, please retry")
 
     @staticmethod
     def list(

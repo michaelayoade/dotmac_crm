@@ -295,10 +295,11 @@ def crm_contacts_merge_submit(
     except (ValidationError, ValueError) as exc:
         db.rollback()
         error = str(exc) or "Unable to merge contacts."
-        logger.exception(
-            "contact_merge_validation_failed source_id=%s target_id=%s",
+        logger.info(
+            "contact_merge_validation_failed source_id=%s target_id=%s error=%s",
             source_value,
             target_value,
+            error,
         )
     except Exception as exc:
         db.rollback()

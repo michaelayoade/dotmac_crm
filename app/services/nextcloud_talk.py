@@ -162,11 +162,15 @@ class NextcloudTalkClient:
                 )
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
+            response_text = (exc.response.text or "").strip()
+            response_snippet = response_text[:300] if response_text else ""
             logger.error(
                 "Nextcloud Talk HTTP error: %s - %s",
                 exc.response.status_code,
                 exc.response.text,
             )
+            if response_snippet:
+                raise NextcloudTalkError(f"HTTP error: {exc.response.status_code} - {response_snippet}") from exc
             raise NextcloudTalkError(f"HTTP error: {exc.response.status_code}") from exc
         except httpx.RequestError as exc:
             logger.error("Nextcloud Talk request error: %s", exc)
