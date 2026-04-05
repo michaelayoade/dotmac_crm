@@ -362,9 +362,7 @@ def test_manual_assignment_same_target_is_idempotent(db_session, crm_contact, cr
     assert second is not None
     assert second.id == first.id
     assignments = (
-        db_session.query(ConversationAssignment)
-        .filter(ConversationAssignment.conversation_id == conversation.id)
-        .all()
+        db_session.query(ConversationAssignment).filter(ConversationAssignment.conversation_id == conversation.id).all()
     )
     assert len(assignments) == 1
     assert assignments[0].is_active is True
