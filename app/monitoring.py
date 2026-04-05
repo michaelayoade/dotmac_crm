@@ -39,7 +39,7 @@ def _host_reachable(url: str, timeout: float = 3.0) -> bool:
 def setup_loki(app_name: str, server: str, environment: str, loki_url: str | None = None) -> None:
     """Add an async Loki handler to the root logger."""
     try:
-        import logging_loki
+        import logging_loki  # type: ignore[import-untyped]
     except ImportError:
         logging.getLogger(__name__).warning("python-logging-loki not installed — Loki handler skipped")
         return
