@@ -41,7 +41,9 @@ def setup_loki(app_name: str, server: str, environment: str, loki_url: str | Non
     try:
         import logging_loki  # type: ignore[import-untyped]
     except ImportError:
-        logging.getLogger(__name__).warning("python-logging-loki not installed — Loki handler skipped")
+        logging.getLogger(__name__).warning(
+            "python-logging-loki not installed — Loki handler skipped"
+        )
         return
 
     url = loki_url or os.getenv(
@@ -50,7 +52,9 @@ def setup_loki(app_name: str, server: str, environment: str, loki_url: str | Non
     )
 
     if not url or not _host_reachable(url):
-        logging.getLogger(__name__).warning("Loki endpoint unreachable (%s) — handler skipped", url)
+        logging.getLogger(__name__).warning(
+            "Loki endpoint unreachable (%s) — handler skipped", url
+        )
         return
 
     handler = logging_loki.LokiQueueHandler(
@@ -66,13 +70,17 @@ def setup_sentry(app_name: str, environment: str, glitchtip_dsn: str | None = No
     """Initialise Sentry SDK pointing at the GlitchTip instance."""
     dsn = glitchtip_dsn or os.getenv("SENTRY_DSN", "")
     if not dsn:
-        logging.getLogger(__name__).info("SENTRY_DSN not set — GlitchTip/Sentry disabled")
+        logging.getLogger(__name__).info(
+            "SENTRY_DSN not set — GlitchTip/Sentry disabled"
+        )
         return
 
     try:
         import sentry_sdk
     except ImportError:
-        logging.getLogger(__name__).warning("sentry-sdk not installed — error tracking skipped")
+        logging.getLogger(__name__).warning(
+            "sentry-sdk not installed — error tracking skipped"
+        )
         return
 
     traces_sample_rate = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1"))
