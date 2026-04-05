@@ -573,6 +573,8 @@ async def meta_webhook(
             # Return 500 so the provider retries — body was not fully read.
             return Response(status_code=500)
 
+        verified_with = "meta_app_secret"
+        tried_whatsapp_secret = False
         try:
             signature_valid = meta_webhooks.verify_webhook_signature(body, signature, app_secret)
         except Exception as exc:
@@ -583,14 +585,24 @@ async def meta_webhook(
         if not signature_valid:
             wa_secret = settings.get("whatsapp_app_secret")
             if wa_secret and wa_secret != app_secret:
+                tried_whatsapp_secret = True
                 try:
                     signature_valid = meta_webhooks.verify_webhook_signature(body, signature, wa_secret)
                     if signature_valid:
+                        verified_with = "whatsapp_app_secret"
                         logger.info("meta_webhook_verified_with_whatsapp_secret")
                 except Exception:
                     pass
         if not signature_valid:
-            logger.warning("meta_webhook_signature_invalid")
+            logger.warning(
+                "meta_webhook_signature_invalid trace_id=%s signature_present=%s body_bytes=%s "
+                "tried_whatsapp_secret=%s verified_with=%s",
+                trace_id,
+                bool(signature),
+                len(body or b""),
+                tried_whatsapp_secret,
+                verified_with,
+            )
             return Response(status_code=401)
 
         try:

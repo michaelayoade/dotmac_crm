@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,6 +19,8 @@ from app.services.nextcloud_talk import (
 from app.services.settings_spec import resolve_value
 
 logger = get_logger(__name__)
+_INVITE_FAILURE_COOLDOWN = timedelta(minutes=30)
+_invite_failure_cache: dict[tuple[str, str, str, str], datetime] = {}
 
 
 def _as_bool(value: object, *, default: bool = False) -> bool:
@@ -101,7 +105,28 @@ def notification_settings_fingerprint(db: Session) -> tuple[bool, str, str, str]
     )
 
 
-def _resolve_invite_target(person: Person) -> str | None:
+def _resolve_invite_target(
+    db: Session,
+    person: Person,
+    *,
+    expected_base_url: str | None = None,
+) -> str | None:
+    # Prefer an explicit per-user Nextcloud username when configured.
+    try:
+        from app.services.nextcloud_talk_accounts import get_account_credentials
+
+        creds = get_account_credentials(db, person_id=str(person.id))
+    except Exception:
+        creds = None
+    if creds:
+        configured_base = str(creds.get("base_url") or "").strip().rstrip("/").lower()
+        expected_base = (expected_base_url or "").strip().rstrip("/").lower()
+        if expected_base and configured_base and configured_base != expected_base:
+            creds = None
+    if creds:
+        username = str(creds.get("username") or "").strip()
+        if username:
+            return username
     if isinstance(person.display_name, str) and person.display_name.strip():
         return person.display_name.strip()
     full_name = f"{person.first_name} {person.last_name}".strip()
@@ -255,35 +280,159 @@ def _is_stale_room_error(exc: Exception) -> bool:
     return "http error: 404" in text or "http error: 403" in text or "ocs error 404" in text or "ocs error 403" in text
 
 
+def _is_invite_target_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    if "invite" not in text:
+        return False
+    return any(
+        marker in text
+        for marker in (
+            "http error: 400",
+            "http error: 403",
+            "http error: 404",
+            "ocs error 400",
+            "ocs error 403",
+            "ocs error 404",
+        )
+    )
+
+
+def _invite_failure_key(
+    *,
+    person: Person,
+    base_url: str,
+    notifier_username: str,
+    invite_target: str,
+) -> tuple[str, str, str, str]:
+    return (
+        str(person.id),
+        base_url.strip().lower(),
+        notifier_username.strip().lower(),
+        invite_target.strip().lower(),
+    )
+
+
+def _is_invite_failure_cooled_down(
+    *,
+    person: Person,
+    base_url: str,
+    notifier_username: str,
+    invite_target: str,
+) -> bool:
+    key = _invite_failure_key(
+        person=person,
+        base_url=base_url,
+        notifier_username=notifier_username,
+        invite_target=invite_target,
+    )
+    expiry = _invite_failure_cache.get(key)
+    if not expiry:
+        return False
+    now = datetime.now(UTC)
+    if now >= expiry:
+        _invite_failure_cache.pop(key, None)
+        return False
+    return True
+
+
+def _record_invite_failure_cooldown(
+    *,
+    person: Person,
+    base_url: str,
+    notifier_username: str,
+    invite_target: str,
+) -> None:
+    key = _invite_failure_key(
+        person=person,
+        base_url=base_url,
+        notifier_username=notifier_username,
+        invite_target=invite_target,
+    )
+    _invite_failure_cache[key] = datetime.now(UTC) + _INVITE_FAILURE_COOLDOWN
+
+
+def _clear_invite_failure_cooldown(
+    *,
+    person: Person,
+    base_url: str,
+    notifier_username: str,
+    invite_target: str,
+) -> None:
+    key = _invite_failure_key(
+        person=person,
+        base_url=base_url,
+        notifier_username=notifier_username,
+        invite_target=invite_target,
+    )
+    _invite_failure_cache.pop(key, None)
+
+
 def _send_to_person(db: Session, *, person: Person, message: str) -> bool:
     config = _resolve_notification_config(db)
     if not config:
         return False
 
-    invite_target = _resolve_invite_target(person)
+    base_url = str(config["base_url"])
+    notifier_username = str(config["username"])
+    invite_target = _resolve_invite_target(db, person, expected_base_url=base_url)
     if not invite_target:
         logger.info("talk_notification_skip_missing_invite person_id=%s", person.id)
         return False
+    if _is_invite_failure_cooled_down(
+        person=person,
+        base_url=base_url,
+        notifier_username=notifier_username,
+        invite_target=invite_target,
+    ):
+        logger.info(
+            "talk_notification_skip_invite_cooldown person_id=%s invite_target=%s",
+            person.id,
+            invite_target,
+        )
+        return False
 
     client = NextcloudTalkClient(
-        base_url=str(config["base_url"]),
-        username=str(config["username"]),
+        base_url=base_url,
+        username=notifier_username,
         app_password=str(config["app_password"]),
         db=db,
     )
     room_type = _as_int(config.get("room_type"), default=1)
     try:
-        room_token = _resolve_room_token(
-            db,
-            client=client,
-            person=person,
-            invite_target=invite_target,
-            base_url=str(config["base_url"]),
-            notifier_username=str(config["username"]),
-            room_type=room_type,
-        )
+        try:
+            room_token = _resolve_room_token(
+                db,
+                client=client,
+                person=person,
+                invite_target=invite_target,
+                base_url=base_url,
+                notifier_username=notifier_username,
+                room_type=room_type,
+            )
+        except NextcloudTalkError as exc:
+            if _is_invite_target_error(exc):
+                _record_invite_failure_cooldown(
+                    person=person,
+                    base_url=base_url,
+                    notifier_username=notifier_username,
+                    invite_target=invite_target,
+                )
+                logger.warning(
+                    "talk_notification_invite_target_invalid person_id=%s invite_target=%s error=%s",
+                    person.id,
+                    invite_target,
+                    exc,
+                )
+                return False
+            raise
         try:
             client.post_message(room_token=room_token, message=message)
+            _clear_invite_failure_cooldown(
+                person=person,
+                base_url=base_url,
+                notifier_username=notifier_username,
+                invite_target=invite_target,
+            )
             logger.info("talk_notification_forwarded person_id=%s room_token=%s", person.id, room_token)
             return True
         except NextcloudTalkError as exc:
@@ -298,19 +447,25 @@ def _send_to_person(db: Session, *, person: Person, message: str) -> bool:
             _clear_person_room_cache(
                 db,
                 person=person,
-                base_url=str(config["base_url"]),
-                notifier_username=str(config["username"]),
+                base_url=base_url,
+                notifier_username=notifier_username,
             )
             retry_room_token = _resolve_room_token(
                 db,
                 client=client,
                 person=person,
                 invite_target=invite_target,
-                base_url=str(config["base_url"]),
-                notifier_username=str(config["username"]),
+                base_url=base_url,
+                notifier_username=notifier_username,
                 room_type=room_type,
             )
             client.post_message(room_token=retry_room_token, message=message)
+            _clear_invite_failure_cooldown(
+                person=person,
+                base_url=base_url,
+                notifier_username=notifier_username,
+                invite_target=invite_target,
+            )
             logger.info("talk_notification_forwarded person_id=%s room_token=%s retry=1", person.id, retry_room_token)
             return True
     except Exception as exc:

@@ -86,6 +86,7 @@ def assign_conversation(
             update_lead_owner=False,
         )
     except Exception as exc:
+        db.rollback()
         return AssignConversationResult(kind="error", conversation=conversation, error_detail=str(exc))
 
     try:

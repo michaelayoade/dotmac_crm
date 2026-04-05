@@ -197,6 +197,7 @@ def inbox_conversation_assignment(
             status_code=200,
         )
     if conversation_result.kind == "error":
+        db.rollback()
         logger.exception("Failed to assign conversation.")
         if request.headers.get("HX-Request"):
             conversation = conversation_result.conversation
