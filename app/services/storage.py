@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from threading import Lock
-from urllib.parse import quote
 
 from app.config import settings
 
@@ -95,110 +94,6 @@ class LocalBackend(StorageBackend):
 
 
 # ---------------------------------------------------------------------------
-# S3-compatible backend
-# ---------------------------------------------------------------------------
-
-
-class S3Backend(StorageBackend):
-    """Stores files in an S3-compatible object store such as MinIO."""
-
-    def __init__(
-        self,
-        *,
-        endpoint_url: str | None = None,
-        access_key: str | None = None,
-        secret_key: str | None = None,
-        bucket: str | None = None,
-        region: str | None = None,
-        public_url: str | None = None,
-        client=None,
-    ) -> None:
-        self._bucket = (bucket or settings.s3_bucket).strip()
-        self._public_url = (public_url or settings.s3_public_url).rstrip("/")
-        self._client = client or self._build_client(
-            endpoint_url=endpoint_url or settings.s3_endpoint_url,
-            access_key=access_key or settings.s3_access_key,
-            secret_key=secret_key or settings.s3_secret_key,
-            region=region or settings.s3_region,
-        )
-
-    def _build_client(self, *, endpoint_url: str, access_key: str, secret_key: str, region: str):
-        import boto3  # type: ignore[import-not-found]
-
-        return boto3.client(
-            "s3",
-            endpoint_url=endpoint_url or None,
-            aws_access_key_id=access_key or None,
-            aws_secret_access_key=secret_key or None,
-            region_name=region or None,
-        )
-
-    def _normalize_key(self, key: str) -> str:
-        normalized = key.lstrip("/")
-        if not normalized or normalized in {".", ".."}:
-            raise ValueError("Invalid storage key")
-        parts = Path(normalized).parts
-        if any(part == ".." for part in parts):
-            raise ValueError(f"Invalid storage key (path traversal): {key}")
-        return normalized
-
-    def put(self, key: str, data: bytes, content_type: str = "") -> str:
-        key = self._normalize_key(key)
-        extra_args = {}
-        if content_type:
-            extra_args["ContentType"] = content_type
-        self._client.put_object(Bucket=self._bucket, Key=key, Body=data, **extra_args)
-        return self.url(key)
-
-    def get(self, key: str) -> bytes:
-        key = self._normalize_key(key)
-        try:
-            response = self._client.get_object(Bucket=self._bucket, Key=key)
-        except self._client.exceptions.NoSuchKey as exc:
-            raise FileNotFoundError(f"Storage key not found: {key}") from exc
-        return response["Body"].read()
-
-    def delete(self, key: str) -> None:
-        key = self._normalize_key(key)
-        self._client.delete_object(Bucket=self._bucket, Key=key)
-
-    def url(self, key: str) -> str:
-        key = self._normalize_key(key)
-        quoted_key = quote(key, safe="/")
-        if self._public_url:
-            return f"{self._public_url}/{self._bucket}/{quoted_key}"
-        return f"/admin/storage/{self._bucket}/{quoted_key}"
-
-    def exists(self, key: str) -> bool:
-        key = self._normalize_key(key)
-        try:
-            self._client.head_object(Bucket=self._bucket, Key=key)
-            return True
-        except self._client.exceptions.NoSuchKey:
-            return False
-        except Exception as exc:
-            error_code = getattr(exc, "response", {}).get("Error", {}).get("Code")
-            if error_code in {"404", "NoSuchKey", "NotFound"}:
-                return False
-            raise
-
-    def ensure_bucket(self) -> None:
-        try:
-            self._client.head_bucket(Bucket=self._bucket)
-            return
-        except Exception as exc:
-            error_code = getattr(exc, "response", {}).get("Error", {}).get("Code")
-            if error_code not in {"404", "NoSuchBucket", "NotFound"}:
-                raise
-
-        params: dict[str, object] = {"Bucket": self._bucket}
-        region = (settings.s3_region or "").strip()
-        if region and region != "us-east-1":
-            params["CreateBucketConfiguration"] = {"LocationConstraint": region}
-        self._client.create_bucket(**params)
-
-
-# ---------------------------------------------------------------------------
 # Singleton
 # ---------------------------------------------------------------------------
 
@@ -206,12 +101,8 @@ class S3Backend(StorageBackend):
 def _build_backend() -> StorageBackend:
     backend = settings.storage_backend
     if backend == "s3":
-        try:
-            logger.info("Using S3 storage backend (bucket=%s, endpoint=%s)", settings.s3_bucket, settings.s3_endpoint_url)
-            return S3Backend()
-        except ImportError:
-            logger.warning("S3 storage backend requested but boto3 is not installed; falling back to local storage.")
-            return LocalBackend()
+        logger.warning("S3 storage backend is not enabled in this build; falling back to local storage.")
+        return LocalBackend()
     logger.info("Using local storage backend (root=%s)", settings.storage_local_root)
     return LocalBackend()
 
