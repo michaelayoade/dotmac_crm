@@ -207,7 +207,9 @@ def _build_backend() -> StorageBackend:
     backend = settings.storage_backend
     if backend == "s3":
         try:
-            logger.info("Using S3 storage backend (bucket=%s, endpoint=%s)", settings.s3_bucket, settings.s3_endpoint_url)
+            logger.info(
+                "Using S3 storage backend (bucket=%s, endpoint=%s)", settings.s3_bucket, settings.s3_endpoint_url
+            )
             return S3Backend()
         except ImportError:
             logger.warning("S3 storage backend requested but boto3 is not installed; falling back to local storage.")
