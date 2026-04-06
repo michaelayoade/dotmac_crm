@@ -794,6 +794,8 @@ def verify_webhook_signature(
     payload_body: bytes,
     signature_header: str | None,
     app_secret: str,
+    *,
+    suppress_mismatch_log: bool = False,
 ) -> bool:
     """Verify Meta webhook signature (X-Hub-Signature-256).
 
@@ -820,7 +822,7 @@ def verify_webhook_signature(
     ).hexdigest()
 
     is_valid = hmac.compare_digest(expected_signature, computed_signature)
-    if not is_valid:
+    if not is_valid and not suppress_mismatch_log:
         logger.info("webhook_signature_mismatch")
     return is_valid
 
