@@ -115,6 +115,8 @@ async def find_nearest_cabinet(lat: float, lng: float, db: Session):
     nearest = None
     nearest_dist = None
     for cabinet in cabinets:
+        if cabinet.latitude is None or cabinet.longitude is None:
+            continue
         dist = _haversine_distance_m(lat_f, lng_f, float(cabinet.latitude), float(cabinet.longitude))
         if nearest_dist is None or dist < nearest_dist:
             nearest = cabinet
@@ -145,6 +147,8 @@ async def plan_options(lat: float, lng: float, db: Session):
     cabinets = _get_cabinets_with_location(db)
     options = []
     for cabinet in cabinets:
+        if cabinet.latitude is None or cabinet.longitude is None:
+            continue
         dist = _haversine_distance_m(lat_f, lng_f, float(cabinet.latitude), float(cabinet.longitude))
         options.append(
             {
