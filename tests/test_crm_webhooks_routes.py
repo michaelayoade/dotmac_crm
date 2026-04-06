@@ -42,7 +42,7 @@ def test_parse_meta_whatsapp_status_payload_detects_native_status_callbacks():
     assert status_count == 1
 
 
-def test_meta_webhook_accepts_whatsapp_secret_fallback(monkeypatch):
+def test_meta_webhook_prefers_whatsapp_secret_for_whatsapp_payload(monkeypatch):
     body = b'{"object":"whatsapp_business_account","entry":[{"id":"waba_123","time":1712200000,"changes":[]}]}'
 
     class _RequestState:
@@ -84,4 +84,4 @@ def test_meta_webhook_accepts_whatsapp_secret_fallback(monkeypatch):
     assert response["status"] == "ok"
     assert captured["channel"] == "meta"
     assert captured["payload"]["object"] == "whatsapp_business_account"
-    assert verify_calls == ["meta-secret", "wa-secret"]
+    assert verify_calls == ["wa-secret"]

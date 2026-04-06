@@ -578,33 +578,77 @@ async def meta_webhook(
             # Return 500 so the provider retries — body was not fully read.
             return Response(status_code=500)
 
-        verified_with = "meta_app_secret"
-        tried_whatsapp_secret = False
+        wa_secret = settings.get("whatsapp_app_secret")
+
+        # Pick primary secret by payload object when available:
+        # - whatsapp_business_account -> WhatsApp app secret
+        # - instagram/page (or unknown) -> Meta app secret
+        payload_object: str | None = None
         try:
-            signature_valid = meta_webhooks.verify_webhook_signature(body, signature, app_secret)
+            envelope = json.loads(body.decode("utf-8"))
+            if isinstance(envelope, dict):
+                raw_object = envelope.get("object")
+                if isinstance(raw_object, str) and raw_object:
+                    payload_object = raw_object
+        except Exception:
+            payload_object = None
+
+        primary_name = "meta_app_secret"
+        primary_secret = app_secret
+        secondary_name = "whatsapp_app_secret"
+        secondary_secret = wa_secret
+        if payload_object == "whatsapp_business_account" and wa_secret:
+            primary_name = "whatsapp_app_secret"
+            primary_secret = wa_secret
+            secondary_name = "meta_app_secret"
+            secondary_secret = app_secret
+
+        verified_with: str | None = None
+        tried_whatsapp_secret = False
+        signature_valid = False
+        def _verify_signature(secret: str) -> bool:
+            try:
+                return meta_webhooks.verify_webhook_signature(
+                    body,
+                    signature,
+                    secret,
+                    suppress_mismatch_log=True,
+                )
+            except TypeError:
+                # Backward compatibility for patched/mocked callables
+                # that still use the legacy 3-argument signature.
+                return meta_webhooks.verify_webhook_signature(
+                    body,
+                    signature,
+                    secret,
+                )
+
+        try:
+            signature_valid = _verify_signature(primary_secret)
+            if signature_valid:
+                verified_with = primary_name
         except Exception as exc:
             logger.warning("meta_webhook_signature_validation_failed error=%s", exc)
             signature_valid = False
-        # Fallback: try whatsapp_app_secret for WhatsApp Business webhooks
-        # arriving on the /meta endpoint.
-        if not signature_valid:
-            wa_secret = settings.get("whatsapp_app_secret")
-            if wa_secret and wa_secret != app_secret:
-                tried_whatsapp_secret = True
-                try:
-                    signature_valid = meta_webhooks.verify_webhook_signature(body, signature, wa_secret)
-                    if signature_valid:
-                        verified_with = "whatsapp_app_secret"
+
+        if not signature_valid and secondary_secret and secondary_secret != primary_secret:
+            tried_whatsapp_secret = secondary_name == "whatsapp_app_secret" or primary_name == "whatsapp_app_secret"
+            try:
+                signature_valid = _verify_signature(secondary_secret)
+                if signature_valid:
+                    verified_with = secondary_name
+                    if secondary_name == "whatsapp_app_secret":
                         logger.info("meta_webhook_verified_with_whatsapp_secret")
-                except Exception:
-                    pass
+            except Exception:
+                pass
         if not signature_valid:
             logger.info(
                 "meta_webhook_signature_invalid trace_id=%s signature_present=%s body_bytes=%s "
-                "tried_whatsapp_secret=%s verified_with=%s",
+                "payload_object=%s tried_whatsapp_secret=%s verified_with=%s",
                 trace_id,
                 bool(signature),
                 len(body or b""),
+                payload_object,
                 tried_whatsapp_secret,
                 verified_with,
             )

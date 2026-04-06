@@ -317,19 +317,29 @@ class DotMacERPClient:
             Dict mapping omni_id to expense totals
             e.g., {"uuid": {"draft": 0, "submitted": 1000, "approved": 500, "paid": 500}}
         """
-        params = {}
+        payload: dict[str, list[str]] = {}
         if project_omni_ids:
-            params["project_omni_ids"] = ",".join(project_omni_ids)
+            payload["project_crm_ids"] = project_omni_ids
         if ticket_omni_ids:
-            params["ticket_omni_ids"] = ",".join(ticket_omni_ids)
+            payload["ticket_crm_ids"] = ticket_omni_ids
         if work_order_omni_ids:
-            params["work_order_omni_ids"] = ",".join(work_order_omni_ids)
+            payload["work_order_crm_ids"] = work_order_omni_ids
 
-        if not params:
+        if not payload:
             return {}
 
-        result = self._request("GET", "/api/v1/sync/expense-totals", params=params)
-        return result if isinstance(result, dict) else {}
+        # ERP expense totals are read-only but exposed as POST with a JSON body
+        # containing CRM IDs grouped by entity type.
+        result = self._request(
+            "POST",
+            "/sync/crm/expense-totals",
+            json_data=payload,
+            expected_status_codes={200},
+        )
+        if not isinstance(result, dict):
+            return {}
+        totals = result.get("totals")
+        return totals if isinstance(totals, dict) else {}
 
     # ============ Material Request API Methods ============
 
