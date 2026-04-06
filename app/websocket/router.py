@@ -14,6 +14,10 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["websocket"])
 
 
+def _is_expected_websocket_state_error(exc: Exception) -> bool:
+    return 'WebSocket is not connected. Need to call "accept" first.' in str(exc)
+
+
 @router.websocket("/ws/inbox")
 async def inbox_websocket(websocket: WebSocket):
     """
@@ -46,7 +50,10 @@ async def inbox_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         logger.debug("websocket_disconnected user_id=%s", user_id)
     except Exception as exc:
-        logger.warning("websocket_error user_id=%s error=%s", user_id, exc)
+        if _is_expected_websocket_state_error(exc):
+            logger.debug("websocket_error user_id=%s error=%s", user_id, exc)
+        else:
+            logger.warning("websocket_error user_id=%s error=%s", user_id, exc)
     finally:
         await manager.unregister_connection(user_id, websocket)
 
@@ -118,4 +125,7 @@ async def _handle_client_message(user_id: str, websocket: WebSocket, raw_data: s
     except json.JSONDecodeError:
         logger.warning("websocket_invalid_json user_id=%s", user_id)
     except Exception as exc:
-        logger.warning("websocket_message_error user_id=%s error=%s", user_id, exc)
+        if _is_expected_websocket_state_error(exc):
+            logger.debug("websocket_message_error user_id=%s error=%s", user_id, exc)
+        else:
+            logger.warning("websocket_message_error user_id=%s error=%s", user_id, exc)

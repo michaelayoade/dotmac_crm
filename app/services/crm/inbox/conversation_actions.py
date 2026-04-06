@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Conversation
 from app.models.crm.enums import ChannelType
+from app.models.crm.team import CrmAgent, CrmTeam
 from app.services import person as person_service
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
@@ -79,6 +80,32 @@ def assign_conversation(
         assigned_by_value = None
 
     try:
+        if agent_value:
+            agent = (
+                db.query(CrmAgent)
+                .filter(CrmAgent.id == coerce_uuid(agent_value))
+                .filter(CrmAgent.is_active.is_(True))
+                .first()
+            )
+            if not agent:
+                return AssignConversationResult(
+                    kind="invalid_input",
+                    conversation=conversation,
+                    error_detail="Selected agent does not exist or is inactive.",
+                )
+        if team_value:
+            team = (
+                db.query(CrmTeam)
+                .filter(CrmTeam.id == coerce_uuid(team_value))
+                .filter(CrmTeam.is_active.is_(True))
+                .first()
+            )
+            if not team:
+                return AssignConversationResult(
+                    kind="invalid_input",
+                    conversation=conversation,
+                    error_detail="Selected team does not exist or is inactive.",
+                )
         conversation_service.assign_conversation(
             db,
             conversation_id=conversation_id,

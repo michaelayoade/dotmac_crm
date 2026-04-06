@@ -151,12 +151,14 @@ def inbox_conversation_assignment(
     from app.services.crm.inbox.conversation_actions import assign_conversation
     from app.web.admin._auth_helpers import get_current_user
 
+    current_user = get_current_user(request) or {}
+    assigned_by_id = (current_user.get("person_id") or "").strip() or None
     conversation_result = assign_conversation(
         db,
         conversation_id=conversation_id,
         agent_id=agent_id,
         team_id=team_id,
-        assigned_by_id=(get_current_user(request).get("person_id") or "").strip() or None,
+        assigned_by_id=assigned_by_id,
         roles=_get_current_roles(request),
         scopes=_get_current_scopes(request),
     )
@@ -179,14 +181,32 @@ def inbox_conversation_assignment(
         )
     if conversation_result.kind == "error":
         db.rollback()
+        conversation = conversation_result.conversation
+        conversation_status = None
+        contact_person_id = (conversation_result.contact_person_id or "").strip() or None
+        if conversation is not None:
+            try:
+                conversation_status = conversation.status.value if conversation.status else None
+            except Exception:
+                conversation_status = None
+            if not contact_person_id:
+                try:
+                    if conversation.person_id is not None:
+                        contact_person_id = str(conversation.person_id)
+                except Exception:
+                    contact_person_id = None
         logger.warning(
-            "Failed to assign conversation conversation_id=%s detail=%s",
+            "crm_inbox_assignment_failed conversation_id=%s agent_id=%s team_id=%s "
+            "assigned_by_id=%s status=%s contact_person_id=%s detail=%s",
             conversation_id,
-            conversation_result.error_detail or "Assignment failed",
+            (agent_id or "").strip() or None,
+            (team_id or "").strip() or None,
+            assigned_by_id,
+            conversation_status,
+            contact_person_id,
+            (conversation_result.error_detail or "Assignment failed").strip(),
         )
         if request.headers.get("HX-Request"):
-            conversation = conversation_result.conversation
-            contact_person_id = (conversation_result.contact_person_id or "").strip() or None
             if not contact_person_id and conversation is not None:
                 try:
                     if conversation.person_id is not None:

@@ -4,7 +4,7 @@ import contextlib
 import logging
 from urllib.parse import quote, urlparse, urlunparse
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -31,6 +31,15 @@ _UNSAFE_REFRESH_SEGMENTS = {
     "/agents",
     "/agent-teams",
 }
+
+
+def _is_expected_refresh_failure(exc: Exception) -> bool:
+    if not isinstance(exc, HTTPException):
+        return False
+    if exc.status_code != 401:
+        return False
+    detail = str(exc.detail or "").lower()
+    return "invalid refresh token" in detail or "refresh token expired" in detail
 
 
 def _sanitize_refresh_next(next_url: str | None, fallback: str) -> str:
@@ -366,7 +375,7 @@ def refresh(request: Request, db: Session, next_url: str | None = None):
         login_url = "/auth/login"
         if next_url and next_url.startswith("/"):
             login_url = f"/auth/login?next={quote(next_url)}"
-        logger.warning(
+        logger.info(
             "web_refresh_redirect_login reason=missing_refresh_cookie next=%s ip=%s",
             next_url or "",
             request.client.host if request.client else None,
@@ -378,7 +387,8 @@ def refresh(request: Request, db: Session, next_url: str | None = None):
         login_url = "/auth/login"
         if next_url and next_url.startswith("/"):
             login_url = f"/auth/login?next={quote(next_url)}"
-        logger.warning(
+        log = logger.info if _is_expected_refresh_failure(exc) else logger.warning
+        log(
             "web_refresh_redirect_login reason=refresh_failed next=%s ip=%s error=%s",
             next_url or "",
             request.client.host if request.client else None,

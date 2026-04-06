@@ -181,6 +181,17 @@ def test_widget_config_create_invalid_dialog_flow(db_session: Session):
         widget_configs.create(db_session, payload)
 
 
+def test_widget_validate_origin_accepts_full_url_allowed_domain(db_session: Session):
+    payload = ChatWidgetConfigCreate(
+        name="Origin Match Widget",
+        allowed_domains=["https://dotmac.ng", "https://www.dotmac.ng"],
+    )
+    config = widget_configs.create(db_session, payload)
+
+    assert widget_configs.validate_origin(config, "https://dotmac.ng") is True
+    assert widget_configs.validate_origin(config, "https://www.dotmac.ng") is True
+
+
 # --------------------------------------------------------------------------
 # apply_dialog_routing tests
 # --------------------------------------------------------------------------

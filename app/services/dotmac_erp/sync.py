@@ -953,6 +953,9 @@ class DotMacERPSync:
             result = client.get_expense_totals(project_omni_ids=project_ids)
             logger.debug(f"Fetched expense totals for {len(project_ids)} projects from ERP")
             return result
+        except DotMacERPNotFoundError as e:
+            logger.info(f"ERP project expense totals unavailable: {e}")
+            return {}
         except DotMacERPError as e:
             logger.warning(f"Failed to get project expense totals from ERP: {e}")
             return {}
@@ -968,6 +971,9 @@ class DotMacERPSync:
             result = client.get_expense_totals(ticket_omni_ids=ticket_ids)
             logger.debug(f"Fetched expense totals for {len(ticket_ids)} tickets from ERP")
             return result
+        except DotMacERPNotFoundError as e:
+            logger.info(f"ERP ticket expense totals unavailable: {e}")
+            return {}
         except DotMacERPError as e:
             logger.warning(f"Failed to get ticket expense totals from ERP: {e}")
             return {}
@@ -983,6 +989,9 @@ class DotMacERPSync:
             result = client.get_expense_totals(work_order_omni_ids=work_order_ids)
             logger.debug(f"Fetched expense totals for {len(work_order_ids)} work orders from ERP")
             return result
+        except DotMacERPNotFoundError as e:
+            logger.info(f"ERP work order expense totals unavailable: {e}")
+            return {}
         except DotMacERPError as e:
             logger.warning(f"Failed to get work order expense totals from ERP: {e}")
             return {}
