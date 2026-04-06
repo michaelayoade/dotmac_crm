@@ -1,6 +1,7 @@
+import asyncio
+import concurrent.futures
 from contextlib import suppress
 
-import pytest
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 
@@ -9,6 +10,11 @@ from app.observability import ObservabilityMiddleware
 
 async def _receive():
     return {"type": "http.request", "body": b"", "more_body": False}
+
+
+def _run_async(coro):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(lambda: asyncio.run(coro)).result()
 
 
 def _request(path: str) -> Request:
@@ -33,28 +39,26 @@ def _middleware() -> ObservabilityMiddleware:
     return ObservabilityMiddleware(app=lambda scope, receive, send: None)
 
 
-@pytest.mark.asyncio
-async def test_observability_logs_actor_id_after_downstream_auth(caplog):
+def test_observability_logs_actor_id_after_downstream_auth(caplog):
     async def call_next(request):
         request.state.actor_id = "user-123"
         return PlainTextResponse("ok")
 
     with caplog.at_level("INFO", logger="app.observability"):
-        response = await _middleware().dispatch(_request("/ok"), call_next)
+        response = _run_async(_middleware().dispatch(_request("/ok"), call_next))
 
     assert response.status_code == 200
     record = next(record for record in caplog.records if record.message == "request_completed")
     assert record.actor_id == "user-123"
 
 
-@pytest.mark.asyncio
-async def test_observability_logs_actor_id_for_exceptions(caplog):
+def test_observability_logs_actor_id_for_exceptions(caplog):
     async def call_next(request):
         request.state.actor_id = "user-500"
         raise RuntimeError("boom")
 
     with caplog.at_level("ERROR", logger="app.observability"), suppress(RuntimeError):
-        await _middleware().dispatch(_request("/boom"), call_next)
+        _run_async(_middleware().dispatch(_request("/boom"), call_next))
 
     record = next(record for record in caplog.records if record.message == "request_failed")
     assert record.actor_id == "user-500"

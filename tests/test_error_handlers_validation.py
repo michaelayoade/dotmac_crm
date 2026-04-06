@@ -1,35 +1,40 @@
+import asyncio
+import concurrent.futures
+
 import httpx
-import pytest
-import pytest_asyncio
 from fastapi import FastAPI
 
 from app.errors import register_error_handlers
 from app.schemas.nextcloud_talk import NextcloudTalkLoginRequest
 
 
-@pytest_asyncio.fixture
-async def client():
+def _run_async(coro):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(lambda: asyncio.run(coro)).result()
+
+
+async def _post_login(payload: dict) -> httpx.Response:
     app = FastAPI()
     register_error_handlers(app)
 
     @app.post("/nextcloud-talk/me/login")
-    def login(payload: NextcloudTalkLoginRequest):
+    def login(body: NextcloudTalkLoginRequest):
         return {"ok": True}
 
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as test_client:
-        yield test_client
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        return await client.post("/nextcloud-talk/me/login", json=payload)
 
 
-@pytest.mark.asyncio
-async def test_validation_handler_serializes_ctx_exceptions(client: httpx.AsyncClient) -> None:
-    response = await client.post(
-        "/nextcloud-talk/me/login",
-        json={
-            "base_url": "next.example.com",
-            "username": "user@example.com",
-            "app_password": "secret-pass",
-        },
+def test_validation_handler_serializes_ctx_exceptions() -> None:
+    response = _run_async(
+        _post_login(
+            {
+                "base_url": "next.example.com",
+                "username": "user@example.com",
+                "app_password": "secret-pass",
+            }
+        )
     )
 
     assert response.status_code == 422
@@ -45,17 +50,17 @@ async def test_validation_handler_serializes_ctx_exceptions(client: httpx.AsyncC
         assert isinstance(ctx["error"], str)
 
 
-@pytest.mark.asyncio
-async def test_validation_handler_redacts_sensitive_input_fields(client: httpx.AsyncClient) -> None:
+def test_validation_handler_redacts_sensitive_input_fields() -> None:
     secret = "test-secret-value"
 
-    response = await client.post(
-        "/nextcloud-talk/me/login",
-        json={
-            "base_url": "next.example.com",
-            "username": "user@example.com",
-            "app_password": secret,
-        },
+    response = _run_async(
+        _post_login(
+            {
+                "base_url": "next.example.com",
+                "username": "user@example.com",
+                "app_password": secret,
+            }
+        )
     )
 
     assert response.status_code == 422
