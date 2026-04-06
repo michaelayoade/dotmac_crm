@@ -82,7 +82,11 @@ def test_nextcloud_talk_me_login_logs_failure(db_session, caplog, monkeypatch):
         username="alice",
         app_password="secret",
     )
-    monkeypatch.setattr(nextcloud_talk_api, "talk_connect", lambda *args, **kwargs: (_ for _ in ()).throw(NextcloudTalkError("remote down")))
+    monkeypatch.setattr(
+        nextcloud_talk_api,
+        "talk_connect",
+        lambda *args, **kwargs: (_ for _ in ()).throw(NextcloudTalkError("remote down")),
+    )
 
     with caplog.at_level("INFO", logger="app.api.nextcloud_talk"), pytest.raises(HTTPException) as exc_info:
         nextcloud_talk_api.me_login(payload, db=db_session, auth={"person_id": "person-1"})
