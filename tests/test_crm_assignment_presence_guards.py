@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -84,6 +85,51 @@ def test_inbox_assign_action_maps_conflict_to_invalid_input(db_session, crm_cont
 
     assert result.kind == "invalid_input"
     assert "offline or unavailable" in (result.error_detail or "")
+
+
+def test_inbox_assign_action_rejects_missing_agent(db_session, crm_contact, crm_team, person):
+    conversation = conversation_service.Conversations.create(
+        db_session,
+        ConversationCreate(person_id=crm_contact.id),
+    )
+
+    result = inbox_assign_conversation(
+        db_session,
+        conversation_id=str(conversation.id),
+        agent_id=str(uuid.uuid4()),
+        team_id=str(crm_team.id),
+        assigned_by_id=str(person.id),
+    )
+
+    assert result.kind == "invalid_input"
+    assert result.error_detail == "Selected agent does not exist or is inactive."
+
+
+def test_inbox_assign_action_rejects_missing_team(db_session, crm_contact, crm_agent, person):
+    conversation = conversation_service.Conversations.create(
+        db_session,
+        ConversationCreate(person_id=crm_contact.id),
+    )
+    db_session.add(
+        AgentPresence(
+            agent_id=crm_agent.id,
+            status=AgentPresenceStatus.online,
+            manual_override_status=None,
+            last_seen_at=datetime.now(UTC),
+        )
+    )
+    db_session.commit()
+
+    result = inbox_assign_conversation(
+        db_session,
+        conversation_id=str(conversation.id),
+        agent_id=str(crm_agent.id),
+        team_id=str(uuid.uuid4()),
+        assigned_by_id=str(person.id),
+    )
+
+    assert result.kind == "invalid_input"
+    assert result.error_detail == "Selected team does not exist or is inactive."
 
 
 def test_auto_assignment_drops_unavailable_agent_and_keeps_team(db_session, crm_contact, crm_agent, crm_team):

@@ -677,7 +677,7 @@ class AuthFlow(ListResponseMixin):
                         detail="Refresh token reuse detected",
                     )
             else:
-                logger.warning(
+                logger.info(
                     "auth_refresh_failed reason=invalid_token ip=%s",
                     _request_ip(request),
                 )
@@ -686,7 +686,7 @@ class AuthFlow(ListResponseMixin):
         if expires_at and expires_at <= now:
             session.status = SessionStatus.expired
             db.commit()
-            logger.warning(
+            logger.info(
                 "auth_refresh_failed reason=expired session_id=%s person_id=%s ip=%s",
                 session.id,
                 session.person_id,

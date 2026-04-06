@@ -599,7 +599,7 @@ async def meta_webhook(
                 except Exception:
                     pass
         if not signature_valid:
-            logger.warning(
+            logger.info(
                 "meta_webhook_signature_invalid trace_id=%s signature_present=%s body_bytes=%s "
                 "tried_whatsapp_secret=%s verified_with=%s",
                 trace_id,

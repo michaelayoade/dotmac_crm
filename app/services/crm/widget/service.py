@@ -192,6 +192,9 @@ def _extract_domain_from_origin(origin: str) -> str | None:
 def _domain_matches_pattern(domain: str, pattern: str) -> bool:
     """Check if domain matches an allowed pattern (supports wildcards)."""
     pattern = pattern.lower().strip()
+    parsed_pattern = _extract_domain_from_origin(pattern)
+    if parsed_pattern:
+        pattern = parsed_pattern
     domain = domain.lower().strip()
 
     if pattern.startswith("*."):

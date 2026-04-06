@@ -809,7 +809,7 @@ def verify_webhook_signature(
         True if signature is valid, False otherwise
     """
     if not signature_header or not signature_header.startswith("sha256="):
-        logger.warning("webhook_signature_missing_or_invalid")
+        logger.info("webhook_signature_missing_or_invalid")
         return False
 
     expected_signature = signature_header[7:]  # Remove "sha256=" prefix
@@ -821,7 +821,7 @@ def verify_webhook_signature(
 
     is_valid = hmac.compare_digest(expected_signature, computed_signature)
     if not is_valid:
-        logger.warning("webhook_signature_mismatch")
+        logger.info("webhook_signature_mismatch")
     return is_valid
 
 
