@@ -32,7 +32,7 @@ from app.services import vendor as vendor_service
 from app.services import workforce as workforce_service
 from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
-from app.web.admin import get_current_user, get_sidebar_stats
+from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(prefix="/operations", tags=["admin-operations"])

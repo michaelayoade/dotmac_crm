@@ -116,6 +116,7 @@ class Settings:
 
     # Cookie security settings
     cookie_secure: bool = field(default_factory=lambda: _env_bool("COOKIE_SECURE", default=False))
+    metrics_token: str = field(default_factory=lambda: os.getenv("METRICS_TOKEN", ""))
 
 
 settings = Settings()

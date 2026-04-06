@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.logging import get_logger
 from app.models.person import Person
-from app.services import crm as crm_service
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm.inbox.formatting import format_contact_for_template
+from app.web.admin.crm_support import _get_current_roles, _get_current_scopes, _load_crm_agent_team_options
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
@@ -30,28 +30,6 @@ def get_db():
         db.close()
 
 
-def _get_current_roles(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        roles = auth.get("roles") or []
-        if isinstance(roles, list):
-            return [str(role) for role in roles]
-    return []
-
-
-def _get_current_scopes(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        scopes = auth.get("scopes") or []
-        if isinstance(scopes, list):
-            return [str(scope) for scope in scopes]
-    return []
-
-
-def _load_crm_agent_team_options(db: Session) -> dict:
-    return crm_service.get_agent_team_options(db)
-
-
 @router.post("/inbox/conversations/bulk", response_class=HTMLResponse)
 def inbox_conversations_bulk_action(
     request: Request,
@@ -62,7 +40,7 @@ def inbox_conversations_bulk_action(
     db: Session = Depends(get_db),
 ):
     from app.services.crm.inbox.bulk_actions import apply_bulk_action
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request) or {}
     actor_id = (current_user.get("person_id") or "").strip() or None
@@ -117,7 +95,7 @@ def inbox_save_filter(
     db: Session = Depends(get_db),
 ):
     from app.services.crm.inbox import saved_filters as saved_filters_service
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request) or {}
     person_id_raw = (current_user.get("person_id") or "").strip()
@@ -153,7 +131,7 @@ def inbox_delete_filter(
     db: Session = Depends(get_db),
 ):
     from app.services.crm.inbox import saved_filters as saved_filters_service
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request) or {}
     person_id_raw = (current_user.get("person_id") or "").strip()
@@ -171,7 +149,7 @@ def inbox_conversation_assignment(
     db: Session = Depends(get_db),
 ):
     from app.services.crm.inbox.conversation_actions import assign_conversation
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     conversation_result = assign_conversation(
         db,
@@ -292,7 +270,7 @@ def inbox_conversation_resolve(
 ):
     _ = subscriber_id
     from app.services.crm.inbox.conversation_actions import resolve_conversation
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     result = resolve_conversation(
         db,

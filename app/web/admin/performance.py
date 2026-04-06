@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
-from app.celery_app import celery_app
 from app.csrf import get_csrf_token
 from app.db import SessionLocal
 from app.models.domain_settings import SettingDomain, SettingValueType
@@ -23,8 +22,7 @@ from app.services.performance.goals import performance_goals
 from app.services.performance.reports import performance_reports
 from app.services.performance.reviews import performance_reviews
 from app.services.settings_spec import resolve_value
-from app.tasks.performance import compute_weekly_scores, generate_flagged_reviews
-from app.web.admin import get_current_user, get_sidebar_stats
+from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(prefix="/performance", tags=["web-admin-performance"])
@@ -94,9 +92,21 @@ def _task_state(task_id: str | None) -> str | None:
     if not task_id:
         return None
     try:
+        from app.celery_app import celery_app
+
         return str(celery_app.AsyncResult(task_id).state)
     except Exception:
         return None
+
+
+def _dispatch_performance_task(action: str):
+    from app.tasks.performance import compute_weekly_scores, generate_flagged_reviews
+
+    if action == "compute_scores":
+        return compute_weekly_scores.delay()
+    if action == "generate_flagged_reviews":
+        return generate_flagged_reviews.delay()
+    raise ValueError(f"Unsupported action: {action}")
 
 
 def _scheduled_task_meta(db: Session, task_name: str) -> dict:
@@ -451,12 +461,12 @@ def performance_controls_run(
     _ = request
     try:
         if action == "compute_scores":
-            task = compute_weekly_scores.delay()
+            task = _dispatch_performance_task(action)
             feedback = "Queued weekly score computation"
             persisted_key = "controls_last_compute_task_id"
             scheduled_task_name = "app.tasks.performance.compute_weekly_scores"
         elif action == "generate_flagged_reviews":
-            task = generate_flagged_reviews.delay()
+            task = _dispatch_performance_task(action)
             feedback = "Queued flagged review generation"
             persisted_key = "controls_last_flagged_task_id"
             scheduled_task_name = "app.tasks.performance.generate_flagged_reviews"

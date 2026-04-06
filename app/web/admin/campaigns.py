@@ -29,8 +29,8 @@ from app.services.crm.web_campaigns import (
     update_campaign,
     update_campaign_step,
 )
+from app.services.regions import REGION_OPTIONS
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
-from app.web.admin.crm import REGION_OPTIONS
 from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")

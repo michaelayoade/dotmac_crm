@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.logging import get_logger
 from app.schemas.common import ListResponse
 from app.schemas.integration import (
     IntegrationJobCreate,
@@ -15,6 +16,7 @@ from app.schemas.integration import (
 from app.services import integration as integration_service
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
+logger = get_logger(__name__)
 
 
 @router.post(
@@ -99,12 +101,18 @@ def delete_integration_job(job_id: str, db: Session = Depends(get_db)):
 
 @router.post("/jobs/{job_id}/run", response_model=IntegrationRunRead)
 def run_integration_job(job_id: str, db: Session = Depends(get_db)):
-    return integration_service.integration_jobs.run(db, job_id)
+    logger.info("integration_job_run_requested job_id=%s", job_id)
+    run = integration_service.integration_jobs.run(db, job_id)
+    logger.info("integration_job_run_started job_id=%s run_id=%s", job_id, getattr(run, "id", None))
+    return run
 
 
 @router.post("/jobs/refresh-schedule", status_code=status.HTTP_200_OK)
 def refresh_integration_schedule(db: Session = Depends(get_db)):
-    return integration_service.refresh_schedule(db)
+    logger.info("integration_schedule_refresh_requested")
+    result = integration_service.refresh_schedule(db)
+    logger.info("integration_schedule_refresh_completed")
+    return result
 
 
 @router.get("/runs/{run_id}", response_model=IntegrationRunRead)

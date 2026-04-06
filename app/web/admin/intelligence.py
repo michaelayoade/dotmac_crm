@@ -27,7 +27,7 @@ from app.services.ai.data_health import (
 from app.services.ai.engine import intelligence_engine
 from app.services.ai.insights import ai_insights
 from app.services.ai.personas import persona_registry
-from app.web.admin import get_current_user, get_sidebar_stats
+from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")

@@ -115,7 +115,7 @@ def subscriber_list(
         order_by = "created_at"
     if order_dir not in {"asc", "desc"}:
         order_dir = "desc"
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
@@ -266,7 +266,7 @@ def reseller_organizations_list(
 ):
     """List organizations configured as resellers."""
     from app.csrf import get_csrf_token
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
@@ -386,7 +386,7 @@ def reseller_new(
 ):
     """Admin: create a reseller org + login."""
     from app.csrf import get_csrf_token
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
@@ -414,7 +414,7 @@ def reseller_promote_picker(
 ):
     """Admin: choose an existing org to promote to reseller."""
     from app.csrf import get_csrf_token
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
@@ -563,7 +563,7 @@ def reseller_organization_subscribers(
 ):
     """Show subscribers under a reseller organization hierarchy."""
     from app.csrf import get_csrf_token
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
@@ -603,7 +603,7 @@ def subscriber_new(
     db: Session = Depends(get_db),
 ):
     """Show subscriber creation form."""
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
@@ -672,7 +672,7 @@ def subscriber_detail(
     db: Session = Depends(get_db),
 ):
     """Show subscriber detail page."""
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)
@@ -701,7 +701,7 @@ def subscriber_edit(
     db: Session = Depends(get_db),
 ):
     """Show subscriber edit form."""
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)

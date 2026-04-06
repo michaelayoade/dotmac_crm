@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.logging import get_logger
 from app.schemas.common import ListResponse
 from app.schemas.notification import (
     AlertNotificationLogRead,
@@ -34,6 +35,7 @@ from app.schemas.notification import (
 from app.services import notification as notification_service
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 @router.post(
@@ -97,7 +99,10 @@ def delete_template(template_id: str, db: Session = Depends(get_db)):
     tags=["notifications"],
 )
 def create_notification(payload: NotificationCreate, db: Session = Depends(get_db)):
-    return notification_service.notifications.create(db, payload)
+    logger.info("notification_create_requested channel=%s", getattr(payload, "channel", None))
+    notification = notification_service.notifications.create(db, payload)
+    logger.info("notification_create_completed notification_id=%s", getattr(notification, "id", None))
+    return notification
 
 
 @router.post(
@@ -107,7 +112,13 @@ def create_notification(payload: NotificationCreate, db: Session = Depends(get_d
     tags=["notifications"],
 )
 def create_notifications_bulk(payload: NotificationBulkCreateRequest, db: Session = Depends(get_db)):
+    logger.info("notification_bulk_create_requested count=%d", len(payload.recipients))
     response = notification_service.notifications.bulk_create_response(db, payload)
+    logger.info(
+        "notification_bulk_create_completed created=%s errors=%d",
+        response.get("created"),
+        len(response.get("errors") or []),
+    )
     return NotificationBulkCreateResponse(**response)
 
 
@@ -117,7 +128,13 @@ def create_notifications_bulk(payload: NotificationBulkCreateRequest, db: Sessio
     tags=["notification-deliveries"],
 )
 def update_notification_deliveries_bulk(payload: NotificationDeliveryBulkUpdateRequest, db: Session = Depends(get_db)):
+    logger.info("notification_delivery_bulk_update_requested count=%d", len(payload.delivery_ids))
     response = notification_service.deliveries.bulk_update_response(db, payload)
+    logger.info(
+        "notification_delivery_bulk_update_completed updated=%s errors=%d",
+        response.get("updated"),
+        len(response.get("errors") or []),
+    )
     return NotificationDeliveryBulkUpdateResponse(**response)
 
 
@@ -175,7 +192,10 @@ def delete_notification(notification_id: str, db: Session = Depends(get_db)):
     tags=["notification-deliveries"],
 )
 def create_delivery(payload: NotificationDeliveryCreate, db: Session = Depends(get_db)):
-    return notification_service.deliveries.create(db, payload)
+    logger.info("notification_delivery_create_requested channel=%s", getattr(payload, "channel", None))
+    delivery = notification_service.deliveries.create(db, payload)
+    logger.info("notification_delivery_create_completed delivery_id=%s", getattr(delivery, "id", None))
+    return delivery
 
 
 @router.get(

@@ -22,6 +22,7 @@ from app.services.crm.web_sales import (
     update_pipeline,
     update_pipeline_stage,
 )
+from app.web.admin.crm_support import _can_write_sales, _crm_base_context
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
@@ -34,18 +35,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def _crm_base_context(*args, **kwargs):
-    from app.web.admin.crm import _crm_base_context as _shared_crm_base_context
-
-    return _shared_crm_base_context(*args, **kwargs)
-
-
-def _can_write_sales(request: Request) -> bool:
-    from app.web.admin.crm import _can_write_sales as _shared_can_write_sales
-
-    return _shared_can_write_sales(request)
 
 
 @router.get("/sales", response_class=HTMLResponse)

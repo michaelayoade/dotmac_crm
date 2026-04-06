@@ -1,22 +1,24 @@
-"""Web routes package combining admin, auth, and public routes."""
+"""Web route builder entrypoints."""
 
 from fastapi import APIRouter
 
-from app.web.admin import router as admin_router
-from app.web.agent import router as agent_router
-from app.web.auth import router as auth_router
-from app.web.public import router as public_router
-from app.web.reseller import router as reseller_router
-from app.web.vendor import router as vendor_router
 
-router = APIRouter(tags=["web"])
+def build_router() -> APIRouter:
+    from app.web.admin import build_router as build_admin_router
+    from app.web.agent import build_router as build_agent_router
+    from app.web.auth import build_router as build_auth_router
+    from app.web.public import build_router as build_public_router
+    from app.web.reseller import build_router as build_reseller_router
+    from app.web.vendor import build_router as build_vendor_router
 
-# Include all web sub-routers
-router.include_router(auth_router)
-router.include_router(admin_router)
-router.include_router(agent_router)
-router.include_router(vendor_router)
-router.include_router(reseller_router)
-router.include_router(public_router)
+    router = APIRouter(tags=["web"])
+    router.include_router(build_auth_router())
+    router.include_router(build_admin_router())
+    router.include_router(build_agent_router())
+    router.include_router(build_vendor_router())
+    router.include_router(build_reseller_router())
+    router.include_router(build_public_router())
+    return router
 
-__all__ = ["router"]
+
+__all__ = ["build_router"]

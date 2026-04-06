@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.logging import get_logger
 from app.schemas.ai_insight import AIInsightRead, AnalyzeRequest
 from app.services.ai.data_health import (
     ALERT_SNOOZE_HOURS_ALLOWED,
@@ -23,6 +24,7 @@ from app.services.ai.use_cases import suggest_conversation_reply, summarize_tick
 from app.services.auth_dependencies import require_permission, require_user_auth
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+logger = get_logger(__name__)
 
 
 @router.get(
@@ -114,6 +116,14 @@ def invoke_analysis(
     db: Session = Depends(get_db),
     auth=Depends(require_user_auth),
 ):
+    actor_id = str(auth.get("person_id")) if auth else None
+    logger.info(
+        "ai_analysis_requested persona_key=%s entity_type=%s entity_id=%s actor_id=%s",
+        persona_key,
+        payload.entity_type,
+        payload.entity_id,
+        actor_id,
+    )
     try:
         insight = intelligence_engine.invoke(
             db,
@@ -122,12 +132,36 @@ def invoke_analysis(
             entity_type=payload.entity_type,
             entity_id=payload.entity_id,
             trigger="on_demand",
-            triggered_by_person_id=str(auth.get("person_id")) if auth else None,
+            triggered_by_person_id=actor_id,
+        )
+        logger.info(
+            "ai_analysis_completed persona_key=%s entity_type=%s entity_id=%s actor_id=%s insight_id=%s",
+            persona_key,
+            payload.entity_type,
+            payload.entity_id,
+            actor_id,
+            insight.id,
         )
         return {"insight_id": str(insight.id), "status": insight.status.value}
     except ValueError as exc:
+        logger.warning(
+            "ai_analysis_invalid persona_key=%s entity_type=%s entity_id=%s actor_id=%s error=%s",
+            persona_key,
+            payload.entity_type,
+            payload.entity_id,
+            actor_id,
+            str(exc),
+        )
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
+        logger.warning(
+            "ai_analysis_failed persona_key=%s entity_type=%s entity_id=%s actor_id=%s error=%s",
+            persona_key,
+            payload.entity_type,
+            payload.entity_id,
+            actor_id,
+            str(exc),
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -142,10 +176,26 @@ def invoke_analysis_async(
 ):
     from app.tasks.intelligence import invoke_persona_async
 
+    actor_id = str(auth.get("person_id")) if auth else None
+    logger.info(
+        "ai_analysis_async_requested persona_key=%s entity_type=%s entity_id=%s actor_id=%s",
+        persona_key,
+        payload.entity_type,
+        payload.entity_id,
+        actor_id,
+    )
     # Validate persona key early for clearer errors.
     try:
         persona_registry.get(persona_key)
     except ValueError as exc:
+        logger.warning(
+            "ai_analysis_async_invalid persona_key=%s entity_type=%s entity_id=%s actor_id=%s error=%s",
+            persona_key,
+            payload.entity_type,
+            payload.entity_id,
+            actor_id,
+            str(exc),
+        )
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     try:
@@ -155,10 +205,26 @@ def invoke_analysis_async(
             entity_type=payload.entity_type,
             entity_id=payload.entity_id,
             trigger="on_demand",
-            triggered_by_person_id=str(auth.get("person_id")) if auth else None,
+            triggered_by_person_id=actor_id,
         )
     except Exception as exc:
+        logger.warning(
+            "ai_analysis_async_queue_unavailable persona_key=%s entity_type=%s entity_id=%s actor_id=%s error=%s",
+            persona_key,
+            payload.entity_type,
+            payload.entity_id,
+            actor_id,
+            str(exc),
+        )
         raise HTTPException(status_code=503, detail="Async queue unavailable") from exc
+    logger.info(
+        "ai_analysis_async_enqueued persona_key=%s entity_type=%s entity_id=%s actor_id=%s task_id=%s",
+        persona_key,
+        payload.entity_type,
+        payload.entity_id,
+        actor_id,
+        task.id,
+    )
     return {"task_id": task.id, "persona_key": persona_key}
 
 
@@ -281,17 +347,30 @@ def ai_suggest_crm_reply(
     db: Session = Depends(get_db),
     auth=Depends(require_user_auth),
 ):
+    actor_id = str(auth.get("person_id")) if auth else None
+    logger.info(
+        "ai_suggest_reply_requested conversation_id=%s actor_id=%s",
+        conversation_id,
+        actor_id,
+    )
     try:
         result = suggest_conversation_reply(
             db,
             request=None,
             conversation_id=conversation_id,
-            actor_person_id=str(auth.get("person_id")) if auth else None,
+            actor_person_id=actor_id,
         )
     except ValueError as exc:
+        logger.warning(
+            "ai_suggest_reply_invalid conversation_id=%s actor_id=%s error=%s", conversation_id, actor_id, str(exc)
+        )
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
+        logger.warning(
+            "ai_suggest_reply_failed conversation_id=%s actor_id=%s error=%s", conversation_id, actor_id, str(exc)
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info("ai_suggest_reply_completed conversation_id=%s actor_id=%s", conversation_id, actor_id)
     return {"draft": result.draft, "meta": result.meta}
 
 
@@ -301,15 +380,20 @@ def ai_summarize_ticket(
     db: Session = Depends(get_db),
     auth=Depends(require_user_auth),
 ):
+    actor_id = str(auth.get("person_id")) if auth else None
+    logger.info("ai_ticket_summary_requested ticket_id=%s actor_id=%s", ticket_id, actor_id)
     try:
         result = summarize_ticket(
             db,
             request=None,
             ticket_id=ticket_id,
-            actor_person_id=str(auth.get("person_id")) if auth else None,
+            actor_person_id=actor_id,
         )
     except ValueError as exc:
+        logger.warning("ai_ticket_summary_invalid ticket_id=%s actor_id=%s error=%s", ticket_id, actor_id, str(exc))
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
+        logger.warning("ai_ticket_summary_failed ticket_id=%s actor_id=%s error=%s", ticket_id, actor_id, str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info("ai_ticket_summary_completed ticket_id=%s actor_id=%s", ticket_id, actor_id)
     return {"summary": result.summary, "next_actions": result.next_actions, "meta": result.meta}

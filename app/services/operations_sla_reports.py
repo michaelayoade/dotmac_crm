@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.projects import Project, ProjectTask
 from app.models.tickets import Ticket
 from app.models.workflow import SlaBreach, SlaBreachStatus, SlaClock, WorkflowEntityType
-from app.web.admin.projects import REGION_OPTIONS
+from app.services.regions import REGION_OPTIONS
 
 SlaReportType = Literal["ticket", "project", "project_task"]
 

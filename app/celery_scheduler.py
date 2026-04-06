@@ -2,6 +2,7 @@ import time
 
 from celery.beat import Scheduler
 
+from app.celery_app import configure_celery_app
 from app.services.scheduler_config import build_beat_schedule
 
 
@@ -11,6 +12,7 @@ class DbScheduler(Scheduler):
         super().__init__(*args, **kwargs)
 
     def setup_schedule(self):
+        configure_celery_app(use_db=True)
         self._refresh_schedule()
 
     def tick(self):

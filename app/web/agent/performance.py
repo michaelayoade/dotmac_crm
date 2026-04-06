@@ -9,7 +9,7 @@ from app.services.crm.inbox.permissions import can_view_inbox
 from app.services.performance.goals import performance_goals
 from app.services.performance.reports import performance_reports
 from app.services.performance.reviews import performance_reviews
-from app.web.admin import get_current_user, get_sidebar_stats
+from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.auth.dependencies import require_web_auth
 from app.web.templates import Jinja2Templates
 

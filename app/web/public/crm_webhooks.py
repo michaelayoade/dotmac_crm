@@ -16,7 +16,6 @@ from app.logging import get_logger
 from app.schemas.crm.inbox import EmailWebhookPayload, MetaWebhookPayload, WhatsAppWebhookPayload
 from app.services import meta_oauth, meta_webhooks
 from app.services.webhook_dead_letter import write_dead_letter
-from app.tasks import webhooks as webhook_tasks
 
 logger = get_logger(__name__)
 
@@ -106,6 +105,12 @@ def _enqueue_webhook_task(
             message_id=message_id,
         )
         return False
+
+
+def _webhook_tasks():
+    from app.tasks import webhooks as webhook_tasks
+
+    return webhook_tasks
 
 
 def _get_verify_token(db: Session, channel: str = "meta") -> str | None:
@@ -332,7 +337,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             parsed = WhatsAppWebhookPayload.model_validate_json(body)
             parsed_payload = parsed.model_dump()
             enqueued = _enqueue_webhook_task(
-                webhook_tasks.process_whatsapp_webhook.delay,
+                _webhook_tasks().process_whatsapp_webhook.delay,
                 channel="whatsapp",
                 payload=parsed_payload,
                 trace_id=trace_id,
@@ -403,7 +408,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         meta_payload, status_count = _parse_meta_whatsapp_status_payload(payload)
         if status_count and meta_payload is not None:
             enqueued = _enqueue_webhook_task(
-                webhook_tasks.process_meta_webhook.delay,
+                _webhook_tasks().process_meta_webhook.delay,
                 channel="whatsapp",
                 payload=meta_payload.model_dump(),
                 trace_id=trace_id,
@@ -437,7 +442,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         for msg in messages:
             msg_payload = msg.model_dump()
             enqueued = _enqueue_webhook_task(
-                webhook_tasks.process_whatsapp_webhook.delay,
+                _webhook_tasks().process_whatsapp_webhook.delay,
                 channel="whatsapp",
                 payload=msg_payload,
                 trace_id=trace_id,
@@ -489,7 +494,7 @@ def email_webhook(payload: EmailWebhookPayload, db: Session = Depends(get_db)):
             attachments,
         )
     enqueued = _enqueue_webhook_task(
-        webhook_tasks.process_email_webhook.delay,
+        _webhook_tasks().process_email_webhook.delay,
         channel="email",
         payload=payload.model_dump(),
         trace_id=trace_id,
@@ -617,7 +622,7 @@ async def meta_webhook(
 
         event_count = sum(len(entry.messaging or []) + len(entry.changes or []) for entry in payload.entry)
         enqueued = _enqueue_webhook_task(
-            webhook_tasks.process_meta_webhook.delay,
+            _webhook_tasks().process_meta_webhook.delay,
             channel="meta",
             payload=payload.model_dump(),
             trace_id=trace_id,

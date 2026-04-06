@@ -1,5 +1,10 @@
-"""Authentication web routes."""
+"""Authentication web route builder."""
 
-from app.web.auth.routes import router
 
-__all__ = ["router"]
+def build_router():
+    from app.web.auth.routes import router
+
+    return router
+
+
+__all__ = ["build_router"]

@@ -22,12 +22,18 @@ from app.services.crm.web_leads import (
     update_lead,
     update_lead_status,
 )
+from app.services.regions import REGION_OPTIONS
+from app.web.admin.crm_support import (
+    _can_write_sales,
+    _crm_base_context,
+    _load_crm_sales_options,
+    _load_pipeline_stages_for_pipeline,
+)
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")
 logger = get_logger(__name__)
-REGION_OPTIONS = ["Gudu", "Garki", "Gwarimpa", "Jabi", "Lagos"]
 
 
 def get_db():
@@ -36,30 +42,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def _crm_base_context(*args, **kwargs):
-    from app.web.admin.crm import _crm_base_context as _shared_crm_base_context
-
-    return _shared_crm_base_context(*args, **kwargs)
-
-
-def _load_crm_sales_options(db: Session):
-    from app.web.admin.crm import _load_crm_sales_options as _shared_load_crm_sales_options
-
-    return _shared_load_crm_sales_options(db)
-
-
-def _load_pipeline_stages_for_pipeline(db: Session, pipeline_id: str | None):
-    from app.web.admin.crm import _load_pipeline_stages_for_pipeline as _shared_load_pipeline_stages_for_pipeline
-
-    return _shared_load_pipeline_stages_for_pipeline(db, pipeline_id)
-
-
-def _can_write_sales(request: Request) -> bool:
-    from app.web.admin.crm import _can_write_sales as _shared_can_write_sales
-
-    return _shared_can_write_sales(request)
 
 
 @router.get(
@@ -103,7 +85,7 @@ def crm_leads_list(
     dependencies=[Depends(require_permission("crm:lead:write"))],
 )
 def crm_lead_new(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     person_id = request.query_params.get("person_id", "").strip()
     contact_id = request.query_params.get("contact_id", "").strip()
@@ -205,7 +187,7 @@ def crm_lead_create(
     is_active: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     form_input = LeadUpsertInput(
         person_id=person_id,

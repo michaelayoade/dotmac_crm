@@ -3,8 +3,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.datastructures import UploadFile
 
+from app.auth_exceptions import AuthenticationRequired
 from app.logging import get_logger
-from app.web.auth.dependencies import AuthenticationRequired
 
 logger = get_logger(__name__)
 

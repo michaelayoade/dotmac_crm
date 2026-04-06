@@ -31,6 +31,7 @@ from app.services.crm.web_contacts import (
     new_contact_form_context,
     update_contact,
 )
+from app.web.admin.crm_support import _crm_base_context, _is_safe_url, _load_crm_agent_team_options
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
@@ -44,24 +45,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def _crm_base_context(*args, **kwargs):
-    from app.web.admin.crm import _crm_base_context as _shared_crm_base_context
-
-    return _shared_crm_base_context(*args, **kwargs)
-
-
-def _is_safe_url(value: str) -> bool:
-    from app.web.admin.crm import _is_safe_url as _shared_is_safe_url
-
-    return _shared_is_safe_url(value)
-
-
-def _load_crm_agent_team_options(db: Session):
-    from app.web.admin.crm import _load_crm_agent_team_options as _shared_load_crm_agent_team_options
-
-    return _shared_load_crm_agent_team_options(db)
 
 
 def _parse_bool_filter(value: str | None) -> bool | None:
@@ -275,7 +258,7 @@ def crm_contacts_merge_submit(
     target_person_id: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     source_value = (source_person_id or "").strip()
     target_value = (target_person_id or "").strip()
@@ -532,7 +515,7 @@ async def contact_detail_page(
     next: str | None = Query(default=None),
 ):
     """Full page contact details view."""
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     current_user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)

@@ -31,6 +31,7 @@ from app.services.audit_helpers import diff_dicts, extract_changes, format_chang
 from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
 from app.services.filter_engine import parse_filter_payload_json
+from app.services.regions import REGION_OPTIONS
 from app.services.subscriber import subscriber as subscriber_service
 from app.services.ticket_validation import base_station_required_ticket_types, subscriber_required_ticket_types
 from app.web.templates import Jinja2Templates
@@ -659,7 +660,7 @@ def tickets_list(
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
@@ -860,8 +861,7 @@ def ticket_create(
 ):
     # subscriber_service removed
     from app.services import dispatch as dispatch_service
-    from app.web.admin import get_current_user, get_sidebar_stats
-    from app.web.admin.projects import REGION_OPTIONS
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     prefill = {
         "conversation_id": None,
@@ -1155,8 +1155,7 @@ async def ticket_create_post(
     # subscriber_service removed
     from app.services import dispatch as dispatch_service
     from app.services import ticket_attachments as ticket_attachment_service
-    from app.web.admin import get_current_user, get_sidebar_stats
-    from app.web.admin.projects import REGION_OPTIONS
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     prepared_attachments: list[dict] = []
     saved_attachments: list[dict] = []
@@ -1452,8 +1451,7 @@ def ticket_edit(
     # subscriber_service removed
     from app.models.tickets import TicketStatus
     from app.services import dispatch as dispatch_service
-    from app.web.admin import get_current_user, get_sidebar_stats
-    from app.web.admin.projects import REGION_OPTIONS
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     try:
         ticket, should_redirect = _resolve_ticket_reference(db, ticket_ref)
@@ -1561,8 +1559,7 @@ async def ticket_edit_post(
     # subscriber_service removed
     from app.services import dispatch as dispatch_service
     from app.services import ticket_attachments as ticket_attachment_service
-    from app.web.admin import get_current_user, get_sidebar_stats
-    from app.web.admin.projects import REGION_OPTIONS
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     prepared_attachments: list[dict] = []
     saved_attachments: list[dict] = []
@@ -2027,7 +2024,7 @@ def ticket_detail(
         offset=0,
     )
 
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     audit_events = audit_service.audit_events.list(
         db=db,
@@ -2188,7 +2185,7 @@ def merge_ticket(
     reason: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     if not _can_manage_ticket_relationships(current_user):
@@ -2240,7 +2237,7 @@ def link_ticket(
     related_outage_ticket_ref: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     if not _can_manage_ticket_relationships(current_user):
@@ -2291,7 +2288,7 @@ def ticket_delete(
     db: Session = Depends(get_db),
 ):
     """Soft-delete a ticket (is_active = False)."""
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     try:
         ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
@@ -2337,7 +2334,7 @@ def update_ticket_status(
     from datetime import datetime
 
     from app.schemas.tickets import TicketUpdate
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     try:
         current_user = get_current_user(request)
@@ -2388,7 +2385,7 @@ def update_ticket_status(
             )
         return RedirectResponse(url=f"/admin/support/tickets/{ticket.number or ticket.id}", status_code=303)
     except Exception as e:
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         sidebar_stats = get_sidebar_stats(db)
         current_user = get_current_user(request)
@@ -2412,7 +2409,7 @@ def update_ticket_priority(
 ):
     """Update ticket priority."""
     from app.schemas.tickets import TicketUpdate
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     try:
         priority_map = {
@@ -2450,7 +2447,7 @@ def update_ticket_priority(
             )
         return RedirectResponse(url=f"/admin/support/tickets/{ticket.number or ticket.id}", status_code=303)
     except Exception as e:
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         sidebar_stats = get_sidebar_stats(db)
         current_user = get_current_user(request)
@@ -2472,7 +2469,7 @@ def manual_auto_assign_ticket(
     db: Session = Depends(get_db),
 ):
     """Run ticket rule auto-assignment manually for an existing ticket."""
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     try:
         ticket, _should_redirect = _resolve_ticket_reference(db, ticket_ref)
@@ -2492,7 +2489,7 @@ def manual_auto_assign_ticket(
         tickets_service.tickets.auto_assign_manual(db=db, ticket_id=str(ticket.id), actor_id=actor_id)
     except Exception as e:
         logger.exception("ticket_manual_auto_assign_failed ticket_ref=%s", ticket_ref)
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         sidebar_stats = get_sidebar_stats(db)
         current_user = get_current_user(request)
@@ -2528,7 +2525,7 @@ async def add_ticket_comment(
 
     from app.schemas.tickets import TicketCommentCreate
     from app.services import ticket_attachments as ticket_attachment_service
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     prepared_attachments: list[dict] = []
     try:
@@ -2601,7 +2598,7 @@ async def add_ticket_comment(
     except Exception as e:
         ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
         logger.exception("ticket_comment_create_failed ticket_ref=%s", ticket_ref)
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         sidebar_stats = get_sidebar_stats(db)
         current_user = get_current_user(request)
@@ -2627,7 +2624,7 @@ def edit_ticket_comment(
 ):
     """Edit a ticket comment body."""
     from app.schemas.tickets import TicketCommentUpdate
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     body_clean = (body or "").strip()
     if not body_clean:

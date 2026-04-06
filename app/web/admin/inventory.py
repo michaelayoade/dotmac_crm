@@ -34,7 +34,7 @@ def get_db():
 
 @router.get("", response_class=HTMLResponse)
 def inventory_index(request: Request, tab: str = "items", search: str | None = None, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     # Get inventory data
     items = inventory_service.inventory_items.list(
@@ -79,7 +79,7 @@ def inventory_index(request: Request, tab: str = "items", search: str | None = N
 
 @router.get("/items/new", response_class=HTMLResponse)
 def inventory_item_new(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     context = {
         "request": request,
@@ -103,7 +103,7 @@ def inventory_item_create(
     is_active: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     try:
         payload = InventoryItemCreate(
@@ -140,7 +140,7 @@ def inventory_item_create(
 
 @router.get("/items/{item_id}", response_class=HTMLResponse)
 def inventory_item_detail(request: Request, item_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     item = inventory_service.inventory_items.get(db=db, item_id=item_id)
     stocks = inventory_service.inventory_stocks.list(
@@ -209,7 +209,7 @@ def inventory_item_detail(request: Request, item_id: str, db: Session = Depends(
 
 @router.get("/items/{item_id}/edit", response_class=HTMLResponse)
 def inventory_item_edit(request: Request, item_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     item = inventory_service.inventory_items.get(db=db, item_id=item_id)
 
@@ -236,7 +236,7 @@ def inventory_item_update(
     is_active: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     try:
         before = inventory_service.inventory_items.get(db=db, item_id=item_id)
@@ -281,7 +281,7 @@ def inventory_item_delete(
     item_id: str,
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     try:
         item = inventory_service.inventory_items.get(db=db, item_id=item_id)
@@ -308,7 +308,7 @@ def inventory_item_delete(
 
 @router.get("/locations/new", response_class=HTMLResponse)
 def inventory_location_new(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     context = {
         "request": request,
@@ -331,7 +331,7 @@ def inventory_location_create(
     is_active: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     try:
         payload = InventoryLocationCreate(
@@ -367,7 +367,7 @@ def inventory_location_create(
 
 @router.get("/locations/{location_id}", response_class=HTMLResponse)
 def inventory_location_detail(request: Request, location_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     location = inventory_service.inventory_locations.get(db=db, location_id=location_id)
     stocks = inventory_service.inventory_stocks.list(
@@ -436,7 +436,7 @@ def inventory_location_detail(request: Request, location_id: str, db: Session = 
 
 @router.get("/locations/{location_id}/edit", response_class=HTMLResponse)
 def inventory_location_edit(request: Request, location_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     location = inventory_service.inventory_locations.get(db=db, location_id=location_id)
 
@@ -462,7 +462,7 @@ def inventory_location_update(
     is_active: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     try:
         before = inventory_service.inventory_locations.get(db=db, location_id=location_id)
@@ -506,7 +506,7 @@ def inventory_location_delete(
     location_id: str,
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     try:
         location = inventory_service.inventory_locations.get(db=db, location_id=location_id)

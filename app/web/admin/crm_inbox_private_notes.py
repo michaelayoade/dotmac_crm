@@ -9,6 +9,7 @@ from starlette.responses import JSONResponse, Response
 
 from app.db import SessionLocal
 from app.services.crm.inbox.formatting import filter_messages_for_user, format_message_for_template
+from app.web.admin.crm_support import _get_current_roles, _get_current_scopes
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
@@ -39,24 +40,6 @@ def get_db():
         db.close()
 
 
-def _get_current_roles(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        roles = auth.get("roles") or []
-        if isinstance(roles, list):
-            return [str(role) for role in roles]
-    return []
-
-
-def _get_current_scopes(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        scopes = auth.get("scopes") or []
-        if isinstance(scopes, list):
-            return [str(scope) for scope in scopes]
-    return []
-
-
 @router.post("/inbox/conversation/{conversation_id}/note")
 def create_private_note(
     request: Request,
@@ -69,7 +52,7 @@ def create_private_note(
 
     from app.logic import private_note_logic
     from app.services.crm.inbox.private_notes_admin import create_private_note
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     if not private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE:
         return JSONResponse({"detail": "Not found"}, status_code=404)
@@ -116,7 +99,7 @@ def create_private_note_api(
     from fastapi import HTTPException
 
     from app.services.crm.inbox.private_notes_admin import create_private_note_with_attachments
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     if not payload.body or not payload.body.strip():
         return JSONResponse({"detail": "Private note body is empty"}, status_code=400)
@@ -185,7 +168,7 @@ def delete_private_note_api(
     from fastapi import HTTPException
 
     from app.services.crm.inbox.private_notes_admin import delete_private_note
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request) or {}
     author_id = current_user.get("person_id")
