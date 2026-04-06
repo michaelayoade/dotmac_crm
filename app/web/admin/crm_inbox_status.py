@@ -206,6 +206,10 @@ async def update_conversation_status(
         except ValueError:
             assigned_to_dt = None
 
+    offset_raw = request.query_params.get("offset")
+    limit_raw = request.query_params.get("limit")
+    page_raw = request.query_params.get("page")
+
     template_name, context = await build_inbox_conversations_partial_context(
         db,
         channel=request.query_params.get("channel"),
@@ -219,9 +223,9 @@ async def update_conversation_status(
         assigned_from=assigned_from_dt,
         assigned_to=assigned_to_dt,
         missing=request.query_params.get("missing"),
-        offset=int(request.query_params.get("offset")) if request.query_params.get("offset") else None,
-        limit=int(request.query_params.get("limit")) if request.query_params.get("limit") else None,
-        page=int(request.query_params.get("page")) if request.query_params.get("page") else None,
+        offset=int(offset_raw) if offset_raw else None,
+        limit=int(limit_raw) if limit_raw else None,
+        page=int(page_raw) if page_raw else None,
     )
     return templates.TemplateResponse(template_name, {"request": request, **context})
 
