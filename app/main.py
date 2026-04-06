@@ -1,8 +1,9 @@
 import secrets
+from contextlib import asynccontextmanager
 from threading import Lock
 from time import monotonic
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy.orm import Session
@@ -54,6 +55,7 @@ from app.api.wireless_masts import router as wireless_masts_router
 from app.api.wireless_survey import router as wireless_survey_router
 from app.api.workflow import router as workflow_router
 from app.api.workforce import router as workforce_router
+from app.config import settings
 from app.csrf import (
     CSRF_COOKIE_NAME,
     CSRF_HEADER_NAME,
@@ -62,10 +64,10 @@ from app.csrf import (
 )
 from app.db import SessionLocal
 from app.errors import register_error_handlers
-from app.logging import configure_logging
+from app.logging import configure_logging, get_logger
 from app.middleware.api_rate_limit import APIRateLimitMiddleware, WebhookRateLimitMiddleware
 from app.models.domain_settings import DomainSetting, SettingDomain
-from app.monitoring import setup_monitoring
+from app.monitoring import is_bearer_token_authorized, setup_monitoring
 from app.observability import ObservabilityMiddleware
 from app.services import audit as audit_service
 from app.services import branding_state
@@ -91,12 +93,12 @@ from app.services.settings_seed import (
     seed_workflow_settings,
 )
 from app.telemetry import setup_otel
-from app.web import router as web_router
+from app.web import build_router as build_web_router
 from app.web_home import router as web_home_router
 from app.websocket.router import router as ws_router
 from app.websocket.widget_router import router as ws_widget_router
 
-app = FastAPI(title="dotmac_crm API")
+logger = get_logger(__name__)
 
 _AUDIT_SETTINGS_CACHE: dict | None = None
 _AUDIT_SETTINGS_CACHE_AT: float | None = None
@@ -105,6 +107,20 @@ _AUDIT_SETTINGS_LOCK = Lock()
 
 configure_logging()
 setup_monitoring()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    _start_jobs()
+    _ensure_storage()
+    await _start_websocket_manager()
+    try:
+        yield
+    finally:
+        await _stop_websocket_manager()
+
+
+app = FastAPI(title="dotmac_crm API", lifespan=lifespan)
 setup_otel(app)
 app.add_middleware(ObservabilityMiddleware)
 app.add_middleware(APIRateLimitMiddleware)  # Global API rate limiting
@@ -430,7 +446,7 @@ app.include_router(vendors_router, prefix="/api/v1", dependencies=[Depends(requi
 app.include_router(vendor_portal_router, prefix="/api")
 app.include_router(vendor_portal_router, prefix="/api/v1")
 app.include_router(web_home_router)
-app.include_router(web_router)
+app.include_router(build_web_router())
 
 app.include_router(ws_router)
 app.include_router(ws_widget_router)
@@ -504,13 +520,15 @@ def head_health():
 
 
 @app.get("/metrics")
-def metrics():
+def metrics(request: Request):
+    if not is_bearer_token_authorized(request.headers.get("authorization"), settings.metrics_token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
     data = generate_latest()
     return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 
 
-@app.on_event("startup")
 def _start_jobs():
+    logger.info("app_startup_seed_begin")
     db = SessionLocal()
     try:
         seed_auth_settings(db)
@@ -531,28 +549,32 @@ def _start_jobs():
         seed_performance_settings(db)
         seed_sla_defaults(db)
         seed_bootstrap_admin_user(db)
+        logger.info("app_startup_seed_completed")
     finally:
         db.close()
+    logger.info("app_startup_smtp_begin")
     smtp_inbound_service.start_smtp_inbound_server()
+    logger.info("app_startup_smtp_completed")
 
 
-@app.on_event("startup")
 def _ensure_storage():
     from app.services.storage import storage
 
     if hasattr(storage, "ensure_bucket"):
+        logger.info("app_startup_storage_begin")
         storage.ensure_bucket()
+        logger.info("app_startup_storage_completed")
 
 
-@app.on_event("startup")
 async def _start_websocket_manager():
     from app.websocket.manager import get_connection_manager
 
+    logger.info("app_startup_websocket_begin")
     manager = get_connection_manager()
     await manager.connect()
+    logger.info("app_startup_websocket_completed")
 
 
-@app.on_event("shutdown")
 async def _stop_websocket_manager():
     from app.websocket.manager import get_connection_manager
 

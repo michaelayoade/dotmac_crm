@@ -6,19 +6,12 @@ from urllib.parse import quote
 from fastapi import Depends, Request
 from sqlalchemy.orm import Session
 
+from app.auth_exceptions import AuthenticationRequired
 from app.db import SessionLocal
 from app.models.auth import Session as AuthSession
 from app.models.auth import SessionStatus
 from app.models.person import Person
 from app.services.auth_flow import _load_rbac_claims, decode_access_token
-
-
-class AuthenticationRequired(Exception):
-    """Raised when authentication is required but not provided."""
-
-    def __init__(self, redirect_url: str = "/auth/login"):
-        self.redirect_url = redirect_url
-        super().__init__("Authentication required")
 
 
 def _get_db():

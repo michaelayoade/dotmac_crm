@@ -71,7 +71,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         except Exception:  # nosec B110 — OTel span attribute is best-effort
             logger.debug("otel_span_attribute_failed")
         token = _extract_bearer_token(request)
-        actor_id = getattr(request.state, "actor_id", None) or _extract_actor_id_from_jwt(token)
+        fallback_actor_id = getattr(request.state, "actor_id", None) or _extract_actor_id_from_jwt(token)
         start = time.monotonic()
         status_code = 500
         try:
@@ -80,6 +80,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         except Exception:
             duration_ms = (time.monotonic() - start) * 1000.0
             path = _request_path(request)
+            actor_id = getattr(request.state, "actor_id", None) or fallback_actor_id
             REQUEST_COUNT.labels(request.method, path, str(status_code)).inc()
             REQUEST_LATENCY.labels(request.method, path, str(status_code)).observe(duration_ms / 1000.0)
             REQUEST_ERRORS.labels(request.method, path, str(status_code)).inc()
@@ -97,6 +98,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             raise
         duration_ms = (time.monotonic() - start) * 1000.0
         path = _request_path(request)
+        actor_id = getattr(request.state, "actor_id", None) or fallback_actor_id
         REQUEST_COUNT.labels(request.method, path, str(status_code)).inc()
         REQUEST_LATENCY.labels(request.method, path, str(status_code)).observe(duration_ms / 1000.0)
         if status_code >= 500:

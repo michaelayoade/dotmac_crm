@@ -72,7 +72,7 @@ def get_db():
 
 
 def _base_context(request: Request, db: Session, active_page: str):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     return {
         "request": request,
@@ -84,7 +84,7 @@ def _base_context(request: Request, db: Session, active_page: str):
 
 
 def _current_person_id(request: Request) -> str | None:
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request) or {}
     person_id = current_user.get("person_id")
@@ -94,7 +94,7 @@ def _current_person_id(request: Request) -> str | None:
 
 
 def _is_admin_user(request: Request) -> bool:
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request) or {}
     roles = current_user.get("roles") if isinstance(current_user, dict) else []

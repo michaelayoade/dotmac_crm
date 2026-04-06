@@ -58,11 +58,11 @@ from app.services.audit_helpers import (
 from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
 from app.services.filter_engine import parse_filter_payload_json
+from app.services.regions import REGION_OPTIONS
 from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/projects", tags=["web-admin-projects"])
-REGION_OPTIONS = ["Gudu", "Garki", "Gwarimpa", "Jabi", "Lagos"]
 
 
 class _TemplateTaskJSONItem(BaseModel):
@@ -290,7 +290,7 @@ def _project_form_context(
     error: str | None = None,
     labels: dict | None = None,
 ):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     template_items = projects_service.project_templates.list(
         db=db,
@@ -401,7 +401,7 @@ def _task_form_context(
     action_url: str,
     error: str | None = None,
 ):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     projects = projects_service.projects.list(
         db=db,
@@ -528,7 +528,7 @@ def projects_list(
         order_dir = "desc"
     offset = (page - 1) * per_page
     from app.csrf import get_csrf_token
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
@@ -729,7 +729,7 @@ def project_new(request: Request, db: Session = Depends(get_db)):
 async def project_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     attachments = form.getlist("attachments")
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     project = {
@@ -873,7 +873,7 @@ def project_tasks_list(
     offset = (page - 1) * per_page
 
     from app.csrf import get_csrf_token
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     sidebar_stats = get_sidebar_stats(db)
     current_user = get_current_user(request)
@@ -1048,7 +1048,7 @@ def project_task_new(request: Request, db: Session = Depends(get_db)):
 async def project_task_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     attachments = form.getlist("attachments")
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     task = {
@@ -1152,7 +1152,7 @@ def _template_form_context(
     action_url: str,
     error: str | None = None,
 ):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     context = {
         "request": request,
@@ -1175,7 +1175,7 @@ def _template_task_form_context(
     action_url: str,
     error: str | None = None,
 ):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     context = {
         "request": request,
@@ -1260,7 +1260,7 @@ def project_templates_list(request: Request, db: Session = Depends(get_db)):
             .all()
         )
         template_items = [dict(row) for row in rows]
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     return templates.TemplateResponse(
         "admin/projects/project_templates.html",
@@ -1340,7 +1340,7 @@ def project_template_detail(request: Request, template_id: str, db: Session = De
     try:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
     except Exception:
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         context = {
             "request": request,
@@ -1359,7 +1359,7 @@ def project_template_detail(request: Request, template_id: str, db: Session = De
         limit=500,
         offset=0,
     )
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     return templates.TemplateResponse(
         "admin/projects/project_template_detail.html",
@@ -1383,7 +1383,7 @@ def project_template_tasks_editor(request: Request, template_id: str, db: Sessio
     try:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
     except Exception:
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         context = {
             "request": request,
@@ -1394,7 +1394,7 @@ def project_template_tasks_editor(request: Request, template_id: str, db: Sessio
         return templates.TemplateResponse("admin/errors/404.html", context, status_code=404)
 
     _, tasks_payload = _build_template_task_editor_payload(db, template_id)
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     return templates.TemplateResponse(
         "admin/projects/project_template_tasks_editor.html",
@@ -1425,7 +1425,7 @@ async def project_template_tasks_editor_update(request: Request, template_id: st
 
     if tasks_data is None:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         return templates.TemplateResponse(
             "admin/projects/project_template_tasks_editor.html",
@@ -1476,7 +1476,7 @@ async def project_template_tasks_editor_update(request: Request, template_id: st
 
     if errors:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         return templates.TemplateResponse(
             "admin/projects/project_template_tasks_editor.html",
@@ -1575,7 +1575,7 @@ def project_template_edit(request: Request, template_id: str, db: Session = Depe
     try:
         template = projects_service.project_templates.get(db=db, template_id=template_id)
     except Exception:
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         context = {
             "request": request,
@@ -1760,7 +1760,7 @@ def project_template_task_edit(request: Request, template_id: str, task_id: str,
         if str(task.template_id) != template_id:
             raise ValueError("Template mismatch")
     except Exception:
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         context = {
             "request": request,
@@ -1799,7 +1799,7 @@ async def project_template_task_update(request: Request, template_id: str, task_
         if str(existing_task.template_id) != template_id:
             raise ValueError("Template mismatch")
     except Exception:
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         context = {
             "request": request,
@@ -1886,7 +1886,7 @@ def project_template_task_delete(request: Request, template_id: str, task_id: st
         if str(existing_task.template_id) != template_id:
             raise ValueError("Template mismatch")
     except Exception:
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         context = {
             "request": request,
@@ -1907,7 +1907,7 @@ def project_template_task_delete(request: Request, template_id: str, task_id: st
 def project_detail(request: Request, project_ref: str, db: Session = Depends(get_db)):
     from app.csrf import get_csrf_token
     from app.services.agent_mentions import list_active_users_for_mentions
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     try:
         project, should_redirect = _resolve_project_reference(db, project_ref)
@@ -2035,7 +2035,7 @@ def project_detail(request: Request, project_ref: str, db: Session = Depends(get
     dependencies=[Depends(require_permission("project:update"))],
 )
 async def project_comment_create(request: Request, project_ref: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     form = await request.form()
     body = _form_str(form.get("body")).strip()
@@ -2130,7 +2130,7 @@ async def project_comment_create(request: Request, project_ref: str, db: Session
 )
 async def project_comment_edit(request: Request, project_ref: str, comment_id: str, db: Session = Depends(get_db)):
     from app.schemas.projects import ProjectCommentUpdate
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     form = await request.form()
     body = _form_str(form.get("body")).strip()
@@ -2258,7 +2258,7 @@ def project_edit(request: Request, project_ref: str, db: Session = Depends(get_d
         if should_redirect:
             return RedirectResponse(url=f"/admin/projects/{project.number}/edit", status_code=302)
     except Exception:
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         context = {
             "request": request,
@@ -2338,7 +2338,7 @@ def project_edit(request: Request, project_ref: str, db: Session = Depends(get_d
 async def project_update(request: Request, project_ref: str, db: Session = Depends(get_db)):
     form = await request.form()
     attachments = form.getlist("attachments")
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     project_record, _should_redirect = _resolve_project_reference(db, project_ref)
@@ -2491,7 +2491,7 @@ async def project_update(request: Request, project_ref: str, db: Session = Depen
 )
 async def project_status_update(request: Request, project_ref: str, db: Session = Depends(get_db)):
     """Quick inline status update for a project."""
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     form = await request.form()
     status_raw = form.get("status")
@@ -2531,7 +2531,7 @@ async def project_status_update(request: Request, project_ref: str, db: Session 
 )
 async def project_priority_update(request: Request, project_ref: str, db: Session = Depends(get_db)):
     """Quick inline priority update for a project."""
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     form = await request.form()
     priority_raw = form.get("priority")
@@ -2583,7 +2583,7 @@ def project_delete(request: Request, project_ref: str, db: Session = Depends(get
 def project_task_detail(request: Request, task_ref: str, db: Session = Depends(get_db)):
     from app.csrf import get_csrf_token
     from app.services.agent_mentions import list_active_users_for_mentions
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     try:
         task, should_redirect = _resolve_project_task_reference(db, task_ref)
@@ -2655,7 +2655,7 @@ def project_task_detail(request: Request, task_ref: str, db: Session = Depends(g
     dependencies=[Depends(require_permission("project:task:write"))],
 )
 async def project_task_comment_create(request: Request, task_ref: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     form = await request.form()
     body = _form_str(form.get("body")).strip()
@@ -2754,7 +2754,7 @@ def project_task_edit(request: Request, task_ref: str, db: Session = Depends(get
         if should_redirect:
             return RedirectResponse(url=f"/admin/projects/tasks/{task.number}/edit", status_code=302)
     except Exception:
-        from app.web.admin import get_current_user, get_sidebar_stats
+        from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
         context = {
             "request": request,
@@ -2798,7 +2798,7 @@ def project_task_edit(request: Request, task_ref: str, db: Session = Depends(get
 async def project_task_update(request: Request, task_ref: str, db: Session = Depends(get_db)):
     form = await request.form()
     attachments = form.getlist("attachments")
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     task_record, _should_redirect = _resolve_project_task_reference(db, task_ref)

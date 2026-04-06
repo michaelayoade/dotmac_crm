@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.web.admin.crm_support import _get_current_roles
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
@@ -19,15 +20,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def _get_current_roles(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        roles = auth.get("roles") or []
-        if isinstance(roles, list):
-            return [str(role) for role in roles]
-    return []
 
 
 def _parse_date_param(value: str | None, *, end_of_day: bool = False) -> datetime | None:
@@ -50,7 +42,7 @@ async def inbox_summary_counts(
     """Live summary counters for inbox sidebar chips/KPI."""
     from app.services.crm.inbox.queries import get_assignment_counts, get_inbox_stats, get_resolved_today_count
     from app.services.time_preferences import resolve_company_time_prefs
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     assigned_person_id = current_user.get("person_id") if isinstance(current_user, dict) else None
@@ -84,7 +76,7 @@ async def inbox_conversations_partial(
 ):
     """Partial template for conversation list (HTMX)."""
     from app.services.crm.inbox.page_context import build_inbox_conversations_partial_context
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     assigned_person_id = current_user.get("person_id")
@@ -124,7 +116,7 @@ async def inbox_conversation_detail(
 ):
     """Partial template for conversation thread (HTMX)."""
     from app.services.crm.inbox.page_context import build_inbox_conversation_detail_context
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     current_roles = _get_current_roles(request)

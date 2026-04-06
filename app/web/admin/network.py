@@ -7,12 +7,11 @@ import logging
 import math
 from datetime import UTC, date, datetime
 from enum import Enum
-from typing import cast
 from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import text
@@ -29,19 +28,17 @@ from app.models.network import (
     FiberSpliceTray,
     FiberStrand,
     FiberTerminationPoint,
-    OLTDevice,
     Splitter,
     SplitterPort,
 )
 from app.services import fiber_change_requests as change_request_service
 from app.services import gis as gis_service
-from app.services import settings_spec
+from app.services import network_map_actions, settings_spec
 from app.services import vendor as vendor_service
 from app.services.common import coerce_uuid
 from app.services.fiber_plant import fiber_plant
 from app.services.network_impl import fdh_cabinets as fdh_cabinets_service
 from app.services.network_impl import splitters as splitters_service
-from app.services.pdf_utils import ensure_pydyf_compat
 from app.web.templates import Jinja2Templates
 
 logger = logging.getLogger(__name__)
@@ -199,7 +196,7 @@ def _is_conflict(change_request, asset) -> bool:
 
 @router.get("/map", response_class=HTMLResponse)
 def network_map(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     # Delegate GeoJSON generation to the service (single source of truth)
     geojson_data = fiber_plant.get_geojson(db)
@@ -249,7 +246,7 @@ def pop_sites_list(
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=5, le=100),
 ):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     offset = (page - 1) * per_page
     pop_sites = gis_service.geo_locations.list(
@@ -297,7 +294,7 @@ def pop_sites_list(
 
 @router.get("/fdh-cabinets", response_class=HTMLResponse)
 def fdh_cabinets_list(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     cabinets = fdh_cabinets_service.list(db, region_id=None, order_by="name", order_dir="asc", limit=500, offset=0)
     stats = {
@@ -319,7 +316,7 @@ def fdh_cabinets_list(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/fdh-cabinets/new", response_class=HTMLResponse)
 def fdh_cabinet_new(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     return templates.TemplateResponse(
         "admin/network/fiber/fdh-cabinet-form.html",
@@ -374,7 +371,7 @@ def fdh_cabinet_create(
         error = _sanitize_error(exc)
         logger.exception("FDH cabinet create failed")
 
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     return templates.TemplateResponse(
         "admin/network/fiber/fdh-cabinet-form.html",
@@ -395,7 +392,7 @@ def fdh_cabinet_create(
 
 @router.get("/fdh-cabinets/{cabinet_id}", response_class=HTMLResponse)
 def fdh_cabinet_detail(request: Request, cabinet_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     cabinet = db.get(FdhCabinet, cabinet_id)
     if not cabinet:
@@ -424,7 +421,7 @@ def fdh_cabinet_detail(request: Request, cabinet_id: str, db: Session = Depends(
 
 @router.get("/fdh-cabinets/{cabinet_id}/edit", response_class=HTMLResponse)
 def fdh_cabinet_edit(request: Request, cabinet_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     cabinet = db.get(FdhCabinet, cabinet_id)
     if not cabinet:
@@ -483,7 +480,7 @@ def fdh_cabinet_update(
         error = _sanitize_error(exc)
         logger.exception("FDH cabinet update failed for %s", cabinet_id)
 
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     return templates.TemplateResponse(
         "admin/network/fiber/fdh-cabinet-form.html",
@@ -519,7 +516,7 @@ def fiber_change_requests_list(
     skipped: int | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     requests = change_request_service.list_requests(db, status=FiberChangeRequestStatus.pending)
     conflicts: dict[str, bool] = {}
@@ -550,7 +547,7 @@ def fiber_change_request_detail(
     error: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     change_request = change_request_service.get_request(db, request_id)
     asset = _asset_snapshot(
@@ -629,7 +626,7 @@ async def fiber_change_request_approve(
     force_apply: bool = Form(False),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     reviewer_person_id = str(current_user.get("person_id") or "")
@@ -660,7 +657,7 @@ async def fiber_change_request_reject(
     review_notes: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     if not (review_notes or "").strip():
         return RedirectResponse(
@@ -685,7 +682,7 @@ async def fiber_change_requests_bulk_approve(
     force_apply: bool = Form(False),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     form = await request.form()
     request_ids = [value for value in form.getlist("request_ids") if isinstance(value, str) and value.strip()]
@@ -754,30 +751,7 @@ async def fiber_map_update_position(request: Request, db: Session = Depends(get_
 
 @router.post("/fiber-map/update-olt-role")
 async def fiber_map_update_olt_role(request: Request, db: Session = Depends(get_db)):
-    """Update OLT map role (OLT vs base station). This is intentionally a small, surgical update endpoint."""
-    try:
-        data = await request.json()
-        device_id = (data.get("id") or "").strip()
-        site_role = (data.get("site_role") or "").strip().lower()
-
-        if not device_id:
-            return JSONResponse({"error": "Missing id"}, status_code=400)
-        if site_role not in {"olt", "base_station"}:
-            return JSONResponse({"error": "Invalid site_role"}, status_code=400)
-
-        device = db.get(OLTDevice, coerce_uuid(device_id))
-        if not device:
-            return JSONResponse({"error": "OLT device not found"}, status_code=404)
-
-        device.site_role = site_role
-        db.commit()
-        return JSONResponse({"success": True, "id": device_id, "site_role": site_role})
-    except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=400)
-    except Exception:
-        db.rollback()
-        logger.exception("fiber_map_update_olt_role failed")
-        return JSONResponse({"error": "Failed to update OLT role"}, status_code=500)
+    return await network_map_actions.update_olt_role(request, db)
 
 
 @router.post("/fiber-map/save-plan")
@@ -811,37 +785,7 @@ async def fiber_map_nearest_cabinet(lat: float, lng: float, db: Session = Depend
 
 
 async def find_nearest_cabinet(_request: Request | None, lat: float, lng: float, db: Session):
-    try:
-        lat_f, lng_f = _parse_lat_lng(lat, lng)
-    except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=400)
-
-    cabinets = _get_cabinets_with_location(db)
-    if not cabinets:
-        return JSONResponse({"error": "No cabinets found"}, status_code=404)
-
-    nearest = None
-    nearest_dist = None
-    for cabinet in cabinets:
-        dist = _haversine_distance_m(lat_f, lng_f, float(cabinet.latitude), float(cabinet.longitude))
-        if nearest_dist is None or dist < nearest_dist:
-            nearest = cabinet
-            nearest_dist = dist
-
-    if not nearest or nearest_dist is None:
-        return JSONResponse({"error": "No cabinets found"}, status_code=404)
-
-    return JSONResponse(
-        {
-            "id": str(nearest.id),
-            "name": nearest.name,
-            "code": nearest.code,
-            "latitude": nearest.latitude,
-            "longitude": nearest.longitude,
-            "distance_m": nearest_dist,
-            "distance_display": _format_distance(nearest_dist),
-        }
-    )
+    return await network_map_actions.find_nearest_cabinet(lat, lng, db)
 
 
 @router.get("/fiber-map/plan-options")
@@ -850,28 +794,7 @@ async def fiber_map_plan_options(lat: float, lng: float, db: Session = Depends(g
 
 
 async def plan_options(_request: Request | None, lat: float, lng: float, db: Session):
-    try:
-        lat_f, lng_f = _parse_lat_lng(lat, lng)
-    except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=400)
-
-    cabinets = _get_cabinets_with_location(db)
-    options = []
-    for cabinet in cabinets:
-        dist = _haversine_distance_m(lat_f, lng_f, float(cabinet.latitude), float(cabinet.longitude))
-        options.append(
-            {
-                "id": str(cabinet.id),
-                "name": cabinet.name,
-                "code": cabinet.code,
-                "latitude": cabinet.latitude,
-                "longitude": cabinet.longitude,
-                "distance_m": dist,
-                "distance_display": _format_distance(dist),
-            }
-        )
-    options.sort(key=lambda item: cast(float, item["distance_m"]))
-    return JSONResponse({"options": options[:5]})
+    return await network_map_actions.plan_options(lat, lng, db)
 
 
 @router.get("/fiber-map/route")
@@ -880,25 +803,7 @@ async def fiber_map_route(lat: float, lng: float, cabinet_id: str, db: Session =
 
 
 async def plan_route(_request: Request | None, lat: float, lng: float, cabinet_id: str, db: Session):
-    try:
-        lat_f, lng_f = _parse_lat_lng(lat, lng)
-    except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=400)
-
-    cabinet = db.get(FdhCabinet, cabinet_id)
-    if not cabinet or cabinet.latitude is None or cabinet.longitude is None:
-        return JSONResponse({"error": "Cabinet not found"}, status_code=404)
-
-    lat_c = float(cabinet.latitude)
-    lng_c = float(cabinet.longitude)
-    dist = _haversine_distance_m(lat_f, lng_f, lat_c, lng_c)
-    return JSONResponse(
-        {
-            "path_coords": [[lat_f, lng_f], [lat_c, lng_c]],
-            "distance_m": dist,
-            "distance_display": _format_distance(dist),
-        }
-    )
+    return await network_map_actions.plan_route(lat, lng, cabinet_id, db)
 
 
 # ── Asset merge endpoints ─────────────────────────────────────────────────
@@ -924,7 +829,7 @@ async def fiber_map_asset_details(
 @router.post("/fiber-map/merge")
 async def fiber_map_merge(request: Request, db: Session = Depends(get_db)):
     """Merge two duplicate fiber assets."""
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     try:
         data = await request.json()
@@ -963,123 +868,12 @@ async def fiber_map_merge(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/fiber-map/closure-duplicates.pdf")
 def fiber_map_closure_duplicates_pdf(request: Request, db: Session = Depends(get_db)):
-    """Download a PDF report of duplicate splice closures and their locations."""
-    report = fiber_plant.get_splice_closure_duplicate_rows(db)
-    template = templates.get_template("admin/network/fiber/closure-duplicates-pdf.html")
-    html = template.render(
-        {
-            "request": request,
-            "generated_at": datetime.utcnow().isoformat() + "Z",
-            "report": report,
-        }
-    )
-    try:
-        from weasyprint import HTML
-    except ImportError as exc:
-        # Keep error consistent with other PDF exports.
-        from fastapi import HTTPException
-
-        raise HTTPException(
-            status_code=500,
-            detail="WeasyPrint is not installed on the server. Install it to generate PDFs.",
-        ) from exc
-
-    ensure_pydyf_compat()
-    pdf_bytes = HTML(string=html, base_url=str(request.base_url)).write_pdf()
-    filename = "closure_duplicates.pdf"
-    return Response(
-        pdf_bytes,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Cache-Control": "no-store, max-age=0",
-            "Pragma": "no-cache",
-        },
-    )
+    return network_map_actions.closure_duplicates_pdf(request, db)
 
 
 @router.get("/fiber-map/segments/geometry")
 def fiber_map_segment_geometry(segment_id: str = Query(...), db: Session = Depends(get_db)):
-    """Fetch a single segment's geometry for deep-link focusing (read-only)."""
-    try:
-        seg_uuid = coerce_uuid(segment_id)
-    except Exception:
-        return JSONResponse({"error": "Invalid segment_id"}, status_code=400)
-
-    row = (
-        db.execute(
-            text(
-                """
-                select
-                    s.id,
-                    s.name,
-                    s.segment_type,
-                    s.fiber_count,
-                    s.length_m,
-                    s.from_point_id,
-                    s.to_point_id,
-                    case
-                        when s.route_geom is not null
-                        then st_asgeojson(st_linemerge(s.route_geom))
-                    end as geom_geojson
-                from fiber_segments s
-                where s.is_active = true
-                  and s.id = :id
-                """
-            ),
-            {"id": seg_uuid},
-        )
-        .mappings()
-        .first()
-    )
-    if not row:
-        return JSONResponse({"error": "Segment not found"}, status_code=404)
-
-    geom = None
-    geom_geojson = row.get("geom_geojson")
-    if geom_geojson:
-        try:
-            geom = json.loads(geom_geojson)
-        except Exception:
-            geom = None
-
-    if not geom and row.get("from_point_id") and row.get("to_point_id"):
-        tp_row = (
-            db.execute(
-                text(
-                    """
-                    select
-                        fp.latitude as from_lat,
-                        fp.longitude as from_lng,
-                        tp.latitude as to_lat,
-                        tp.longitude as to_lng
-                    from fiber_segments s
-                    join fiber_termination_points fp on fp.id = s.from_point_id
-                    join fiber_termination_points tp on tp.id = s.to_point_id
-                    where s.id = :id
-                      and s.is_active = true
-                    """
-                ),
-                {"id": seg_uuid},
-            )
-            .mappings()
-            .first()
-        )
-        if tp_row and tp_row.get("from_lat") is not None and tp_row.get("from_lng") is not None:
-            geom = {
-                "type": "LineString",
-                "coordinates": [
-                    [float(tp_row["from_lng"]), float(tp_row["from_lat"])],
-                    [float(tp_row["to_lng"]), float(tp_row["to_lat"])],
-                ],
-            }
-
-    if not geom:
-        return JSONResponse({"error": "Segment has no geometry"}, status_code=409)
-
-    payload = {k: _json_safe(v) for k, v in dict(row).items() if k != "geom_geojson"}
-    payload["geometry"] = geom
-    return JSONResponse(payload)
+    return network_map_actions.segment_geometry(segment_id, db)
 
 
 @router.get("/qa/remediations", response_class=HTMLResponse)
@@ -1091,7 +885,7 @@ def qa_remediations_list(
     db: Session = Depends(get_db),
 ):
     """List draft QA remediation items. No production data changes happen here."""
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     allowed_status = {"pending", "approved", "ignored"}
     status_value = (status or "pending").strip().lower()
@@ -1420,7 +1214,7 @@ def qa_remediations_approve_merge(
     db: Session = Depends(get_db),
 ):
     """Approve and execute a merge for a pending proximity-duplicate closure."""
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     row = (
         db.execute(
@@ -1659,7 +1453,7 @@ def qa_remediations_approve_rename(
     db: Session = Depends(get_db),
 ):
     """Approve and apply a bulk rename draft to the live closure row."""
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     row = (
         db.execute(
@@ -1897,7 +1691,7 @@ def qa_remediations_stage_manual_connectivity(
     db: Session = Depends(get_db),
 ):
     """Create or update a pending manual connectivity draft for a segment (registry only)."""
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     seg_input = (segment_id or "").strip()
     if not seg_input:

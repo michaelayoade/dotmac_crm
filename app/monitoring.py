@@ -16,10 +16,19 @@ Usage (remote apps — explicit config):
 
 import logging
 import os
+import secrets
 from queue import Queue
 from urllib.parse import urlparse
 
 _MONITORING_SERVER = os.getenv("MONITORING_SERVER", "160.119.127.195")
+
+
+def is_bearer_token_authorized(authorization_header: str | None, expected_token: str) -> bool:
+    if not expected_token:
+        return True
+    if not authorization_header:
+        return False
+    return secrets.compare_digest(authorization_header, f"Bearer {expected_token}")
 
 
 def _host_reachable(url: str, timeout: float = 3.0) -> bool:
@@ -75,7 +84,7 @@ def setup_sentry(app_name: str, environment: str, glitchtip_dsn: str | None = No
         logging.getLogger(__name__).warning("sentry-sdk not installed — error tracking skipped")
         return
 
-    traces_sample_rate = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1"))
+    traces_sample_rate = _parse_traces_sample_rate(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1"))
 
     sentry_sdk.init(
         dsn=dsn,
@@ -83,6 +92,24 @@ def setup_sentry(app_name: str, environment: str, glitchtip_dsn: str | None = No
         traces_sample_rate=traces_sample_rate,
         server_name=app_name,
     )
+
+
+def _parse_traces_sample_rate(raw: str) -> float:
+    try:
+        sample_rate = float(raw)
+    except (TypeError, ValueError):
+        logging.getLogger(__name__).warning(
+            "Invalid SENTRY_TRACES_SAMPLE_RATE=%r; defaulting to 0.1",
+            raw,
+        )
+        return 0.1
+    if not 0.0 <= sample_rate <= 1.0:
+        logging.getLogger(__name__).warning(
+            "Out-of-range SENTRY_TRACES_SAMPLE_RATE=%r; defaulting to 0.1",
+            raw,
+        )
+        return 0.1
+    return sample_rate
 
 
 def setup_monitoring(

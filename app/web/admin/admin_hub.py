@@ -24,7 +24,7 @@ def get_db():
 
 
 def _base_context(request: Request, db: Session, active_page: str):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     return {
         "request": request,

@@ -12,7 +12,7 @@ from app.services.data_quality.reports import (
     all_domains_health,
     domain_health_report,
 )
-from app.web.admin import get_current_user, get_sidebar_stats
+from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")

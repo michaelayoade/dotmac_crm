@@ -28,6 +28,7 @@ from app.services.crm.inbox.settings_admin import (
     update_routing_rule,
 )
 from app.services.crm.inbox.settings_view import build_inbox_settings_context
+from app.web.admin.crm_support import _get_current_roles, _get_current_scopes
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
@@ -42,31 +43,13 @@ def get_db():
         db.close()
 
 
-def _get_current_roles(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        roles = auth.get("roles") or []
-        if isinstance(roles, list):
-            return [str(role) for role in roles]
-    return []
-
-
-def _get_current_scopes(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        scopes = auth.get("scopes") or []
-        if isinstance(scopes, list):
-            return [str(scope) for scope in scopes]
-    return []
-
-
 @router.get("/inbox/settings", response_class=HTMLResponse)
 async def inbox_settings(
     request: Request,
     db: Session = Depends(get_db),
 ):
     """Connector settings for CRM inbox channels."""
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     current_user = get_current_user(request)
     sidebar_stats = get_sidebar_stats(db)

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.logging import get_logger
 from app.models.subscriber import SubscriberStatus
 from app.schemas.subscriber import (
     SubscriberBulkSync,
@@ -20,6 +21,7 @@ from app.services.splynx import map_customer_to_subscriber_data
 from app.services.subscriber import subscriber as subscriber_service
 
 router = APIRouter(prefix="/subscribers", tags=["subscribers"])
+logger = get_logger(__name__)
 
 
 @router.get("", response_model=SubscriberListResponse)
@@ -166,6 +168,11 @@ def sync_subscribers(
     errors: list[dict[str, str]] = []
     created = 0
     updated = 0
+    logger.info(
+        "subscriber_bulk_sync_started external_system=%s count=%d",
+        data.external_system,
+        len(data.subscribers),
+    )
 
     for sub_data in data.subscribers:
         try:
@@ -190,6 +197,12 @@ def sync_subscribers(
 
         except Exception as e:
             db.rollback()
+            logger.warning(
+                "subscriber_bulk_sync_item_failed external_system=%s external_id=%s error=%s",
+                data.external_system,
+                sub_data.external_id,
+                str(e),
+            )
             errors.append(
                 {
                     "external_id": sub_data.external_id,
@@ -197,6 +210,13 @@ def sync_subscribers(
                 }
             )
 
+    logger.info(
+        "subscriber_bulk_sync_completed external_system=%s created=%d updated=%d errors=%d",
+        data.external_system,
+        created,
+        updated,
+        len(errors),
+    )
     return {
         "created": created,
         "updated": updated,
@@ -216,6 +236,11 @@ def sync_webhook(
     Each external system may send different payload formats.
     This endpoint normalizes the data and syncs.
     """
+    logger.info(
+        "subscriber_sync_webhook_received external_system=%s payload_keys=%s",
+        external_system,
+        ",".join(sorted(str(key) for key in payload)) if isinstance(payload, dict) else "",
+    )
     # Parse based on external system
     if external_system == "splynx":
         return _handle_splynx_webhook(db, payload)
@@ -232,6 +257,11 @@ def _handle_splynx_webhook(db: Session, payload: dict) -> dict:
     data = map_customer_to_subscriber_data(db, payload, include_remote_details=True)
 
     sub = subscriber_service.sync_from_external(db, "splynx", external_id, data)
+    logger.info(
+        "subscriber_sync_webhook_completed external_system=splynx external_id=%s subscriber_id=%s",
+        external_id,
+        sub.id,
+    )
     return {"status": "ok", "subscriber_id": str(sub.id)}
 
 
@@ -249,6 +279,11 @@ def _handle_ucrm_webhook(db: Session, payload: dict) -> dict:
     }
 
     sub = subscriber_service.sync_from_external(db, "ucrm", external_id, data)
+    logger.info(
+        "subscriber_sync_webhook_completed external_system=ucrm external_id=%s subscriber_id=%s",
+        external_id,
+        sub.id,
+    )
     return {"status": "ok", "subscriber_id": str(sub.id)}
 
 
@@ -256,9 +291,16 @@ def _handle_generic_webhook(db: Session, external_system: str, payload: dict) ->
     """Handle generic webhook with normalized format."""
     external_id = payload.get("external_id") or payload.get("id")
     if not external_id:
+        logger.warning("subscriber_sync_webhook_missing_external_id external_system=%s", external_system)
         raise HTTPException(status_code=400, detail="external_id or id required")
 
     sub = subscriber_service.sync_from_external(db, external_system, str(external_id), payload)
+    logger.info(
+        "subscriber_sync_webhook_completed external_system=%s external_id=%s subscriber_id=%s",
+        external_system,
+        external_id,
+        sub.id,
+    )
     return {"status": "ok", "subscriber_id": str(sub.id)}
 
 

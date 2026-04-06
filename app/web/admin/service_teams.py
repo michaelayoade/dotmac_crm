@@ -29,7 +29,7 @@ def get_db():
 
 
 def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     return {
         "request": request,
@@ -78,7 +78,7 @@ def service_team_create(
     region: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     payload = ServiceTeamCreate(
@@ -163,7 +163,7 @@ def service_team_update(
     region: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     payload = ServiceTeamUpdate(

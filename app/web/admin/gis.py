@@ -24,7 +24,7 @@ def get_db():
 
 @router.get("", response_class=HTMLResponse)
 def gis_index(request: Request, tab: str = "locations", db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     # Get GIS data
     locations = gis_service.geo_locations.list(
@@ -87,7 +87,7 @@ def gis_index(request: Request, tab: str = "locations", db: Session = Depends(ge
 
 @router.get("/locations/new", response_class=HTMLResponse)
 def gis_location_new(request: Request, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     context = {
         "request": request,
@@ -112,7 +112,7 @@ def gis_location_create(
     is_active: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     try:
         payload = GeoLocationCreate(
@@ -140,7 +140,7 @@ def gis_location_create(
 
 @router.get("/locations/{location_id}/edit", response_class=HTMLResponse)
 def gis_location_edit(request: Request, location_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     location = gis_service.geo_locations.get(db=db, location_id=location_id)
 
@@ -168,7 +168,7 @@ def gis_location_update(
     is_active: str = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     try:
         payload = GeoLocationUpdate(

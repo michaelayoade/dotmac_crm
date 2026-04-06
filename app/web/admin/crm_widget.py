@@ -12,6 +12,7 @@ from app.services.crm.web_widget import (
     widget_list_data,
     widget_update_payload_from_form,
 )
+from app.web.admin.crm_support import _crm_base_context
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
@@ -24,12 +25,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def _crm_base_context(*args, **kwargs):
-    from app.web.admin.crm import _crm_base_context as _shared_crm_base_context
-
-    return _shared_crm_base_context(*args, **kwargs)
 
 
 @router.get("/widget", response_class=HTMLResponse)

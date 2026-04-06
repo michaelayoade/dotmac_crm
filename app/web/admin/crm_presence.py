@@ -11,6 +11,7 @@ from app.db import SessionLocal
 from app.models.crm.enums import AgentPresenceStatus
 from app.services import crm as crm_service
 from app.services.crm.inbox.agents import get_current_agent_id
+from app.web.admin.crm_support import _can_view_live_location_map
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
@@ -25,48 +26,13 @@ def get_db():
         db.close()
 
 
-def _get_current_roles(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        roles = auth.get("roles") or []
-        if isinstance(roles, list):
-            return [str(role) for role in roles]
-    return []
-
-
-def _get_current_scopes(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        scopes = auth.get("scopes") or []
-        if isinstance(scopes, list):
-            return [str(scope) for scope in scopes]
-    return []
-
-
-def _is_admin_request(request: Request) -> bool:
-    roles = _get_current_roles(request)
-    return any(role.strip().lower() == "admin" for role in roles)
-
-
-def _is_manager_request(request: Request) -> bool:
-    roles = _get_current_roles(request)
-    return any(role.strip().lower() == "manager" for role in roles)
-
-
-def _can_view_live_location_map(request: Request) -> bool:
-    if _is_admin_request(request) or _is_manager_request(request):
-        return True
-    scopes = {scope.strip().lower() for scope in _get_current_scopes(request)}
-    return "crm:location:read" in scopes
-
-
 @router.post("/agents/presence", response_class=JSONResponse)
 async def update_current_agent_presence(
     request: Request,
     db: Session = Depends(get_db),
 ):
     """Update presence for the current CRM agent (derived from logged-in user)."""
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
@@ -91,7 +57,7 @@ async def update_current_agent_location_presence(
     db: Session = Depends(get_db),
 ):
     """Update location heartbeat for current CRM agent."""
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
@@ -150,7 +116,7 @@ async def get_current_agent_presence(
 ):
     """Get presence for the current CRM agent (derived from logged-in user)."""
     from app.services.crm.shifts import current_shift_window, resolve_company_timezone
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
@@ -208,7 +174,7 @@ async def set_current_agent_presence_override(
     db: Session = Depends(get_db),
 ):
     """Manually override presence for current agent (on_break/offline) or clear override."""
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
@@ -257,7 +223,7 @@ async def crm_live_map(
     db: Session = Depends(get_db),
 ):
     """Live location map for CRM agents that opted into browser sharing."""
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     if not _can_view_live_location_map(request):
         raise HTTPException(status_code=403, detail="Not authorized to view live locations")

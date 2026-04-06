@@ -1,7 +1,5 @@
 """CRM inbox catalog and settings redirect routes."""
 
-from urllib.parse import urlparse
-
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
@@ -9,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 from app.logging import get_logger
 from app.services import crm as crm_service
+from app.web.admin.crm_support import _get_current_roles, _get_current_scopes, _is_safe_url
 
 router = APIRouter(tags=["web-admin-crm"])
 logger = get_logger(__name__)
@@ -20,34 +19,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def _get_current_roles(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        roles = auth.get("roles") or []
-        if isinstance(roles, list):
-            return [str(role) for role in roles]
-    return []
-
-
-def _get_current_scopes(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        scopes = auth.get("scopes") or []
-        if isinstance(scopes, list):
-            return [str(scope) for scope in scopes]
-    return []
-
-
-def _is_safe_url(url: str) -> bool:
-    try:
-        parsed = urlparse(url)
-    except ValueError:
-        return False
-    if parsed.scheme in {"http", "https", "mailto", "tel"}:
-        return True
-    return parsed.scheme == ""
 
 
 def _inbox_settings_redirect(next_url: str | None = None):

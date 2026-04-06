@@ -10,7 +10,7 @@ from app.db import SessionLocal
 from app.services.ai.client import AIClientError
 from app.services.ai.engine import intelligence_engine
 from app.services.ai.use_cases.ticket_summary import summarize_ticket
-from app.web.admin import get_current_user
+from app.web.admin._auth_helpers import get_current_user
 from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")

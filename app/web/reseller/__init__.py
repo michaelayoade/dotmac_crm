@@ -1,5 +1,10 @@
-"""Reseller web routes."""
+"""Reseller web route builder."""
 
-from app.web.reseller.routes import router
 
-__all__ = ["router"]
+def build_router():
+    from app.web.reseller.routes import router
+
+    return router
+
+
+__all__ = ["build_router"]

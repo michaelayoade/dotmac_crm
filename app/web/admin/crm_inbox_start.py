@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.web.admin.crm_support import _get_current_roles, _get_current_scopes
 
 router = APIRouter(tags=["web-admin-crm"])
 
@@ -17,24 +18,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def _get_current_roles(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        roles = auth.get("roles") or []
-        if isinstance(roles, list):
-            return [str(role) for role in roles]
-    return []
-
-
-def _get_current_scopes(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        scopes = auth.get("scopes") or []
-        if isinstance(scopes, list):
-            return [str(scope) for scope in scopes]
-    return []
 
 
 @router.post("/inbox/conversation/new", response_class=HTMLResponse)
@@ -58,7 +41,7 @@ async def start_new_conversation(
     """Start a new outbound conversation."""
     from app.services.crm.conversations import message_attachments as message_attachment_service
     from app.services.crm.inbox.admin_ui import start_new_conversation
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     attachments_payload: list[dict] | None = None

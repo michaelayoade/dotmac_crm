@@ -11,7 +11,7 @@ from app.models.crm.enums import ChannelType
 from app.services.crm import reports as crm_reports_service
 from app.services.crm.inbox.agents import get_current_agent_id
 from app.services.crm.inbox.permissions import can_view_inbox
-from app.web.admin import get_current_user, get_sidebar_stats
+from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.auth.dependencies import require_web_auth
 from app.web.templates import Jinja2Templates
 

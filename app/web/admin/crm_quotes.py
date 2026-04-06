@@ -11,6 +11,7 @@ from app.config import settings
 from app.db import SessionLocal
 from app.logging import get_logger
 from app.services.audit_helpers import build_changes_metadata, log_audit_event
+from app.services.crm.inbox.attachments_processing import apply_message_attachments as _apply_message_attachments
 from app.services.crm.web_quotes import (
     QuoteUpsertInput,
     bulk_delete,
@@ -28,6 +29,16 @@ from app.services.crm.web_quotes import (
     update_quote,
     update_quote_status,
 )
+from app.web.admin.crm_support import (
+    _build_quote_pdf_bytes,
+    _crm_base_context,
+    _ensure_pydyf_compat,
+    _format_project_summary,
+    _load_crm_sales_options,
+    _require_admin_role,
+    _resolve_brand_logo_src,
+    billing_service,
+)
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
@@ -41,60 +52,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def _crm_base_context(*args, **kwargs):
-    from app.web.admin.crm import _crm_base_context as _shared_crm_base_context
-
-    return _shared_crm_base_context(*args, **kwargs)
-
-
-def _load_crm_sales_options(db: Session):
-    from app.web.admin.crm import _load_crm_sales_options as _shared_load_crm_sales_options
-
-    return _shared_load_crm_sales_options(db)
-
-
-def _format_project_summary(*args, **kwargs):
-    from app.web.admin.crm import _format_project_summary as _shared_format_project_summary
-
-    return _shared_format_project_summary(*args, **kwargs)
-
-
-def _build_quote_pdf_bytes(*args, **kwargs):
-    from app.web.admin.crm import _build_quote_pdf_bytes as _shared_build_quote_pdf_bytes
-
-    return _shared_build_quote_pdf_bytes(*args, **kwargs)
-
-
-def _apply_message_attachments(*args, **kwargs):
-    from app.web.admin.crm import _apply_message_attachments as _shared_apply_message_attachments
-
-    return _shared_apply_message_attachments(*args, **kwargs)
-
-
-def _resolve_brand_logo_src(*args, **kwargs):
-    from app.web.admin.crm import _resolve_brand_logo_src as _shared_resolve_brand_logo_src
-
-    return _shared_resolve_brand_logo_src(*args, **kwargs)
-
-
-def _ensure_pydyf_compat():
-    from app.web.admin.crm import _ensure_pydyf_compat as _shared_ensure_pydyf_compat
-
-    return _shared_ensure_pydyf_compat()
-
-
-def _require_admin_role(request: Request):
-    from app.web.admin.crm import _require_admin_role as _shared_require_admin_role
-
-    return _shared_require_admin_role(request)
-
-
-def _billing_service():
-    from app.web.admin.crm import billing_service as _shared_billing_service
-
-    return _shared_billing_service
 
 
 @router.get("/quotes", response_class=HTMLResponse)
@@ -133,7 +90,7 @@ def crm_quote_new(
     db: Session = Depends(get_db),
 ):
     options = _load_crm_sales_options(db)
-    tax_rates = _billing_service().tax_rates.list(
+    tax_rates = billing_service.tax_rates.list(
         db=db,
         is_active=True,
         order_by="name",
@@ -194,7 +151,7 @@ def crm_quote_send_summary(
     message: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     author_id = current_user.get("person_id") if current_user else None
@@ -280,7 +237,7 @@ def crm_quote_create(
         item_inventory_item_id=item_inventory_item_id,
     )
     try:
-        create_quote(db, form=form_input, tax_rate_get=_billing_service().tax_rates.get)
+        create_quote(db, form=form_input, tax_rate_get=billing_service.tax_rates.get)
         return RedirectResponse(url="/admin/crm/quotes", status_code=303)
     except (ValidationError, ValueError) as exc:
         error = exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else str(exc)
@@ -288,7 +245,7 @@ def crm_quote_create(
         error = exc.detail if hasattr(exc, "detail") else str(exc)
 
     options = _load_crm_sales_options(db)
-    tax_rates = _billing_service().tax_rates.list(
+    tax_rates = billing_service.tax_rates.list(
         db=db,
         is_active=True,
         order_by="name",
@@ -363,7 +320,7 @@ def crm_quote_update(
     try:
         before, updated = update_quote(db, quote_id=quote_id, form=form_input)
         metadata_payload = build_changes_metadata(before, updated)
-        from app.web.admin import get_current_user
+        from app.web.admin._auth_helpers import get_current_user
 
         current_user = get_current_user(request)
         log_audit_event(
@@ -384,7 +341,7 @@ def crm_quote_update(
         error = exc.detail if hasattr(exc, "detail") else str(exc)
 
     options = _load_crm_sales_options(db)
-    tax_rates = _billing_service().tax_rates.list(
+    tax_rates = billing_service.tax_rates.list(
         db=db,
         is_active=True,
         order_by="name",

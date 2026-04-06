@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.logging import get_logger
 from app.models.connector import ConnectorConfig
 from app.schemas.nextcloud_talk import (
     NextcloudTalkLoginRequest,
@@ -27,6 +28,7 @@ from app.services.nextcloud_talk_me import get_status as talk_status
 from app.services.nextcloud_talk_me import resolve_client as resolve_talk_me_client
 
 router = APIRouter(prefix="/nextcloud-talk", tags=["nextcloud-talk"])
+logger = get_logger(__name__)
 
 
 def _resolve_client(db: Session, payload, auth: dict) -> NextcloudTalkClient:
@@ -86,19 +88,34 @@ def me_login(
     payload: NextcloudTalkLoginRequest, db: Session = Depends(get_db), auth: dict = Depends(require_user_auth)
 ):
     """Store Nextcloud Talk credentials for the current user after verifying connectivity."""
+    actor_id = str(auth.get("person_id") or "")
+    logger.info(
+        "nextcloud_talk_me_login_requested actor_id=%s base_url=%s username=%s",
+        actor_id,
+        payload.base_url,
+        payload.username,
+    )
     try:
         status_obj = talk_connect(
             db,
-            person_id=str(auth.get("person_id") or ""),
+            person_id=actor_id,
             base_url=payload.base_url,
             username=payload.username,
             app_password=payload.app_password,
         )
     except ValueError as exc:
+        logger.warning("nextcloud_talk_me_login_invalid actor_id=%s error=%s", actor_id, str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except NextcloudTalkError as exc:
+        logger.warning("nextcloud_talk_me_login_failed actor_id=%s error=%s", actor_id, str(exc))
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
+    logger.info(
+        "nextcloud_talk_me_login_completed actor_id=%s base_url=%s username=%s",
+        actor_id,
+        status_obj.base_url,
+        status_obj.username,
+    )
     return {
         "connected": True,
         "base_url": status_obj.base_url,
@@ -108,19 +125,27 @@ def me_login(
 
 @router.delete("/me/logout", response_model=dict)
 def me_logout(db: Session = Depends(get_db), auth: dict = Depends(require_user_auth)):
-    talk_disconnect(db, person_id=str(auth.get("person_id") or ""))
+    actor_id = str(auth.get("person_id") or "")
+    logger.info("nextcloud_talk_me_logout_requested actor_id=%s", actor_id)
+    talk_disconnect(db, person_id=actor_id)
+    logger.info("nextcloud_talk_me_logout_completed actor_id=%s", actor_id)
     return {"connected": False}
 
 
 @router.get("/me/rooms", response_model=list[dict])
 def me_list_rooms(db: Session = Depends(get_db), auth: dict = Depends(require_user_auth)):
+    actor_id = str(auth.get("person_id") or "")
     try:
-        client = resolve_talk_me_client(db, person_id=str(auth.get("person_id") or ""))
+        client = resolve_talk_me_client(db, person_id=actor_id)
     except NextcloudTalkNotConnectedError as exc:
+        logger.warning("nextcloud_talk_me_list_rooms_not_connected actor_id=%s error=%s", actor_id, str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
-        return client.list_rooms()
+        rooms = client.list_rooms()
+        logger.info("nextcloud_talk_me_list_rooms_completed actor_id=%s count=%d", actor_id, len(rooms))
+        return rooms
     except NextcloudTalkError as exc:
+        logger.warning("nextcloud_talk_me_list_rooms_failed actor_id=%s error=%s", actor_id, str(exc))
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
@@ -128,13 +153,23 @@ def me_list_rooms(db: Session = Depends(get_db), auth: dict = Depends(require_us
 def me_create_room(
     payload: NextcloudTalkRoomCreateMeRequest, db: Session = Depends(get_db), auth: dict = Depends(require_user_auth)
 ):
+    actor_id = str(auth.get("person_id") or "")
     try:
-        client = resolve_talk_me_client(db, person_id=str(auth.get("person_id") or ""))
+        client = resolve_talk_me_client(db, person_id=actor_id)
     except NextcloudTalkNotConnectedError as exc:
+        logger.warning("nextcloud_talk_me_create_room_not_connected actor_id=%s error=%s", actor_id, str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
-        return client.create_room(room_name=payload.room_name, room_type=payload.room_type, options=payload.options)
+        room = client.create_room(room_name=payload.room_name, room_type=payload.room_type, options=payload.options)
+        logger.info(
+            "nextcloud_talk_me_create_room_completed actor_id=%s room_type=%s room_name=%s",
+            actor_id,
+            payload.room_type,
+            payload.room_name,
+        )
+        return room
     except NextcloudTalkError as exc:
+        logger.warning("nextcloud_talk_me_create_room_failed actor_id=%s error=%s", actor_id, str(exc))
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
@@ -145,13 +180,25 @@ def me_post_message(
     db: Session = Depends(get_db),
     auth: dict = Depends(require_user_auth),
 ):
+    actor_id = str(auth.get("person_id") or "")
     try:
-        client = resolve_talk_me_client(db, person_id=str(auth.get("person_id") or ""))
+        client = resolve_talk_me_client(db, person_id=actor_id)
     except NextcloudTalkNotConnectedError as exc:
+        logger.warning(
+            "nextcloud_talk_me_post_message_not_connected actor_id=%s room_token=%s error=%s",
+            actor_id,
+            room_token,
+            str(exc),
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
-        return client.post_message(room_token=room_token, message=payload.message, options=payload.options)
+        result = client.post_message(room_token=room_token, message=payload.message, options=payload.options)
+        logger.info("nextcloud_talk_me_post_message_completed actor_id=%s room_token=%s", actor_id, room_token)
+        return result
     except NextcloudTalkError as exc:
+        logger.warning(
+            "nextcloud_talk_me_post_message_failed actor_id=%s room_token=%s error=%s", actor_id, room_token, str(exc)
+        )
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
@@ -162,18 +209,35 @@ def me_list_messages(
     db: Session = Depends(get_db),
     auth: dict = Depends(require_user_auth),
 ):
+    actor_id = str(auth.get("person_id") or "")
     try:
-        client = resolve_talk_me_client(db, person_id=str(auth.get("person_id") or ""))
+        client = resolve_talk_me_client(db, person_id=actor_id)
     except NextcloudTalkNotConnectedError as exc:
+        logger.warning(
+            "nextcloud_talk_me_list_messages_not_connected actor_id=%s room_token=%s error=%s",
+            actor_id,
+            room_token,
+            str(exc),
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
-        return client.list_messages(
+        messages = client.list_messages(
             room_token,
             last_known_message_id=int(payload.last_known_message_id or 0),
             limit=int(payload.limit or 100),
             timeout=int(payload.timeout or 0),
         )
+        logger.info(
+            "nextcloud_talk_me_list_messages_completed actor_id=%s room_token=%s count=%d",
+            actor_id,
+            room_token,
+            len(messages),
+        )
+        return messages
     except NextcloudTalkError as exc:
+        logger.warning(
+            "nextcloud_talk_me_list_messages_failed actor_id=%s room_token=%s error=%s", actor_id, room_token, str(exc)
+        )
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 

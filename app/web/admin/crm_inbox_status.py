@@ -1,7 +1,7 @@
 """CRM inbox conversation status and resolve-gate routes."""
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from html import escape as html_escape
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -17,6 +17,7 @@ from app.services.crm.inbox.formatting import (
     format_conversation_for_template,
     format_message_for_template,
 )
+from app.web.admin.crm_support import _get_current_roles, _get_current_scopes
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
@@ -29,24 +30,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def _get_current_roles(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        roles = auth.get("roles") or []
-        if isinstance(roles, list):
-            return [str(role) for role in roles]
-    return []
-
-
-def _get_current_scopes(request: Request) -> list[str]:
-    auth = getattr(request.state, "auth", None)
-    if isinstance(auth, dict):
-        scopes = auth.get("scopes") or []
-        if isinstance(scopes, list):
-            return [str(scope) for scope in scopes]
-    return []
 
 
 def _load_talk_escalation_recipients(db: Session) -> list[dict[str, str]]:
@@ -142,8 +125,8 @@ async def update_conversation_status(
     shown if the conversation's person has no active Lead.
     """
     from app.services.crm.inbox.conversation_status import update_conversation_status
-    from app.web.admin import get_current_user
-    from app.web.admin.crm_inbox_conversations import inbox_conversations_partial
+    from app.services.crm.inbox.page_context import build_inbox_conversations_partial_context
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     actor_id = (current_user or {}).get("person_id")
@@ -201,7 +184,46 @@ async def update_conversation_status(
     if request.headers.get("HX-Target") == "message-thread":
         return _render_thread_or_error(request, db, conversation_id, current_user)
 
-    return await inbox_conversations_partial(request, db)
+    assigned_person_id = current_user.get("person_id")
+    assigned_from = request.query_params.get("assigned_from")
+    assigned_to = request.query_params.get("assigned_to")
+    assigned_from_dt = None
+    assigned_to_dt = None
+    if assigned_from:
+        try:
+            assigned_from_dt = datetime.strptime(assigned_from.strip(), "%Y-%m-%d").replace(tzinfo=UTC)
+        except ValueError:
+            assigned_from_dt = None
+    if assigned_to:
+        try:
+            assigned_to_dt = datetime.strptime(assigned_to.strip(), "%Y-%m-%d").replace(
+                hour=23,
+                minute=59,
+                second=59,
+                microsecond=999999,
+                tzinfo=UTC,
+            )
+        except ValueError:
+            assigned_to_dt = None
+
+    template_name, context = await build_inbox_conversations_partial_context(
+        db,
+        channel=request.query_params.get("channel"),
+        status=request.query_params.get("status"),
+        outbox_status=request.query_params.get("outbox_status"),
+        search=request.query_params.get("search"),
+        assignment=request.query_params.get("assignment"),
+        assigned_person_id=assigned_person_id,
+        target_id=request.query_params.get("target_id"),
+        filter_agent_id=request.query_params.get("agent_id"),
+        assigned_from=assigned_from_dt,
+        assigned_to=assigned_to_dt,
+        missing=request.query_params.get("missing"),
+        offset=int(request.query_params.get("offset")) if request.query_params.get("offset") else None,
+        limit=int(request.query_params.get("limit")) if request.query_params.get("limit") else None,
+        page=int(request.query_params.get("page")) if request.query_params.get("page") else None,
+    )
+    return templates.TemplateResponse(template_name, {"request": request, **context})
 
 
 @router.post("/inbox/conversation/{conversation_id}/priority", response_class=HTMLResponse)
@@ -213,7 +235,7 @@ async def update_conversation_priority_route(
 ):
     """Update conversation priority."""
     from app.services.crm.inbox.conversation_status import update_conversation_priority
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     result = update_conversation_priority(
@@ -237,7 +259,7 @@ async def toggle_conversation_mute_route(
 ):
     """Toggle mute on a conversation."""
     from app.services.crm.inbox.conversation_status import toggle_conversation_mute
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     result = toggle_conversation_mute(
@@ -260,7 +282,7 @@ async def snooze_conversation_route(
 ):
     """Apply a snooze schedule preset to a conversation."""
     from app.services.crm.inbox.conversation_status import snooze_conversation
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     result = snooze_conversation(
@@ -290,7 +312,7 @@ async def send_conversation_transcript(
     import re
 
     from app.services.crm.inbox.transcript import send_conversation_transcript as send_transcript
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     email_pattern = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -323,7 +345,7 @@ async def escalate_conversation_to_talk(
     db: Session = Depends(get_db),
 ):
     """Escalate a conversation to a teammate via Nextcloud Talk."""
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     actor_person_id = (current_user or {}).get("person_id")
@@ -376,7 +398,7 @@ async def inbox_resolve_with_lead(
 ):
     """Create a Lead for the conversation contact, then resolve."""
     from app.services.crm.inbox.resolve_gate import resolve_with_lead
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     actor_id = (current_user or {}).get("person_id")
@@ -402,7 +424,7 @@ async def inbox_resolve_without_lead(
 ):
     """Resolve the conversation without creating a lead."""
     from app.services.crm.inbox.resolve_gate import resolve_without_lead
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     actor_id = (current_user or {}).get("person_id")
@@ -429,7 +451,7 @@ async def inbox_link_and_resolve(
 ):
     """Link conversation to an existing contact (merge), then resolve."""
     from app.services.crm.inbox.conversation_actions import resolve_conversation
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     merged_by_id = (current_user or {}).get("person_id")

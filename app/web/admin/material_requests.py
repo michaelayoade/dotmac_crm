@@ -36,7 +36,7 @@ def get_db():
 
 
 def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
-    from app.web.admin import get_current_user, get_sidebar_stats
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     return {
         "request": request,
@@ -171,7 +171,7 @@ def material_request_create(
     item_notes: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     person_id = current_user.get("person_id") if current_user else None
@@ -250,7 +250,7 @@ def material_request_update(
     destination_location_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     mr = material_requests.get(db, mr_id)
@@ -289,7 +289,7 @@ def material_request_detail(request: Request, mr_id: str, db: Session = Depends(
 
 @router.post("/{mr_id}/submit")
 def material_request_submit(request: Request, mr_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     material_requests.submit(db, mr_id)
@@ -314,7 +314,7 @@ def material_request_approve(
     destination_location_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     person_id = current_user.get("person_id") if current_user else None
@@ -341,7 +341,7 @@ def material_request_approve(
 
 @router.post("/{mr_id}/reject")
 def material_request_reject(request: Request, mr_id: str, reason: str = Form(""), db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     person_id = current_user.get("person_id") if current_user else None
@@ -363,7 +363,7 @@ def material_request_reject(request: Request, mr_id: str, reason: str = Form("")
 
 @router.post("/{mr_id}/cancel")
 def material_request_cancel(request: Request, mr_id: str, db: Session = Depends(get_db)):
-    from app.web.admin import get_current_user
+    from app.web.admin._auth_helpers import get_current_user
 
     current_user = get_current_user(request)
     material_requests.cancel(db, mr_id)

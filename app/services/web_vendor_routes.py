@@ -457,9 +457,9 @@ async def vendor_fiber_map_update_olt_role(request: Request, db: Session):
     context = _require_vendor_context(request, db)
     if not context:
         return JSONResponse({"error": "Authentication required"}, status_code=401)
-    from app.web.admin import network as admin_network
+    from app.services import network_map_actions
 
-    return await admin_network.fiber_map_update_olt_role(request, db)
+    return await network_map_actions.update_olt_role(request, db)
 
 
 async def vendor_fiber_map_save_plan(request: Request, db: Session):
@@ -503,27 +503,27 @@ async def vendor_fiber_map_nearest_cabinet(request: Request, lat: float, lng: fl
     context = _require_vendor_context(request, db)
     if not context:
         return JSONResponse({"error": "Authentication required"}, status_code=401)
-    from app.web.admin import network as admin_network
+    from app.services import network_map_actions
 
-    return await admin_network.find_nearest_cabinet(request, lat, lng, db)
+    return await network_map_actions.find_nearest_cabinet(lat, lng, db)
 
 
 async def vendor_fiber_map_plan_options(request: Request, lat: float, lng: float, db: Session):
     context = _require_vendor_context(request, db)
     if not context:
         return JSONResponse({"error": "Authentication required"}, status_code=401)
-    from app.web.admin import network as admin_network
+    from app.services import network_map_actions
 
-    return await admin_network.plan_options(request, lat, lng, db)
+    return await network_map_actions.plan_options(lat, lng, db)
 
 
 async def vendor_fiber_map_route(request: Request, lat: float, lng: float, cabinet_id: str, db: Session):
     context = _require_vendor_context(request, db)
     if not context:
         return JSONResponse({"error": "Authentication required"}, status_code=401)
-    from app.web.admin import network as admin_network
+    from app.services import network_map_actions
 
-    return await admin_network.plan_route(request, lat, lng, cabinet_id, db)
+    return await network_map_actions.plan_route(lat, lng, cabinet_id, db)
 
 
 async def vendor_fiber_map_asset_details(request: Request, asset_type: str, asset_id: str, db: Session):
@@ -578,15 +578,15 @@ def vendor_fiber_map_closure_duplicates_pdf(request: Request, db: Session):
     context = _require_vendor_context(request, db)
     if not context:
         return RedirectResponse(url="/vendor/auth/login", status_code=303)
-    from app.web.admin import network as admin_network
+    from app.services import network_map_actions
 
-    return admin_network.fiber_map_closure_duplicates_pdf(request, db)
+    return network_map_actions.closure_duplicates_pdf(request, db)
 
 
 def vendor_fiber_map_segment_geometry(request: Request, segment_id: str, db: Session):
     context = _require_vendor_context(request, db)
     if not context:
         return JSONResponse({"error": "Authentication required"}, status_code=401)
-    from app.web.admin import network as admin_network
+    from app.services import network_map_actions
 
-    return admin_network.fiber_map_segment_geometry(segment_id, db)
+    return network_map_actions.segment_geometry(segment_id, db)
