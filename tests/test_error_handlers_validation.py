@@ -1,12 +1,13 @@
 import httpx
 import pytest
+import pytest_asyncio
 from fastapi import FastAPI
 
 from app.errors import register_error_handlers
 from app.schemas.nextcloud_talk import NextcloudTalkLoginRequest
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def client():
     app = FastAPI()
     register_error_handlers(app)
@@ -20,7 +21,7 @@ async def client():
         yield test_client
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_validation_handler_serializes_ctx_exceptions(client: httpx.AsyncClient) -> None:
     response = await client.post(
         "/nextcloud-talk/me/login",
@@ -44,7 +45,7 @@ async def test_validation_handler_serializes_ctx_exceptions(client: httpx.AsyncC
         assert isinstance(ctx["error"], str)
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_validation_handler_redacts_sensitive_input_fields(client: httpx.AsyncClient) -> None:
     secret = "test-secret-value"
 

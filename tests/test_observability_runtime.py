@@ -33,7 +33,7 @@ def _middleware() -> ObservabilityMiddleware:
     return ObservabilityMiddleware(app=lambda scope, receive, send: None)
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_observability_logs_actor_id_after_downstream_auth(caplog):
     async def call_next(request):
         request.state.actor_id = "user-123"
@@ -47,7 +47,7 @@ async def test_observability_logs_actor_id_after_downstream_auth(caplog):
     assert record.actor_id == "user-123"
 
 
-@pytest.mark.anyio
+@pytest.mark.asyncio
 async def test_observability_logs_actor_id_for_exceptions(caplog):
     async def call_next(request):
         request.state.actor_id = "user-500"
