@@ -606,6 +606,7 @@ async def meta_webhook(
         verified_with: str | None = None
         tried_whatsapp_secret = False
         signature_valid = False
+
         def _verify_signature(secret: str) -> bool:
             try:
                 return meta_webhooks.verify_webhook_signature(
