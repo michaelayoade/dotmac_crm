@@ -631,7 +631,9 @@ def subscriber_billing_risk(
 
     query_segments = request.query_params.getlist("segments")
     query_segment = request.query_params.get("segment")
-    selected_segments = _normalize_segment_filters(query_segments if query_segments else segments, query_segment or segment)
+    selected_segments = _normalize_segment_filters(
+        query_segments if query_segments else segments, query_segment or segment
+    )
 
     churn_rows = sr.get_churn_table(
         db,
@@ -700,7 +702,9 @@ def subscriber_billing_risk_export(
 
     query_segments = request.query_params.getlist("segments")
     query_segment = request.query_params.get("segment")
-    selected_segments = _normalize_segment_filters(query_segments if query_segments else segments, query_segment or segment)
+    selected_segments = _normalize_segment_filters(
+        query_segments if query_segments else segments, query_segment or segment
+    )
 
     churn_rows = sr.get_churn_table(
         db,
