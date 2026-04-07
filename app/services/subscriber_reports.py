@@ -1604,7 +1604,6 @@ def get_churn_table(
     limit: int = 500,
 ) -> list[dict]:
     """Subscribers with non-current Splynx billing state, segmented by due/risk status."""
-
     def _normalize_segment(value: str | None) -> str | None:
         normalized_segment = (value or "").strip().lower()
         if normalized_segment in {"due_soon", "due soon"}:
