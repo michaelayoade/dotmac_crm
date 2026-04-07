@@ -7,7 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.projects import Project, ProjectTask
-from app.models.tickets import Ticket
+from app.models.tickets import Ticket, TicketStatus
 from app.models.workflow import SlaBreach, SlaBreachStatus, SlaClock, WorkflowEntityType
 from app.services.regions import REGION_OPTIONS
 
@@ -81,9 +81,11 @@ class OperationsSlaViolationsReport:
 
         records: list[dict] = []
         if entity_type == "ticket":
+            rows = query.join(Ticket, Ticket.id == SlaClock.entity_id)
+            if open_only:
+                rows = rows.filter(Ticket.status != TicketStatus.closed)
             rows = (
-                query.join(Ticket, Ticket.id == SlaClock.entity_id)
-                .filter(Ticket.region == region if region else True)
+                rows.filter(Ticket.region == region if region else True)
                 .with_entities(SlaBreach, SlaClock, Ticket)
                 .order_by(SlaBreach.breached_at.desc())
                 .limit(limit)
@@ -181,6 +183,7 @@ class OperationsSlaViolationsReport:
         region: str | None,
         start_at: datetime | None,
         end_at: datetime | None,
+        open_only: bool = False,
     ) -> dict:
         records = self.list_records(
             db,
@@ -189,6 +192,7 @@ class OperationsSlaViolationsReport:
             start_at=start_at,
             end_at=end_at,
             limit=1000,
+            open_only=open_only,
         )
         open_count = sum(1 for record in records if record["status"] != SlaBreachStatus.resolved.value)
         longest = "-"
@@ -223,17 +227,22 @@ class OperationsSlaViolationsReport:
         region: str | None,
         start_at: datetime | None,
         end_at: datetime | None,
+        open_only: bool = False,
     ) -> list[dict]:
         query = _base_query(db, entity_type)
         if start_at:
             query = query.filter(SlaBreach.breached_at >= start_at)
         if end_at:
             query = query.filter(SlaBreach.breached_at <= end_at)
+        if open_only:
+            query = query.filter(SlaBreach.status != SlaBreachStatus.resolved)
 
         if entity_type == "ticket":
+            rows = query.join(Ticket, Ticket.id == SlaClock.entity_id)
+            if open_only:
+                rows = rows.filter(Ticket.status != TicketStatus.closed)
             rows = (
-                query.join(Ticket, Ticket.id == SlaClock.entity_id)
-                .filter(Ticket.region == region if region else True)
+                rows.filter(Ticket.region == region if region else True)
                 .with_entities(Ticket.region, func.count(SlaBreach.id))
                 .group_by(Ticket.region)
                 .order_by(func.count(SlaBreach.id).desc(), Ticket.region.asc())
@@ -268,15 +277,20 @@ class OperationsSlaViolationsReport:
         region: str | None,
         start_at: datetime | None,
         end_at: datetime | None,
+        open_only: bool = False,
     ) -> list[dict]:
         query = _base_query(db, entity_type)
         if start_at:
             query = query.filter(SlaBreach.breached_at >= start_at)
         if end_at:
             query = query.filter(SlaBreach.breached_at <= end_at)
+        if open_only:
+            query = query.filter(SlaBreach.status != SlaBreachStatus.resolved)
 
         if entity_type == "ticket":
             query = query.join(Ticket, Ticket.id == SlaClock.entity_id)
+            if open_only:
+                query = query.filter(Ticket.status != TicketStatus.closed)
             if region:
                 query = query.filter(Ticket.region == region)
         elif entity_type == "project":

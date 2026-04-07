@@ -228,6 +228,7 @@ class MaterialRequests(ListResponseMixin):
         approved_by_person_id: str,
         source_location_id: str | None = None,
         destination_location_id: str | None = None,
+        collected_by_person_id: str | None = None,
     ) -> MaterialRequest:
         mr = get_or_404(
             db,
@@ -240,6 +241,9 @@ class MaterialRequests(ListResponseMixin):
 
         approver_uuid = coerce_uuid(approved_by_person_id)
         get_or_404(db, Person, str(approver_uuid), detail="Approver not found")
+        collected_by_uuid = coerce_uuid(collected_by_person_id) if collected_by_person_id else None
+        if collected_by_uuid:
+            get_or_404(db, Person, str(collected_by_uuid), detail="Collector not found")
 
         source_uuid = coerce_uuid(source_location_id) if source_location_id else mr.source_location_id
         destination_uuid = (
@@ -261,6 +265,7 @@ class MaterialRequests(ListResponseMixin):
         mr.destination_location_id = destination_uuid
         mr.status = MaterialRequestStatus.issued
         mr.approved_by_person_id = approver_uuid
+        mr.collected_by_person_id = collected_by_uuid
         mr.approved_at = datetime.now(UTC)
         db.commit()
         db.refresh(mr)

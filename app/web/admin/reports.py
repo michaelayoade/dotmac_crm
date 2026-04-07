@@ -4,6 +4,7 @@ import csv
 import io
 from datetime import UTC, datetime, timedelta
 from typing import Literal
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -23,6 +24,39 @@ from app.web.templates import Jinja2Templates
 
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
 templates = Jinja2Templates(directory="templates")
+
+
+def _normalize_segment_filters(segments: list[str] | str | None, segment: str | None) -> list[str]:
+    """Normalize repeated/comma-separated segment query values."""
+    raw_values: list[str] = []
+    if isinstance(segments, list):
+        raw_values.extend(segments)
+    elif isinstance(segments, str):
+        raw_values.append(segments)
+    if segment:
+        raw_values.append(segment)
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_value in raw_values:
+        for part in str(raw_value).split(","):
+            candidate = part.strip().lower().replace(" ", "_")
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            normalized.append(candidate)
+    return normalized
+
+
+def _segment_labels(selected_segments: list[str]) -> set[str]:
+    mapping = {
+        "overdue": "Overdue",
+        "suspended": "Suspended",
+        "due_soon": "Due Soon",
+        "churned": "Churned",
+        "pending": "Pending",
+    }
+    return {mapping[key] for key in selected_segments if key in mapping}
 
 
 def _parse_date_range(
@@ -132,6 +166,7 @@ def operations_sla_violations_report(
         region=selected_region,
         start_at=start_dt,
         end_at=end_dt,
+        open_only=True,
     )
     region_chart = report.by_region(
         db,
@@ -139,6 +174,7 @@ def operations_sla_violations_report(
         region=selected_region,
         start_at=start_dt,
         end_at=end_dt,
+        open_only=True,
     )
     trend_chart = report.trend_daily(
         db,
@@ -146,6 +182,7 @@ def operations_sla_violations_report(
         region=selected_region,
         start_at=start_dt,
         end_at=end_dt,
+        open_only=True,
     )
     records = report.list_records(
         db,
@@ -153,6 +190,7 @@ def operations_sla_violations_report(
         region=selected_region,
         start_at=start_dt,
         end_at=end_dt,
+        open_only=True,
     )
 
     data_type_options = [
@@ -568,6 +606,135 @@ def churned_subscribers_export(
         for row in churned_rows
     ]
     filename = f"subscriber_churned_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
+    return _csv_response(export_data, filename)
+
+
+# =============================================================================
+# Subscriber Billing Risk Report
+# =============================================================================
+
+
+@router.get("/subscribers/billing-risk", response_class=HTMLResponse)
+def subscriber_billing_risk(
+    request: Request,
+    db: Session = Depends(get_db),
+    due_soon_days: int = Query(7, ge=1, le=30),
+    overdue_invoice_days: int = Query(30, ge=1, le=180),
+    high_balance_only: bool = Query(False),
+    segment: str | None = Query(None),
+    segments: list[str] = Query(default=[]),
+):
+    """Billing risk dashboard for blocked, overdue, and otherwise at-risk subscribers."""
+    from app.services import subscriber_reports as sr
+
+    user = get_current_user(request)
+
+    query_segments = request.query_params.getlist("segments")
+    query_segment = request.query_params.get("segment")
+    selected_segments = _normalize_segment_filters(query_segments if query_segments else segments, query_segment or segment)
+
+    churn_rows = sr.get_churn_table(
+        db,
+        due_soon_days=due_soon_days,
+        high_balance_only=high_balance_only,
+        segment=segment,
+        segments=selected_segments,
+        source="splynx_live",
+        limit=500,
+    )
+    selected_labels = _segment_labels(selected_segments)
+    if selected_labels:
+        churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
+    overdue_invoices = sr.get_overdue_invoices_table(
+        db,
+        min_days_past_due=overdue_invoice_days,
+        limit=250,
+    )
+    kpis = sr.churn_risk_summary(churn_rows, overdue_invoices)
+    segment_breakdown = sr.churn_risk_segment_breakdown(churn_rows)
+    aging_buckets = sr.churn_risk_aging_buckets(churn_rows, due_soon_days=due_soon_days)
+
+    export_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "segments": selected_segments,
+        },
+        doseq=True,
+    )
+
+    return templates.TemplateResponse(
+        "admin/reports/subscriber_billing_risk.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "subscriber-billing-risk",
+            "active_menu": "reports",
+            "kpis": kpis,
+            "segment_breakdown": segment_breakdown,
+            "aging_buckets": aging_buckets,
+            "churn_rows": churn_rows,
+            "overdue_invoices": overdue_invoices,
+            "due_soon_days": due_soon_days,
+            "overdue_invoice_days": overdue_invoice_days,
+            "high_balance_only": high_balance_only,
+            "selected_segments": selected_segments,
+            "export_query": export_query,
+        },
+    )
+
+
+@router.get("/subscribers/billing-risk/export")
+def subscriber_billing_risk_export(
+    request: Request,
+    db: Session = Depends(get_db),
+    due_soon_days: int = Query(7, ge=1, le=30),
+    high_balance_only: bool = Query(False),
+    segment: str | None = Query(None),
+    segments: list[str] = Query(default=[]),
+):
+    """Export billing risk rows as CSV."""
+    from app.services import subscriber_reports as sr
+
+    query_segments = request.query_params.getlist("segments")
+    query_segment = request.query_params.get("segment")
+    selected_segments = _normalize_segment_filters(query_segments if query_segments else segments, query_segment or segment)
+
+    churn_rows = sr.get_churn_table(
+        db,
+        due_soon_days=due_soon_days,
+        high_balance_only=high_balance_only,
+        segment=segment,
+        segments=selected_segments,
+        source="splynx_live",
+        limit=2000,
+    )
+    selected_labels = _segment_labels(selected_segments)
+    if selected_labels:
+        churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
+    export_data = [
+        {
+            "Name": row["name"],
+            "Email": row["email"],
+            "Phone": row.get("phone", ""),
+            "Subscriber Status": row["subscriber_status"],
+            "Risk Segment": row["risk_segment"],
+            "Next Bill Date": row["next_bill_date"],
+            "Days To Due": row["days_to_due"],
+            "Balance": row["balance"],
+            "Billing Cycle": row["billing_cycle"],
+            "Last Transaction Date": row["last_transaction_date"],
+            "Expires In": row["expires_in"],
+            "Invoiced Until": row["invoiced_until"],
+            "Days Since Last Payment": row.get("days_since_last_payment", ""),
+            "Total Paid": row["total_paid"],
+            "High Balance Risk": "Yes" if row["is_high_balance_risk"] else "No",
+        }
+        for row in churn_rows
+    ]
+    filename = f"subscriber_billing_risk_{datetime.now(UTC).strftime('%Y%m%d')}.csv"
     return _csv_response(export_data, filename)
 
 

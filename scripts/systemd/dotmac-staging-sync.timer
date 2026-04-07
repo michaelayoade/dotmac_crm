@@ -1,0 +1,10 @@
+[Unit]
+Description=Run DotMac staging database refresh every day
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+Unit=dotmac-staging-sync.service
+
+[Install]
+WantedBy=timers.target

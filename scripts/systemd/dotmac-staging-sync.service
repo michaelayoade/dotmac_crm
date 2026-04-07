@@ -1,0 +1,16 @@
+[Unit]
+Description=One-way DotMac staging database refresh
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dotmac
+Group=dotmac
+WorkingDirectory=/home/dotmac/projects/dotmac_crm
+Environment=DOTMAC_ROOT_DIR=/home/dotmac/projects/dotmac_crm
+EnvironmentFile=/etc/dotmac-staging-sync.env
+ExecStart=/home/dotmac/projects/dotmac_crm/scripts/db_sync_to_staging.sh
+
+[Install]
+WantedBy=multi-user.target

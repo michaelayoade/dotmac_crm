@@ -15,6 +15,25 @@ from app.services.settings_cache import get_settings_redis
 logger = logging.getLogger(__name__)
 
 
+def _coerce_amount(value: object) -> float:
+    """Normalize ERP totals to floats for template-safe formatting."""
+    if value in (None, ""):
+        return 0.0
+    if isinstance(value, bool):
+        return float(int(value))
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        normalized = value.replace(",", "").strip()
+        if not normalized:
+            return 0.0
+        try:
+            return float(normalized)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
 @dataclass
 class ExpenseTotals:
     """Expense totals from ERP."""
@@ -39,10 +58,10 @@ class ExpenseTotals:
     @classmethod
     def from_dict(cls, data: dict) -> "ExpenseTotals":
         return cls(
-            draft=data.get("draft", 0.0),
-            submitted=data.get("submitted", 0.0),
-            approved=data.get("approved", 0.0),
-            paid=data.get("paid", 0.0),
+            draft=_coerce_amount(data.get("draft", 0.0)),
+            submitted=_coerce_amount(data.get("submitted", 0.0)),
+            approved=_coerce_amount(data.get("approved", 0.0)),
+            paid=_coerce_amount(data.get("paid", 0.0)),
             erp_available=data.get("erp_available", True),
             cached=True,  # If loading from cache, mark as cached
         )
@@ -180,10 +199,10 @@ def get_cached_expense_totals(
             raw_totals = totals_map.get(entity_id)
             if raw_totals:
                 totals = ExpenseTotals(
-                    draft=raw_totals.get("draft", 0.0),
-                    submitted=raw_totals.get("submitted", 0.0),
-                    approved=raw_totals.get("approved", 0.0),
-                    paid=raw_totals.get("paid", 0.0),
+                    draft=_coerce_amount(raw_totals.get("draft", 0.0)),
+                    submitted=_coerce_amount(raw_totals.get("submitted", 0.0)),
+                    approved=_coerce_amount(raw_totals.get("approved", 0.0)),
+                    paid=_coerce_amount(raw_totals.get("paid", 0.0)),
                     erp_available=True,
                     cached=False,
                 )

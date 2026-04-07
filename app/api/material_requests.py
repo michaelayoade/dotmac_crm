@@ -68,8 +68,18 @@ def submit_material_request(mr_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{mr_id}/approve", response_model=MaterialRequestRead)
-def approve_material_request(mr_id: str, approved_by_person_id: str = Query(), db: Session = Depends(get_db)):
-    return material_requests.approve(db, mr_id, approved_by_person_id)
+def approve_material_request(
+    mr_id: str,
+    approved_by_person_id: str = Query(),
+    collected_by_person_id: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    return material_requests.approve(
+        db,
+        mr_id,
+        approved_by_person_id,
+        collected_by_person_id=collected_by_person_id,
+    )
 
 
 @router.post("/{mr_id}/reject", response_model=MaterialRequestRead)

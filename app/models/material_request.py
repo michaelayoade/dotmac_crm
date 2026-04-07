@@ -48,6 +48,7 @@ class MaterialRequest(Base):
         Index("ix_material_requests_project_id", "project_id"),
         Index("ix_material_requests_source_location_id", "source_location_id"),
         Index("ix_material_requests_destination_location_id", "destination_location_id"),
+        Index("ix_material_requests_collected_by_person_id", "collected_by_person_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -58,6 +59,7 @@ class MaterialRequest(Base):
         UUID(as_uuid=True), ForeignKey("people.id"), nullable=False
     )
     approved_by_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
+    collected_by_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     status: Mapped[MaterialRequestStatus] = mapped_column(
         Enum(MaterialRequestStatus), default=MaterialRequestStatus.draft
     )
@@ -93,6 +95,7 @@ class MaterialRequest(Base):
     work_order = relationship("WorkOrder", foreign_keys=[work_order_id])
     requested_by = relationship("Person", foreign_keys=[requested_by_person_id])
     approved_by = relationship("Person", foreign_keys=[approved_by_person_id])
+    collected_by = relationship("Person", foreign_keys=[collected_by_person_id])
     source_location = relationship("InventoryLocation", foreign_keys=[source_location_id])
     destination_location = relationship("InventoryLocation", foreign_keys=[destination_location_id])
     items = relationship("MaterialRequestItem", back_populates="material_request", cascade="all, delete-orphan")

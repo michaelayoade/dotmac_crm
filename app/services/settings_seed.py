@@ -36,7 +36,8 @@ def seed_bootstrap_admin_user(db: Session) -> None:
     """Ensure a local bootstrap admin credential exists for first login.
 
     Requires BOOTSTRAP_ADMIN_PASSWORD env var. Skips seeding if not set.
-    Does NOT overwrite an existing credential — only creates if missing.
+    Repairs an existing local credential for the bootstrap person so the
+    configured bootstrap username/password stays usable across restarts.
     """
     if not BOOTSTRAP_ADMIN_PASSWORD:
         return
@@ -76,7 +77,6 @@ def seed_bootstrap_admin_user(db: Session) -> None:
             )
         )
 
-    # Only create — never overwrite an existing credential
     if credential is None:
         credential = UserCredential(
             person_id=person.id,
@@ -86,6 +86,14 @@ def seed_bootstrap_admin_user(db: Session) -> None:
             is_active=True,
         )
         db.add(credential)
+    else:
+        credential.person_id = person.id
+        credential.username = BOOTSTRAP_ADMIN_USERNAME
+        credential.password_hash = hash_password(BOOTSTRAP_ADMIN_PASSWORD)
+        credential.is_active = True
+        credential.must_change_password = False
+        credential.failed_login_attempts = 0
+        credential.locked_until = None
 
     role_link = db.scalar(
         select(PersonRole).where(

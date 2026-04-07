@@ -7,7 +7,7 @@ from starlette.requests import Request
 from app.models.crm.enums import LeadStatus
 from app.models.crm.sales import Lead
 from app.models.event_store import EventStore
-from app.models.person import PartyStatus, Person
+from app.models.person import ChannelType, PartyStatus, Person, PersonChannel
 from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus, SalesOrderStatus
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.models.tickets import Ticket, TicketStatus
@@ -656,6 +656,7 @@ def test_lifecycle_kpis_uses_behavioral_last_payment_churn(db_session):
                 subscriber_number=f"SUB-{uuid4().hex[:8]}",
                 status=SubscriberStatus.active,
                 is_active=True,
+                activated_at=now - timedelta(days=90),
                 created_at=now - timedelta(days=90),
             ),
             Subscriber(
@@ -663,6 +664,7 @@ def test_lifecycle_kpis_uses_behavioral_last_payment_churn(db_session):
                 subscriber_number=f"SUB-{uuid4().hex[:8]}",
                 status=SubscriberStatus.active,
                 is_active=True,
+                activated_at=now - timedelta(days=60),
                 created_at=now - timedelta(days=60),
                 sync_metadata={"last_transaction_date": (now - timedelta(days=45)).strftime("%Y-%m-%d")},
             ),
@@ -697,6 +699,7 @@ def test_lifecycle_kpis_keeps_small_churn_rates_visible(db_session):
             subscriber_number=f"SUB-{uuid4().hex[:8]}",
             status=SubscriberStatus.active,
             is_active=True,
+            activated_at=now - timedelta(days=60),
             created_at=now - timedelta(days=60),
         )
         for person in people[:100]
@@ -707,6 +710,7 @@ def test_lifecycle_kpis_keeps_small_churn_rates_visible(db_session):
             subscriber_number=f"SUB-{uuid4().hex[:8]}",
             status=SubscriberStatus.active,
             is_active=True,
+            activated_at=now - timedelta(days=60),
             created_at=now - timedelta(days=60),
             sync_metadata={"last_transaction_date": (now - timedelta(days=45)).strftime("%Y-%m-%d")},
         )
@@ -740,6 +744,7 @@ def test_lifecycle_kpis_excludes_pre_period_churn_from_starting_base(db_session)
                 subscriber_number=f"SUB-{uuid4().hex[:8]}",
                 status=SubscriberStatus.active,
                 is_active=True,
+                activated_at=now - timedelta(days=90),
                 created_at=now - timedelta(days=90),
             ),
             Subscriber(
@@ -747,16 +752,18 @@ def test_lifecycle_kpis_excludes_pre_period_churn_from_starting_base(db_session)
                 subscriber_number=f"SUB-{uuid4().hex[:8]}",
                 status=SubscriberStatus.active,
                 is_active=True,
+                activated_at=now - timedelta(days=60),
                 created_at=now - timedelta(days=60),
                 sync_metadata={"last_transaction_date": (now - timedelta(days=45)).strftime("%Y-%m-%d")},
             ),
             Subscriber(
                 person_id=people[2].id,
                 subscriber_number=f"SUB-{uuid4().hex[:8]}",
-                status=SubscriberStatus.active,
-                is_active=True,
+                status=SubscriberStatus.terminated,
+                is_active=False,
+                activated_at=now - timedelta(days=90),
                 created_at=now - timedelta(days=90),
-                sync_metadata={"last_transaction_date": (now - timedelta(days=80)).strftime("%Y-%m-%d")},
+                terminated_at=now - timedelta(days=40),
             ),
         ]
     )
@@ -784,6 +791,7 @@ def test_lifecycle_kpis_uses_behavioral_invoice_due_non_payment_churn(db_session
                 subscriber_number=f"SUB-{uuid4().hex[:8]}",
                 status=SubscriberStatus.active,
                 is_active=True,
+                activated_at=now - timedelta(days=120),
                 created_at=now - timedelta(days=120),
             ),
             Subscriber(
@@ -791,6 +799,7 @@ def test_lifecycle_kpis_uses_behavioral_invoice_due_non_payment_churn(db_session
                 subscriber_number=f"SUB-{uuid4().hex[:8]}",
                 status=SubscriberStatus.active,
                 is_active=True,
+                activated_at=now - timedelta(days=90),
                 created_at=now - timedelta(days=90),
                 next_bill_date=now - timedelta(days=45),
                 balance="120.00",
@@ -824,6 +833,7 @@ def test_lifecycle_kpis_prioritizes_operational_over_behavioral(db_session):
                 subscriber_number=f"SUB-{uuid4().hex[:8]}",
                 status=SubscriberStatus.active,
                 is_active=True,
+                activated_at=now - timedelta(days=120),
                 created_at=now - timedelta(days=120),
             ),
             Subscriber(
@@ -831,6 +841,7 @@ def test_lifecycle_kpis_prioritizes_operational_over_behavioral(db_session):
                 subscriber_number=f"SUB-{uuid4().hex[:8]}",
                 status=SubscriberStatus.terminated,
                 is_active=True,
+                activated_at=now - timedelta(days=90),
                 created_at=now - timedelta(days=90),
                 terminated_at=now - timedelta(days=10),
                 sync_metadata={"last_transaction_date": (now - timedelta(days=80)).strftime("%Y-%m-%d")},
@@ -844,6 +855,50 @@ def test_lifecycle_kpis_prioritizes_operational_over_behavioral(db_session):
     assert kpis["terminated_in_period"] == 1
     assert kpis["operational_churn_in_period"] == 1
     assert kpis["behavioral_churn_in_period"] == 0
+
+
+def test_lifecycle_kpis_falls_back_to_created_at_for_starting_base(db_session):
+    now = datetime.now(UTC)
+    start_dt = now - timedelta(days=30)
+    end_dt = now
+
+    active_person = Person(first_name="Activated", last_name="Base", email=f"activated-{uuid4().hex}@example.com")
+    missing_activation_person = Person(
+        first_name="Missing",
+        last_name="Activation",
+        email=f"missing-activation-{uuid4().hex}@example.com",
+    )
+    db_session.add_all([active_person, missing_activation_person])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            Subscriber(
+                person_id=active_person.id,
+                subscriber_number=f"SUB-{uuid4().hex[:8]}",
+                status=SubscriberStatus.active,
+                is_active=True,
+                activated_at=now - timedelta(days=90),
+                created_at=now - timedelta(days=90),
+            ),
+            Subscriber(
+                person_id=missing_activation_person.id,
+                subscriber_number=f"SUB-{uuid4().hex[:8]}",
+                status=SubscriberStatus.active,
+                is_active=True,
+                created_at=now - timedelta(days=90),
+                sync_metadata={"last_transaction_date": (now - timedelta(days=45)).strftime("%Y-%m-%d")},
+            ),
+        ]
+    )
+    db_session.commit()
+
+    kpis = subscriber_reports_service.lifecycle_kpis(db_session, start_dt, end_dt)
+
+    assert kpis["total_active_subscribers_start"] == 2
+    assert kpis["terminated_in_period"] == 1
+    assert kpis["behavioral_churn_in_period"] == 1
+    assert kpis["churn_rate"] == 50.0
 
 
 def test_lifecycle_kpis_avg_days_to_convert_uses_won_lead_cycle_time(db_session):
@@ -2457,6 +2512,7 @@ def test_get_churn_table_uses_splynx_status_due_date_and_balance(db_session):
     suspended_person = Person(first_name="Suspended", last_name="Account", email=f"suspended-{uuid4().hex}@example.com")
     current_person = Person(first_name="Current", last_name="Active", email=f"current-{uuid4().hex}@example.com")
     db_session.add_all([due_soon_person, overdue_person, suspended_person, current_person])
+    overdue_person.phone = "+2348012345678"
     db_session.flush()
 
     due_soon_subscriber = Subscriber(
@@ -2479,7 +2535,7 @@ def test_get_churn_table_uses_splynx_status_due_date_and_balance(db_session):
         sync_metadata={
             "last_transaction_date": "2026-03-14",
             "expires_in": "2 days",
-            "invoiced_until": "2026-03-31",
+            "invoiced_until": (now - timedelta(days=10)).strftime("%Y-%m-%d"),
             "total_paid": "12345.67",
         },
     )
@@ -2509,12 +2565,14 @@ def test_get_churn_table_uses_splynx_status_due_date_and_balance(db_session):
     assert [row["name"] for row in rows] == ["Late Payer", "Suspended Account", "Due Soon"]
     assert rows[0]["subscriber_id"] == str(overdue_subscriber.id)
     assert rows[0]["subscriber_status"] == "Active"
+    assert rows[0]["phone"] == "+2348012345678"
     assert rows[0]["next_bill_date"] == (now - timedelta(days=5)).strftime("%Y-%m-%d")
     assert rows[0]["balance"] == 250.0
     assert rows[0]["billing_cycle"] == "monthly"
     assert rows[0]["last_transaction_date"] == "2026-03-14"
     assert rows[0]["expires_in"] == "2 days"
-    assert rows[0]["invoiced_until"] == "2026-03-31"
+    assert rows[0]["invoiced_until"] == (now - timedelta(days=10)).strftime("%Y-%m-%d")
+    assert rows[0]["days_since_last_payment"] == 10
     assert rows[0]["total_paid"] == 12345.67
     assert rows[0]["days_to_due"] <= -4
     assert rows[0]["risk_segment"] == "Overdue"
@@ -2537,6 +2595,22 @@ def test_get_churn_table_uses_splynx_status_due_date_and_balance(db_session):
     )
     assert [row["name"] for row in churned_only] == ["Late Payer"]
 
+    overdue_and_suspended = subscriber_reports_service.get_churn_table(
+        db_session,
+        due_soon_days=7,
+        segments=["overdue", "suspended"],
+        limit=20,
+    )
+    assert [row["name"] for row in overdue_and_suspended] == ["Late Payer", "Suspended Account"]
+
+    overdue_and_suspended_csv_style = subscriber_reports_service.get_churn_table(
+        db_session,
+        due_soon_days=7,
+        segments=["overdue,suspended"],
+        limit=20,
+    )
+    assert [row["name"] for row in overdue_and_suspended_csv_style] == ["Late Payer", "Suspended Account"]
+
     high_balance_only = subscriber_reports_service.get_churn_table(
         db_session,
         due_soon_days=7,
@@ -2544,6 +2618,64 @@ def test_get_churn_table_uses_splynx_status_due_date_and_balance(db_session):
         limit=20,
     )
     assert [row["name"] for row in high_balance_only] == ["Late Payer"]
+
+
+def test_get_churn_table_splynx_live_uses_crm_contact_phone_fallback(db_session, monkeypatch):
+    from app.services import splynx as splynx_service
+
+    now = datetime.now(UTC)
+    person = Person(
+        first_name="Contact",
+        last_name="Phone",
+        email=f"live-phone-{uuid4().hex}@example.com",
+        phone=None,
+    )
+    db_session.add(person)
+    db_session.flush()
+    db_session.add(
+        PersonChannel(
+            person_id=person.id,
+            channel_type=ChannelType.whatsapp,
+            address="+2348099991111",
+            is_primary=True,
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customers",
+        lambda _db: [
+            {
+                "id": "12345",
+                "name": "Live Splynx Customer",
+                "email": person.email,
+                "phone": "",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        splynx_service,
+        "map_customer_to_subscriber_data",
+        lambda _db, _customer, include_remote_details=True: {
+            "status": SubscriberStatus.active.value,
+            "next_bill_date": now - timedelta(days=3),
+            "balance": "150.00",
+            "sync_metadata": {"invoiced_until": (now - timedelta(days=7)).strftime("%Y-%m-%d")},
+        },
+    )
+
+    rows = subscriber_reports_service.get_churn_table(
+        db_session,
+        due_soon_days=7,
+        source="splynx_live",
+        limit=20,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Live Splynx Customer"
+    assert rows[0]["phone"] == "+2348099991111"
+    assert rows[0]["risk_segment"] == "Overdue"
 
 
 def test_get_overdue_invoices_table_returns_30_day_past_due_customers(db_session):
@@ -2729,9 +2861,27 @@ def test_churn_risk_summary_rolls_up_balances_and_recent_churn():
 def test_churn_risk_segment_breakdown_groups_and_orders_rows():
     rows = subscriber_reports_service.churn_risk_segment_breakdown(
         [
-            {"risk_segment": "Due Soon", "balance": 100.0, "is_high_balance_risk": False},
-            {"risk_segment": "Overdue", "balance": 500.0, "is_high_balance_risk": True},
-            {"risk_segment": "Overdue", "balance": 300.0, "is_high_balance_risk": False},
+            {
+                "risk_segment": "Due Soon",
+                "balance": 100.0,
+                "is_high_balance_risk": False,
+                "billing_cycle": "monthly",
+                "invoiced_until": "2026-03-20",
+            },
+            {
+                "risk_segment": "Overdue",
+                "balance": 500.0,
+                "is_high_balance_risk": True,
+                "billing_cycle": "monthly",
+                "days_since_last_payment": 12,
+            },
+            {
+                "risk_segment": "Overdue",
+                "balance": 300.0,
+                "is_high_balance_risk": False,
+                "billing_cycle": "quarterly",
+                "days_since_last_payment": 8,
+            },
         ]
     )
 
@@ -2740,6 +2890,10 @@ def test_churn_risk_segment_breakdown_groups_and_orders_rows():
     assert rows[0]["balance"] == 800.0
     assert rows[0]["high_balance_count"] == 1
     assert rows[0]["avg_balance"] == 400.0
+    assert "Avg 10d since payment (2 accounts)" in rows[0]["billing_mix"]
+    assert "Monthly (1), Quarterly (1)" in rows[0]["billing_mix"]
+    assert "Avg" in rows[1]["billing_mix"]
+    assert "Monthly (1)" in rows[1]["billing_mix"]
 
 
 def test_churn_risk_aging_buckets_categorizes_due_dates():
@@ -2909,3 +3063,147 @@ def test_subscriber_revenue_page_renders(monkeypatch):
     body = response.body.decode()
     assert "Subscriber Revenue - Admin" in body
     assert "Outstanding Balances" in body
+
+
+def test_subscriber_billing_risk_page_renders(monkeypatch):
+    monkeypatch.setattr(reports_web, "get_sidebar_stats", lambda _db: {"open_tickets": 0, "dispatch_jobs": 0})
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "get_churn_table",
+        lambda _db, due_soon_days=7, high_balance_only=False, segment=None, segments=None, source="local", limit=500: [
+            {
+                "name": "Blocked Customer",
+                "email": "blocked@example.com",
+                "subscriber_status": "suspended",
+                "risk_segment": "Suspended",
+                "next_bill_date": "2026-04-12",
+                "days_to_due": 5,
+                "balance": 9200.0,
+                "billing_cycle": "monthly",
+                "last_transaction_date": "2026-03-01",
+                "expires_in": 12,
+                "invoiced_until": "2026-04-30",
+                "total_paid": 50000.0,
+                "is_high_balance_risk": True,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "get_overdue_invoices_table",
+        lambda _db, min_days_past_due=30, limit=250: [
+            {
+                "name": "Blocked Customer",
+                "overdue_invoices": 2,
+                "total_balance_due": 9200.0,
+                "max_days_past_due": 44,
+                "oldest_due_day": "2026-02-23",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "churn_risk_summary",
+        lambda _churn_rows, _overdue_invoices: {
+            "total_at_risk": 1,
+            "total_balance_exposure": 9200.0,
+            "high_balance_risk_count": 1,
+            "overdue_invoice_balance": 9200.0,
+        },
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "churn_risk_segment_breakdown",
+        lambda _churn_rows: [
+            {
+                "segment": "Suspended",
+                "count": 1,
+                "share_pct": 100.0,
+                "balance": 9200.0,
+                "high_balance_count": 1,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "churn_risk_aging_buckets",
+        lambda _churn_rows, due_soon_days=7: [{"label": "Due In 0-7 Days", "count": 1}],
+    )
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/reports/subscribers/billing-risk",
+            "headers": [],
+            "query_string": b"",
+            "server": ("testserver", 80),
+            "client": ("testclient", 50000),
+            "scheme": "http",
+        }
+    )
+
+    response = reports_web.subscriber_billing_risk(
+        request=request,
+        db=None,
+        due_soon_days=7,
+        overdue_invoice_days=30,
+        high_balance_only=False,
+        segment=None,
+    )
+
+    assert response.status_code == 200
+    body = response.body.decode()
+    assert "Subscriber Billing Risk" in body
+    assert "At-Risk Subscribers" in body
+    assert "Overdue Invoices" in body
+    assert "Blocked Customer" in body
+
+
+def test_subscriber_billing_risk_export_returns_csv(monkeypatch):
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "get_churn_table",
+        lambda _db, due_soon_days=7, high_balance_only=False, segment=None, segments=None, source="local", limit=2000: [
+            {
+                "name": "Blocked Customer",
+                "email": "blocked@example.com",
+                "subscriber_status": "suspended",
+                "risk_segment": "Suspended",
+                "next_bill_date": "2026-04-12",
+                "days_to_due": 5,
+                "balance": 9200.0,
+                "billing_cycle": "monthly",
+                "last_transaction_date": "2026-03-01",
+                "expires_in": 12,
+                "invoiced_until": "2026-04-30",
+                "total_paid": 50000.0,
+                "is_high_balance_risk": True,
+            }
+        ],
+    )
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/reports/subscribers/billing-risk/export",
+            "headers": [],
+            "query_string": b"",
+            "server": ("testserver", 80),
+            "client": ("testclient", 50000),
+            "scheme": "http",
+        }
+    )
+
+    response = reports_web.subscriber_billing_risk_export(
+        request=request,
+        db=None,
+        due_soon_days=7,
+        high_balance_only=False,
+        segment=None,
+    )
+
+    assert response.status_code == 200
+    assert response.media_type == "text/csv"
+    assert "attachment; filename=subscriber_billing_risk_" in response.headers["Content-Disposition"]
