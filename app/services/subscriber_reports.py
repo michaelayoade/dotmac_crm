@@ -3,7 +3,7 @@
 import re
 from collections import defaultdict
 from collections.abc import Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, TypedDict
 
@@ -591,6 +591,29 @@ def _clean_report_name(value: str | None) -> str:
     cleaned = " ".join(words)
     cleaned = re.sub(r"'S\b", "'s", cleaned)
     return cleaned
+
+
+def _coerce_datetime_utc(value: datetime | date | None) -> datetime | None:
+    """Normalize date-like values to timezone-aware UTC datetimes."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+    if isinstance(value, date):
+        return datetime.combine(value, time.min, tzinfo=UTC)
+    return None
+
+
+def _date_value(value: datetime | date | None) -> date | None:
+    normalized = _coerce_datetime_utc(value)
+    return normalized.date() if normalized is not None else None
+
+
+def _format_date_value(value: datetime | date | None) -> str:
+    date_value = _date_value(value)
+    return date_value.strftime("%Y-%m-%d") if date_value is not None else ""
 
 
 def _metadata_text(metadata: Mapping[str, Any] | None, key: str) -> str:
@@ -1253,14 +1276,14 @@ def lifecycle_retention_cohorts(db: Session, start_dt: datetime, end_dt: datetim
 
     cohorts: dict[str, list[dict[str, datetime | None]]] = defaultdict(list)
     for row in rows:
-        activation_at = row.activation_event_at
+        activation_at = _coerce_datetime_utc(row.activation_event_at)
         if activation_at is None:
             continue
         cohort_key = _month_start(activation_at).strftime("%Y-%m")
         cohorts[cohort_key].append(
             {
                 "activation_event_at": activation_at,
-                "churn_event_at": row.churn_event_at,
+                "churn_event_at": _coerce_datetime_utc(row.churn_event_at),
             }
         )
 
@@ -1469,35 +1492,39 @@ def _lifecycle_churn_rows(
     results = []
     for row in subs:
         name = row.display_name or f"{row.first_name or ''} {row.last_name or ''}".strip() or "Unknown"
-        tenure = 0
-        if row.activation_event_at and row.churn_event_at:
-            tenure = max(0, (row.churn_event_at.date() - row.activation_event_at.date()).days)
+        activation_date = _date_value(row.activation_event_at)
+        churn_date = _date_value(row.churn_event_at)
+        tenure = max(0, (churn_date - activation_date).days) if activation_date and churn_date else 0
         results.append(
             {
                 "name": name,
                 "subscriber_number": row.subscriber_number or "",
                 "plan": row.service_plan or "",
                 "region": row.service_region or "",
-                "activated_at": row.activation_event_at.strftime("%Y-%m-%d") if row.activation_event_at else "",
-                "terminated_at": row.churn_event_at.strftime("%Y-%m-%d") if row.churn_event_at else "",
+                "activated_at": _format_date_value(row.activation_event_at),
+                "terminated_at": _format_date_value(row.churn_event_at),
                 "tenure_days": tenure,
             }
         )
     return results
 
 
-def _month_start(value: datetime) -> datetime:
-    return value.astimezone(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+def _month_start(value: datetime | date) -> datetime:
+    normalized = _coerce_datetime_utc(value)
+    if normalized is None:
+        raise ValueError("Expected a date-like value")
+    return normalized.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
-def _add_months(value: datetime, months: int) -> datetime:
-    month_index = (value.year * 12 + (value.month - 1)) + months
+def _add_months(value: datetime | date, months: int) -> datetime:
+    normalized = _month_start(value)
+    month_index = (normalized.year * 12 + (normalized.month - 1)) + months
     year = month_index // 12
     month = month_index % 12 + 1
-    return value.replace(year=year, month=month, day=1)
+    return normalized.replace(year=year, month=month, day=1)
 
 
-def _month_end(value: datetime) -> datetime:
+def _month_end(value: datetime | date) -> datetime:
     next_month = _add_months(_month_start(value), 1)
     return next_month - timedelta(seconds=1)
 
@@ -1512,10 +1539,11 @@ def _extract_plan_name(payload: Mapping[str, Any] | None, keys: list[str]) -> st
     return None
 
 
-def _ensure_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
+def _ensure_utc(value: datetime | date) -> datetime:
+    normalized = _coerce_datetime_utc(value)
+    if normalized is None:
+        raise ValueError("Expected a date-like value")
+    return normalized
 
 
 def _days_since_expr(db: Session, column):
@@ -2537,14 +2565,15 @@ def lifecycle_longest_tenure(db: Session, limit: int = 10) -> list[dict]:
     for row in subs:
         raw_name = row.display_name or f"{row.first_name or ''} {row.last_name or ''}".strip() or row.subscriber_number
         name = _clean_report_name(raw_name)
-        tenure = (now.date() - row.activation_event_at.date()).days if row.activation_event_at else 0
+        activation_date = _date_value(row.activation_event_at)
+        tenure = (now.date() - activation_date).days if activation_date else 0
         results.append(
             {
                 "name": name,
                 "subscriber_number": row.subscriber_number,
                 "plan": row.service_plan or "",
                 "region": row.service_region or "",
-                "activated_at": row.activation_event_at.strftime("%Y-%m-%d") if row.activation_event_at else "",
+                "activated_at": _format_date_value(row.activation_event_at),
                 "tenure_days": tenure,
                 "total_paid": round(float(row.total_paid or 0), 2),
             }
@@ -2592,8 +2621,9 @@ def lifecycle_top_subscribers_by_value(db: Session, limit: int = 10) -> list[dic
         raw_name = row.display_name or f"{row.first_name or ''} {row.last_name or ''}".strip() or row.subscriber_number
         clean_name = _clean_report_name(raw_name)
         total_paid = float(row.total_paid or 0)
-        activation_at = row.activation_event_at
-        tenure_days = (now.date() - activation_at.date()).days if activation_at else 0
+        activation_at = _coerce_datetime_utc(row.activation_event_at)
+        activation_date = _date_value(activation_at)
+        tenure_days = (now.date() - activation_date).days if activation_date else 0
         tenure_months = round(tenure_days / 30.4, 1) if tenure_days > 0 else 0
         avg_monthly_spend = round(total_paid / tenure_months, 2) if tenure_months > 0 else total_paid
         status = row.status.value if row.status else "unknown"
@@ -2604,7 +2634,7 @@ def lifecycle_top_subscribers_by_value(db: Session, limit: int = 10) -> list[dic
             "subscriber_number": candidate_subscriber_number,
             "plan": row.service_plan or "",
             "status": status,
-            "activated_at": activation_at.strftime("%Y-%m-%d") if activation_at else "",
+            "activated_at": _format_date_value(activation_at),
             "tenure_months": tenure_months,
             "order_count": int(row.order_count or 0),
             "total_paid": round(total_paid, 2),
