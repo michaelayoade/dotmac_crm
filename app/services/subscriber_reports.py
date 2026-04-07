@@ -3032,6 +3032,13 @@ def _sync_metadata_date_expr(db: Session, key: str):
     return cast(func.nullif(text_expr, ""), Date)
 
 
+def _postgres_interval_days(day_count: int) -> Any:
+    """Build a PostgreSQL interval expression for integer day offsets."""
+
+    safe_day_count = max(1, int(day_count))
+    return text(f"interval '{safe_day_count} days'")
+
+
 def _behavioral_churn_event_at(db: Session):
     """Derived churn date from 40+ day non-payment / overdue due-date signals."""
     dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else ""
@@ -3063,7 +3070,7 @@ def _behavioral_churn_event_at(db: Session):
             else_=func.coalesce(derived_from_last_payment, derived_from_invoice_due),
         )
 
-    threshold_interval: Any = text("interval '40 days'")
+    threshold_interval: Any = _postgres_interval_days(40)
     threshold_date_pg: Any = cast(func.current_date() - threshold_interval, Date)
     derived_from_last_payment = case(
         (
@@ -3160,7 +3167,7 @@ def _unified_churn_expressions(db: Session, behavioral_days: int):
         invoice_due_date = func.date(Subscriber.next_bill_date)
         balance_positive = cast(func.replace(func.coalesce(Subscriber.balance, "0"), ",", ""), Numeric) > 0
     else:
-        threshold_interval: Any = text(f"interval '{int(threshold_days)} days'")
+        threshold_interval: Any = _postgres_interval_days(threshold_days)
         latest_payment_signal_at = func.greatest(
             func.coalesce(last_successful_payment_at, cast("1970-01-01", DateTime(timezone=True))),
             func.coalesce(last_transaction_at, cast("1970-01-01", DateTime(timezone=True))),
