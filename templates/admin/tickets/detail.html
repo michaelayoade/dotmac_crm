@@ -836,19 +836,19 @@
                     <dl class="space-y-3">
                         <div class="flex items-center justify-between">
                             <dt class="text-sm text-slate-500 dark:text-slate-400">Draft</dt>
-                            <dd class="text-sm font-medium text-slate-900 dark:text-white">{{ "{:,.2f}".format(expense_totals.draft or 0) }}</dd>
+                            <dd class="text-sm font-medium text-slate-900 dark:text-white">{{ "{:,.2f}".format((expense_totals.draft or 0)|float) }}</dd>
                         </div>
                         <div class="flex items-center justify-between">
                             <dt class="text-sm text-slate-500 dark:text-slate-400">Submitted</dt>
-                            <dd class="text-sm font-medium text-amber-600 dark:text-amber-400">{{ "{:,.2f}".format(expense_totals.submitted or 0) }}</dd>
+                            <dd class="text-sm font-medium text-amber-600 dark:text-amber-400">{{ "{:,.2f}".format((expense_totals.submitted or 0)|float) }}</dd>
                         </div>
                         <div class="flex items-center justify-between">
                             <dt class="text-sm text-slate-500 dark:text-slate-400">Approved</dt>
-                            <dd class="text-sm font-medium text-emerald-600 dark:text-emerald-400">{{ "{:,.2f}".format(expense_totals.approved or 0) }}</dd>
+                            <dd class="text-sm font-medium text-emerald-600 dark:text-emerald-400">{{ "{:,.2f}".format((expense_totals.approved or 0)|float) }}</dd>
                         </div>
                         <div class="flex items-center justify-between border-t border-slate-100 pt-3 dark:border-slate-700/50">
                             <dt class="text-sm font-semibold text-slate-700 dark:text-slate-300">Paid</dt>
-                            <dd class="text-sm font-bold text-slate-900 dark:text-white">{{ "{:,.2f}".format(expense_totals.paid or 0) }}</dd>
+                            <dd class="text-sm font-bold text-slate-900 dark:text-white">{{ "{:,.2f}".format((expense_totals.paid or 0)|float) }}</dd>
                         </div>
                     </dl>
                     {% else %}
