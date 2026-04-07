@@ -976,7 +976,8 @@ def _lifecycle_unified_churn_metrics(
     operational_ids = {
         row.id
         for row in active_rows
-        if (terminated_at := _coerce_utc_datetime(row.terminated_at)) is not None and start_dt <= terminated_at <= end_dt
+        if (terminated_at := _coerce_utc_datetime(row.terminated_at)) is not None
+        and start_dt <= terminated_at <= end_dt
     }
     inactivity_cutoff = end_dt.date() - timedelta(days=threshold_days)
     behavioral_ids = {
@@ -984,7 +985,10 @@ def _lifecycle_unified_churn_metrics(
         for row in active_rows
         if row.id not in operational_ids
         and (
-            ((last_transaction_date := _coerce_date(row.last_transaction_date)) is not None and last_transaction_date < inactivity_cutoff)
+            (
+                (last_transaction_date := _coerce_date(row.last_transaction_date)) is not None
+                and last_transaction_date < inactivity_cutoff
+            )
             or (
                 (next_bill_date := _coerce_date(row.next_bill_date)) is not None
                 and next_bill_date < end_dt.date()
@@ -1592,6 +1596,7 @@ def get_churn_table(
     limit: int = 500,
 ) -> list[dict]:
     """Subscribers with non-current Splynx billing state, segmented by due/risk status."""
+
     def _normalize_segment(value: str | None) -> str | None:
         normalized_segment = (value or "").strip().lower()
         if normalized_segment in {"due_soon", "due soon"}:
