@@ -41,17 +41,23 @@ def main():
             .filter(UserCredential.provider == AuthProvider.local)
             .first()
         )
-        if credential:
-            return
-
-        credential = UserCredential(
-            person_id=person.id,
-            provider=AuthProvider.local,
-            username=args.username,
-            password_hash=hash_password(args.password),
-            must_change_password=args.force_reset,
-        )
-        db.add(credential)
+        if credential is None:
+            credential = UserCredential(
+                person_id=person.id,
+                provider=AuthProvider.local,
+                username=args.username,
+                password_hash=hash_password(args.password),
+                must_change_password=args.force_reset,
+                is_active=True,
+            )
+            db.add(credential)
+        else:
+            credential.username = args.username
+            credential.password_hash = hash_password(args.password)
+            credential.must_change_password = args.force_reset
+            credential.is_active = True
+            credential.failed_login_attempts = 0
+            credential.locked_until = None
         db.commit()
     finally:
         db.close()

@@ -169,6 +169,29 @@ class TestMaterialRequestStatusTransitions:
         assert approved.approved_by_person_id == person.id
         assert approved.source_location_id == inventory_location.id
 
+    def test_approve_sets_collected_by(self, db_session, person, ticket, inventory_location):
+        mr = _make_mr(db_session, person, ticket)
+        approved = material_requests.approve(
+            db_session,
+            str(mr.id),
+            str(person.id),
+            source_location_id=str(inventory_location.id),
+            collected_by_person_id=str(person.id),
+        )
+        assert approved.collected_by_person_id == person.id
+
+    def test_approve_enqueues_erp_sync(self, db_session, person, ticket, inventory_location):
+        mr = _make_mr(db_session, person, ticket)
+        with patch("app.tasks.integrations.sync_material_request_to_erp.delay") as delay_mock:
+            material_requests.approve(
+                db_session,
+                str(mr.id),
+                str(person.id),
+                source_location_id=str(inventory_location.id),
+            )
+
+        delay_mock.assert_called_once_with(str(mr.id))
+
     def test_approve_requires_source_warehouse(self, db_session, person, ticket):
         mr = _make_mr(db_session, person, ticket)
         with pytest.raises(HTTPException) as exc:

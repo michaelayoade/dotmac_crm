@@ -196,6 +196,19 @@
                             {% endfor %}
                         </select>
                     </div>
+                    <div>
+                        <label for="collected_by_person_id" class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Collected By</label>
+                        <select id="collected_by_person_id" name="collected_by_person_id"
+                                class="mt-2 block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                            <option value="">Select user...</option>
+                            {% for person in collectors %}
+                            {% set label = person.display_name or ((person.first_name or '') ~ ' ' ~ (person.last_name or ''))|trim or person.email or 'User' %}
+                            <option value="{{ person.id }}" {{ 'selected' if mr.collected_by_person_id == person.id else '' }}>
+                                {{ label }}{% if person.email %} ({{ person.email }}){% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
                     {{ submit_button("Issue & Sync to ERP", color="emerald", size="sm") }}
                 </form>
             </div>
@@ -225,6 +238,12 @@
                     <div>
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">{{ 'Issued By' if sv == 'issued' else 'Approved By' }}</dt>
                         <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ mr.approved_by.first_name }} {{ mr.approved_by.last_name }}</dd>
+                    </div>
+                    {% endif %}
+                    {% if mr.collected_by %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Collected By</dt>
+                        <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ mr.collected_by.first_name }} {{ mr.collected_by.last_name }}</dd>
                     </div>
                     {% endif %}
                     {% if mr.ticket %}

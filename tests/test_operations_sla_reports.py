@@ -71,6 +71,79 @@ def test_operations_sla_report_lists_ticket_violations(db_session):
     assert summary["regions_affected"] == 1
 
 
+def test_operations_sla_report_excludes_closed_tickets_when_open_only(db_session):
+    policy = _seed_policy(db_session, "Ticket Resolution SLA", WorkflowEntityType.ticket)
+    active_ticket = Ticket(
+        title="Active ticket breach",
+        status=TicketStatus.open,
+        priority=TicketPriority.high,
+        region="Lagos",
+    )
+    closed_ticket = Ticket(
+        title="Closed ticket breach",
+        status=TicketStatus.closed,
+        priority=TicketPriority.high,
+        region="Lagos",
+    )
+    db_session.add_all([active_ticket, closed_ticket])
+    db_session.flush()
+
+    active_clock = SlaClock(
+        policy_id=policy.id,
+        entity_type=WorkflowEntityType.ticket,
+        entity_id=active_ticket.id,
+        priority="high",
+        status=SlaClockStatus.breached,
+        started_at=datetime.now(UTC) - timedelta(hours=8),
+        due_at=datetime.now(UTC) - timedelta(hours=4),
+        breached_at=datetime.now(UTC) - timedelta(hours=3),
+    )
+    db_session.add(active_clock)
+    db_session.flush()
+    db_session.add(
+        SlaBreach(clock_id=active_clock.id, status=SlaBreachStatus.open, breached_at=active_clock.breached_at)
+    )
+
+    closed_clock = SlaClock(
+        policy_id=policy.id,
+        entity_type=WorkflowEntityType.ticket,
+        entity_id=closed_ticket.id,
+        priority="high",
+        status=SlaClockStatus.breached,
+        started_at=datetime.now(UTC) - timedelta(hours=9),
+        due_at=datetime.now(UTC) - timedelta(hours=5),
+        breached_at=datetime.now(UTC) - timedelta(hours=2),
+    )
+    db_session.add(closed_clock)
+    db_session.flush()
+    db_session.add(
+        SlaBreach(clock_id=closed_clock.id, status=SlaBreachStatus.open, breached_at=closed_clock.breached_at)
+    )
+    db_session.commit()
+
+    records = operations_sla_violations_report.list_records(
+        db_session,
+        entity_type="ticket",
+        region="Lagos",
+        start_at=None,
+        end_at=None,
+        open_only=True,
+    )
+    summary = operations_sla_violations_report.summary(
+        db_session,
+        entity_type="ticket",
+        region="Lagos",
+        start_at=None,
+        end_at=None,
+        open_only=True,
+    )
+
+    assert len(records) == 1
+    assert records[0]["title"] == "Active ticket breach"
+    assert summary["total_violations"] == 1
+    assert summary["open_violations"] == 1
+
+
 def test_operations_sla_report_groups_project_violations_by_region(db_session):
     policy = _seed_policy(db_session, "Project Completion SLA", WorkflowEntityType.project)
     first = Project(name="Project One", status=ProjectStatus.active, region="Abuja")

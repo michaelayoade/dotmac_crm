@@ -58,6 +58,7 @@ class MaterialRequestRead(MaterialRequestBase):
     id: UUID
     status: MaterialRequestStatus
     approved_by_person_id: UUID | None = None
+    collected_by_person_id: UUID | None = None
     erp_material_request_id: str | None = None
     number: str | None = None
     is_active: bool

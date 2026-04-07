@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
 from app.db import SessionLocal
+from app.models.auth import UserCredential
 from app.models.inventory import InventoryLocation
 from app.models.material_request import MaterialRequestPriority
+from app.models.person import Person
 from app.models.projects import Project
 from app.models.tickets import Ticket
 from app.schemas.material_request import (
@@ -90,6 +92,25 @@ def _warehouse_choices(db: Session) -> list[InventoryLocation]:
         db.query(InventoryLocation)
         .filter(InventoryLocation.is_active.is_(True))
         .order_by(InventoryLocation.name.asc())
+        .all()
+    )
+
+
+def _collector_choices(db: Session) -> list[Person]:
+    has_active_credential = (
+        db.query(UserCredential.id)
+        .filter(
+            UserCredential.person_id == Person.id,
+            UserCredential.is_active.is_(True),
+        )
+        .exists()
+    )
+    return (
+        db.query(Person)
+        .filter(Person.is_active.is_(True))
+        .filter(has_active_credential)
+        .order_by(Person.first_name.asc(), Person.last_name.asc(), Person.email.asc())
+        .limit(500)
         .all()
     )
 
@@ -283,7 +304,13 @@ def material_request_update(
 @router.get("/{mr_id}", response_class=HTMLResponse)
 def material_request_detail(request: Request, mr_id: str, db: Session = Depends(get_db)):
     mr = material_requests.get(db, mr_id)
-    context = _base_ctx(request, db, mr=mr, warehouses=_warehouse_choices(db))
+    context = _base_ctx(
+        request,
+        db,
+        mr=mr,
+        warehouses=_warehouse_choices(db),
+        collectors=_collector_choices(db),
+    )
     return templates.TemplateResponse("admin/material_requests/detail.html", context)
 
 
@@ -312,6 +339,7 @@ def material_request_approve(
     mr_id: str,
     source_location_id: str | None = Form(None),
     destination_location_id: str | None = Form(None),
+    collected_by_person_id: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     from app.web.admin._auth_helpers import get_current_user
@@ -325,6 +353,7 @@ def material_request_approve(
         str(person_id) if person_id else "",
         source_location_id=source_location_id,
         destination_location_id=destination_location_id,
+        collected_by_person_id=collected_by_person_id,
     )
 
     log_audit_event(
@@ -334,6 +363,7 @@ def material_request_approve(
         entity_type="material_request",
         entity_id=mr_id,
         actor_id=str(person_id) if person_id else None,
+        metadata={"collected_by_person_id": collected_by_person_id} if collected_by_person_id else None,
     )
 
     return RedirectResponse(url=f"/admin/operations/material-requests/{mr_id}", status_code=303)
