@@ -152,7 +152,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
                     <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_number }}</td>
                     <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan }}</td>
-                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format(row.outstanding_balance or 0) }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.outstanding_balance or 0)|float) }}</td>
                     <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.due_date }}</td>
                 {% endcall %}
                 {% else %}
@@ -212,7 +212,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ status_badge(row.status|title, "warning" if row.status != "active" else "active", size="sm") }}</td>
                 <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.last_usage_at or "No usage record" }}</td>
                 <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.days_since_use }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format(row.total_paid or 0) }}</td>
+                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.total_paid or 0)|float) }}</td>
             {% endcall %}
             {% else %}
             {{ empty_state(title="No inactive usage list", message="No subscribers qualified for the 90+ day inactivity list.", color="slate", color2="gray", colspan=7) }}

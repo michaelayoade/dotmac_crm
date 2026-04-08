@@ -225,7 +225,7 @@ select.lifecycle-period-select option {
                     <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan }}</td>
                     <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.region }}</td>
                     <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.activated_at }}</td>
-                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format(row.total_paid or 0) }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.total_paid or 0)|float) }}</td>
                     <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.tenure_days }}</td>
                 {% endcall %}
                 {% else %}
@@ -279,8 +279,8 @@ select.lifecycle-period-select option {
                             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan }}</td>
                             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.activated_at }}</td>
                             <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "%.1f"|format(row.tenure_months or 0) }}</td>
-                            <td class="px-6 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">{{ "{:,.2f}".format(row.total_paid or 0) }}</td>
-                            <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format(row.avg_monthly_spend or 0) }}</td>
+                            <td class="px-6 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.total_paid or 0)|float) }}</td>
+                            <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.avg_monthly_spend or 0)|float) }}</td>
                             <td class="px-6 py-3 text-sm">
                                 <span class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold {% if row.status == 'active' %}bg-gradient-to-r from-indigo-500 to-blue-600 text-white{% elif row.status in ['suspended', 'pending'] %}bg-gradient-to-r from-amber-500/10 to-orange-500/10 text-amber-700 dark:from-amber-500/20 dark:to-orange-500/20 dark:text-amber-400{% elif row.status == 'terminated' %}bg-gradient-to-r from-red-500/10 to-rose-500/10 text-red-700 dark:from-red-500/20 dark:to-rose-500/20 dark:text-red-400{% else %}bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300{% endif %}">
                                     <span class="h-1.5 w-1.5 rounded-full {% if row.status == 'active' %}bg-white{% elif row.status in ['suspended', 'pending'] %}bg-amber-500{% elif row.status == 'terminated' %}bg-red-500{% else %}bg-slate-400{% endif %}"></span>

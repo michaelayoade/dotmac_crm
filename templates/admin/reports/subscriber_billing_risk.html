@@ -67,7 +67,7 @@
                     <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.segment }}</td>
                     <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.count }}</td>
                     <td class="px-6 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.share_pct }}%</td>
-                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format(row.balance or 0) }}</td>
+                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.balance or 0)|float) }}</td>
                     <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.high_balance_count }}</td>
                     <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.billing_mix or "No billing cycle data" }}</td>
                 {% endcall %}
@@ -102,14 +102,14 @@
 
     {% call dashboard_filter_panel(color="rose", title="At-Risk Segment Filter") %}
     <div class="flex flex-wrap items-center gap-2">
-        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if high_balance_only %}&high_balance_only=true{% endif %}"
+        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if days_past_due is not none %}&days_past_due={{ days_past_due }}{% endif %}{% if high_balance_only %}&high_balance_only=true{% endif %}"
            class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
            {{ 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200'
            if not selected_segments else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
             All Segments
         </a>
         {% for key, label in [("overdue", "Overdue"), ("suspended", "Suspended"), ("due_soon", "Due Soon"), ("churned", "Churned"), ("pending", "Pending")] %}
-        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if high_balance_only %}&high_balance_only=true{% endif %}&segment={{ key }}"
+        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if days_past_due is not none %}&days_past_due={{ days_past_due }}{% endif %}{% if high_balance_only %}&high_balance_only=true{% endif %}&segment={{ key }}"
            class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
            {{ 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200'
            if key in selected_segments else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
@@ -119,16 +119,55 @@
     </div>
     {% endcall %}
 
+    {% call dashboard_filter_panel(color="sky", title="Days Past Due Filter") %}
+    <div class="flex flex-wrap items-center gap-2">
+        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if high_balance_only %}&high_balance_only=true{% endif %}{% if selected_segments %}{% for selected_segment in selected_segments %}&segment={{ selected_segment }}{% endfor %}{% endif %}"
+           class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
+           {{ 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-200'
+           if days_past_due is none else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
+            All Days Past Due
+        </a>
+        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if high_balance_only %}&high_balance_only=true{% endif %}{% if selected_segments %}{% for selected_segment in selected_segments %}&segment={{ selected_segment }}{% endfor %}{% endif %}&days_past_due=0"
+           class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
+           {{ 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-200'
+           if days_past_due == '0' else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
+            Current (0)
+        </a>
+        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if high_balance_only %}&high_balance_only=true{% endif %}{% if selected_segments %}{% for selected_segment in selected_segments %}&segment={{ selected_segment }}{% endfor %}{% endif %}&days_past_due=1-7"
+           class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
+           {{ 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-200'
+           if days_past_due == '1-7' else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
+            1-7 Days
+        </a>
+        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if high_balance_only %}&high_balance_only=true{% endif %}{% if selected_segments %}{% for selected_segment in selected_segments %}&segment={{ selected_segment }}{% endfor %}{% endif %}&days_past_due=8-30"
+           class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
+           {{ 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-200'
+           if days_past_due == '8-30' else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
+            8-30 Days
+        </a>
+        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if high_balance_only %}&high_balance_only=true{% endif %}{% if selected_segments %}{% for selected_segment in selected_segments %}&segment={{ selected_segment }}{% endfor %}{% endif %}&days_past_due=31-plus"
+           class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
+           {{ 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-200'
+           if days_past_due == '31-plus' else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
+            31+ Days
+        </a>
+    </div>
+    {% endcall %}
+
     {% call table_shell(table_id="billing-risk-churn-rows", title="At-Risk Subscribers", color="rose", count=churn_rows|length, bulk_selectable=False) %}
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
         <thead>
             <tr>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Phone</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">AREA</th>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Risk Segment</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Billing Start Date</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Invoiced Until</th>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Next Bill Date</th>
                 <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Days To Due</th>
+                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Days Past Due</th>
                 <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Balance</th>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Billing Context</th>
             </tr>
@@ -138,20 +177,27 @@
             {% call table_row(color="rose") %}
                 <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
                 <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.phone or "N/A" }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.area or "N/A" }}</td>
                 <td class="px-6 py-3 text-sm">{{ status_badge(row.subscriber_status, "warning" if row.risk_segment in ["Suspended", "Due Soon", "Overdue"] else "danger", size="sm") }}</td>
                 <td class="px-6 py-3 text-sm text-slate-900 dark:text-white">{{ row.risk_segment }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.billing_start_date or "N/A" }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.invoiced_until or "N/A" }}</td>
                 <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.next_bill_date or "N/A" }}</td>
                 <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.days_to_due if row.days_to_due is not none else "N/A" }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format(row.balance or 0) }}</td>
+                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">
+                    <div>{{ row.days_past_due if row.days_past_due is not none else "N/A" }}</div>
+                    <div class="text-xs text-slate-500 dark:text-slate-400">{{ row.invoiced_until or "N/A" }}</div>
+                </td>
+                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.balance or 0)|float) }}</td>
                 <td class="px-6 py-3 text-xs text-slate-600 dark:text-slate-300">
                     <div>Invoiced Until: {{ row.invoiced_until or "N/A" }}</div>
                     <div>Days Since Last Payment: {{ row.days_since_last_payment|default("N/A") }}</div>
                     <div>Last Txn: {{ row.last_transaction_date or "N/A" }}</div>
-                    <div>Total Paid: {{ "{:,.2f}".format(row.total_paid or 0) }}</div>
+                    <div>Total Paid: {{ "{:,.2f}".format((row.total_paid or 0)|float) }}</div>
                 </td>
             {% endcall %}
             {% else %}
-            {{ empty_state(title="No at-risk subscribers", message="No blocked, overdue, or due-soon subscribers matched the selected filters.", color="rose", color2="red", colspan=8) }}
+            {{ empty_state(title="No at-risk subscribers", message="No blocked, overdue, or due-soon subscribers matched the selected filters.", color="rose", color2="red", colspan=12) }}
             {% endfor %}
         </tbody>
     </table>
@@ -173,7 +219,7 @@
             {% call table_row(color="slate") %}
                 <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
                 <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.overdue_invoices }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format(row.total_balance_due or 0) }}</td>
+                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.total_balance_due or 0)|float) }}</td>
                 <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.max_days_past_due }}</td>
                 <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.oldest_due_day or "N/A" }}</td>
             {% endcall %}

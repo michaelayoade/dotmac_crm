@@ -397,19 +397,19 @@
                 <dl class="mt-4 space-y-3 text-sm">
                     <div class="flex items-center justify-between">
                         <dt class="text-slate-600 dark:text-slate-400">Draft</dt>
-                        <dd class="font-medium text-slate-500 dark:text-slate-400">{{ "{:,.2f}".format(expense_totals.draft or 0) }}</dd>
+                        <dd class="font-medium text-slate-500 dark:text-slate-400">{{ "{:,.2f}".format((expense_totals.draft or 0)|float) }}</dd>
                     </div>
                     <div class="flex items-center justify-between">
                         <dt class="text-slate-600 dark:text-slate-400">Submitted</dt>
-                        <dd class="font-medium text-amber-600 dark:text-amber-400">{{ "{:,.2f}".format(expense_totals.submitted or 0) }}</dd>
+                        <dd class="font-medium text-amber-600 dark:text-amber-400">{{ "{:,.2f}".format((expense_totals.submitted or 0)|float) }}</dd>
                     </div>
                     <div class="flex items-center justify-between">
                         <dt class="text-slate-600 dark:text-slate-400">Approved</dt>
-                        <dd class="font-medium text-blue-600 dark:text-blue-400">{{ "{:,.2f}".format(expense_totals.approved or 0) }}</dd>
+                        <dd class="font-medium text-blue-600 dark:text-blue-400">{{ "{:,.2f}".format((expense_totals.approved or 0)|float) }}</dd>
                     </div>
                     <div class="flex items-center justify-between border-t border-slate-200 pt-3 dark:border-slate-700">
                         <dt class="text-slate-600 dark:text-slate-400">Paid</dt>
-                        <dd class="font-semibold text-green-600 dark:text-green-400">{{ "{:,.2f}".format(expense_totals.paid or 0) }}</dd>
+                        <dd class="font-semibold text-green-600 dark:text-green-400">{{ "{:,.2f}".format((expense_totals.paid or 0)|float) }}</dd>
                     </div>
                 </dl>
                 {% else %}
