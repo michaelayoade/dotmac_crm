@@ -7,9 +7,10 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, TypedDict
 
-from sqlalchemy import Date, DateTime, Integer, Numeric, String, and_, case, cast, func, or_, select, text, true
+from sqlalchemy import Date, DateTime, Integer, Numeric, String, and_, case, cast, false, func, or_, select, text, true
 from sqlalchemy.orm import Session
 
+from app.db import SessionLocal
 from app.models.bandwidth import BandwidthSample
 from app.models.crm.enums import LeadStatus
 from app.models.crm.sales import Lead
@@ -634,7 +635,13 @@ def _parse_iso_date_text(value: str) -> date | None:
     try:
         return date.fromisoformat(text[:10])
     except ValueError:
-        return None
+        pass
+    for fmt in ("%d/%m/%Y", "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 _SCI_NOTATION_RE = re.compile(r"^[+-]?\d+(?:\.\d+)?E[+-]?\d+$", re.IGNORECASE)
@@ -1592,6 +1599,7 @@ def get_churn_table(
     high_balance_only: bool = False,
     segment: str | None = None,
     segments: list[str] | None = None,
+    days_past_due: str | None = None,
     source: str = "local",
     limit: int = 500,
 ) -> list[dict]:
@@ -1621,10 +1629,46 @@ def get_churn_table(
             if normalized is not None:
                 selected_segments.add(normalized)
 
+    normalized_days_past_due = (days_past_due or "").strip().lower().replace("_", "-")
+    if normalized_days_past_due in {"current", "0"}:
+        selected_days_past_due_category = "0"
+    elif normalized_days_past_due in {"1-7", "1-to-7", "1 to 7", "within-7", "within7"}:
+        selected_days_past_due_category = "1-7"
+    elif normalized_days_past_due in {"8-30", "8-to-30", "8 to 30"}:
+        selected_days_past_due_category = "8-30"
+    elif normalized_days_past_due in {"31+", "31-plus", "31-and-above", "over30", "over-30", "31"}:
+        selected_days_past_due_category = "31+"
+    else:
+        selected_days_past_due_category = None
+
+    def _days_past_due_bucket(value: int | None) -> str | None:
+        if value is None:
+            return None
+        if value <= 0:
+            return "0"
+        if value <= 7:
+            return "1-7"
+        if value <= 30:
+            return "8-30"
+        return "31+"
+
+    def _matches_days_past_due_bucket(value: int | None) -> bool:
+        if selected_days_past_due_category is None:
+            return True
+        return _days_past_due_bucket(value) == selected_days_past_due_category
+
     if source == "splynx_live":
         from app.services.splynx import fetch_customers, map_customer_to_subscriber_data
 
-        customers = fetch_customers(db)
+        def _call_splynx(read_fn, *args):
+            """Use a short-lived session so live Splynx reads do not pin the caller's DB connection."""
+            splynx_db = SessionLocal()
+            try:
+                return read_fn(splynx_db, *args)
+            finally:
+                splynx_db.close()
+
+        customers = _call_splynx(fetch_customers)
         live_results: list[dict] = []
         today = datetime.now(UTC).date()
         customer_emails = {
@@ -1632,8 +1676,21 @@ def get_churn_table(
             for customer in customers
             if isinstance(customer, Mapping) and str(customer.get("email") or "").strip()
         }
+        customer_external_ids = {
+            str(customer.get("id") or "").strip()
+            for customer in customers
+            if isinstance(customer, Mapping) and str(customer.get("id") or "").strip()
+        }
+        customer_logins = {
+            str(customer.get("login") or "").strip()
+            for customer in customers
+            if isinstance(customer, Mapping) and str(customer.get("login") or "").strip()
+        }
         people_by_email: dict[str, tuple[str, str]] = {}
         channels_by_person: dict[str, list[PersonChannel]] = {}
+        subscriber_sync_by_external_id: dict[str, tuple[Mapping[str, Any], datetime | None]] = {}
+        subscriber_sync_by_email: dict[str, tuple[Mapping[str, Any], datetime | None]] = {}
+        subscriber_sync_by_login: dict[str, tuple[Mapping[str, Any], datetime | None]] = {}
         if customer_emails:
             matched_people = db.execute(
                 select(Person.id, Person.email, Person.phone).where(func.lower(Person.email).in_(customer_emails))
@@ -1656,6 +1713,40 @@ def get_churn_table(
                 for channel in channel_rows:
                     key = str(channel.person_id)
                     channels_by_person.setdefault(key, []).append(channel)
+
+        if customer_external_ids or customer_emails or customer_logins:
+            subscriber_rows = db.execute(
+                select(
+                    Subscriber.external_id,
+                    Subscriber.subscriber_number,
+                    Subscriber.sync_metadata,
+                    Subscriber.suspended_at,
+                    Person.email,
+                )
+                .select_from(Subscriber)
+                .outerjoin(Person, Person.id == Subscriber.person_id)
+                .where(
+                    or_(
+                        Subscriber.external_id.in_(customer_external_ids) if customer_external_ids else false(),
+                        Subscriber.subscriber_number.in_(customer_logins) if customer_logins else false(),
+                        func.lower(Person.email).in_(customer_emails) if customer_emails else false(),
+                    )
+                )
+            ).all()
+            for external_id, subscriber_number, sync_metadata, suspended_at, person_email in subscriber_rows:
+                cached_tuple = (
+                    sync_metadata if isinstance(sync_metadata, Mapping) else {},
+                    _coerce_datetime_utc(suspended_at),
+                )
+                external_key = str(external_id or "").strip()
+                if external_key:
+                    subscriber_sync_by_external_id[external_key] = cached_tuple
+                login_key = str(subscriber_number or "").strip()
+                if login_key:
+                    subscriber_sync_by_login[login_key] = cached_tuple
+                email_key = str(person_email or "").strip().lower()
+                if email_key:
+                    subscriber_sync_by_email[email_key] = cached_tuple
 
         def _contact_phone(email_value: str, default_phone: str) -> str:
             email_key = email_value.strip().lower()
@@ -1690,21 +1781,140 @@ def get_churn_table(
                     return any_channel
             return person_phone or default_phone
 
+        def _live_billing_start_date(
+            customer_payload: Mapping[str, Any],
+            mapped_payload: Mapping[str, Any],
+        ) -> str:
+            mapped_start = _coerce_datetime_utc(mapped_payload.get("activated_at"))
+            if mapped_start is not None:
+                return mapped_start.strftime("%Y-%m-%d")
+
+            def _from_candidates(payload: Mapping[str, Any] | None) -> str:
+                if not isinstance(payload, Mapping):
+                    return ""
+                for candidate in (
+                    payload.get("start_date"),
+                    payload.get("date_add"),
+                    payload.get("conversion_date"),
+                    payload.get("created_at"),
+                    payload.get("created"),
+                    payload.get("registration_date"),
+                ):
+                    parsed_date = _parse_iso_date_text(str(candidate or ""))
+                    if parsed_date is not None:
+                        parsed_dt = _coerce_datetime_utc(parsed_date)
+                        if parsed_dt is not None:
+                            return parsed_dt.strftime("%Y-%m-%d")
+                return ""
+
+            direct_date = _from_candidates(customer_payload)
+            if direct_date:
+                return direct_date
+
+            return ""
+
+        def _live_area_from_customer(customer_payload: Mapping[str, Any]) -> str:
+            def _normalize_area(raw_value: object) -> str:
+                text = str(raw_value or "").strip()
+                if not text:
+                    return ""
+                area_value = re.sub(r"\s*\([^)]*\)", "", text).strip()
+                area_value = re.sub(r"\s+access\b", "", area_value, flags=re.IGNORECASE).strip()
+                area_value = re.sub(r"\s+", " ", area_value).strip(" -")
+                return area_value
+
+            def _extract_area(payload: Mapping[str, Any] | None) -> str:
+                if not isinstance(payload, Mapping):
+                    return ""
+                for key in ("nas_name", "nas", "router_name", "router", "access_router", "access_name"):
+                    area_value = _normalize_area(payload.get(key))
+                    if area_value:
+                        return area_value
+                for key, value in payload.items():
+                    key_text = str(key or "").strip().lower()
+                    value_text = str(value or "").strip()
+                    if not value_text:
+                        continue
+                    if any(token in key_text for token in ("nas", "router", "station", "access", "pop", "olt")):
+                        area_value = _normalize_area(value)
+                        if area_value:
+                            return area_value
+                    if re.search(r"\baccess\b", value_text, flags=re.IGNORECASE):
+                        area_value = _normalize_area(value)
+                        if area_value:
+                            return area_value
+                return ""
+
+            direct_area = _extract_area(customer_payload)
+            if direct_area:
+                return direct_area
+            additional_attributes = customer_payload.get("additional_attributes")
+            if isinstance(additional_attributes, Mapping):
+                return _extract_area(additional_attributes)
+            if isinstance(additional_attributes, list):
+                for item in additional_attributes:
+                    if isinstance(item, Mapping):
+                        direct_area = _extract_area(item)
+                        if direct_area:
+                            return direct_area
+            return ""
+
+        def _live_blocked_date(customer_payload: Mapping[str, Any], mapped_payload: Mapping[str, Any]) -> str:
+            direct_suspended = _coerce_datetime_utc(mapped_payload.get("suspended_at"))
+            if direct_suspended is not None:
+                return direct_suspended.strftime("%Y-%m-%d")
+            for candidate in (
+                customer_payload.get("blocking_date"),
+                customer_payload.get("blocked_date"),
+                customer_payload.get("suspended_at"),
+            ):
+                parsed_date = _parse_iso_date_text(str(candidate or ""))
+                if parsed_date is not None:
+                    return parsed_date.strftime("%Y-%m-%d")
+
+            external_key = str(customer_payload.get("id") or "").strip()
+            if external_key:
+                cached_match = subscriber_sync_by_external_id.get(external_key)
+                if cached_match is not None:
+                    _cached_sync, cached_suspended_at = cached_match
+                    if cached_suspended_at is not None:
+                        return cached_suspended_at.strftime("%Y-%m-%d")
+
+            login_key = str(customer_payload.get("login") or "").strip()
+            if login_key:
+                cached_match = subscriber_sync_by_login.get(login_key)
+                if cached_match is not None:
+                    _cached_sync, cached_suspended_at = cached_match
+                    if cached_suspended_at is not None:
+                        return cached_suspended_at.strftime("%Y-%m-%d")
+
+            email_key = str(customer_payload.get("email") or "").strip().lower()
+            if email_key:
+                cached_match = subscriber_sync_by_email.get(email_key)
+                if cached_match is not None:
+                    _cached_sync, cached_suspended_at = cached_match
+                    if cached_suspended_at is not None:
+                        return cached_suspended_at.strftime("%Y-%m-%d")
+            return ""
+
         for customer in customers:
             if not isinstance(customer, Mapping):
                 continue
             mapped = map_customer_to_subscriber_data(db, dict(customer), include_remote_details=False)
             status_value = str(mapped.get("status") or "unknown")
+            billing_start_date = _live_billing_start_date(customer, mapped)
+            area_value = _live_area_from_customer(customer)
             next_bill_raw = _coerce_datetime_utc(mapped.get("next_bill_date"))
             due_days = (next_bill_raw.date() - today).days if next_bill_raw is not None else None
-            balance_amount = _parse_balance_amount(mapped.get("balance"))
+            balance_amount = _parse_balance_amount(mapped.get("balance") or customer.get("balance"))
             sync_metadata = mapped.get("sync_metadata") if isinstance(mapped.get("sync_metadata"), Mapping) else {}
             invoiced_until_text = _metadata_text(sync_metadata, "invoiced_until")
             invoiced_until_date = _parse_iso_date_text(invoiced_until_text)
             days_since_last_payment = (
                 max(0, (today - invoiced_until_date).days) if invoiced_until_date is not None else None
             )
-
+            row_days_past_due = days_since_last_payment
+            blocked_date_text = _live_blocked_date(customer, mapped)
             live_segment_value: str | None = None
             if status_value == SubscriberStatus.terminated.value:
                 live_segment_value = "Churned"
@@ -1720,6 +1930,8 @@ def get_churn_table(
                 continue
             if selected_segments and live_segment_value not in selected_segments:
                 continue
+            if not _matches_days_past_due_bucket(row_days_past_due):
+                continue
 
             display_name = str(customer.get("name") or "").strip() or str(mapped.get("subscriber_number") or "").strip()
             email_value = str(customer.get("email") or "").strip()
@@ -1731,13 +1943,17 @@ def get_churn_table(
                     "email": email_value,
                     "phone": _contact_phone(email_value, phone_value),
                     "subscriber_status": status_value.replace("_", " ").title(),
+                    "area": area_value,
+                    "billing_start_date": billing_start_date,
                     "next_bill_date": next_bill_raw.strftime("%Y-%m-%d") if next_bill_raw else "",
                     "balance": balance_amount,
                     "billing_cycle": str(mapped.get("billing_cycle") or ""),
+                    "blocked_date": blocked_date_text,
                     "last_transaction_date": _metadata_text(sync_metadata, "last_transaction_date"),
                     "expires_in": _metadata_text(sync_metadata, "expires_in"),
                     "invoiced_until": invoiced_until_text,
                     "days_since_last_payment": days_since_last_payment,
+                    "days_past_due": row_days_past_due,
                     "total_paid": _parse_balance_amount(_metadata_text(sync_metadata, "total_paid")),
                     "days_to_due": due_days,
                     "risk_segment": live_segment_value,
@@ -1858,10 +2074,10 @@ def get_churn_table(
         sync_metadata = row.sync_metadata if isinstance(row.sync_metadata, Mapping) else {}
         invoiced_until_text = _metadata_text(sync_metadata, "invoiced_until")
         invoiced_until_date = _parse_iso_date_text(invoiced_until_text)
-        days_since_last_payment = (
+        row_days_past_due: int | None = (
             max(0, (today - invoiced_until_date).days) if invoiced_until_date is not None else None
         )
-
+        days_since_last_payment = row_days_past_due
         segment_value: str | None = None
         if status_value == SubscriberStatus.terminated.value:
             segment_value = "Churned"
@@ -1879,6 +2095,8 @@ def get_churn_table(
             continue
         if selected_segments and segment_value not in selected_segments:
             continue
+        if not _matches_days_past_due_bucket(row_days_past_due):
+            continue
 
         results.append(
             {
@@ -1887,13 +2105,17 @@ def get_churn_table(
                 "email": row.email or "",
                 "phone": row.phone or "",
                 "subscriber_status": status_value.replace("_", " ").title(),
+                "area": "",
+                "billing_start_date": "",
                 "next_bill_date": row.next_bill_date.strftime("%Y-%m-%d") if row.next_bill_date else "",
                 "balance": balance_amount,
                 "billing_cycle": row.billing_cycle or "",
+                "blocked_date": row.suspended_at.strftime("%Y-%m-%d") if row.suspended_at else "",
                 "last_transaction_date": _metadata_text(sync_metadata, "last_transaction_date"),
                 "expires_in": _metadata_text(sync_metadata, "expires_in"),
                 "invoiced_until": invoiced_until_text,
                 "days_since_last_payment": days_since_last_payment,
+                "days_past_due": row_days_past_due,
                 "total_paid": _parse_balance_amount(_metadata_text(sync_metadata, "total_paid")),
                 "days_to_due": due_days,
                 "risk_segment": segment_value,

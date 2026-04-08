@@ -2651,6 +2651,7 @@ def test_get_churn_table_splynx_live_uses_crm_contact_phone_fallback(db_session,
                 "name": "Live Splynx Customer",
                 "email": person.email,
                 "phone": "",
+                "status": "blocked",
             }
         ],
     )
@@ -2658,7 +2659,7 @@ def test_get_churn_table_splynx_live_uses_crm_contact_phone_fallback(db_session,
         splynx_service,
         "map_customer_to_subscriber_data",
         lambda _db, _customer, include_remote_details=True: {
-            "status": SubscriberStatus.active.value,
+            "status": SubscriberStatus.suspended.value,
             "next_bill_date": now - timedelta(days=3),
             "balance": "150.00",
             "sync_metadata": {"invoiced_until": (now - timedelta(days=7)).strftime("%Y-%m-%d")},
@@ -2675,7 +2676,158 @@ def test_get_churn_table_splynx_live_uses_crm_contact_phone_fallback(db_session,
     assert len(rows) == 1
     assert rows[0]["name"] == "Live Splynx Customer"
     assert rows[0]["phone"] == "+2348099991111"
-    assert rows[0]["risk_segment"] == "Overdue"
+    assert rows[0]["risk_segment"] == "Suspended"
+
+
+def test_get_churn_table_splynx_live_uses_short_lived_sessions_for_remote_calls(db_session, monkeypatch):
+    from app.services import splynx as splynx_service
+
+    now = datetime.now(UTC)
+    session_factory_calls = 0
+    session_close_calls = 0
+
+    class _FakeSession:
+        def close(self):
+            nonlocal session_close_calls
+            session_close_calls += 1
+
+    def _fake_session_factory():
+        nonlocal session_factory_calls
+        session_factory_calls += 1
+        return _FakeSession()
+
+    monkeypatch.setattr(subscriber_reports_service, "SessionLocal", _fake_session_factory)
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customers",
+        lambda _db: [
+            {
+                "id": "12345",
+                "name": "Blocked Customer",
+                "email": "",
+                "phone": "",
+                "status": "blocked",
+                "nas_name": "Maitama Access",
+                "date_add": "2024-01-15",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        splynx_service,
+        "map_customer_to_subscriber_data",
+        lambda _db, _customer, include_remote_details=False: {
+            "status": SubscriberStatus.suspended.value,
+            "next_bill_date": now - timedelta(days=2),
+            "balance": "50.00",
+            "sync_metadata": {"invoiced_until": (now - timedelta(days=5)).strftime("%Y-%m-%d")},
+        },
+    )
+
+    rows = subscriber_reports_service.get_churn_table(
+        db_session,
+        due_soon_days=7,
+        source="splynx_live",
+        limit=20,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["area"] == "Maitama"
+    assert rows[0]["billing_start_date"] == "2024-01-15"
+    assert session_factory_calls == 1
+    assert session_close_calls == session_factory_calls
+
+
+def test_get_churn_table_splynx_live_falls_back_to_local_invoiced_until(db_session, monkeypatch):
+    from app.services import splynx as splynx_service
+
+    person = Person(first_name="Invoice", last_name="Fallback", email=f"invoice-{uuid4().hex}@example.com")
+    db_session.add(person)
+    db_session.flush()
+    db_session.add(
+        Subscriber(
+            person_id=person.id,
+            external_id="12345",
+            external_system="splynx",
+            subscriber_number="LIVE-12345",
+            status=SubscriberStatus.suspended,
+            is_active=True,
+            sync_metadata={"invoiced_until": "2026-03-31"},
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customers",
+        lambda _db: [
+            {
+                "id": "12345",
+                "name": "Invoice Fallback",
+                "email": person.email,
+                "phone": "",
+                "status": "blocked",
+                "login": "LIVE-12345",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        splynx_service,
+        "map_customer_to_subscriber_data",
+        lambda _db, _customer, include_remote_details=False: {
+            "status": SubscriberStatus.suspended.value,
+            "balance": "50.00",
+            "sync_metadata": {},
+        },
+    )
+
+    rows = subscriber_reports_service.get_churn_table(
+        db_session,
+        due_soon_days=7,
+        source="splynx_live",
+        limit=20,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["invoiced_until"] == "2026-03-31"
+
+
+def test_get_churn_table_splynx_live_falls_back_to_billing_start_date_for_invoiced_until(db_session, monkeypatch):
+    from app.services import splynx as splynx_service
+
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customers",
+        lambda _db: [
+            {
+                "id": "12345",
+                "name": "Billing Date Fallback",
+                "email": "",
+                "phone": "",
+                "status": "blocked",
+                "date_add": "2024-02-20",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        splynx_service,
+        "map_customer_to_subscriber_data",
+        lambda _db, _customer, include_remote_details=False: {
+            "status": SubscriberStatus.suspended.value,
+            "balance": "50.00",
+            "sync_metadata": {},
+        },
+    )
+
+    rows = subscriber_reports_service.get_churn_table(
+        db_session,
+        due_soon_days=7,
+        source="splynx_live",
+        limit=20,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["billing_start_date"] == "2024-02-20"
+    assert rows[0]["invoiced_until"] == "2024-02-20"
 
 
 def test_get_overdue_invoices_table_returns_30_day_past_due_customers(db_session):
@@ -3070,7 +3222,14 @@ def test_subscriber_billing_risk_page_renders(monkeypatch):
     monkeypatch.setattr(
         subscriber_reports_service,
         "get_churn_table",
-        lambda _db, due_soon_days=7, high_balance_only=False, segment=None, segments=None, source="local", limit=500: [
+        lambda _db,
+        due_soon_days=7,
+        high_balance_only=False,
+        segment=None,
+        segments=None,
+        days_past_due=None,
+        source="local",
+        limit=500: [
             {
                 "name": "Blocked Customer",
                 "email": "blocked@example.com",
@@ -3129,6 +3288,8 @@ def test_subscriber_billing_risk_page_renders(monkeypatch):
         "churn_risk_aging_buckets",
         lambda _churn_rows, due_soon_days=7: [{"label": "Due In 0-7 Days", "count": 1}],
     )
+    monkeypatch.setattr(reports_web, "_latest_subscriber_sync_at", lambda _db: None)
+    monkeypatch.setattr(reports_web, "get_csrf_token", lambda _request: "test-csrf-token")
 
     request = Request(
         {
@@ -3164,7 +3325,14 @@ def test_subscriber_billing_risk_export_returns_csv(monkeypatch):
     monkeypatch.setattr(
         subscriber_reports_service,
         "get_churn_table",
-        lambda _db, due_soon_days=7, high_balance_only=False, segment=None, segments=None, source="local", limit=2000: [
+        lambda _db,
+        due_soon_days=7,
+        high_balance_only=False,
+        segment=None,
+        segments=None,
+        days_past_due=None,
+        source="local",
+        limit=2000: [
             {
                 "name": "Blocked Customer",
                 "email": "blocked@example.com",

@@ -2,15 +2,17 @@
 
 import csv
 import io
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Literal
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.csrf import get_csrf_token
 from app.db import get_db
 from app.models.dispatch import TechnicianProfile
 from app.models.person import Person
@@ -19,8 +21,12 @@ from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services import operations_sla_reports as operations_sla_reports_service
 from app.services.crm import reports as crm_reports_service
 from app.services.crm import team as crm_team_service
+from app.tasks.subscribers import sync_subscribers_from_splynx
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+from app.web.auth.rbac import require_web_role
 from app.web.templates import Jinja2Templates
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
 templates = Jinja2Templates(directory="templates")
@@ -107,6 +113,20 @@ def _csv_response(data: list[dict], filename: str) -> StreamingResponse:
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+def _append_query_flag(url: str, key: str, value: str) -> str:
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}{quote(key)}={quote(value)}"
+
+
+def _latest_subscriber_sync_at(db: Session) -> datetime | None:
+    latest = db.scalar(select(func.max(Subscriber.last_synced_at)))
+    if latest is None:
+        return None
+    if latest.tzinfo is None:
+        return latest.replace(tzinfo=UTC)
+    return latest.astimezone(UTC)
 
 
 def _resolve_lifecycle_date_range(
@@ -623,6 +643,7 @@ def subscriber_billing_risk(
     high_balance_only: bool = Query(False),
     segment: str | None = Query(None),
     segments: list[str] = Query(default=[]),
+    days_past_due: str | None = Query(None),
 ):
     """Billing risk dashboard for blocked, overdue, and otherwise at-risk subscribers."""
     from app.services import subscriber_reports as sr
@@ -631,6 +652,7 @@ def subscriber_billing_risk(
 
     query_segments = request.query_params.getlist("segments")
     query_segment = request.query_params.get("segment")
+    query_days_past_due = request.query_params.get("days_past_due")
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments, query_segment or segment
     )
@@ -641,6 +663,7 @@ def subscriber_billing_risk(
         high_balance_only=high_balance_only,
         segment=segment,
         segments=selected_segments,
+        days_past_due=query_days_past_due or days_past_due,
         source="splynx_live",
         limit=500,
     )
@@ -659,8 +682,21 @@ def subscriber_billing_risk(
     export_query = urlencode(
         {
             "due_soon_days": due_soon_days,
+            "overdue_invoice_days": overdue_invoice_days,
             "high_balance_only": str(high_balance_only).lower(),
             "segments": selected_segments,
+            "days_past_due": query_days_past_due or days_past_due,
+        },
+        doseq=True,
+    )
+    refresh_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "overdue_invoice_days": overdue_invoice_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "segment": segment or "",
+            "segments": selected_segments,
+            "days_past_due": query_days_past_due or days_past_due or "",
         },
         doseq=True,
     )
@@ -683,9 +719,32 @@ def subscriber_billing_risk(
             "overdue_invoice_days": overdue_invoice_days,
             "high_balance_only": high_balance_only,
             "selected_segments": selected_segments,
+            "days_past_due": query_days_past_due or days_past_due,
             "export_query": export_query,
+            "refresh_query": refresh_query,
+            "last_synced_at": _latest_subscriber_sync_at(db),
+            "csrf_token": get_csrf_token(request),
+            "refresh_started": request.query_params.get("refresh_started") == "1",
+            "refresh_error": request.query_params.get("refresh_error"),
         },
     )
+
+
+@router.post("/subscribers/billing-risk/refresh")
+def subscriber_billing_risk_refresh(
+    request: Request,
+    next_url: str = Form("/admin/reports/subscribers/billing-risk"),
+    _admin: dict = Depends(require_web_role("admin")),
+):
+    if not next_url.startswith("/admin/reports/subscribers/billing-risk"):
+        next_url = "/admin/reports/subscribers/billing-risk"
+
+    try:
+        sync_subscribers_from_splynx.delay()
+        return RedirectResponse(url=_append_query_flag(next_url, "refresh_started", "1"), status_code=303)
+    except Exception:
+        logger.exception("Failed to enqueue Splynx subscriber sync")
+        return RedirectResponse(url=_append_query_flag(next_url, "refresh_error", "queue_unavailable"), status_code=303)
 
 
 @router.get("/subscribers/billing-risk/export")
@@ -696,12 +755,14 @@ def subscriber_billing_risk_export(
     high_balance_only: bool = Query(False),
     segment: str | None = Query(None),
     segments: list[str] = Query(default=[]),
+    days_past_due: str | None = Query(None),
 ):
     """Export billing risk rows as CSV."""
     from app.services import subscriber_reports as sr
 
     query_segments = request.query_params.getlist("segments")
     query_segment = request.query_params.get("segment")
+    query_days_past_due = request.query_params.get("days_past_due")
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments, query_segment or segment
     )
@@ -712,6 +773,7 @@ def subscriber_billing_risk_export(
         high_balance_only=high_balance_only,
         segment=segment,
         segments=selected_segments,
+        days_past_due=query_days_past_due or days_past_due,
         source="splynx_live",
         limit=2000,
     )
@@ -727,6 +789,7 @@ def subscriber_billing_risk_export(
             "Risk Segment": row["risk_segment"],
             "Next Bill Date": row["next_bill_date"],
             "Days To Due": row["days_to_due"],
+            "Days Past Due": row.get("days_past_due", ""),
             "Balance": row["balance"],
             "Billing Cycle": row["billing_cycle"],
             "Last Transaction Date": row["last_transaction_date"],
