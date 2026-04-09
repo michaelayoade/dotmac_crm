@@ -2097,7 +2097,6 @@ def get_churn_table(
             continue
         if not _matches_days_past_due_bucket(row_days_past_due):
             continue
-
         results.append(
             {
                 "subscriber_id": str(row.subscriber_id),
