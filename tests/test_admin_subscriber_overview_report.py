@@ -3596,19 +3596,7 @@ def test_subscriber_billing_risk_page_renders(monkeypatch):
     monkeypatch.setattr(
         subscriber_reports_service,
         "get_churn_table",
-        lambda _db,
-        due_soon_days=7,
-        high_balance_only=False,
-        segment=None,
-        segments=None,
-        days_past_due=None,
-        source="local",
-        limit=500,
-        page=1,
-        page_size=None,
-        search=None,
-        overdue_bucket=None,
-        enrich_visible_rows=True: [
+        lambda _db, due_soon_days=7, high_balance_only=False, segment=None, segments=None, days_past_due=None, source="local", limit=500, page=1, page_size=None, search=None, overdue_bucket=None, enrich_visible_rows=True: [
             {
                 "name": "Blocked Customer",
                 "email": "blocked@example.com",
@@ -3704,19 +3692,7 @@ def test_subscriber_billing_risk_export_returns_csv(monkeypatch):
     monkeypatch.setattr(
         subscriber_reports_service,
         "get_churn_table",
-        lambda _db,
-        due_soon_days=7,
-        high_balance_only=False,
-        segment=None,
-        segments=None,
-        days_past_due=None,
-        source="local",
-        limit=2000,
-        page=1,
-        page_size=None,
-        search=None,
-        overdue_bucket=None,
-        enrich_visible_rows=True: [
+        lambda _db, due_soon_days=7, high_balance_only=False, segment=None, segments=None, days_past_due=None, source="local", limit=2000, page=1, page_size=None, search=None, overdue_bucket=None, enrich_visible_rows=True: [
             {
                 "name": "Blocked Customer",
                 "email": "blocked@example.com",

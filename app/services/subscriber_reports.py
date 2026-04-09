@@ -1743,6 +1743,7 @@ def get_churn_table(
         if parsed is None:
             return None
         return max(0, (today - parsed).days)
+
     normalized_page = max(1, int(page))
     normalized_page_size = max(1, int(page_size)) if page_size is not None else None
 
@@ -1796,6 +1797,7 @@ def get_churn_table(
 
         def _call_splynx(cache_name: str, read_fn, *args):
             """Use a short-lived session so live Splynx reads do not pin the caller's DB connection."""
+
             def _loader():
                 splynx_db = SessionLocal()
                 try:
@@ -2169,9 +2171,7 @@ def get_churn_table(
         if high_balance_only:
             live_results = [row for row in live_results if row["is_high_balance_risk"]]
         live_results = [
-            row
-            for row in live_results
-            if _matches_search(row) and _matches_overdue_bucket(row.get("blocked_for_days"))
+            row for row in live_results if _matches_search(row) and _matches_overdue_bucket(row.get("blocked_for_days"))
         ]
         live_results.sort(
             key=lambda row: (
@@ -2450,11 +2450,7 @@ def get_live_blocked_dates(external_ids: list[str]) -> dict[str, str]:
         if not isinstance(billing_payload, Mapping):
             continue
         blocked_date = _parse_iso_date_text(
-            str(
-                billing_payload.get("blocking_date")
-                or billing_payload.get("request_auto_next")
-                or ""
-            )
+            str(billing_payload.get("blocking_date") or billing_payload.get("request_auto_next") or "")
         )
         if blocked_date is not None:
             blocked_dates[external_id] = blocked_date.strftime("%Y-%m-%d")
