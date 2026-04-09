@@ -177,9 +177,7 @@ def _apply_inbox_filters(
                 target_uuid = None
             if target_uuid:
                 target_subq = (
-                    db.query(Message.conversation_id)
-                    .filter(Message.channel_target_id == target_uuid)
-                    .distinct()
+                    db.query(Message.conversation_id).filter(Message.channel_target_id == target_uuid).distinct()
                 )
                 # User selected a specific inbox target.
                 query = query.filter(Conversation.id.in_(target_subq))
