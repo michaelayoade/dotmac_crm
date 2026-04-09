@@ -1,7 +1,9 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import uuid4
 
+from sqlalchemy.dialects import postgresql
 from starlette.requests import Request
 
 from app.models.crm.enums import LeadStatus
@@ -2728,6 +2730,7 @@ def test_get_churn_table_splynx_live_uses_short_lived_sessions_for_remote_calls(
         due_soon_days=7,
         source="splynx_live",
         limit=20,
+        enrich_visible_rows=False,
     )
 
     assert len(rows) == 1
@@ -2735,6 +2738,72 @@ def test_get_churn_table_splynx_live_uses_short_lived_sessions_for_remote_calls(
     assert rows[0]["billing_start_date"] == "2024-01-15"
     assert session_factory_calls == 1
     assert session_close_calls == session_factory_calls
+
+
+def test_get_churn_table_splynx_live_enriches_sparse_visible_rows(db_session, monkeypatch):
+    from app.services import splynx as splynx_service
+
+    now = datetime.now(UTC)
+
+    class _FakeSession:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(subscriber_reports_service, "SessionLocal", lambda: _FakeSession())
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customers",
+        lambda _db: [
+            {
+                "id": "12345",
+                "name": "Sparse Customer",
+                "email": "",
+                "phone": "",
+                "status": "blocked",
+            }
+        ],
+    )
+
+    def _mapped(_db, customer, include_remote_details=False):
+        if customer.get("billing") or customer.get("internet_services"):
+            return {
+                "status": SubscriberStatus.suspended.value,
+                "next_bill_date": now + timedelta(days=2),
+                "activated_at": datetime(2024, 2, 20, tzinfo=UTC),
+                "balance": "150.00",
+                "sync_metadata": {"invoiced_until": (now - timedelta(days=9)).strftime("%Y-%m-%d")},
+            }
+        return {
+            "status": SubscriberStatus.suspended.value,
+            "balance": "150.00",
+            "sync_metadata": {},
+        }
+
+    monkeypatch.setattr(splynx_service, "map_customer_to_subscriber_data", _mapped)
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer_internet_services",
+        lambda _db, _external_id: [{"start_date": "2024-02-20"}],
+    )
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer_billing",
+        lambda _db, _external_id: {"invoiced_until": (now - timedelta(days=9)).strftime("%Y-%m-%d")},
+    )
+
+    rows = subscriber_reports_service.get_churn_table(
+        db_session,
+        due_soon_days=7,
+        source="splynx_live",
+        limit=20,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["billing_start_date"] == "2024-02-20"
+    assert rows[0]["invoiced_until"] == (now - timedelta(days=9)).strftime("%Y-%m-%d")
+    assert rows[0]["next_bill_date"] == (now + timedelta(days=2)).strftime("%Y-%m-%d")
+    assert rows[0]["days_to_due"] == 2
+    assert rows[0]["days_past_due"] == 9
 
 
 def test_get_churn_table_splynx_live_falls_back_to_local_invoiced_until(db_session, monkeypatch):
@@ -3375,3 +3444,20 @@ def test_subscriber_billing_risk_export_returns_csv(monkeypatch):
     assert response.status_code == 200
     assert response.media_type == "text/csv"
     assert "attachment; filename=subscriber_billing_risk_" in response.headers["Content-Disposition"]
+
+
+def test_behavioral_churn_event_at_builds_postgres_interval_without_make_interval():
+    fake_db = SimpleNamespace(
+        get_bind=lambda: SimpleNamespace(dialect=SimpleNamespace(name="postgresql")),
+    )
+
+    expression = subscriber_reports_service._behavioral_churn_event_at(fake_db)
+    compiled = str(
+        expression.compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+
+    assert "make_interval" not in compiled
+    assert "interval '1 day'" in compiled

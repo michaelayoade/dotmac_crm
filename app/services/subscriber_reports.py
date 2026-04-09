@@ -1602,6 +1602,7 @@ def get_churn_table(
     days_past_due: str | None = None,
     source: str = "local",
     limit: int = 500,
+    enrich_visible_rows: bool = True,
 ) -> list[dict]:
     """Subscribers with non-current Splynx billing state, segmented by due/risk status."""
 
@@ -1658,7 +1659,12 @@ def get_churn_table(
         return _days_past_due_bucket(value) == selected_days_past_due_category
 
     if source == "splynx_live":
-        from app.services.splynx import fetch_customers, map_customer_to_subscriber_data
+        from app.services.splynx import (
+            fetch_customer_billing,
+            fetch_customer_internet_services,
+            fetch_customers,
+            map_customer_to_subscriber_data,
+        )
 
         def _call_splynx(read_fn, *args):
             """Use a short-lived session so live Splynx reads do not pin the caller's DB connection."""
@@ -1920,6 +1926,71 @@ def get_churn_table(
                     return cached_sync
             return {}
 
+        def _enrich_visible_live_entry(entry: dict[str, Any]) -> dict[str, Any]:
+            external_id = str(entry.get("_external_id") or "").strip()
+            if not external_id:
+                return {}
+            if all(
+                [
+                    str(entry.get("billing_start_date") or "").strip(),
+                    str(entry.get("invoiced_until") or "").strip(),
+                    str(entry.get("next_bill_date") or "").strip(),
+                    entry.get("days_to_due") is not None,
+                    entry.get("days_past_due") is not None,
+                ]
+            ):
+                return {}
+
+            try:
+                services_payload = _call_splynx(fetch_customer_internet_services, external_id)
+            except Exception:
+                services_payload = []
+            try:
+                billing_payload = _call_splynx(fetch_customer_billing, external_id)
+            except Exception:
+                billing_payload = {}
+            detailed_customer = {
+                "id": external_id,
+                "internet_services": services_payload if isinstance(services_payload, list) else [],
+                "billing": billing_payload if isinstance(billing_payload, Mapping) else {},
+            }
+            try:
+                detailed_mapped = map_customer_to_subscriber_data(db, detailed_customer, include_remote_details=False)
+            except Exception:
+                return {}
+            detailed_sync_metadata = (
+                detailed_mapped.get("sync_metadata") if isinstance(detailed_mapped.get("sync_metadata"), Mapping) else {}
+            )
+            billing_start_date = _live_billing_start_date(detailed_customer, detailed_mapped)
+            invoiced_until_text = _metadata_text(detailed_sync_metadata, "invoiced_until")
+            if not invoiced_until_text:
+                invoiced_until_text = (
+                    _metadata_text(_live_cached_sync_metadata(detailed_customer), "invoiced_until") or billing_start_date
+                )
+            invoiced_until_date = _parse_iso_date_text(invoiced_until_text)
+            next_bill_raw = _coerce_datetime_utc(detailed_mapped.get("next_bill_date"))
+
+            return {
+                "billing_start_date": billing_start_date or str(entry.get("billing_start_date") or ""),
+                "invoiced_until": invoiced_until_text or str(entry.get("invoiced_until") or ""),
+                "next_bill_date": next_bill_raw.strftime("%Y-%m-%d") if next_bill_raw else str(entry.get("next_bill_date") or ""),
+                "days_to_due": (
+                    (next_bill_raw.date() - today).days
+                    if next_bill_raw is not None
+                    else entry.get("days_to_due")
+                ),
+                "days_past_due": (
+                    max(0, (today - invoiced_until_date).days)
+                    if invoiced_until_date is not None
+                    else entry.get("days_past_due")
+                ),
+                "days_since_last_payment": (
+                    max(0, (today - invoiced_until_date).days)
+                    if invoiced_until_date is not None
+                    else entry.get("days_since_last_payment")
+                ),
+            }
+
         for customer in customers:
             if not isinstance(customer, Mapping):
                 continue
@@ -2007,7 +2078,16 @@ def get_churn_table(
                 row["name"],
             )
         )
-        return live_results[: max(1, int(limit))]
+        visible_results = live_results[: max(1, int(limit))]
+        if enrich_visible_rows and visible_results:
+            from concurrent.futures import ThreadPoolExecutor
+
+            max_workers = min(8, len(visible_results))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(_enrich_visible_live_entry, entry) for entry in visible_results]
+                for entry, future in zip(visible_results, futures, strict=False):
+                    entry.update(future.result())
+        return visible_results
 
     days_to_due = case(
         (Subscriber.next_bill_date.is_(None), None),
