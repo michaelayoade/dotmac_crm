@@ -5,6 +5,7 @@ import os
 import sqlite3
 import typing as _typing
 import uuid
+from asyncio import events as asyncio_events
 from datetime import timezone
 from importlib.util import find_spec
 
@@ -286,6 +287,16 @@ def db_session(engine):
         session.close()
         transaction.rollback()
         connection.close()
+
+
+@pytest.fixture(autouse=True)
+def _reset_asyncio_running_loop_state():
+    """Clear leaked running-loop markers between tests."""
+    with contextlib.suppress(Exception):
+        asyncio_events._set_running_loop(None)
+    yield
+    with contextlib.suppress(Exception):
+        asyncio_events._set_running_loop(None)
 
 
 def _unique_email() -> str:
