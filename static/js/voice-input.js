@@ -28,6 +28,8 @@
    */
   function VoiceRecorder(opts) {
     this._recording = false;
+    this._starting = false;
+    this._pendingStop = false;
     this._chunks = [];
     this._onResult = opts.onResult || function () {};
     this._onError = opts.onError || function () {};
@@ -37,6 +39,12 @@
   Object.defineProperty(VoiceRecorder.prototype, "recording", {
     get: function () {
       return this._recording;
+    },
+  });
+
+  Object.defineProperty(VoiceRecorder.prototype, "starting", {
+    get: function () {
+      return this._starting;
     },
   });
 
@@ -51,6 +59,19 @@
 
     var self = this;
 
+    this._recognition.onstart = function () {
+      self._starting = false;
+      self._recording = true;
+      if (self._pendingStop) {
+        self._pendingStop = false;
+        try {
+          self._recognition.stop();
+        } catch (e) {
+          self._recording = false;
+        }
+      }
+    };
+
     this._recognition.onresult = function (event) {
       for (var i = event.resultIndex; i < event.results.length; i++) {
         if (event.results[i].isFinal) {
@@ -61,11 +82,15 @@
 
     this._recognition.onerror = function (event) {
       if (event.error === "aborted") {
+        self._starting = false;
+        self._pendingStop = false;
         return; // Normal on manual stop
       }
       // Flush any collected chunks before reporting error (C3 fix)
       var text = self._chunks.join(" ").trim();
+      self._starting = false;
       self._recording = false;
+      self._pendingStop = false;
       if (text) {
         self._onResult(text);
       }
@@ -73,8 +98,11 @@
     };
 
     this._recognition.onend = function () {
-      if (self._recording) {
-        self._recording = false;
+      var shouldFlush = self._recording || self._starting || self._pendingStop;
+      self._starting = false;
+      self._recording = false;
+      self._pendingStop = false;
+      if (shouldFlush) {
         var text = self._chunks.join(" ").trim();
         if (text) {
           self._onResult(text);
@@ -84,23 +112,31 @@
   };
 
   VoiceRecorder.prototype.start = function () {
+    if (this._recording || this._starting) return;
     this._ensureRecognition();
     this._chunks = [];
-    this._recording = true;
+    this._starting = true;
+    this._pendingStop = false;
     try {
       this._recognition.start();
     } catch (e) {
-      // Already started — ignore
+      this._starting = false;
+      this._onError((e && e.message) || "start_failed");
     }
   };
 
   VoiceRecorder.prototype.stop = function () {
+    if (this._starting) {
+      this._pendingStop = true;
+      return;
+    }
     if (!this._recording) return;
-    // _recording stays true so onend callback fires delivery
     try {
       this._recognition.stop();
     } catch (e) {
+      this._starting = false;
       this._recording = false;
+      this._pendingStop = false;
     }
   };
 
@@ -335,6 +371,7 @@
     var elapsed = 0;
 
     function showOverlay() {
+      if (overlay) return;
       elapsed = 0;
       overlay = createOverlay();
       wrap.appendChild(overlay);
@@ -389,7 +426,7 @@
         onError: function (errMsg) {
           console.warn("Voice input error:", errMsg);
           // M4 fix: Announce errors to screen readers
-          liveRegion.textContent = "Voice input error";
+          liveRegion.textContent = "Voice input unavailable";
           setTimeout(function () { liveRegion.textContent = ""; }, 3000);
           hideOverlay();
         },
@@ -406,6 +443,7 @@
 
     function startRecording() {
       ensureRecorder();
+      if (recorder.recording || recorder.starting) return;
       recorder.start();
       showOverlay();
       // I4 fix: Safety timeout to prevent stuck recordings
@@ -422,6 +460,11 @@
     });
 
     btn.addEventListener("pointerup", function (e) {
+      e.preventDefault();
+      stopRecording();
+    });
+
+    btn.addEventListener("pointercancel", function (e) {
       e.preventDefault();
       stopRecording();
     });
@@ -446,8 +489,18 @@
     btn.addEventListener("keyup", function (e) {
       if (e.key !== " ") return;
       e.preventDefault();
-      if (recorder && recorder.recording) {
+      if (recorder && (recorder.recording || recorder.starting)) {
         stopRecording();
+      }
+    });
+
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      ensureRecorder();
+      if (recorder.recording || recorder.starting) {
+        stopRecording();
+      } else {
+        startRecording();
       }
     });
 
