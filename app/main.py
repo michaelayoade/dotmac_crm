@@ -28,6 +28,7 @@ from app.api.external import router as external_router
 from app.api.fiber_plant import router as fiber_plant_router
 from app.api.geocoding import router as geocoding_router
 from app.api.gis import router as gis_router
+from app.api.inboxes import router as inboxes_router
 from app.api.integrations import router as integrations_router
 from app.api.inventory import router as inventory_router
 from app.api.material_requests import router as material_requests_router
@@ -443,6 +444,8 @@ _include_api_router(data_quality_router, dependencies=[Depends(require_user_auth
 _include_api_router(widget_public_router)
 app.include_router(vendors_router, prefix="/api", dependencies=[Depends(require_user_auth)])
 app.include_router(vendors_router, prefix="/api/v1", dependencies=[Depends(require_user_auth)])
+app.include_router(inboxes_router, prefix="/api", dependencies=[Depends(require_user_auth)])
+app.include_router(inboxes_router, prefix="/api/v1", dependencies=[Depends(require_user_auth)])
 app.include_router(vendor_portal_router, prefix="/api")
 app.include_router(vendor_portal_router, prefix="/api/v1")
 app.include_router(web_home_router)

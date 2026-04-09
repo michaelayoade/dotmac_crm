@@ -21,6 +21,7 @@ from app.schemas.crm.inbox import (
     WhatsAppWebhookPayload,
 )
 from app.services.crm import inbox as inbox_service
+from app.services.crm.inbox.inbox_sources import list_inbox_sources
 
 # =============================================================================
 # Helper Functions Tests
@@ -726,6 +727,47 @@ def test_create_email_connector_target_minimal(db_session):
 
     assert target is not None
     assert target.name == "Minimal Email Connector"
+
+
+def test_list_inbox_sources_returns_sorted_labels(db_session):
+    """Inbox sources should expose id/name/channel/display_label in a stable order."""
+    email_config = ConnectorConfig(name="Support Email", connector_type=ConnectorType.email, is_active=True)
+    whatsapp_config = ConnectorConfig(name="Support WhatsApp", connector_type=ConnectorType.whatsapp, is_active=True)
+    inactive_config = ConnectorConfig(name="Inactive IG", connector_type=ConnectorType.instagram, is_active=False)
+    db_session.add_all([email_config, whatsapp_config, inactive_config])
+    db_session.commit()
+    db_session.refresh(email_config)
+    db_session.refresh(whatsapp_config)
+    db_session.refresh(inactive_config)
+
+    email_target = IntegrationTarget(
+        name="Alpha Desk",
+        target_type=IntegrationTargetType.crm,
+        connector_config_id=email_config.id,
+        is_active=True,
+    )
+    whatsapp_target = IntegrationTarget(
+        name="Zulu Desk",
+        target_type=IntegrationTargetType.crm,
+        connector_config_id=whatsapp_config.id,
+        is_active=True,
+    )
+    inactive_target = IntegrationTarget(
+        name="Ghost Desk",
+        target_type=IntegrationTargetType.crm,
+        connector_config_id=inactive_config.id,
+        is_active=True,
+    )
+    db_session.add_all([email_target, whatsapp_target, inactive_target])
+    db_session.commit()
+
+    results = list_inbox_sources(db_session)
+
+    assert [item["name"] for item in results] == ["Alpha Desk", "Zulu Desk"]
+    assert results[0]["channel_type"] == "Email Inbox"
+    assert results[0]["display_label"] == "Email Inbox · Alpha Desk"
+    assert results[1]["channel_type"] == "WhatsApp Inbox"
+    assert results[1]["display_label"] == "WhatsApp Inbox · Zulu Desk"
 
 
 # =============================================================================

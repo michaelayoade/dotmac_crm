@@ -276,6 +276,7 @@ async def inbox(
     outbox_status: str | None = None,
     search: str | None = None,
     assignment: str | None = None,
+    inbox_id: str | None = None,
     target_id: str | None = None,
     conversation_id: str | None = None,
     comment_id: str | None = None,
@@ -313,6 +314,7 @@ async def inbox(
     safe_limit = max(int(limit or 150), 1)
     safe_page = max(int(page or 1), 1)
     safe_offset = max(int(offset or ((safe_page - 1) * safe_limit)), 0)
+    selected_inbox_id = inbox_id or target_id
     assigned_from_dt = _parse_inbox_date(assigned_from)
     assigned_to_dt = _parse_inbox_date(assigned_to, end_of_day=True)
     context = await build_inbox_page_context(
@@ -326,7 +328,7 @@ async def inbox(
         outbox_status=outbox_status,
         search=search,
         assignment=assignment,
-        target_id=target_id,
+        target_id=selected_inbox_id,
         conversation_id=conversation_id,
         comment_id=comment_id,
         filter_agent_id=agent_id,

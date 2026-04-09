@@ -21,6 +21,8 @@ class EventType(StrEnum):
     HEARTBEAT = "heartbeat"
     AGENT_NOTIFICATION = "agent_notification"
     INBOX_UPDATED = "inbox_updated"
+    INBOX_CREATED = "inbox.created"
+    INBOX_DELETED = "inbox.deleted"
 
 
 class WebSocketEvent(BaseModel):

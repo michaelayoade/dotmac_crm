@@ -16,6 +16,7 @@ logger = get_logger(__name__)
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CHANNEL_PREFIX = "inbox_ws:"
+GLOBAL_CHANNEL = f"{CHANNEL_PREFIX}global"
 
 
 class ConnectionManager:
@@ -87,6 +88,7 @@ class ConnectionManager:
             payload = json.loads(data)
             conversation_id = payload.get("conversation_id")
             user_id = payload.get("user_id")
+            broadcast_all = bool(payload.get("broadcast_all"))
             event_data = payload.get("event")
 
             if user_id and event_data:
@@ -95,6 +97,10 @@ class ConnectionManager:
 
             if conversation_id and event_data:
                 await self._dispatch_to_subscribers(conversation_id, event_data)
+                return
+
+            if broadcast_all and event_data:
+                await self._dispatch_to_all(event_data)
         except Exception as exc:
             logger.warning("websocket_redis_message_error error=%s", exc)
 
@@ -236,6 +242,29 @@ class ConnectionManager:
                     await ws.send_json(event_data)
             except Exception:
                 await self._remove_connection(user_id, ws)
+
+    async def _dispatch_to_all(self, event_data: dict) -> None:
+        """Send an event to every local connection."""
+        for user_id, websockets in list(self._connections.items()):
+            for ws in list(websockets):
+                try:
+                    if ws.client_state == WebSocketState.CONNECTED:
+                        await ws.send_json(event_data)
+                except Exception:
+                    await self._remove_connection(user_id, ws)
+
+    async def broadcast_to_all(self, event: WebSocketEvent) -> None:
+        """Broadcast an event to every connected inbox client."""
+        event_data = event.model_dump(mode="json")
+        if self._redis_client:
+            try:
+                payload = json.dumps({"broadcast_all": True, "event": event_data})
+                await self._redis_client.publish(GLOBAL_CHANNEL, payload)
+                return
+            except Exception as exc:
+                logger.warning("websocket_broadcast_all_redis_error error=%s", exc)
+
+        await self._dispatch_to_all(event_data)
 
     async def send_heartbeat(self, user_id: str, websocket: WebSocket) -> None:
         """Send heartbeat response to a specific connection."""

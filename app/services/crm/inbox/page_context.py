@@ -31,11 +31,12 @@ from app.services.crm.inbox.formatting import (
     format_conversation_for_template,
     format_message_for_template,
 )
+from app.services.crm.inbox.inbox_sources import list_inbox_sources
 from app.services.crm.inbox.inboxes import get_email_channel_state, list_channel_targets
 from app.services.crm.inbox.labels import enrich_formatted_conversations_with_labels
 from app.services.crm.inbox.listing import load_inbox_list
 from app.services.crm.inbox.macros import conversation_macros
-from app.services.crm.inbox.queries import get_assignment_counts
+from app.services.crm.inbox.queries import get_queue_counts
 from app.services.crm.inbox.templates import message_templates
 from app.services.settings_spec import resolve_value
 from app.services.time_preferences import resolve_company_time_prefs
@@ -134,7 +135,7 @@ async def build_inbox_page_context(
     limit: int | None = None,
     page: int | None = None,
 ) -> dict:
-    page_limit = max(int(limit or 150), 1)
+    page_limit = max(int(limit or 50), 1)
     safe_page = max(int(page or 1), 1)
     safe_offset = max(int(offset or ((safe_page - 1) * page_limit)), 0)
     assigned_person_id = (current_user or {}).get("person_id")
@@ -256,7 +257,8 @@ async def build_inbox_page_context(
                 logger.debug("Failed to format contact sidebar details for inbox context.", exc_info=True)
 
     stats, channel_stats = load_inbox_stats(db, timezone=inbox_timezone)
-    assignment_counts = get_assignment_counts(db, assigned_person_id=assigned_person_id)
+    assignment_counts = get_queue_counts(db, assigned_person_id=assigned_person_id)
+    inbox_sources = list_inbox_sources(db)
 
     email_channel = get_email_channel_state(db)
     email_inboxes = list_channel_targets(db, ConnectorType.email)
@@ -320,6 +322,8 @@ async def build_inbox_page_context(
         "current_outbox_status": outbox_status,
         "current_assignment": assignment,
         "current_target_id": target_id,
+        "current_inbox_id": target_id,
+        "inbox_sources": inbox_sources,
         "search": search,
         "email_channel": email_channel,
         "email_inboxes": email_inboxes,
@@ -370,7 +374,7 @@ async def build_inbox_conversations_partial_context(
     limit: int | None = None,
     page: int | None = None,
 ) -> tuple[str, dict]:
-    page_limit = max(int(limit or 150), 1)
+    page_limit = max(int(limit or 50), 1)
     safe_page = max(int(page or 1), 1)
     safe_offset = max(int(offset or ((safe_page - 1) * page_limit)), 0)
     listing = await load_inbox_list(
@@ -438,6 +442,8 @@ async def build_inbox_conversations_partial_context(
         "current_outbox_status": outbox_status,
         "current_assignment": assignment,
         "current_target_id": target_id,
+        "current_inbox_id": target_id,
+        "inbox_sources": list_inbox_sources(db),
         "search": search,
         "conversations_has_more": listing.has_more,
         "conversations_next_offset": listing.next_offset,

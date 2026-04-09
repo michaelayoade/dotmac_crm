@@ -5,10 +5,13 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.person import Person
-from app.services.crm.inbox.queries import get_assignment_counts, get_inbox_stats, list_inbox_conversations
+from app.services.crm.inbox.listing import load_inbox_list
+from app.services.crm.inbox.queries import get_inbox_stats, get_queue_counts, list_inbox_conversations
 
 
 def _unique_email() -> str:
@@ -112,14 +115,15 @@ def test_unreplied_filter_returns_inbound_without_outbound(db_session):
     assert internal_only.id not in ids
 
 
-def test_needs_attention_filter_returns_customer_follow_ups_after_agent_reply(db_session):
+def test_needs_attention_filter_returns_stale_open_and_pending_conversations(db_session):
     contact = _create_person(db_session, name="FollowUp")
     now = datetime.now(UTC)
 
     needs_attention = _create_conversation(db_session, contact, subject="Needs attention")
-    settled = _create_conversation(db_session, contact, subject="Agent replied last")
-    unresolved_first_touch = _create_conversation(db_session, contact, subject="No agent reply yet")
-    resolved_conversation = _create_conversation(db_session, contact, subject="Resolved")
+    pending_attention = _create_conversation(db_session, contact, subject="Pending but stale")
+    pending_attention.status = ConversationStatus.pending
+    recent_open = _create_conversation(db_session, contact, subject="Recently active")
+    resolved_conversation = _create_conversation(db_session, contact, subject="Resolved but stale")
     resolved_conversation.status = ConversationStatus.resolved
 
     _add_message(
@@ -127,66 +131,31 @@ def test_needs_attention_filter_returns_customer_follow_ups_after_agent_reply(db
         needs_attention,
         direction=MessageDirection.inbound,
         body="Customer asks question",
-        timestamp=now - timedelta(minutes=6),
-    )
-    _add_message(
-        db_session,
-        needs_attention,
-        direction=MessageDirection.outbound,
-        body="Agent answers",
-        timestamp=now - timedelta(minutes=5),
-    )
-    _add_message(
-        db_session,
-        needs_attention,
-        direction=MessageDirection.inbound,
-        body="Customer follows up",
-        timestamp=now - timedelta(minutes=1),
+        timestamp=now - timedelta(hours=2),
     )
 
     _add_message(
         db_session,
-        settled,
-        direction=MessageDirection.inbound,
-        body="Customer asks",
-        timestamp=now - timedelta(minutes=5),
-    )
-    _add_message(
-        db_session,
-        settled,
+        pending_attention,
         direction=MessageDirection.outbound,
-        body="Agent latest reply",
-        timestamp=now - timedelta(minutes=2),
+        body="Pending follow-up",
+        timestamp=now - timedelta(hours=3),
     )
 
     _add_message(
         db_session,
-        unresolved_first_touch,
+        recent_open,
         direction=MessageDirection.inbound,
-        body="Need onboarding help",
-        timestamp=now - timedelta(minutes=3),
+        body="Recent message",
+        timestamp=now - timedelta(minutes=20),
     )
 
     _add_message(
         db_session,
         resolved_conversation,
         direction=MessageDirection.inbound,
-        body="Customer follow-up after resolve should not count",
-        timestamp=now - timedelta(minutes=4),
-    )
-    _add_message(
-        db_session,
-        resolved_conversation,
-        direction=MessageDirection.outbound,
-        body="Agent response",
-        timestamp=now - timedelta(minutes=3),
-    )
-    _add_message(
-        db_session,
-        resolved_conversation,
-        direction=MessageDirection.inbound,
-        body="Another customer follow-up",
-        timestamp=now - timedelta(minutes=1),
+        body="Resolved follow-up",
+        timestamp=now - timedelta(hours=4),
     )
 
     db_session.flush()
@@ -195,8 +164,8 @@ def test_needs_attention_filter_returns_customer_follow_ups_after_agent_reply(db
     ids = _result_ids(results)
 
     assert needs_attention.id in ids
-    assert settled.id not in ids
-    assert unresolved_first_touch.id not in ids
+    assert pending_attention.id in ids
+    assert recent_open.id not in ids
     assert resolved_conversation.id not in ids
 
 
@@ -219,59 +188,63 @@ def test_assignment_counts_include_needs_attention_and_unreplied(db_session):
         needs_attention,
         direction=MessageDirection.inbound,
         body="First message",
-        timestamp=now - timedelta(minutes=6),
-    )
-    _add_message(
-        db_session,
-        needs_attention,
-        direction=MessageDirection.outbound,
-        body="Reply",
-        timestamp=now - timedelta(minutes=5),
-    )
-    _add_message(
-        db_session,
-        needs_attention,
-        direction=MessageDirection.inbound,
-        body="Follow-up",
-        timestamp=now - timedelta(minutes=1),
+        timestamp=now - timedelta(hours=2),
     )
 
-    counts = get_assignment_counts(db_session, assigned_person_id=None)
+    counts = get_queue_counts(db_session, assigned_person_id=None)
     assert counts["unassigned"] >= 2
-    assert counts["unreplied"] >= 1
     assert counts["needs_attention"] >= 1
+    assert counts["unreplied"] >= 2
 
 
-def test_unassigned_filter_excludes_pre_2026_activity(db_session):
-    contact = _create_person(db_session, name="Imported")
+def test_all_queue_with_all_status_returns_every_conversation(db_session):
+    contact = _create_person(db_session, name="AllFilter")
 
-    imported_legacy = _create_conversation(db_session, contact, subject="Imported 2025")
-    current_2026 = _create_conversation(db_session, contact, subject="Current 2026")
+    open_conversation = _create_conversation(db_session, contact, subject="Open conversation")
+    pending_conversation = _create_conversation(db_session, contact, subject="Pending conversation")
+    pending_conversation.status = ConversationStatus.pending
+    done_conversation = _create_conversation(db_session, contact, subject="Resolved conversation")
+    done_conversation.status = ConversationStatus.resolved
 
-    _add_message(
-        db_session,
-        imported_legacy,
-        direction=MessageDirection.inbound,
-        body="Legacy imported conversation",
-        timestamp=datetime(2025, 12, 31, 23, 59, tzinfo=UTC),
-    )
-    _add_message(
-        db_session,
-        current_2026,
-        direction=MessageDirection.inbound,
-        body="Current conversation",
-        timestamp=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
-    )
+    _add_message(db_session, open_conversation, direction=MessageDirection.inbound, body="Open")
+    _add_message(db_session, pending_conversation, direction=MessageDirection.outbound, body="Pending")
+    _add_message(db_session, done_conversation, direction=MessageDirection.inbound, body="Done")
     db_session.flush()
 
-    results = list_inbox_conversations(db_session, assignment="unassigned")
-    ids = _result_ids(results)
+    all_results = list_inbox_conversations(db_session, assignment="all")
+    all_ids = _result_ids(all_results)
 
-    assert current_2026.id in ids
-    assert imported_legacy.id not in ids
+    assert open_conversation.id in all_ids
+    assert pending_conversation.id in all_ids
+    assert done_conversation.id in all_ids
 
-    counts = get_assignment_counts(db_session, assigned_person_id=None)
-    assert counts["unassigned"] == 1
+
+@pytest.mark.asyncio
+async def test_load_inbox_list_maps_done_status_to_resolved(db_session):
+    contact = _create_person(db_session, name="Done")
+
+    open_conversation = _create_conversation(db_session, contact, subject="Still open")
+    done_conversation = _create_conversation(db_session, contact, subject="Done conversation")
+    done_conversation.status = ConversationStatus.resolved
+
+    _add_message(db_session, open_conversation, direction=MessageDirection.inbound, body="Open")
+    _add_message(db_session, done_conversation, direction=MessageDirection.inbound, body="Done")
+    db_session.flush()
+
+    listing = await load_inbox_list(
+        db_session,
+        channel=None,
+        status="done",
+        outbox_status=None,
+        search=None,
+        assignment="all",
+        assigned_person_id=None,
+        target_id=None,
+    )
+    done_ids = _result_ids(listing.conversations_raw)
+
+    assert done_conversation.id in done_ids
+    assert open_conversation.id not in done_ids
 
 
 def test_inbox_unread_stat_counts_customer_awaiting_response(db_session):

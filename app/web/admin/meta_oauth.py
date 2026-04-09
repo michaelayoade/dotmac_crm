@@ -16,7 +16,9 @@ from app.logging import get_logger
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.services import meta_oauth, oauth_state
+from app.services.crm.inbox.inbox_sources import serialize_inbox_source
 from app.web.auth.dependencies import require_web_auth
+from app.websocket.broadcaster import broadcast_inbox_created
 
 logger = get_logger(__name__)
 
@@ -71,6 +73,7 @@ def _get_or_create_meta_connector(
         config.id,
         target.id,
     )
+    broadcast_inbox_created(serialize_inbox_source(target, config.connector_type))
 
     return config, target
 
