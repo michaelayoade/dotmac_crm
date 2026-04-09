@@ -57,7 +57,13 @@ def test_admin_tickets_create_form_loads():
             browser = browser_type.launch(**launch_kwargs)
         except Exception as exc:
             message = str(exc)
-            if "Operation not permitted" in message or "sandbox" in message or "X server" in message:
+            if (
+                "Operation not permitted" in message
+                or "sandbox" in message
+                or "X server" in message
+                or "Executable doesn't exist" in message
+                or "playwright install" in message
+            ):
                 pytest.skip(f"Playwright browser launch blocked in this environment: {message}")
             raise
         context = browser.new_context(ignore_https_errors=True)
