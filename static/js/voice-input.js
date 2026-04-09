@@ -437,9 +437,18 @@
     var btn = document.createElement("button");
     btn.type = "button";
     btn.className = "voice-mic-btn";
+    btn.setAttribute("hx-disable", "");
     btn.setAttribute("aria-label", "Hold to record voice message");
     btn.appendChild(createMicSvg(false));
     wrap.appendChild(btn);
+
+    function consumeEvent(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof e.stopImmediatePropagation === "function") {
+        e.stopImmediatePropagation();
+      }
+    }
 
     function startRecording() {
       ensureRecorder();
@@ -454,18 +463,18 @@
 
     // Pointer events — push-to-talk
     btn.addEventListener("pointerdown", function (e) {
-      e.preventDefault();
+      consumeEvent(e);
       btn.setPointerCapture(e.pointerId);
       startRecording();
     });
 
     btn.addEventListener("pointerup", function (e) {
-      e.preventDefault();
+      consumeEvent(e);
       stopRecording();
     });
 
     btn.addEventListener("pointercancel", function (e) {
-      e.preventDefault();
+      consumeEvent(e);
       stopRecording();
     });
 
@@ -480,7 +489,7 @@
     // I2 fix: Keyboard support — Space to push-to-talk
     btn.addEventListener("keydown", function (e) {
       if (e.key !== " " || e.repeat) return;
-      e.preventDefault();
+      consumeEvent(e);
       if (!recorder || !recorder.recording) {
         startRecording();
       }
@@ -488,14 +497,14 @@
 
     btn.addEventListener("keyup", function (e) {
       if (e.key !== " ") return;
-      e.preventDefault();
+      consumeEvent(e);
       if (recorder && (recorder.recording || recorder.starting)) {
         stopRecording();
       }
     });
 
     btn.addEventListener("click", function (e) {
-      e.preventDefault();
+      consumeEvent(e);
       ensureRecorder();
       if (recorder.recording || recorder.starting) {
         stopRecording();
@@ -506,7 +515,7 @@
 
     // Prevent context menu on long-press (mobile)
     btn.addEventListener("contextmenu", function (e) {
-      e.preventDefault();
+      consumeEvent(e);
     });
   }
 
