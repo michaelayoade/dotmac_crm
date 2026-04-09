@@ -156,7 +156,7 @@ class MinioBackend(StorageBackend):
         if not access_key or not secret_key:
             raise ValueError("S3 credentials are not configured (S3_ACCESS_KEY / S3_SECRET_KEY).")
         try:
-            from minio import Minio
+            from minio import Minio  # type: ignore[import-not-found]
         except ImportError as exc:
             raise RuntimeError(
                 "MinIO SDK is not installed. Install package 'minio' to use STORAGE_BACKEND=s3."
