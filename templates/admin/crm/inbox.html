@@ -13,116 +13,6 @@
         htmx.config.globalViewTransitions = false;
     });
 </script>
-<style>
-    .crm-inbox-filter-panel {
-        --crm-panel-bg: 255 255 255;
-        --crm-panel-surface: 247 248 250;
-        --crm-panel-surface-alt: 241 243 245;
-        --crm-panel-border: 214 219 226;
-        --crm-panel-text: 24 29 37;
-        --crm-panel-muted: 104 118 138;
-        --crm-panel-muted-soft: 132 145 164;
-        --crm-panel-pill: 34 39 46;
-        --crm-panel-pill-text: 255 255 255;
-        --crm-panel-orange-soft: 251 235 228;
-        --crm-panel-orange-border: 230 90 43;
-        --crm-panel-orange-text: 132 62 34;
-        --crm-panel-live-soft: 229 244 233;
-        --crm-panel-live-text: 26 122 58;
-        --crm-panel-dot-open: 26 122 58;
-        --crm-panel-dot-pending: 229 90 43;
-        --crm-panel-dot-done: 132 145 164;
-        background: rgb(var(--crm-panel-bg));
-        color: rgb(var(--crm-panel-text));
-    }
-
-    .dark .crm-inbox-filter-panel {
-        --crm-panel-bg: 15 23 42;
-        --crm-panel-surface: 23 33 55;
-        --crm-panel-surface-alt: 30 41 59;
-        --crm-panel-border: 71 85 105;
-        --crm-panel-text: 241 245 249;
-        --crm-panel-muted: 148 163 184;
-        --crm-panel-muted-soft: 100 116 139;
-        --crm-panel-pill: 241 245 249;
-        --crm-panel-pill-text: 15 23 42;
-        --crm-panel-orange-soft: 72 39 24;
-        --crm-panel-orange-border: 230 90 43;
-        --crm-panel-orange-text: 253 230 213;
-        --crm-panel-live-soft: 22 56 34;
-        --crm-panel-live-text: 162 221 180;
-        --crm-panel-dot-open: 110 231 183;
-        --crm-panel-dot-pending: 251 146 60;
-        --crm-panel-dot-done: 148 163 184;
-    }
-
-    .crm-inbox-filter-panel .crm-panel-divider {
-        border: 0;
-        border-top: 0.5px solid rgb(var(--crm-panel-border));
-        margin: 0;
-    }
-
-    .crm-inbox-filter-panel .crm-panel-input,
-    .crm-inbox-filter-panel .crm-panel-select,
-    .crm-inbox-filter-panel .crm-panel-chip,
-    .crm-inbox-filter-panel .crm-panel-tab {
-        border: 0.5px solid rgb(var(--crm-panel-border));
-        border-radius: 8px;
-    }
-
-    .crm-inbox-filter-panel .crm-panel-input,
-    .crm-inbox-filter-panel .crm-panel-select {
-        background: rgb(var(--crm-panel-bg));
-        color: rgb(var(--crm-panel-text));
-    }
-
-    .crm-inbox-filter-panel .crm-panel-input::placeholder {
-        color: rgb(var(--crm-panel-muted-soft));
-    }
-
-    .crm-inbox-filter-panel .crm-panel-section-label {
-        color: rgb(var(--crm-panel-muted-soft));
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-    }
-    .crm-inbox-filter-panel .crm-panel-surface {
-        background: rgb(var(--crm-panel-surface));
-    }
-    .crm-inbox-filter-panel .crm-panel-surface-alt {
-        background: rgb(var(--crm-panel-surface-alt));
-    }
-    .crm-inbox-filter-panel .crm-panel-chip {
-        background: rgb(var(--crm-panel-surface));
-        color: rgb(var(--crm-panel-muted));
-    }
-    .crm-inbox-filter-panel .crm-panel-chip-active,
-    .crm-inbox-filter-panel .crm-panel-tab-active {
-        background: rgb(var(--crm-panel-pill));
-        border-color: rgb(var(--crm-panel-pill));
-        color: rgb(var(--crm-panel-pill-text));
-    }
-    .crm-inbox-filter-panel .crm-panel-chip-alert {
-        background: rgb(var(--crm-panel-orange-soft));
-        border-color: rgba(var(--crm-panel-orange-border), 0.35);
-        color: rgb(var(--crm-panel-orange-text));
-    }
-    .crm-inbox-filter-panel .crm-panel-badge {
-        border-radius: 999px;
-        background: rgb(var(--crm-panel-surface-alt));
-        color: rgb(var(--crm-panel-muted));
-    }
-    .crm-inbox-filter-panel .crm-panel-chip-active .crm-panel-badge,
-    .crm-inbox-filter-panel .crm-panel-tab-active .crm-panel-badge {
-        background: rgba(255, 255, 255, 0.12);
-        color: inherit;
-    }
-    .crm-inbox-filter-panel .crm-panel-chip-alert .crm-panel-badge {
-        background: rgba(var(--crm-panel-orange-border), 0.12);
-        color: inherit;
-    }
-</style>
 <!-- Inbox styles are now in static/css/src/main.css -->
 {% endblock %}
 
@@ -208,248 +98,345 @@
     </div>
 
     <!-- Left Sidebar - Channel Filters & Conversation List -->
-    <aside class="crm-inbox-filter-panel w-full flex-shrink-0 flex flex-col border-r border-slate-200/60 bg-slate-50/50 dark:border-slate-700/60 dark:bg-slate-900/60"
+    <aside class="w-full flex-shrink-0 flex flex-col border-r border-slate-200/60 bg-slate-50/50 dark:border-slate-700/60 dark:bg-slate-900/60"
            :class="selectedConversation && isNarrowViewport ? 'hidden' : 'flex'"
-           :style="isNarrowViewport ? '' : 'width: 18.75rem;'">
-        <div class="flex flex-col">
-            <div class="px-4 pb-4 pt-4">
-                <div class="flex items-start justify-between gap-3">
-                    <div class="flex min-w-0 items-center gap-3">
-                        <div class="flex h-10 w-10 items-center justify-center rounded-lg text-white" style="background:#E55A2B;">
-                            <svg class="h-4.5 w-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 10h8M8 14h5m-7 6l2.4-3.2A8.96 8.96 0 013 10.5C3 6.358 7.03 3 12 3s9 3.358 9 7.5S16.97 18 12 18c-1.24 0-2.423-.209-3.5-.586L6 21z"/>
-                            </svg>
-                        </div>
-                        <div class="min-w-0">
-                            <div class="flex items-center gap-2">
-                                <h1 class="truncate text-[14px] font-semibold" style="color:rgb(var(--crm-panel-text));">Inbox</h1>
-                                <span class="truncate text-[12px]" style="color:rgb(var(--crm-panel-muted));" x-text="`${stats.unread || 0} unread`">{{ (stats or {}).get("unread", 0) }} unread</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="ml-auto flex items-center gap-2">
-                        <button type="button"
-                                @click="showNewConversation = true"
-                                title="New conversation"
-                                aria-label="New conversation"
-                                class="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[12px] font-semibold text-amber-700 shadow-sm transition hover:bg-amber-500/15 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-200 dark:hover:bg-amber-400/15">
-                            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5"/>
-                            </svg>
-                        </button>
-                        <a href="/admin/crm/inbox/settings"
-                           title="Inbox settings"
-                           aria-label="Inbox settings"
-                           class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700/70 dark:bg-slate-900/50 dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-white">
-                            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317a1 1 0 011.35-.936l.995.497a1 1 0 00.894 0l.995-.497a1 1 0 011.35.936l.07 1.11a1 1 0 00.588.84l.99.452a1 1 0 01.39 1.54l-.67.887a1 1 0 000 1.206l.67.887a1 1 0 01-.39 1.54l-.99.452a1 1 0 00-.588.84l-.07 1.11a1 1 0 01-1.35.936l-.995-.497a1 1 0 00-.894 0l-.995.497a1 1 0 01-1.35-.936l-.07-1.11a1 1 0 00-.588-.84l-.99-.452a1 1 0 01-.39-1.54l.67-.887a1 1 0 000-1.206l-.67-.887a1 1 0 01.39-1.54l.99-.452a1 1 0 00.588-.84l.07-1.11z"/>
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                            </svg>
-                        </a>
-                    </div>
-                    <div class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium"
-                         style="background:rgb(var(--crm-panel-live-soft)); color:#1a7a3a;"
-                         x-show="wsConnected"
-                         title="Real-time updates active">
-                        <span class="h-1.5 w-1.5 rounded-full animate-pulse" style="background:#1a7a3a;"></span>
-                        <span>Live</span>
-                    </div>
-                    <div class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium"
-                         style="background:rgb(var(--crm-panel-surface-alt)); color:rgb(var(--crm-panel-muted));"
-                         x-show="wsDisconnectedPermanently"
-                         x-cloak
-                         title="Real-time updates offline">
-                        <span class="h-1.5 w-1.5 rounded-full" style="background:rgb(var(--crm-panel-muted-soft));"></span>
-                        <span>Offline</span>
-                    </div>
+           :style="isNarrowViewport ? '' : 'width: 20rem;'">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200/60 dark:border-slate-700/60">
+            <div class="flex items-center gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25">
+                    <svg class="w-5.5 h-5.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                    </svg>
                 </div>
-
-                <div class="relative mt-4">
-                    <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                        <svg class="h-4 w-4" style="color:rgb(var(--crm-panel-muted-soft));" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M21 21l-4.35-4.35m1.85-5.15a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                        </svg>
-                    </div>
-                    <input type="text"
-                           name="search"
-                           data-search-input="true"
-                           placeholder="Search conversations..."
-                           x-model="searchQuery"
-                           @keydown="markSearchInteracted($event)"
-                           @paste="markSearchInteracted()"
-                           @drop="markSearchInteracted()"
-                           @input.debounce.300ms="filterConversations({ fromInput: true })"
-                           autocomplete="new-password"
-                           data-lpignore="true"
-                           data-1p-ignore="true"
-                           autocapitalize="off"
-                           autocorrect="off"
-                           spellcheck="false"
-                           class="crm-panel-input w-full pl-9 pr-3 py-2.5 text-[13px] outline-none"
-                           style="border-color:rgb(var(--crm-panel-border));">
+                <div>
+                    <h1 class="text-lg font-bold text-slate-900 tracking-tight dark:text-white">Inbox</h1>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">
+                        <span class="font-semibold text-amber-600 dark:text-amber-400" x-text="stats.unread || 0">{{ (stats or {}).get("unread", 0) }}</span> unread conversations
+                        <span x-show="wsConnected"
+                              class="ml-2 inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"
+                              title="Real-time updates active">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span class="text-[10px] uppercase tracking-wide font-medium">Live</span>
+                        </span>
+                        <span x-show="wsDisconnectedPermanently" x-cloak
+                              class="ml-2 inline-flex items-center gap-1 text-red-500 dark:text-red-400"
+                              title="Real-time updates offline — refresh to reconnect">
+                            <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                            <span class="text-[10px] uppercase tracking-wide font-medium">Offline</span>
+                        </span>
+                    </p>
                 </div>
             </div>
-
-            <hr class="crm-panel-divider">
-
-            <div class="px-4 py-4">
-                <p class="crm-panel-section-label">View</p>
-                <div class="mt-2 flex flex-wrap gap-[6px]">
-                    <button type="button"
-                            @click="setChannel(null)"
-                            :class="currentChannel !== 'comments' ? 'crm-panel-tab-active' : ''"
-                            class="crm-panel-tab inline-flex items-center justify-center rounded-full px-3 py-1 text-[12px] font-medium transition-colors"
-                            style="background:rgb(var(--crm-panel-bg)); color:rgb(var(--crm-panel-muted));">
-                        Inbox
-                    </button>
-                    <button type="button"
-                            @click="setChannel('comments')"
-                            :class="currentChannel === 'comments' ? 'crm-panel-tab-active' : ''"
-                            class="crm-panel-tab inline-flex items-center justify-center rounded-full px-3 py-1 text-[12px] font-medium transition-colors"
-                            style="background:rgb(var(--crm-panel-bg)); color:rgb(var(--crm-panel-muted));">
-                        Comments
-                    </button>
-                </div>
+            <div class="flex items-center gap-1">
+                <button type="button" @click="showNewConversation = true"
+                        class="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:text-amber-600 hover:bg-amber-50 transition-colors dark:text-slate-400 dark:hover:text-amber-400 dark:hover:bg-amber-500/10"
+                        title="New conversation">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5"/>
+                    </svg>
+                </button>
+                <button type="button"
+                        @click="toggleNotificationSound()"
+                        :class="notificationSoundEnabled ? 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:text-emerald-300 dark:hover:bg-emerald-500/10' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800'"
+                        class="flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
+                        :aria-label="notificationSoundEnabled ? 'Mute notification sound' : 'Enable notification sound'"
+                        title="Toggle notification sound">
+                    <svg x-show="notificationSoundEnabled" x-cloak class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5L6 9H3v6h3l5 4V5z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.5 8.5a5 5 0 010 7"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 6a8 8 0 010 12"/>
+                    </svg>
+                    <svg x-show="!notificationSoundEnabled" x-cloak class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5L6 9H3v6h3l5 4V5z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 6l-12 12"/>
+                    </svg>
+                </button>
+                <a href="/admin/crm/inbox/settings"
+                   class="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800"
+                   title="Inbox settings">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.370.996-.608.07 2.296-1.065 2.572-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.370-2.370.996.608 2.296.07 2.572-1.065z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                </a>
             </div>
+        </div>
 
-            <hr class="crm-panel-divider">
+        <!-- Search -->
+        <div class="px-4 py-3">
+            <div class="relative">
+                <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
+                    <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
+                </div>
+                <input type="text"
+                       name="search"
+                       data-search-input="true"
+                       placeholder="Search conversations..."
+                       x-model="searchQuery"
+                       @keydown="markSearchInteracted($event)"
+                       @paste="markSearchInteracted()"
+                       @drop="markSearchInteracted()"
+                       @input.debounce.300ms="filterConversations({ fromInput: true })"
+                       autocomplete="new-password"
+                       data-lpignore="true"
+                       data-1p-ignore="true"
+                       autocapitalize="off"
+                       autocorrect="off"
+                       spellcheck="false"
+                       class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 transition-all focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 dark:bg-slate-800/50 dark:border-slate-600 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">
+            </div>
+        </div>
 
-            {% if current_channel != 'comments' %}
-            <div class="px-4 py-4"
-                 x-show="currentChannel !== 'comments'"
-                 x-cloak>
-                <p class="crm-panel-section-label">Status</p>
-                <div class="mt-2 flex flex-wrap gap-[6px]">
-                    <button type="button"
-                            @click="setStatus(null)"
-                            :class="!currentStatus ? 'crm-panel-tab-active' : ''"
-                            class="crm-panel-tab inline-flex items-center justify-center rounded-full px-3 py-1 text-[12px] font-medium transition-colors"
-                            style="background:rgb(var(--crm-panel-bg)); color:rgb(var(--crm-panel-muted));">
+        <div class="px-4 pb-2">
+            <button type="button"
+                    @click="toggleInboxStats()"
+                    class="flex w-full items-center justify-between rounded-lg border border-slate-200/70 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:bg-slate-800">
+                <span>Inbox Stats & Filters</span>
+                <svg class="h-4 w-4 transition-transform"
+                     :class="showInboxStats ? 'rotate-180' : ''"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+        </div>
+
+        <div x-show="showInboxStats"
+             x-transition:enter="transition ease-out duration-150"
+             x-transition:enter-start="opacity-0 -translate-y-1"
+             x-transition:enter-end="opacity-100 translate-y-0"
+             x-transition:leave="transition ease-in duration-100"
+             x-transition:leave-start="opacity-100 translate-y-0"
+             x-transition:leave-end="opacity-0 -translate-y-1">
+
+        {# <!-- Channel Filters (disabled) -->
+        <div class="px-4 pb-3">
+            <div class="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+                <button @click="setChannel(null)"
+                        :class="!currentChannel ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-md shadow-amber-500/20' : 'bg-white text-slate-600 border border-slate-200 hover:border-amber-300 hover:text-amber-600 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 dark:hover:border-amber-500/50 dark:hover:text-amber-400'"
+                        class="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap">
+                    <span>All</span>
+                    <span class="font-mono-tight opacity-80">{{ stats.all }}</span>
+                </button>
+                <button @click="setChannel('email')"
+                        :class="currentChannel === 'email' ? 'channel-badge channel-email' : 'bg-white text-slate-600 border border-slate-200 hover:border-violet-300 hover:text-violet-600 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 dark:hover:border-violet-500/50 dark:hover:text-violet-400'"
+                        class="channel-email flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    </svg>
+                    <span>Email</span>
+                    <span class="font-mono-tight opacity-70">{{ channel_stats.email }}</span>
+                </button>
+                <button @click="setChannel('whatsapp')"
+                        :class="currentChannel === 'whatsapp' ? 'channel-badge channel-whatsapp' : 'bg-white text-slate-600 border border-slate-200 hover:border-green-300 hover:text-green-600 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 dark:hover:border-green-500/50 dark:hover:text-green-400'"
+                        class="channel-whatsapp flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                    </svg>
+                    <span>WhatsApp</span>
+                    <span class="font-mono-tight opacity-70">{{ channel_stats.whatsapp }}</span>
+                </button>
+                <button @click="setChannel('facebook_messenger')"
+                        :class="currentChannel === 'facebook_messenger' ? 'channel-badge channel-facebook_messenger' : 'bg-white text-slate-600 border border-slate-200 hover:border-blue-300 hover:text-blue-600 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 dark:hover:border-blue-500/50 dark:hover:text-blue-400'"
+                        class="channel-facebook_messenger flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                    </svg>
+                    <span>Facebook</span>
+                    <span class="font-mono-tight opacity-70">{{ channel_stats.facebook_messenger }}</span>
+                </button>
+                <button @click="setChannel('instagram_dm')"
+                        :class="currentChannel === 'instagram_dm' ? 'channel-badge channel-instagram_dm' : 'bg-white text-slate-600 border border-slate-200 hover:border-pink-300 hover:text-pink-600 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 dark:hover:border-pink-500/50 dark:hover:text-pink-400'"
+                        class="channel-instagram_dm flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 0C8.74 0 8.333.015 7.053.072 5.775.132 4.905.333 4.14.63c-.789.306-1.459.717-2.126 1.384S.935 3.35.63 4.14C.333 4.905.131 5.775.072 7.053.012 8.333 0 8.74 0 12s.015 3.667.072 4.947c.06 1.277.261 2.148.558 2.913.306.788.717 1.459 1.384 2.126.667.666 1.336 1.079 2.126 1.384.766.296 1.636.499 2.913.558C8.333 23.988 8.74 24 12 24s3.667-.015 4.947-.072c1.277-.06 2.148-.262 2.913-.558.788-.306 1.459-.718 2.126-1.384.666-.667 1.079-1.335 1.384-2.126.296-.765.499-1.636.558-2.913.06-1.28.072-1.687.072-4.947s-.015-3.667-.072-4.947c-.06-1.277-.262-2.149-.558-2.913-.306-.789-.718-1.459-1.384-2.126C21.319 1.347 20.651.935 19.86.63c-.765-.297-1.636-.499-2.913-.558C15.667.012 15.26 0 12 0zm0 2.16c3.203 0 3.585.016 4.85.071 1.17.055 1.805.249 2.227.415.562.217.96.477 1.382.896.419.42.679.819.896 1.381.164.422.36 1.057.413 2.227.057 1.266.07 1.646.07 4.85s-.015 3.585-.074 4.85c-.061 1.17-.256 1.805-.421 2.227-.224.562-.479.96-.899 1.382-.419.419-.824.679-1.38.896-.42.164-1.065.36-2.235.413-1.274.057-1.649.07-4.859.07-3.211 0-3.586-.015-4.859-.074-1.171-.061-1.816-.256-2.236-.421-.569-.224-.96-.479-1.379-.899-.421-.419-.69-.824-.9-1.38-.165-.42-.359-1.065-.42-2.235-.045-1.26-.061-1.649-.061-4.844 0-3.196.016-3.586.061-4.861.061-1.17.255-1.814.42-2.234.21-.57.479-.96.9-1.381.419-.419.81-.689 1.379-.898.42-.166 1.051-.361 2.221-.421 1.275-.045 1.65-.06 4.859-.06l.045.03z"/>
+                    </svg>
+                    <span>Instagram</span>
+                    <span class="font-mono-tight opacity-70">{{ channel_stats.instagram_dm }}</span>
+                </button>
+                <button @click="setChannel('comments')"
+                        :class="currentChannel === 'comments' ? 'channel-badge channel-facebook_messenger' : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300 hover:text-slate-900 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 dark:hover:border-slate-500 dark:hover:text-slate-200'"
+                        class="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h6m-6 4h8M5 20h8l6-6V5a2 2 0 00-2-2H5a2 2 0 00-2 2v13a2 2 0 002 2z"/>
+                    </svg>
+                    <span>Comments</span>
+                    <span class="font-mono-tight opacity-70">{{ channel_stats.comments }}</span>
+                </button>
+            </div>
+        </div>
+        #}
+
+        <!-- Status Tabs -->
+        {% if current_channel != 'comments' %}
+        <div class="px-4 pb-3 border-b border-slate-200/60 dark:border-slate-700/60">
+            <div class="flex gap-1 p-1 bg-slate-100 rounded-xl dark:bg-slate-800/50">
+                <button @click="setStatus(null)"
+                        :class="!currentStatus ? 'bg-white text-amber-700 shadow-sm dark:bg-slate-700 dark:text-amber-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                        class="flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all">
+                    All
+                </button>
+                <button @click="setStatus('open')"
+                        :class="currentStatus === 'open' ? 'bg-white text-emerald-700 shadow-sm dark:bg-slate-700 dark:text-emerald-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                        class="flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 status-dot"></span>
+                    Open
+                </button>
+                <button @click="setStatus('pending')"
+                        :class="currentStatus === 'pending' ? 'bg-white text-amber-700 shadow-sm dark:bg-slate-700 dark:text-amber-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                        class="flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                    Pending
+                </button>
+                <button @click="setStatus('resolved')"
+                        :class="currentStatus === 'resolved' ? 'bg-white text-slate-700 shadow-sm dark:bg-slate-700 dark:text-slate-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                        class="flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all">
+                    Done
+                </button>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="px-4 pb-3 border-b border-slate-200/60 dark:border-slate-700/60">
+            <div class="flex flex-col gap-2">
+                {% if current_channel != 'comments' %}
+                <div class="flex flex-wrap gap-1 p-1 bg-slate-100 rounded-xl dark:bg-slate-800/50">
+                    <button @click="setAssignment(null)"
+                            :class="!currentAssignment ? 'bg-white text-slate-700 shadow-sm dark:bg-slate-700 dark:text-slate-200' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5">
                         All
+                        <span class="font-mono-tight text-[10px] opacity-80" x-text="assignmentCount('all')">{{ (assignment_counts or {}).get("all", 0) }}</span>
                     </button>
-                    <button type="button"
-                            @click="setStatus('open')"
-                            :class="currentStatus === 'open' ? 'crm-panel-tab-active' : ''"
-                            class="crm-panel-tab inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition-colors"
-                            style="background:rgb(var(--crm-panel-bg)); color:rgb(var(--crm-panel-muted));">
-                        <span class="h-1.5 w-1.5 rounded-full" style="background:rgb(var(--crm-panel-dot-open));"></span>
-                        Open
+                    <button @click="setAssignment('assigned')"
+                            :class="currentAssignment === 'assigned' ? 'bg-white text-emerald-700 shadow-sm dark:bg-slate-700 dark:text-emerald-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5">
+                        Assigned to me
+                        <span class="font-mono-tight text-[10px] opacity-80" x-text="assignmentCount('assigned')">{{ (assignment_counts or {}).get("assigned", 0) }}</span>
                     </button>
-                    <button type="button"
-                            @click="setStatus('pending')"
-                            :class="currentStatus === 'pending' ? 'crm-panel-tab-active' : ''"
-                            class="crm-panel-tab inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition-colors"
-                            style="background:rgb(var(--crm-panel-bg)); color:rgb(var(--crm-panel-muted));">
-                        <span class="h-1.5 w-1.5 rounded-full" style="background:rgb(var(--crm-panel-dot-pending));"></span>
-                        Pending
+                    <button @click="setAssignment('my_team')"
+                            :class="currentAssignment === 'my_team' ? 'bg-white text-cyan-700 shadow-sm dark:bg-slate-700 dark:text-cyan-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5">
+                        My Team
+                        <span class="font-mono-tight text-[10px] opacity-80" x-text="assignmentCount('my_team')">{{ (assignment_counts or {}).get("my_team", 0) }}</span>
                     </button>
-                    <button type="button"
-                            @click="setStatus('done')"
-                            :class="currentStatus === 'done' ? 'crm-panel-tab-active' : ''"
-                            class="crm-panel-tab inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition-colors"
-                            style="background:rgb(var(--crm-panel-bg)); color:rgb(var(--crm-panel-muted));">
-                        <span class="h-1.5 w-1.5 rounded-full" style="background:rgb(var(--crm-panel-dot-done));"></span>
-                        Done
+                    <button @click="setAssignment('unassigned')"
+                            :class="currentAssignment === 'unassigned' ? 'bg-white text-amber-700 shadow-sm dark:bg-slate-700 dark:text-amber-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5">
+                        Unassigned
+                        <span class="font-mono-tight text-[10px] opacity-80" x-text="assignmentCount('unassigned')">{{ (assignment_counts or {}).get("unassigned", 0) }}</span>
                     </button>
-                </div>
-            </div>
-
-            <hr class="crm-panel-divider"
-                x-show="currentChannel !== 'comments'"
-                x-cloak>
-
-            <div class="px-4 py-4"
-                 x-show="currentChannel !== 'comments'"
-                 x-cloak>
-                <p class="crm-panel-section-label">Queue</p>
-                <div class="mt-2 flex flex-wrap gap-2">
-                    <button type="button"
-                            @click="setAssignment(null)"
-                            :class="!currentAssignment ? 'crm-panel-chip-active' : ''"
-                            class="crm-panel-chip inline-flex items-center gap-2 px-3 py-2 text-[12px] font-medium transition-colors">
-                        <span>All</span>
-                        <span class="crm-panel-badge px-1.5 py-0.5 text-[11px] font-medium">{{ (assignment_counts or {}).get("all", 0) }}</span>
+                    <button @click="setAssignment('unreplied')"
+                            :class="currentAssignment === 'unreplied' ? 'bg-white text-rose-700 shadow-sm dark:bg-slate-700 dark:text-rose-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5">
+                        Unreplied
+                        <span class="font-mono-tight text-[10px] opacity-80" x-text="assignmentCount('unreplied')">{{ (assignment_counts or {}).get("unreplied", 0) }}</span>
                     </button>
-                    <button type="button"
-                            @click="setAssignment('assigned_to_me')"
-                            :class="currentAssignment === 'assigned_to_me' ? 'crm-panel-chip-active' : ''"
-                            class="crm-panel-chip inline-flex items-center gap-2 px-3 py-2 text-[12px] font-medium transition-colors">
-                        <span>Assigned to me</span>
-                        <span class="crm-panel-badge px-1.5 py-0.5 text-[11px] font-medium" x-text="assignmentCount('assigned_to_me')">{{ (assignment_counts or {}).get("assigned_to_me", 0) }}</span>
+                    <button @click="setAssignment('needs_attention')"
+                            :class="currentAssignment === 'needs_attention' ? 'bg-white text-orange-700 shadow-sm dark:bg-slate-700 dark:text-orange-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5">
+                        Needs attention
+                        <span class="font-mono-tight text-[10px] opacity-80" x-text="assignmentCount('needs_attention')">{{ (assignment_counts or {}).get("needs_attention", 0) }}</span>
                     </button>
-                    <button type="button"
-                            @click="setAssignment('my_team')"
-                            :class="currentAssignment === 'my_team' ? 'crm-panel-chip-active' : ''"
-                            class="crm-panel-chip inline-flex items-center gap-2 px-3 py-2 text-[12px] font-medium transition-colors">
-                        <span>My team</span>
-                        <span class="crm-panel-badge px-1.5 py-0.5 text-[11px] font-medium" x-text="assignmentCount('my_team')">{{ (assignment_counts or {}).get("my_team", 0) }}</span>
-                    </button>
-                    <button type="button"
-                            @click="setAssignment('needs_attention')"
-                            :class="currentAssignment === 'needs_attention' ? 'crm-panel-chip-active' : 'crm-panel-chip-alert'"
-                            class="crm-panel-chip inline-flex items-center gap-2 px-3 py-2 text-[12px] font-medium transition-colors">
-                        <span>Needs attention</span>
-                        <span class="crm-panel-badge px-1.5 py-0.5 text-[11px] font-medium" x-text="assignmentCount('needs_attention')">{{ (assignment_counts or {}).get("needs_attention", 0) }}</span>
+                    <button @click="setAssignment('agent')"
+                            :class="currentAssignment === 'agent' ? 'bg-white text-violet-700 shadow-sm dark:bg-slate-700 dark:text-violet-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                            class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all">
+                        By Agent
                     </button>
                 </div>
+                <div x-show="currentAssignment === 'agent'" x-transition x-cloak
+                     class="flex flex-col gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200/60 dark:bg-slate-800/50 dark:border-slate-700/60">
+                    <select x-model="currentFilterAgentId"
+                            @change="filterConversations()"
+                            class="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                        <option value="">Select agent...</option>
+                        {% for agent in (agents or []) %}
+                        <option value="{{ agent.id }}">{{ (agent_labels or {}).get(agent.id | string, agent.id | string) }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="flex gap-2">
+                        <div class="flex-1">
+                            <label class="block text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0.5">From</label>
+                            <input type="date" x-model="currentAssignedFrom"
+                                   @change="filterConversations()"
+                                   class="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                        </div>
+                        <div class="flex-1">
+                            <label class="block text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-0.5">To</label>
+                            <input type="date" x-model="currentAssignedTo"
+                                   @change="filterConversations()"
+                                   class="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 focus:border-violet-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
 
-                <div class="mt-3 flex items-center gap-2">
-                    <span class="text-[12px] font-medium" style="color:rgb(var(--crm-panel-muted));">More:</span>
-                    <select :value="currentAssignment === 'unassigned' || currentAssignment === 'unreplied' ? currentAssignment : ''"
-                            @change="setAssignment($event.target.value || null)"
-                            class="crm-panel-select min-w-0 flex-1 px-3 py-2 text-[12px] font-medium outline-none">
-                        <option value="">Select queue</option>
-                        <option value="unassigned">Unassigned ({{ (assignment_counts or {}).get("unassigned", 0) }})</option>
-                        <option value="unreplied">Unreplied ({{ (assignment_counts or {}).get("unreplied", 0) }})</option>
+                <div class="flex items-center gap-2" x-show="availableInboxes(currentChannel).length">
+                    <span class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Inbox</span>
+                    <select x-model="currentInboxTargetId"
+                            @change="filterConversations()"
+                            class="flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm focus:border-amber-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                        <option value="">All inboxes</option>
+                        <template x-for="inbox in availableInboxes(currentChannel)" :key="inbox.target_id">
+                            <option :value="inbox.target_id"
+                                    x-text="formatInboxOption(inbox)"></option>
+                        </template>
                     </select>
                 </div>
             </div>
+        </div>
 
-            <hr class="crm-panel-divider"
-                x-show="currentChannel !== 'comments'"
-                x-cloak>
+        <div class="px-4 py-3 border-b border-slate-200/60 dark:border-slate-700/60">
+            <div class="flex items-center justify-between gap-2">
+                <p class="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Saved Views</p>
+                <form method="post" action="/admin/crm/inbox/saved-filters" class="flex items-center gap-1">
+                    <input name="name"
+                           required
+                           maxlength="80"
+                           placeholder="New view"
+                           class="w-24 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                    <input type="hidden" name="channel" :value="currentChannel || ''">
+                    <input type="hidden" name="status" :value="currentStatus || ''">
+                    <input type="hidden" name="outbox_status" :value="currentOutboxStatus || ''">
+                    <input type="hidden" name="search" :value="searchQuery || ''">
+                    <input type="hidden" name="assignment" :value="currentAssignment || ''">
+                    <input type="hidden" name="target_id" :value="currentInboxTargetId || ''">
+                    <input type="hidden" name="agent_id" :value="currentFilterAgentId || ''">
+                    <input type="hidden" name="assigned_from" :value="currentAssignedFrom || ''">
+                    <input type="hidden" name="assigned_to" :value="currentAssignedTo || ''">
+                    <input type="hidden" name="limit" :value="paginationLimit || ''">
+                    <button type="submit"
+                            class="rounded-md bg-amber-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-amber-500">
+                        Save
+                    </button>
+                </form>
+            </div>
+
+            {% if saved_filters %}
+            <div class="mt-2 flex flex-wrap gap-1.5">
+                {% for view in saved_filters %}
+                <div class="inline-flex items-center rounded-lg border {% if current_saved_filter_id and current_saved_filter_id == view.id %}border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10{% else %}border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800{% endif %}">
+                    <a href="/admin/crm/inbox?saved_filter_id={{ view.id }}"
+                       class="px-2 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                        {{ view.name }}
+                    </a>
+                    <form method="post" action="/admin/crm/inbox/saved-filters/{{ view.id }}/delete">
+                        <button type="submit"
+                                class="px-1.5 py-1 text-[11px] text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400"
+                                title="Delete view">
+                            ×
+                        </button>
+                    </form>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="mt-2 text-[11px] text-slate-500 dark:text-slate-400">No saved views yet.</p>
             {% endif %}
-
-            <div class="px-4 py-4"
-                 x-show="currentChannel !== 'comments'"
-                 x-cloak>
-                <p class="crm-panel-section-label">Inbox source</p>
-                <select :value="currentInboxTargetId || 'all'"
-                        @change="setInboxFilter($event.target.value)"
-                        class="crm-panel-select mt-2 w-full px-3 py-2 text-[13px] font-medium outline-none">
-                    <option value="all">All inboxes</option>
-                    <option value="" disabled x-show="inboxSourcesLoading">Loading inboxes...</option>
-                    <template x-for="group in inboxSourceGroups()" :key="group.channelType">
-                        <optgroup :label="group.channelType">
-                            <template x-for="inbox in group.options" :key="inbox.id">
-                                <option :value="inbox.id" x-text="inbox.display_label"></option>
-                            </template>
-                        </optgroup>
-                    </template>
-                </select>
-            </div>
-
-            <hr class="crm-panel-divider" x-show="currentChannel === 'comments'" x-cloak>
-
-            <div class="px-4 py-4"
-                 x-show="currentChannel === 'comments'"
-                 x-cloak>
-                <p class="crm-panel-section-label">Comment source</p>
-                <select :value="currentInboxTargetId || 'all'"
-                        @change="setInboxFilter($event.target.value)"
-                        class="crm-panel-select mt-2 w-full px-3 py-2 text-[13px] font-medium outline-none">
-                    <option value="all">All comment inboxes</option>
-                    <template x-for="group in commentInboxGroups()" :key="group.channelType">
-                        <optgroup :label="group.channelType">
-                            <template x-for="inbox in group.options" :key="inbox.target_id">
-                                <option :value="inbox.target_id" x-text="formatInboxOption(inbox)"></option>
-                            </template>
-                        </optgroup>
-                    </template>
-                </select>
-            </div>
-
-            <hr class="crm-panel-divider">
+        </div>
         </div>
 
         <div class="px-4 py-2 border-b border-slate-200/60 dark:border-slate-700/60"
@@ -465,7 +452,7 @@
             </div>
         </div>
 
-            <div id="bulk-toolbar"
+        <div id="bulk-toolbar"
              class="hidden px-4 py-2 border-b border-slate-200/60 bg-white/80 dark:border-slate-700/60 dark:bg-slate-900/70">
             <form id="bulk-actions-form"
                   method="post"
@@ -846,15 +833,14 @@
                            class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">
                 </div>
 
-                <div class="relative">
+                <div>
                     <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Message</label>
                     <textarea name="message"
                               x-ref="newConversationMessage"
                               rows="4"
-                              data-voice-enabled
                               placeholder="Write your message..."
                               :readonly="newConversationChannel === 'whatsapp' && selectedWhatsappTemplateName"
-                              class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 pr-12 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500"></textarea>
+                              class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500"></textarea>
                 </div>
 
                 <div data-new-conversation-attachments
@@ -958,15 +944,11 @@ function inboxController() {
         currentFilterAgentId: {{ (current_filter_agent_id or "") | tojson }} || '',
         currentAssignedFrom: {{ (current_assigned_from or "") | tojson }} || '',
         currentAssignedTo: {{ (current_assigned_to or "") | tojson }} || '',
-        currentInboxTargetId: {{ (current_inbox_id or current_target_id or "") | tojson }} || null,
-        inboxSources: {{ (inbox_sources or []) | tojson }},
-        inboxSourcesLoading: false,
-        inboxSourcesRefreshTimer: null,
-        inboxSourcesPollingDisabled: false,
+        currentInboxTargetId: {{ (current_target_id or "") | tojson }} || null,
         selectedConversation: {{ (selected_conversation.id if selected_conversation else None) | tojson }},
         selectedContactId: {{ (selected_conversation.contact.id if selected_conversation else None) | tojson }},
         selectedCommentId: {{ ((selected_comment.id | string) if selected_comment else None) | tojson }},
-        paginationLimit: {{ (pagination_limit or 50) | tojson }},
+        paginationLimit: {{ (pagination_limit or 150) | tojson }},
         stats: {{ (stats or {}) | tojson }},
         assignmentCounts: {{ (assignment_counts or {}) | tojson }},
         showInboxStats: true,
@@ -1106,8 +1088,6 @@ function inboxController() {
             this.initNotificationSound();
             this.updateNewConversationTarget();
             this.normalizeInboxTarget();
-            this.fetchInboxSources({ showLoading: true, silentSelectionReset: true });
-            this.startInboxSourcesPolling();
             this.resizeEmailFrames();
             this.initQuoteHandlers();
 
@@ -1209,12 +1189,6 @@ function inboxController() {
             });
             window.addEventListener('inbox-list-refresh', () => {
                 this.refreshConversations();
-            });
-            window.addEventListener('inbox.created', (e) => {
-                this.upsertInboxSource(e.detail || {});
-            });
-            window.addEventListener('inbox.deleted', (e) => {
-                this.removeInboxSource((e.detail || {}).id);
             });
 
             // Fallback polling when websocket is unavailable.
@@ -1684,132 +1658,9 @@ function inboxController() {
             if (!this.currentInboxTargetId) {
                 return;
             }
-            if (this.currentChannel === 'comments') {
-                const commentTargets = this.availableInboxes('comments');
-                if (!commentTargets.length) {
-                    return;
-                }
-                if (!commentTargets.some((inbox) => inbox.target_id === this.currentInboxTargetId)) {
-                    this.currentInboxTargetId = null;
-                }
-                return;
-            }
-            if (!this.inboxSources.length) {
-                return;
-            }
-            if (!this.inboxSources.some((i) => i.id === this.currentInboxTargetId)) {
+            const inboxes = this.availableInboxes(this.currentChannel);
+            if (!inboxes.length || !inboxes.some((i) => i.target_id === this.currentInboxTargetId)) {
                 this.currentInboxTargetId = null;
-            }
-        },
-        commentInboxGroups() {
-            const groups = [];
-            const grouped = new Map();
-            for (const inbox of this.availableInboxes('comments')) {
-                const channelType = inbox.channel === 'instagram' ? 'Instagram Comments' : 'Facebook Comments';
-                if (!grouped.has(channelType)) {
-                    grouped.set(channelType, []);
-                    groups.push({ channelType, options: grouped.get(channelType) });
-                }
-                grouped.get(channelType).push(inbox);
-            }
-            return groups;
-        },
-        inboxSourceGroups() {
-            const groups = [];
-            const grouped = new Map();
-            for (const inbox of this.inboxSources || []) {
-                const channelType = inbox.channel_type || 'Inbox';
-                if (!grouped.has(channelType)) {
-                    grouped.set(channelType, []);
-                    groups.push({ channelType, options: grouped.get(channelType) });
-                }
-                grouped.get(channelType).push(inbox);
-            }
-            return groups;
-        },
-        async fetchInboxSources(options = {}) {
-            if (this.inboxSourcesPollingDisabled) {
-                return;
-            }
-            const showLoading = options.showLoading !== false;
-            if (showLoading) {
-                this.inboxSourcesLoading = true;
-            }
-            try {
-                const resp = await fetch('/api/inboxes', {
-                    credentials: 'same-origin',
-                    headers: { Accept: 'application/json' }
-                });
-                if (!resp.ok) {
-                    if (resp.status === 404 || resp.status === 401) {
-                        this.stopInboxSourcesPolling();
-                        this.inboxSourcesPollingDisabled = true;
-                        console.warn(`[Inbox] /api/inboxes returned ${resp.status}. Stopping inbox source polling.`);
-                        return;
-                    }
-                    throw new Error(`HTTP ${resp.status}`);
-                }
-                const payload = await resp.json();
-                const sources = Array.isArray(payload.data) ? payload.data : [];
-                this.inboxSources = sources;
-                if (this.currentInboxTargetId && !sources.some((item) => item.id === this.currentInboxTargetId)) {
-                    this.currentInboxTargetId = null;
-                    if (!options.silentSelectionReset) {
-                        this.filterConversations();
-                    }
-                }
-            } catch (err) {
-                console.error('[Inbox] Failed to load inbox sources.', err);
-            } finally {
-                this.inboxSourcesLoading = false;
-            }
-        },
-        startInboxSourcesPolling() {
-            if (this.inboxSourcesRefreshTimer) {
-                clearInterval(this.inboxSourcesRefreshTimer);
-            }
-            if (this.inboxSourcesPollingDisabled) {
-                return;
-            }
-            this.inboxSourcesRefreshTimer = setInterval(() => {
-                this.fetchInboxSources({ showLoading: false, silentSelectionReset: false });
-            }, 60000);
-        },
-        stopInboxSourcesPolling() {
-            if (this.inboxSourcesRefreshTimer) {
-                clearInterval(this.inboxSourcesRefreshTimer);
-                this.inboxSourcesRefreshTimer = null;
-            }
-        },
-        sortInboxSources() {
-            this.inboxSources = [...(this.inboxSources || [])].sort((a, b) => {
-                const left = `${a.channel_type || ''}\u0000${a.name || ''}`.toLowerCase();
-                const right = `${b.channel_type || ''}\u0000${b.name || ''}`.toLowerCase();
-                return left.localeCompare(right);
-            });
-        },
-        upsertInboxSource(inbox) {
-            if (!inbox || !inbox.id) {
-                return;
-            }
-            const index = (this.inboxSources || []).findIndex((item) => item.id === inbox.id);
-            if (index === -1) {
-                this.inboxSources = [...(this.inboxSources || []), inbox];
-            } else {
-                this.inboxSources.splice(index, 1, inbox);
-                this.inboxSources = [...this.inboxSources];
-            }
-            this.sortInboxSources();
-        },
-        removeInboxSource(inboxId) {
-            if (!inboxId) {
-                return;
-            }
-            const removedSelectedInbox = this.currentInboxTargetId === inboxId;
-            this.inboxSources = (this.inboxSources || []).filter((item) => item.id !== inboxId);
-            if (removedSelectedInbox) {
-                this.currentInboxTargetId = null;
-                this.filterConversations();
             }
         },
         resetWhatsappTemplateSelection() {
@@ -2437,10 +2288,6 @@ function inboxController() {
             this.currentAssignment = assignment;
             this.filterConversations();
         },
-        setInboxFilter(inboxId) {
-            this.currentInboxTargetId = inboxId && inboxId !== 'all' ? inboxId : null;
-            this.filterConversations();
-        },
 
         markSearchInteracted(event) {
             if (!event) {
@@ -2592,13 +2439,7 @@ function inboxController() {
             }
             if (this.currentAssignedFrom) params.set('assigned_from', this.currentAssignedFrom);
             if (this.currentAssignedTo) params.set('assigned_to', this.currentAssignedTo);
-            if (this.currentInboxTargetId) {
-                if (this.currentChannel === 'comments') {
-                    params.set('target_id', this.currentInboxTargetId);
-                } else {
-                    params.set('inbox_id', this.currentInboxTargetId);
-                }
-            }
+            if (this.currentInboxTargetId) params.set('target_id', this.currentInboxTargetId);
             const effectiveSearch = this.effectiveSearchQuery();
             if (effectiveSearch) params.set('search', effectiveSearch);
             params.set('page', '1');
@@ -2730,9 +2571,7 @@ function inboxController() {
             } else {
                 urlParams.delete('target_id');
             }
-            if (this.currentChannel === 'comments') {
-                urlParams.set('channel', 'comments');
-            } else if (urlParams.get('channel') === 'comments') {
+            if (urlParams.get('channel') === 'comments') {
                 urlParams.delete('channel');
             }
             window.history.replaceState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
