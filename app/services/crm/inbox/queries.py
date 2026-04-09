@@ -66,6 +66,8 @@ def _normalized_assignment_filter(assignment: str | None) -> str | None:
         return None
     if normalized in {"assigned", "assigned_to_me", "mine"}:
         return "assigned_to_me"
+    if normalized in {"team", "team_assigned"}:
+        return "team_assigned"
     return normalized
 
 
@@ -221,6 +223,16 @@ def _apply_inbox_filters(
         )
         # User selected the "Unassigned" queue chip.
         query = query.filter(~Conversation.id.in_(assigned_subq))
+    elif assignment_filter == "team_assigned":
+        team_assigned_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.team_id.isnot(None))
+            .filter(ConversationAssignment.agent_id.is_(None))
+            .distinct()
+        )
+        # User selected the team-assigned queue chip.
+        query = query.filter(Conversation.id.in_(team_assigned_subq))
     elif assignment_filter == "unreplied":
         # User selected the "Unreplied" queue chip.
         query = query.filter(_latest_message_direction_subquery() == MessageDirection.inbound)
