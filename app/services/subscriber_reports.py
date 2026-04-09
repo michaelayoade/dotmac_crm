@@ -1835,9 +1835,9 @@ def get_churn_table(
         }
         people_by_email: dict[str, tuple[str, str]] = {}
         channels_by_person: dict[str, list[PersonChannel]] = {}
-        subscriber_sync_by_external_id: dict[str, tuple[Mapping[str, Any], datetime | None]] = {}
-        subscriber_sync_by_email: dict[str, tuple[Mapping[str, Any], datetime | None]] = {}
-        subscriber_sync_by_login: dict[str, tuple[Mapping[str, Any], datetime | None]] = {}
+        subscriber_sync_by_external_id: dict[str, dict[str, Any]] = {}
+        subscriber_sync_by_email: dict[str, dict[str, Any]] = {}
+        subscriber_sync_by_login: dict[str, dict[str, Any]] = {}
         if customer_emails:
             matched_people = db.execute(
                 select(Person.id, Person.email, Person.phone).where(func.lower(Person.email).in_(customer_emails))
@@ -1868,6 +1868,11 @@ def get_churn_table(
                     Subscriber.subscriber_number,
                     Subscriber.sync_metadata,
                     Subscriber.suspended_at,
+                    Subscriber.next_bill_date,
+                    Subscriber.balance,
+                    Subscriber.billing_cycle,
+                    Subscriber.service_plan,
+                    Subscriber.activated_at,
                     Person.email,
                 )
                 .select_from(Subscriber)
@@ -1880,20 +1885,50 @@ def get_churn_table(
                     )
                 )
             ).all()
-            for external_id, subscriber_number, sync_metadata, suspended_at, person_email in subscriber_rows:
-                cached_tuple = (
-                    sync_metadata if isinstance(sync_metadata, Mapping) else {},
-                    _coerce_datetime_utc(suspended_at),
-                )
+            for (
+                external_id,
+                subscriber_number,
+                sync_metadata,
+                suspended_at,
+                next_bill_date,
+                balance,
+                billing_cycle,
+                service_plan,
+                activated_at,
+                person_email,
+            ) in subscriber_rows:
+                cached_row = {
+                    "sync_metadata": sync_metadata if isinstance(sync_metadata, Mapping) else {},
+                    "suspended_at": _coerce_datetime_utc(suspended_at),
+                    "next_bill_date": _coerce_datetime_utc(next_bill_date),
+                    "balance": _parse_balance_amount(balance),
+                    "billing_cycle": str(billing_cycle or "").strip(),
+                    "service_plan": str(service_plan or "").strip(),
+                    "activated_at": _coerce_datetime_utc(activated_at),
+                }
                 external_key = str(external_id or "").strip()
                 if external_key:
-                    subscriber_sync_by_external_id[external_key] = cached_tuple
+                    subscriber_sync_by_external_id[external_key] = cached_row
                 login_key = str(subscriber_number or "").strip()
                 if login_key:
-                    subscriber_sync_by_login[login_key] = cached_tuple
+                    subscriber_sync_by_login[login_key] = cached_row
                 email_key = str(person_email or "").strip().lower()
                 if email_key:
-                    subscriber_sync_by_email[email_key] = cached_tuple
+                    subscriber_sync_by_email[email_key] = cached_row
+
+        def _cached_subscriber_row(customer_payload: Mapping[str, Any]) -> dict[str, Any]:
+            external_key = str(customer_payload.get("id") or "").strip()
+            if external_key and external_key in subscriber_sync_by_external_id:
+                return subscriber_sync_by_external_id[external_key]
+
+            login_key = str(customer_payload.get("login") or "").strip()
+            if login_key and login_key in subscriber_sync_by_login:
+                return subscriber_sync_by_login[login_key]
+
+            email_key = str(customer_payload.get("email") or "").strip().lower()
+            if email_key and email_key in subscriber_sync_by_email:
+                return subscriber_sync_by_email[email_key]
+            return {}
 
         def _contact_phone(email_value: str, default_phone: str) -> str:
             formatted_default = _format_phone_display(default_phone)
@@ -2027,7 +2062,7 @@ def get_churn_table(
             if external_key:
                 cached_match = subscriber_sync_by_external_id.get(external_key)
                 if cached_match is not None:
-                    _cached_sync, cached_suspended_at = cached_match
+                    cached_suspended_at = _coerce_datetime_utc(cached_match.get("suspended_at"))
                     if cached_suspended_at is not None:
                         return cached_suspended_at.strftime("%Y-%m-%d")
 
@@ -2035,7 +2070,7 @@ def get_churn_table(
             if login_key:
                 cached_match = subscriber_sync_by_login.get(login_key)
                 if cached_match is not None:
-                    _cached_sync, cached_suspended_at = cached_match
+                    cached_suspended_at = _coerce_datetime_utc(cached_match.get("suspended_at"))
                     if cached_suspended_at is not None:
                         return cached_suspended_at.strftime("%Y-%m-%d")
 
@@ -2043,7 +2078,7 @@ def get_churn_table(
             if email_key:
                 cached_match = subscriber_sync_by_email.get(email_key)
                 if cached_match is not None:
-                    _cached_sync, cached_suspended_at = cached_match
+                    cached_suspended_at = _coerce_datetime_utc(cached_match.get("suspended_at"))
                     if cached_suspended_at is not None:
                         return cached_suspended_at.strftime("%Y-%m-%d")
             return ""
@@ -2086,14 +2121,30 @@ def get_churn_table(
             if not isinstance(customer, Mapping):
                 continue
             mapped = map_customer_to_subscriber_data(db, dict(customer), include_remote_details=False)
+            cached_subscriber = _cached_subscriber_row(customer)
+            cached_sync_metadata = (
+                cached_subscriber.get("sync_metadata")
+                if isinstance(cached_subscriber.get("sync_metadata"), Mapping)
+                else {}
+            )
             status_value = str(mapped.get("status") or "unknown")
-            plan_value = _live_plan(customer, mapped)
+            plan_value = _live_plan(customer, mapped) or str(cached_subscriber.get("service_plan") or "")
             billing_start_date = _live_billing_start_date(customer, mapped)
+            if not billing_start_date:
+                cached_activated_at = _coerce_datetime_utc(cached_subscriber.get("activated_at"))
+                if cached_activated_at is not None:
+                    billing_start_date = cached_activated_at.strftime("%Y-%m-%d")
             area_value = _live_area_from_customer(customer)
-            next_bill_raw = _coerce_datetime_utc(mapped.get("next_bill_date"))
+            next_bill_raw = _coerce_datetime_utc(mapped.get("next_bill_date")) or _coerce_datetime_utc(
+                cached_subscriber.get("next_bill_date")
+            )
             due_days = (next_bill_raw.date() - today).days if next_bill_raw is not None else None
             balance_amount = _parse_balance_amount(mapped.get("balance") or customer.get("balance"))
+            if balance_amount == 0.0 and cached_subscriber.get("balance") is not None:
+                balance_amount = float(cached_subscriber.get("balance") or 0.0)
             sync_metadata = mapped.get("sync_metadata") if isinstance(mapped.get("sync_metadata"), Mapping) else {}
+            if not sync_metadata and cached_sync_metadata:
+                sync_metadata = cached_sync_metadata
             invoiced_until_text = _metadata_text(sync_metadata, "invoiced_until")
             invoiced_until_date = _parse_iso_date_text(invoiced_until_text)
             days_since_last_payment = (
@@ -2141,7 +2192,7 @@ def get_churn_table(
                     "billing_end_date": next_bill_raw.strftime("%Y-%m-%d") if next_bill_raw else "",
                     "next_bill_date": next_bill_raw.strftime("%Y-%m-%d") if next_bill_raw else "",
                     "balance": balance_amount,
-                    "billing_cycle": str(mapped.get("billing_cycle") or ""),
+                    "billing_cycle": str(mapped.get("billing_cycle") or cached_subscriber.get("billing_cycle") or ""),
                     "blocked_date": blocked_date_text,
                     "blocked_for_days": blocked_for_days,
                     "last_transaction_date": _metadata_text(sync_metadata, "last_transaction_date"),
