@@ -12,10 +12,11 @@ Usage::
 from __future__ import annotations
 
 import logging
+from importlib import import_module
 from io import BytesIO
 from pathlib import Path
 from threading import Lock
-from typing import BinaryIO, Protocol
+from typing import BinaryIO, Protocol, cast
 from urllib.parse import urlparse
 
 from app.config import settings
@@ -156,19 +157,22 @@ class MinioBackend(StorageBackend):
         if not access_key or not secret_key:
             raise ValueError("S3 credentials are not configured (S3_ACCESS_KEY / S3_SECRET_KEY).")
         try:
-            from minio import Minio  # type: ignore[import-not-found]
+            minio_client = import_module("minio").Minio
         except ImportError as exc:
             raise RuntimeError(
                 "MinIO SDK is not installed. Install package 'minio' to use STORAGE_BACKEND=s3."
             ) from exc
 
         endpoint, secure = self._parse_endpoint(self._endpoint_url)
-        return Minio(
-            endpoint,
-            access_key=access_key,
-            secret_key=secret_key,
-            secure=secure,
-            region=self._region or None,
+        return cast(
+            _ObjectStorageClient,
+            minio_client(
+                endpoint,
+                access_key=access_key,
+                secret_key=secret_key,
+                secure=secure,
+                region=self._region or None,
+            ),
         )
 
     @staticmethod
