@@ -3,8 +3,11 @@
 import re
 from collections import defaultdict
 from collections.abc import Mapping
+from copy import deepcopy
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
+from threading import Lock
+from time import monotonic
 from typing import Any, TypedDict
 
 from sqlalchemy import Date, DateTime, Integer, Numeric, String, and_, case, cast, false, func, or_, select, text, true
@@ -26,6 +29,41 @@ from app.models.workforce import WorkOrder, WorkOrderStatus
 # =====================================================================
 # Report 1: Subscriber Overview
 # =====================================================================
+
+
+_SPYLNX_LIVE_CACHE_TTLS = {
+    "fetch_customers": 60.0,
+    "fetch_customer_billing": 300.0,
+    "fetch_customer_internet_services": 300.0,
+}
+_SPYLNX_LIVE_CACHE: dict[tuple[str, tuple[object, ...]], tuple[float, Any]] = {}
+_SPYLNX_LIVE_CACHE_LOCK = Lock()
+
+
+def _clear_live_splynx_cache() -> None:
+    with _SPYLNX_LIVE_CACHE_LOCK:
+        _SPYLNX_LIVE_CACHE.clear()
+
+
+def _cached_live_splynx_read(cache_name: str, loader, *args, cache_scope: object | None = None):
+    ttl_seconds = _SPYLNX_LIVE_CACHE_TTLS.get(cache_name, 0.0)
+    if ttl_seconds <= 0:
+        return loader()
+
+    cache_key = (cache_name, ((cache_scope or ""), *(str(arg) for arg in args)))
+    now = monotonic()
+    with _SPYLNX_LIVE_CACHE_LOCK:
+        cached_entry = _SPYLNX_LIVE_CACHE.get(cache_key)
+        if cached_entry is not None:
+            expires_at, cached_value = cached_entry
+            if expires_at > now:
+                return deepcopy(cached_value)
+            _SPYLNX_LIVE_CACHE.pop(cache_key, None)
+
+    loaded_value = loader()
+    with _SPYLNX_LIVE_CACHE_LOCK:
+        _SPYLNX_LIVE_CACHE[cache_key] = (now + ttl_seconds, deepcopy(loaded_value))
+    return deepcopy(loaded_value)
 
 
 class ConversionBucket(TypedDict):
@@ -1592,6 +1630,41 @@ def _parse_balance_amount(raw_value: object) -> float:
         return 0.0
 
 
+def _format_phone_display(raw_value: object) -> str:
+    text = str(raw_value or "").strip()
+    if not text:
+        return ""
+
+    def _normalize_phone_part(part: str) -> str:
+        candidate = part.strip()
+        if not candidate:
+            return ""
+        digits = re.sub(r"\D+", "", candidate)
+        if not digits:
+            return candidate
+        if digits.startswith("234") and len(digits) == 13:
+            return f"+{digits}"
+        if digits.startswith("0") and len(digits) == 11:
+            return f"+234{digits[1:]}"
+        if len(digits) == 10:
+            return f"+234{digits}"
+        return candidate if candidate.startswith("+") else digits
+
+    normalized = re.sub(r"[\n;/|]+", ",", text)
+    parts = [part.strip() for part in normalized.split(",") if part.strip()]
+    if len(parts) <= 1:
+        return _normalize_phone_part(parts[0]) if parts else text
+    deduped_parts: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        normalized_part = _normalize_phone_part(part)
+        if not normalized_part or normalized_part in seen:
+            continue
+        seen.add(normalized_part)
+        deduped_parts.append(normalized_part)
+    return ", ".join(deduped_parts)
+
+
 def get_churn_table(
     db: Session,
     due_soon_days: int = 7,
@@ -1602,6 +1675,11 @@ def get_churn_table(
     days_past_due: str | None = None,
     source: str = "local",
     limit: int = 500,
+    page: int = 1,
+    page_size: int | None = None,
+    search: str | None = None,
+    overdue_bucket: str | None = None,
+    enrich_visible_rows: bool = True,
 ) -> list[dict]:
     """Subscribers with non-current Splynx billing state, segmented by due/risk status."""
 
@@ -1657,18 +1735,85 @@ def get_churn_table(
             return True
         return _days_past_due_bucket(value) == selected_days_past_due_category
 
+    normalized_search = (search or "").strip().lower()
+    normalized_overdue_bucket = (overdue_bucket or "").strip().lower()
+
+    def _blocked_days_from_text(value: object) -> int | None:
+        parsed = _parse_iso_date_text(str(value or ""))
+        if parsed is None:
+            return None
+        return max(0, (today - parsed).days)
+    normalized_page = max(1, int(page))
+    normalized_page_size = max(1, int(page_size)) if page_size is not None else None
+
+    def _matches_overdue_bucket(value: int | None) -> bool:
+        if not normalized_overdue_bucket or normalized_overdue_bucket == "all":
+            return True
+        if value is None:
+            return False
+        if normalized_overdue_bucket == "0-7":
+            return 0 <= value <= 7
+        if normalized_overdue_bucket == "8-30":
+            return 8 <= value <= 30
+        if normalized_overdue_bucket == "31-60":
+            return 31 <= value <= 60
+        if normalized_overdue_bucket == "61+":
+            return value >= 61
+        return True
+
+    def _matches_search(row: Mapping[str, Any]) -> bool:
+        if not normalized_search:
+            return True
+        haystack = " ".join(
+            [
+                str(row.get("name") or ""),
+                str(row.get("subscriber_id") or ""),
+                str(row.get("_external_id") or ""),
+                str(row.get("_subscriber_number") or ""),
+                str(row.get("phone") or ""),
+                str(row.get("city") or ""),
+                str(row.get("area") or ""),
+                str(row.get("plan") or ""),
+            ]
+        ).lower()
+        return normalized_search in haystack
+
+    def _slice_page(rows: list[dict]) -> list[dict]:
+        if normalized_page_size is None:
+            return rows[: max(1, int(limit))]
+        start = (normalized_page - 1) * normalized_page_size
+        end = start + normalized_page_size
+        return rows[start:end]
+
     if source == "splynx_live":
-        from app.services.splynx import fetch_customers, map_customer_to_subscriber_data
+        from app.services.splynx import (
+            _select_primary_service,
+            fetch_customer_billing,
+            fetch_customer_internet_services,
+            fetch_customers,
+            map_customer_to_subscriber_data,
+        )
 
-        def _call_splynx(read_fn, *args):
+        def _call_splynx(cache_name: str, read_fn, *args):
             """Use a short-lived session so live Splynx reads do not pin the caller's DB connection."""
-            splynx_db = SessionLocal()
-            try:
-                return read_fn(splynx_db, *args)
-            finally:
-                splynx_db.close()
+            def _loader():
+                splynx_db = SessionLocal()
+                try:
+                    return read_fn(splynx_db, *args)
+                finally:
+                    splynx_db.close()
 
-        customers = _call_splynx(fetch_customers)
+            return _cached_live_splynx_read(cache_name, _loader, *args, cache_scope=read_fn)
+
+        def _call_splynx_with_session(cache_name: str, read_fn, splynx_db, *args):
+            return _cached_live_splynx_read(
+                cache_name,
+                lambda: read_fn(splynx_db, *args),
+                *args,
+                cache_scope=read_fn,
+            )
+
+        customers = _call_splynx("fetch_customers", fetch_customers)
         live_results: list[dict] = []
         today = datetime.now(UTC).date()
         customer_emails = {
@@ -1749,12 +1894,13 @@ def get_churn_table(
                     subscriber_sync_by_email[email_key] = cached_tuple
 
         def _contact_phone(email_value: str, default_phone: str) -> str:
+            formatted_default = _format_phone_display(default_phone)
             email_key = email_value.strip().lower()
             if not email_key:
-                return default_phone
+                return formatted_default
             person_match = people_by_email.get(email_key)
             if not person_match:
-                return default_phone
+                return formatted_default
             person_id, person_phone = person_match
             channels = channels_by_person.get(person_id, [])
             for preferred_type in [PersonChannelType.phone, PersonChannelType.whatsapp, PersonChannelType.sms]:
@@ -1767,7 +1913,7 @@ def get_churn_table(
                     "",
                 )
                 if primary:
-                    return primary
+                    return _format_phone_display(primary)
             for preferred_type in [PersonChannelType.phone, PersonChannelType.whatsapp, PersonChannelType.sms]:
                 any_channel = next(
                     (
@@ -1778,8 +1924,8 @@ def get_churn_table(
                     "",
                 )
                 if any_channel:
-                    return any_channel
-            return person_phone or default_phone
+                    return _format_phone_display(any_channel)
+            return _format_phone_display(person_phone or formatted_default)
 
         def _live_billing_start_date(
             customer_payload: Mapping[str, Any],
@@ -1812,6 +1958,9 @@ def get_churn_table(
                 return direct_date
 
             return ""
+
+        def _live_plan(customer_payload: Mapping[str, Any], mapped_payload: Mapping[str, Any]) -> str:
+            return str(mapped_payload.get("service_plan") or "").strip()
 
         def _live_area_from_customer(customer_payload: Mapping[str, Any]) -> str:
             def _normalize_area(raw_value: object) -> str:
@@ -1897,11 +2046,46 @@ def get_churn_table(
                         return cached_suspended_at.strftime("%Y-%m-%d")
             return ""
 
+        def _live_billing_text(payload: Mapping[str, Any] | None, *keys: str) -> str:
+            if not isinstance(payload, Mapping):
+                return ""
+            for key in keys:
+                candidate = payload.get(key)
+                candidate_text = str(candidate or "").strip()
+                if not candidate_text or candidate_text == "0000-00-00":
+                    continue
+                parsed_date = _parse_iso_date_text(candidate_text)
+                if parsed_date is not None:
+                    return parsed_date.strftime("%Y-%m-%d")
+                if candidate_text:
+                    return candidate_text
+            return ""
+
+        def _live_service_plan(services_payload: object) -> str:
+            if not isinstance(services_payload, list):
+                return ""
+            services = [service for service in services_payload if isinstance(service, dict)]
+            primary_service = _select_primary_service(services)
+            if not isinstance(primary_service, Mapping):
+                return ""
+            for candidate in (
+                primary_service.get("description"),
+                primary_service.get("tariff_name"),
+                primary_service.get("plan_name"),
+                primary_service.get("package"),
+                primary_service.get("name"),
+            ):
+                text = str(candidate or "").strip()
+                if text:
+                    return text
+            return ""
+
         for customer in customers:
             if not isinstance(customer, Mapping):
                 continue
             mapped = map_customer_to_subscriber_data(db, dict(customer), include_remote_details=False)
             status_value = str(mapped.get("status") or "unknown")
+            plan_value = _live_plan(customer, mapped)
             billing_start_date = _live_billing_start_date(customer, mapped)
             area_value = _live_area_from_customer(customer)
             next_bill_raw = _coerce_datetime_utc(mapped.get("next_bill_date"))
@@ -1914,7 +2098,9 @@ def get_churn_table(
                 max(0, (today - invoiced_until_date).days) if invoiced_until_date is not None else None
             )
             row_days_past_due = days_since_last_payment
-            blocked_date_text = _live_blocked_date(customer, mapped)
+            customer_last_update = _live_billing_text(customer, "last_update")
+            blocked_date_text = _live_blocked_date(customer, mapped) or customer_last_update
+            blocked_for_days = _blocked_days_from_text(blocked_date_text)
             live_segment_value: str | None = None
             if status_value == SubscriberStatus.terminated.value:
                 live_segment_value = "Churned"
@@ -1936,19 +2122,26 @@ def get_churn_table(
             display_name = str(customer.get("name") or "").strip() or str(mapped.get("subscriber_number") or "").strip()
             email_value = str(customer.get("email") or "").strip()
             phone_value = str(customer.get("phone") or "").strip()
+            city_value = str(customer.get("city") or "").strip()
+            mrr_total_value = _parse_balance_amount(customer.get("mrr_total"))
             live_results.append(
                 {
                     "subscriber_id": str(customer.get("id") or ""),
                     "name": _clean_report_name(display_name or "Unknown"),
                     "email": email_value,
                     "phone": _contact_phone(email_value, phone_value),
+                    "city": city_value,
+                    "mrr_total": mrr_total_value,
                     "subscriber_status": status_value.replace("_", " ").title(),
                     "area": area_value,
+                    "plan": plan_value,
                     "billing_start_date": billing_start_date,
+                    "billing_end_date": next_bill_raw.strftime("%Y-%m-%d") if next_bill_raw else "",
                     "next_bill_date": next_bill_raw.strftime("%Y-%m-%d") if next_bill_raw else "",
                     "balance": balance_amount,
                     "billing_cycle": str(mapped.get("billing_cycle") or ""),
                     "blocked_date": blocked_date_text,
+                    "blocked_for_days": blocked_for_days,
                     "last_transaction_date": _metadata_text(sync_metadata, "last_transaction_date"),
                     "expires_in": _metadata_text(sync_metadata, "expires_in"),
                     "invoiced_until": invoiced_until_text,
@@ -1961,6 +2154,7 @@ def get_churn_table(
                     "_external_id": str(customer.get("id") or ""),
                     "_subscriber_number": str(mapped.get("subscriber_number") or ""),
                     "_last_synced_at": "",
+                    "_customer_last_update": customer_last_update,
                 }
             )
 
@@ -1974,6 +2168,11 @@ def get_churn_table(
             }
         if high_balance_only:
             live_results = [row for row in live_results if row["is_high_balance_risk"]]
+        live_results = [
+            row
+            for row in live_results
+            if _matches_search(row) and _matches_overdue_bucket(row.get("blocked_for_days"))
+        ]
         live_results.sort(
             key=lambda row: (
                 -int(bool(row["is_high_balance_risk"])),
@@ -1982,7 +2181,74 @@ def get_churn_table(
                 row["name"],
             )
         )
-        return live_results[: max(1, int(limit))]
+        visible_results = _slice_page(live_results)
+
+        def _enrich_live_entry(entry: dict[str, Any]) -> dict[str, str]:
+            updates: dict[str, str] = {}
+            external_id = str(entry.get("_external_id") or "").strip()
+            if not external_id:
+                return updates
+            splynx_db = SessionLocal()
+            try:
+                if not str(entry.get("plan") or "").strip() and str(entry.get("risk_segment") or "") == "Suspended":
+                    try:
+                        services_payload = _call_splynx_with_session(
+                            "fetch_customer_internet_services",
+                            fetch_customer_internet_services,
+                            splynx_db,
+                            external_id,
+                        )
+                    except Exception:
+                        services_payload = []
+                    live_plan = _live_service_plan(services_payload)
+                    if live_plan:
+                        updates["plan"] = live_plan
+                try:
+                    billing_payload = _call_splynx_with_session(
+                        "fetch_customer_billing",
+                        fetch_customer_billing,
+                        splynx_db,
+                        external_id,
+                    )
+                except Exception:
+                    billing_payload = {}
+            finally:
+                splynx_db.close()
+            if not isinstance(billing_payload, Mapping):
+                return updates
+            live_last_transaction_date = _live_billing_text(billing_payload, "last_transaction_date")
+            if live_last_transaction_date:
+                updates["last_transaction_date"] = live_last_transaction_date
+            live_blocked_date = _live_billing_text(
+                billing_payload,
+                "blocking_date",
+                "request_auto_next",
+            )
+            if live_blocked_date:
+                updates["blocked_date"] = live_blocked_date
+                updates["blocked_for_days"] = _blocked_days_from_text(live_blocked_date)
+            else:
+                customer_last_update = str(entry.get("_customer_last_update") or "").strip()
+                if customer_last_update:
+                    updates["blocked_date"] = customer_last_update
+                    updates["blocked_for_days"] = _blocked_days_from_text(customer_last_update)
+            return updates
+
+        if enrich_visible_rows and visible_results:
+            from concurrent.futures import ThreadPoolExecutor
+
+            max_workers = min(8, len(visible_results))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(_enrich_live_entry, entry) for entry in visible_results]
+                for entry, future in zip(visible_results, futures, strict=False):
+                    entry.update(future.result())
+        visible_results.sort(
+            key=lambda row: (
+                _parse_iso_date_text(str(row.get("blocked_date") or "")) or date.max,
+                row.get("name") or "",
+            )
+        )
+        return visible_results
 
     days_to_due = case(
         (Subscriber.next_bill_date.is_(None), None),
@@ -2039,6 +2305,7 @@ def get_churn_table(
             Subscriber.external_id,
             Subscriber.person_id,
             Subscriber.status,
+            Subscriber.suspended_at,
             Subscriber.next_bill_date,
             Subscriber.balance,
             Subscriber.billing_cycle,
@@ -2104,9 +2371,13 @@ def get_churn_table(
                 "name": _clean_report_name(raw_name),
                 "email": row.email or "",
                 "phone": row.phone or "",
+                "city": "",
+                "mrr_total": 0.0,
                 "subscriber_status": status_value.replace("_", " ").title(),
                 "area": "",
+                "plan": "",
                 "billing_start_date": "",
+                "billing_end_date": row.next_bill_date.strftime("%Y-%m-%d") if row.next_bill_date else "",
                 "next_bill_date": row.next_bill_date.strftime("%Y-%m-%d") if row.next_bill_date else "",
                 "balance": balance_amount,
                 "billing_cycle": row.billing_cycle or "",
@@ -2138,6 +2409,7 @@ def get_churn_table(
 
     if high_balance_only:
         results = [row for row in results if row["is_high_balance_risk"]]
+    results = [row for row in results if _matches_search(row) and _matches_overdue_bucket(row.get("days_past_due"))]
 
     results.sort(
         key=lambda row: (
@@ -2147,7 +2419,46 @@ def get_churn_table(
             row["name"],
         )
     )
-    return results[:normalized_limit]
+    return _slice_page(results)
+
+
+def get_live_blocked_dates(external_ids: list[str]) -> dict[str, str]:
+    """Fetch live blocked dates for a bounded set of visible Splynx customers."""
+    from app.services.splynx import fetch_customer_billing
+
+    blocked_dates: dict[str, str] = {}
+    seen_ids: set[str] = set()
+    for raw_external_id in external_ids:
+        external_id = str(raw_external_id or "").strip()
+        if not external_id or external_id in seen_ids:
+            continue
+        seen_ids.add(external_id)
+
+        def _loader(bound_external_id: str = external_id):
+            splynx_db = SessionLocal()
+            try:
+                return fetch_customer_billing(splynx_db, bound_external_id)
+            finally:
+                splynx_db.close()
+
+        billing_payload = _cached_live_splynx_read(
+            "fetch_customer_billing",
+            _loader,
+            external_id,
+            cache_scope=fetch_customer_billing,
+        )
+        if not isinstance(billing_payload, Mapping):
+            continue
+        blocked_date = _parse_iso_date_text(
+            str(
+                billing_payload.get("blocking_date")
+                or billing_payload.get("request_auto_next")
+                or ""
+            )
+        )
+        if blocked_date is not None:
+            blocked_dates[external_id] = blocked_date.strftime("%Y-%m-%d")
+    return blocked_dates
 
 
 def get_overdue_invoices_table(
@@ -2359,32 +2670,29 @@ def churn_risk_segment_breakdown(churn_rows: list[dict]) -> list[dict[str, float
 
 
 def churn_risk_aging_buckets(churn_rows: list[dict], *, due_soon_days: int = 7) -> list[dict[str, int | str]]:
-    """Bucket at-risk subscribers by due-date aging."""
+    """Bucket at-risk subscribers by blocked-date age to match the Blocked For field."""
     buckets = {
-        f"Due In 0-{due_soon_days} Days": 0,
-        "Overdue 1-7 Days": 0,
-        "Overdue 8-30 Days": 0,
-        "Overdue 31+ Days": 0,
-        "No Due Date / Status Driven": 0,
+        "Blocked 0-7 Days": 0,
+        "Blocked 8-30 Days": 0,
+        "Blocked 31-60 Days": 0,
+        "Blocked 61+ Days": 0,
+        "No Blocked Date": 0,
     }
 
     for row in churn_rows:
-        due_days = row.get("days_to_due")
-        if not isinstance(due_days, int):
-            buckets["No Due Date / Status Driven"] += 1
+        blocked_date = _parse_iso_date_text(str(row.get("blocked_date") or ""))
+        if blocked_date is None:
+            buckets["No Blocked Date"] += 1
             continue
-        if due_days < 0:
-            overdue_days = abs(due_days)
-            if overdue_days <= 7:
-                buckets["Overdue 1-7 Days"] += 1
-            elif overdue_days <= 30:
-                buckets["Overdue 8-30 Days"] += 1
-            else:
-                buckets["Overdue 31+ Days"] += 1
-        elif due_days <= due_soon_days:
-            buckets[f"Due In 0-{due_soon_days} Days"] += 1
+        blocked_days = max(0, (datetime.now(UTC).date() - blocked_date).days)
+        if blocked_days <= 7:
+            buckets["Blocked 0-7 Days"] += 1
+        elif blocked_days <= 30:
+            buckets["Blocked 8-30 Days"] += 1
+        elif blocked_days <= 60:
+            buckets["Blocked 31-60 Days"] += 1
         else:
-            buckets["No Due Date / Status Driven"] += 1
+            buckets["Blocked 61+ Days"] += 1
 
     return [{"label": label, "count": count} for label, count in buckets.items()]
 

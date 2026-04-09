@@ -15,40 +15,13 @@
         ) }}
     {% endcall %}
 
-    {% call dashboard_filter_panel(color="amber", title="Filters") %}
-    <form method="get" action="/admin/reports/subscribers/billing-risk" class="space-y-3">
-        <div class="grid grid-cols-1 gap-3 lg:grid-cols-3 lg:items-end">
-            <div>
-                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Due Soon Window</label>
-                <input type="number" min="1" max="30" name="due_soon_days" value="{{ due_soon_days }}" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
-            </div>
-            <div>
-                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Overdue Invoice Threshold</label>
-                <input type="number" min="1" max="180" name="overdue_invoice_days" value="{{ overdue_invoice_days }}" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
-            </div>
-            <label class="flex h-10 items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
-                <input type="checkbox" name="high_balance_only" value="true" {% if high_balance_only %}checked{% endif %} class="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500">
-                High Balance Only
-            </label>
-            {% for selected_segment in selected_segments %}
-            <input type="hidden" name="segments" value="{{ selected_segment }}">
-            {% endfor %}
-        </div>
-        <div class="flex items-center gap-2 lg:justify-end">
-            <a href="/admin/reports/subscribers/billing-risk" class="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">Reset</a>
-            <button type="submit" class="inline-flex h-10 items-center gap-2 rounded-xl bg-amber-600 px-4 text-sm font-semibold text-white hover:bg-amber-700">Apply</button>
-        </div>
-    </form>
-    {% endcall %}
-
-    {% call dashboard_kpi_grid(cols="4") %}
+    {% call dashboard_kpi_grid(cols="3") %}
         {{ stats_card("At Risk Subscribers", kpis.total_at_risk|default(0), color="amber", color2="orange") }}
         {{ stats_card("Balance Exposure", "₦" ~ "{:,.2f}".format(kpis.total_balance_exposure|default(0)), color="rose", color2="red") }}
         {{ stats_card("High Balance Risk", kpis.high_balance_risk_count|default(0), color="slate", color2="gray") }}
-        {{ stats_card("Overdue Invoice Balance", "₦" ~ "{:,.2f}".format(kpis.overdue_invoice_balance|default(0)), color="indigo", color2="violet") }}
     {% endcall %}
 
-    <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+    <div class="grid grid-cols-1 gap-6">
         {% call table_shell(table_id="billing-risk-segments", title="Risk Segment Breakdown", color="amber", count=segment_breakdown|length, bulk_selectable=False) %}
         <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
             <thead>
@@ -78,26 +51,6 @@
         </table>
         {% endcall %}
 
-        {% call table_shell(table_id="billing-risk-aging", title="Aging Buckets", color="indigo", count=aging_buckets|length, bulk_selectable=False) %}
-        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-            <thead>
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Bucket</th>
-                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Count</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                {% for row in aging_buckets %}
-                {% call table_row(color="indigo") %}
-                    <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.label }}</td>
-                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.count }}</td>
-                {% endcall %}
-                {% else %}
-                {{ empty_state(title="No aging data", message="No aging bucket data is available for the current filters.", color="indigo", color2="violet", colspan=2) }}
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endcall %}
     </div>
 
     {% call dashboard_filter_panel(color="rose", title="At-Risk Segment Filter") %}
@@ -119,115 +72,179 @@
     </div>
     {% endcall %}
 
-    {% call dashboard_filter_panel(color="sky", title="Days Past Due Filter") %}
-    <div class="flex flex-wrap items-center gap-2">
-        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if high_balance_only %}&high_balance_only=true{% endif %}{% if selected_segments %}{% for selected_segment in selected_segments %}&segment={{ selected_segment }}{% endfor %}{% endif %}"
-           class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
-           {{ 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-200'
-           if days_past_due is none else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
-            All Days Past Due
-        </a>
-        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if high_balance_only %}&high_balance_only=true{% endif %}{% if selected_segments %}{% for selected_segment in selected_segments %}&segment={{ selected_segment }}{% endfor %}{% endif %}&days_past_due=0"
-           class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
-           {{ 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-200'
-           if days_past_due == '0' else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
-            Current (0)
-        </a>
-        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if high_balance_only %}&high_balance_only=true{% endif %}{% if selected_segments %}{% for selected_segment in selected_segments %}&segment={{ selected_segment }}{% endfor %}{% endif %}&days_past_due=1-7"
-           class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
-           {{ 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-200'
-           if days_past_due == '1-7' else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
-            1-7 Days
-        </a>
-        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if high_balance_only %}&high_balance_only=true{% endif %}{% if selected_segments %}{% for selected_segment in selected_segments %}&segment={{ selected_segment }}{% endfor %}{% endif %}&days_past_due=8-30"
-           class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
-           {{ 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-200'
-           if days_past_due == '8-30' else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
-            8-30 Days
-        </a>
-        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if high_balance_only %}&high_balance_only=true{% endif %}{% if selected_segments %}{% for selected_segment in selected_segments %}&segment={{ selected_segment }}{% endfor %}{% endif %}&days_past_due=31-plus"
-           class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
-           {{ 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-200'
-           if days_past_due == '31-plus' else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
-            31+ Days
-        </a>
+    {% call dashboard_filter_panel(color="rose", title="Blocked Customer Live Filters") %}
+    <div id="billing-risk-live-controls" class="space-y-4">
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-4">
+            <div class="lg:col-span-2">
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Blocked Customers</label>
+                <input
+                    id="billing-risk-search"
+                    type="search"
+                    placeholder="Search name, ID, or plan"
+                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                >
+            </div>
+            <div class="lg:col-span-2">
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Blocked For Buckets</label>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="button" data-blocked-bucket="all" class="billing-risk-bucket inline-flex items-center rounded-full border border-rose-300 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200">All</button>
+                    <button type="button" data-blocked-bucket="0-7" class="billing-risk-bucket inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">0-7 Days</button>
+                    <button type="button" data-blocked-bucket="8-30" class="billing-risk-bucket inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">8-30 Days</button>
+                    <button type="button" data-blocked-bucket="31-60" class="billing-risk-bucket inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">31-60 Days</button>
+                    <button type="button" data-blocked-bucket="61+" class="billing-risk-bucket inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">61+ Days</button>
+                </div>
+            </div>
+        </div>
     </div>
     {% endcall %}
 
-    {% call table_shell(table_id="billing-risk-churn-rows", title="At-Risk Subscribers", color="rose", count=churn_rows|length, bulk_selectable=False) %}
-    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-        <thead>
-            <tr>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Phone</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">AREA</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Risk Segment</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Billing Start Date</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Invoiced Until</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Next Bill Date</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Days To Due</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Days Past Due</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Balance</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Billing Context</th>
-            </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-            {% for row in churn_rows %}
-            {% call table_row(color="rose") %}
-                <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.phone or "N/A" }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.area or "N/A" }}</td>
-                <td class="px-6 py-3 text-sm">{{ status_badge(row.subscriber_status, "warning" if row.risk_segment in ["Suspended", "Due Soon", "Overdue"] else "danger", size="sm") }}</td>
-                <td class="px-6 py-3 text-sm text-slate-900 dark:text-white">{{ row.risk_segment }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.billing_start_date or "N/A" }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.invoiced_until or "N/A" }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.next_bill_date or "N/A" }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.days_to_due if row.days_to_due is not none else "N/A" }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">
-                    <div>{{ row.days_past_due if row.days_past_due is not none else "N/A" }}</div>
-                    <div class="text-xs text-slate-500 dark:text-slate-400">{{ row.invoiced_until or "N/A" }}</div>
-                </td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.balance or 0)|float) }}</td>
-                <td class="px-6 py-3 text-xs text-slate-600 dark:text-slate-300">
-                    <div>Invoiced Until: {{ row.invoiced_until or "N/A" }}</div>
-                    <div>Days Since Last Payment: {{ row.days_since_last_payment|default("N/A") }}</div>
-                    <div>Last Txn: {{ row.last_transaction_date or "N/A" }}</div>
-                    <div>Total Paid: {{ "{:,.2f}".format((row.total_paid or 0)|float) }}</div>
-                </td>
-            {% endcall %}
-            {% else %}
-            {{ empty_state(title="No at-risk subscribers", message="No blocked, overdue, or due-soon subscribers matched the selected filters.", color="rose", color2="red", colspan=12) }}
-            {% endfor %}
-        </tbody>
-    </table>
-    {% endcall %}
+    <div
+        id="billing-risk-results"
+        data-endpoint="/admin/reports/subscribers/billing-risk/rows"
+        data-due-soon-days="{{ due_soon_days }}"
+        data-overdue-invoice-days="{{ overdue_invoice_days }}"
+        data-high-balance-only="{{ 'true' if high_balance_only else 'false' }}"
+        data-days-past-due="{{ days_past_due or '' }}"
+        data-page-size="{{ live_page_size }}"
+        data-page="{{ live_page }}"
+        data-bucket="{{ live_bucket }}"
+    >
+        {% include "admin/reports/_subscriber_billing_risk_results.html" %}
+    </div>
 
-    {% call table_shell(table_id="billing-risk-overdue-invoices", title="Overdue Invoices", color="slate", count=overdue_invoices|length, bulk_selectable=False) %}
-    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-        <thead>
-            <tr>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Overdue Invoices</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Balance Due</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Max Days Past Due</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Oldest Due Day</th>
-            </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-            {% for row in overdue_invoices %}
-            {% call table_row(color="slate") %}
-                <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.overdue_invoices }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.total_balance_due or 0)|float) }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.max_days_past_due }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.oldest_due_day or "N/A" }}</td>
-            {% endcall %}
-            {% else %}
-            {{ empty_state(title="No overdue invoices", message="No overdue invoice balances matched the selected invoice threshold.", color="slate", color2="gray", colspan=5) }}
-            {% endfor %}
-        </tbody>
-    </table>
-    {% endcall %}
+    <script>
+        (function initBillingRiskLiveSection() {
+            const liveControls = document.getElementById('billing-risk-live-controls');
+            const results = document.getElementById('billing-risk-results');
+            if (!liveControls || !results || liveControls.dataset.bound === '1') return;
+            liveControls.dataset.bound = '1';
+
+            const searchInput = document.getElementById('billing-risk-search');
+            const bucketButtons = Array.from(document.querySelectorAll('.billing-risk-bucket'));
+            let activeBucket = results.dataset.bucket || 'all';
+            let currentPage = Number(results.dataset.page || '1');
+            let debounceHandle = null;
+            let activeRequestId = 0;
+
+            function blockedTagConfig(days) {
+                if (days === null || Number.isNaN(days)) {
+                    return { label: 'N/A', className: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' };
+                }
+                if (days <= 7) {
+                    return { label: `${days}d`, className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200' };
+                }
+                if (days <= 30) {
+                    return { label: `${days}d`, className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200' };
+                }
+                if (days <= 60) {
+                    return { label: `${days}d`, className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-200' };
+                }
+                return { label: `${days}d`, className: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200' };
+            }
+
+            function applyBucketButtonState() {
+                for (const candidate of bucketButtons) {
+                    const active = (candidate.dataset.blockedBucket || 'all') === activeBucket;
+                    candidate.classList.toggle('border-rose-300', active);
+                    candidate.classList.toggle('bg-rose-50', active);
+                    candidate.classList.toggle('text-rose-700', active);
+                    candidate.classList.toggle('dark:border-rose-700', active);
+                    candidate.classList.toggle('dark:bg-rose-900/30', active);
+                    candidate.classList.toggle('dark:text-rose-200', active);
+                }
+            }
+
+            function parseBlockedDate(text) {
+                const value = (text || '').trim();
+                if (!value || value === 'N/A' || value === 'Loading...') return null;
+                const parsed = new Date(`${value}T00:00:00Z`);
+                return Number.isNaN(parsed.getTime()) ? null : parsed;
+            }
+
+            function updateRowDerivedState(row) {
+                const meta = row.querySelector('td[data-billing-risk-row="1"]');
+                const blockedCell = row.querySelector('[data-blocked-date-cell]');
+                const blockedTag = row.querySelector('[data-blocked-for-tag]');
+                if (!meta || !blockedCell || !blockedTag) return;
+                const blockedDate = parseBlockedDate(blockedCell.textContent);
+                const blockedDays = blockedDate ? Math.max(0, Math.floor((Date.now() - blockedDate.getTime()) / 86400000)) : null;
+                meta.dataset.blockedForDays = blockedDays === null ? '' : String(blockedDays);
+                const config = blockedTagConfig(blockedDays);
+                blockedTag.textContent = blockedDate ? `Blocked for ${config.label}` : config.label;
+                blockedTag.className = `inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${config.className}`;
+            }
+
+            function hydrateResults() {
+                const tbody = document.getElementById('billing-risk-live-body');
+                if (!tbody) return;
+                const rows = Array.from(tbody.querySelectorAll('td[data-billing-risk-row="1"]')).map(cell => cell.closest('tr')).filter(Boolean);
+                for (const row of rows) {
+                    updateRowDerivedState(row);
+                }
+                rows.sort((a, b) => {
+                    const aMeta = a.querySelector('td[data-billing-risk-row="1"]');
+                    const bMeta = b.querySelector('td[data-billing-risk-row="1"]');
+                    const aDays = aMeta?.dataset.blockedForDays === '' ? Number.POSITIVE_INFINITY : Number(aMeta?.dataset.blockedForDays || Number.POSITIVE_INFINITY);
+                    const bDays = bMeta?.dataset.blockedForDays === '' ? Number.POSITIVE_INFINITY : Number(bMeta?.dataset.blockedForDays || Number.POSITIVE_INFINITY);
+                    if (aDays !== bDays) return aDays - bDays;
+                    return (aMeta?.dataset.name || '').localeCompare(bMeta?.dataset.name || '');
+                });
+                for (const row of rows) tbody.appendChild(row);
+            }
+
+            async function loadResults(page, resetSearchPage = false) {
+                currentPage = resetSearchPage ? 1 : Math.max(1, Number(page || 1));
+                const requestId = ++activeRequestId;
+                const params = new URLSearchParams({
+                    page: String(currentPage),
+                    page_size: results.dataset.pageSize || '50',
+                    search: (searchInput?.value || '').trim(),
+                    bucket: activeBucket,
+                    due_soon_days: results.dataset.dueSoonDays || '7',
+                    overdue_invoice_days: results.dataset.overdueInvoiceDays || '30',
+                    high_balance_only: results.dataset.highBalanceOnly || 'false',
+                    days_past_due: results.dataset.daysPastDue || '',
+                });
+                results.classList.add('opacity-60');
+                const response = await fetch(`${results.dataset.endpoint}?${params.toString()}`, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                if (requestId !== activeRequestId) return;
+                results.classList.remove('opacity-60');
+                if (!response.ok) return;
+                results.innerHTML = await response.text();
+                results.dataset.page = String(currentPage);
+                hydrateResults();
+            }
+
+            hydrateResults();
+            applyBucketButtonState();
+
+            searchInput?.addEventListener('input', () => {
+                window.clearTimeout(debounceHandle);
+                debounceHandle = window.setTimeout(() => {
+                    loadResults(1, true);
+                }, 300);
+            });
+            for (const button of bucketButtons) {
+                button.addEventListener('click', () => {
+                    activeBucket = button.dataset.blockedBucket || 'all';
+                    applyBucketButtonState();
+                    loadResults(1, true);
+                });
+            }
+
+            document.body.addEventListener('click', (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLElement)) return;
+                const pageButton = target.closest('[data-billing-risk-page]');
+                if (!pageButton || pageButton.hasAttribute('disabled')) return;
+                if (!results.contains(pageButton)) return;
+                const nextPage = Number(pageButton.getAttribute('data-billing-risk-page') || currentPage);
+                loadResults(nextPage);
+            });
+        })();
+    </script>
+
 </div>
 {% endblock %}
