@@ -320,6 +320,34 @@ def broadcast_inbox_updated(user_id: str, payload: dict):
         logger.warning("broadcast_inbox_updated_error error=%s", exc)
 
 
+def broadcast_inbox_created(payload: dict):
+    """Publish a newly created inbox source to connected clients."""
+    try:
+        event = WebSocketEvent(
+            event=EventType.INBOX_CREATED,
+            data=payload,
+        )
+        manager = get_connection_manager()
+        _ensure_manager_connected(manager)
+        _run_async(manager.broadcast_to_all(event))
+    except Exception as exc:
+        logger.warning("broadcast_inbox_created_error error=%s", exc)
+
+
+def broadcast_inbox_deleted(inbox_id: str):
+    """Publish an inbox removal to connected clients."""
+    try:
+        event = WebSocketEvent(
+            event=EventType.INBOX_DELETED,
+            data={"id": str(inbox_id)},
+        )
+        manager = get_connection_manager()
+        _ensure_manager_connected(manager)
+        _run_async(manager.broadcast_to_all(event))
+    except Exception as exc:
+        logger.warning("broadcast_inbox_deleted_error error=%s", exc)
+
+
 def _forward_agent_notification_to_talk(user_id: str, payload: dict) -> None:
     session = SessionLocal()
     try:

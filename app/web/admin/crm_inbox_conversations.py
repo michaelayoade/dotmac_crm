@@ -40,7 +40,7 @@ async def inbox_summary_counts(
     db: Session = Depends(get_db),
 ):
     """Live summary counters for inbox sidebar chips/KPI."""
-    from app.services.crm.inbox.queries import get_assignment_counts, get_inbox_stats, get_resolved_today_count
+    from app.services.crm.inbox.queries import get_inbox_stats, get_queue_counts, get_resolved_today_count
     from app.services.time_preferences import resolve_company_time_prefs
     from app.web.admin._auth_helpers import get_current_user
 
@@ -49,7 +49,7 @@ async def inbox_summary_counts(
     timezone = resolve_company_time_prefs(db)[0]
     return JSONResponse(
         {
-            "assignment_counts": get_assignment_counts(db, assigned_person_id=assigned_person_id),
+            "assignment_counts": get_queue_counts(db, assigned_person_id=assigned_person_id),
             "unread": int(get_inbox_stats(db).get("unread", 0)),
             "resolved_today": get_resolved_today_count(db, timezone=timezone),
         }
@@ -65,6 +65,7 @@ async def inbox_conversations_partial(
     outbox_status: str | None = None,
     search: str | None = None,
     assignment: str | None = None,
+    inbox_id: str | None = None,
     target_id: str | None = None,
     agent_id: str | None = None,
     assigned_from: str | None = None,
@@ -80,6 +81,7 @@ async def inbox_conversations_partial(
 
     current_user = get_current_user(request)
     assigned_person_id = current_user.get("person_id")
+    selected_inbox_id = inbox_id or target_id
     assigned_from_dt = _parse_date_param(assigned_from)
     assigned_to_dt = _parse_date_param(assigned_to, end_of_day=True)
     template_name, context = await build_inbox_conversations_partial_context(
@@ -90,7 +92,7 @@ async def inbox_conversations_partial(
         search=search,
         assignment=assignment,
         assigned_person_id=assigned_person_id,
-        target_id=target_id,
+        target_id=selected_inbox_id,
         filter_agent_id=agent_id,
         assigned_from=assigned_from_dt,
         assigned_to=assigned_to_dt,

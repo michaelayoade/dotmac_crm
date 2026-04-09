@@ -1,10 +1,11 @@
 """Query functions for inbox statistics and conversation listing."""
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import case, func, or_, select, true
-from sqlalchemy.orm import Session, aliased, selectinload
+from sqlalchemy import case, false, func, or_, select, true
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import lateral
 
 from app.models.crm.conversation import (
@@ -27,8 +28,6 @@ from app.models.person import Person, PersonChannel
 from app.services.common import coerce_uuid
 from app.services.crm.inbox import outbox as outbox_service
 
-UNASSIGNED_ACTIVITY_START_UTC = datetime(2026, 1, 1, tzinfo=UTC)
-
 
 def _message_activity_ts():
     """Canonical message activity timestamp used for inbox ordering/filtering."""
@@ -47,57 +46,120 @@ def _conversation_activity_ts():
     )
 
 
-def list_inbox_conversations(
+def _normalize_status_filter(status: str | ConversationStatus | None) -> ConversationStatus | None:
+    if isinstance(status, ConversationStatus):
+        return status
+    normalized = str(status or "").strip().lower()
+    if not normalized or normalized == "all":
+        return None
+    if normalized in {"done", "resolved"}:
+        return ConversationStatus.resolved
+    try:
+        return ConversationStatus(normalized)
+    except ValueError:
+        return None
+
+
+def _normalized_assignment_filter(assignment: str | None) -> str | None:
+    normalized = str(assignment or "").strip().lower()
+    if not normalized or normalized == "all":
+        return None
+    if normalized in {"assigned", "assigned_to_me", "mine"}:
+        return "assigned_to_me"
+    return normalized
+
+
+def _latest_message_direction_subquery():
+    return (
+        select(Message.direction)
+        .where(Message.conversation_id == Conversation.id)
+        .order_by(_message_activity_ts().desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def _latest_message_target_id_subquery():
+    return (
+        select(Message.channel_target_id)
+        .where(Message.conversation_id == Conversation.id)
+        .order_by(_message_activity_ts().desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def _agent_ids_for_person(db: Session, assigned_person_id: str | None) -> list:
+    if not assigned_person_id:
+        return []
+    return [
+        row[0]
+        for row in (
+            db.query(CrmAgent.id)
+            .filter(CrmAgent.person_id == coerce_uuid(assigned_person_id))
+            .filter(CrmAgent.is_active.is_(True))
+            .all()
+        )
+    ]
+
+
+def _crm_team_ids_for_person(db: Session, assigned_person_id: str | None) -> list:
+    if not assigned_person_id:
+        return []
+    from app.models.crm.team import CrmTeam
+    from app.models.service_team import ServiceTeamMember
+
+    person_uuid = coerce_uuid(assigned_person_id)
+    team_ids_subq = (
+        db.query(ServiceTeamMember.team_id)
+        .filter(ServiceTeamMember.person_id == person_uuid)
+        .filter(ServiceTeamMember.is_active.is_(True))
+    )
+    return [
+        row[0]
+        for row in (
+            db.query(CrmTeam.id)
+            .filter(CrmTeam.service_team_id.in_(team_ids_subq))
+            .filter(CrmTeam.is_active.is_(True))
+            .all()
+        )
+    ]
+
+
+def _apply_inbox_filters(
     db: Session,
+    query,
+    *,
     channel: ChannelType | None = None,
     status: ConversationStatus | None = None,
-    statuses: list[ConversationStatus] | None = None,
+    statuses: Sequence[ConversationStatus] | None = None,
     priority: ConversationPriority | None = None,
-    outbox_status: str | None = None,
     search: str | None = None,
     assignment: str | None = None,
     assigned_person_id: str | None = None,
     channel_target_id: str | None = None,
-    exclude_superseded_resolved: bool = True,
     filter_agent_id: str | None = None,
     assigned_from: datetime | None = None,
     assigned_to: datetime | None = None,
-    sort_by: str | None = None,
     missing: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[tuple]:
-    """List inbox conversations with latest message and unread count.
-
-    Returns a list of tuples: (Conversation, latest_message_dict, unread_count, failed_outbox_summary)
-    where latest_message_dict contains: body, channel_type, received_at, sent_at, created_at,
-    last_message_at, message_type, has_attachments
-    """
-    query = (
-        db.query(Conversation)
-        .options(
-            selectinload(Conversation.contact).selectinload(Person.channels),
-            selectinload(Conversation.assignments),
-            selectinload(Conversation.tags),
-        )
-        .select_from(Conversation)
-        .filter(Conversation.is_active.is_(True))
-    )
-
-    if status:
+):
+    if status is not None:
+        # User selected a specific status pill.
         query = query.filter(Conversation.status == status)
     elif statuses:
+        # User selected a status group that expands to multiple statuses.
         query = query.filter(Conversation.status.in_(statuses))
 
     if priority:
         query = query.filter(Conversation.priority == priority)
 
     if channel:
-        subq = db.query(Message.conversation_id).filter(Message.channel_type == channel).distinct()
-        query = query.filter(Conversation.id.in_(subq))
+        # User selected a specific inbox source.
+        channel_subq = db.query(Message.conversation_id).filter(Message.channel_type == channel).distinct()
+        query = query.filter(Conversation.id.in_(channel_subq))
 
-    if channel_target_id:
-        target_raw = str(channel_target_id).strip()
+    target_raw = str(channel_target_id or "").strip()
+    if target_raw and target_raw.lower() != "all":
         if target_raw.startswith("channel:"):
             synthetic_channel_name = target_raw.split(":", 1)[1].strip()
             try:
@@ -105,6 +167,7 @@ def list_inbox_conversations(
             except ValueError:
                 synthetic_channel = None
             if synthetic_channel:
+                # User selected a synthetic inbox source option.
                 target_subq = db.query(Message.conversation_id).filter(Message.channel_type == synthetic_channel)
                 query = query.filter(Conversation.id.in_(target_subq.distinct()))
         else:
@@ -113,116 +176,59 @@ def list_inbox_conversations(
             except Exception:
                 target_uuid = None
             if target_uuid:
-                target_subq = db.query(Message.conversation_id).filter(Message.channel_target_id == target_uuid)
-                if channel:
-                    target_subq = target_subq.filter(Message.channel_type == channel)
-                query = query.filter(Conversation.id.in_(target_subq.distinct()))
+                target_subq = (
+                    db.query(Message.conversation_id)
+                    .filter(Message.channel_target_id == target_uuid)
+                    .distinct()
+                )
+                # User selected a specific inbox target.
+                query = query.filter(Conversation.id.in_(target_subq))
 
-    assignment_filter = (assignment or "").strip().lower()
-    if assignment_filter in ("assigned", "assigned_to_me", "mine"):
-        if not assigned_person_id:
-            return []
-        agent_ids = [
-            row[0]
-            for row in (
-                db.query(CrmAgent.id)
-                .filter(CrmAgent.person_id == coerce_uuid(assigned_person_id))
-                .filter(CrmAgent.is_active.is_(True))
-                .all()
-            )
-        ]
+    assignment_filter = _normalized_assignment_filter(assignment)
+    if assignment_filter == "assigned_to_me":
+        agent_ids = _agent_ids_for_person(db, assigned_person_id)
         if not agent_ids:
-            return []
+            return query.filter(false())
         assigned_subq = (
             db.query(ConversationAssignment.conversation_id)
             .filter(ConversationAssignment.is_active.is_(True))
             .filter(ConversationAssignment.agent_id.in_(agent_ids))
             .distinct()
         )
+        # User selected the "Assigned to me" queue chip.
         query = query.filter(Conversation.id.in_(assigned_subq))
+    elif assignment_filter == "my_team":
+        crm_team_ids = _crm_team_ids_for_person(db, assigned_person_id)
+        if not crm_team_ids:
+            return query.filter(false())
+        team_conv_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.team_id.in_(crm_team_ids))
+            .distinct()
+        )
+        # User selected the "My team" queue chip.
+        query = query.filter(Conversation.id.in_(team_conv_subq))
+    elif assignment_filter == "needs_attention":
+        attention_cutoff = datetime.now(UTC) - timedelta(hours=1)
+        # User selected the "Needs attention" queue chip.
+        query = query.filter(_conversation_activity_ts() < attention_cutoff)
+        # User selected the "Needs attention" queue chip.
+        query = query.filter(Conversation.status.in_([ConversationStatus.open, ConversationStatus.pending]))
     elif assignment_filter == "unassigned":
         assigned_subq = (
             db.query(ConversationAssignment.conversation_id)
             .filter(ConversationAssignment.is_active.is_(True))
             .distinct()
         )
-        query = query.filter(~Conversation.id.in_(assigned_subq)).filter(
-            _conversation_activity_ts() >= UNASSIGNED_ACTIVITY_START_UTC
-        )
-    elif assignment_filter == "team_assigned":
-        team_assigned_subq = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.team_id.isnot(None))
-            .filter(ConversationAssignment.agent_id.is_(None))
-            .distinct()
-        )
-        query = query.filter(Conversation.id.in_(team_assigned_subq))
+        # User selected the "Unassigned" queue chip.
+        query = query.filter(~Conversation.id.in_(assigned_subq))
     elif assignment_filter == "unreplied":
-        inbound_exists = (
-            db.query(Message.id)
-            .filter(Message.conversation_id == Conversation.id)
-            .filter(Message.direction == MessageDirection.inbound)
-            .exists()
-        )
-        outbound_exists = (
-            db.query(Message.id)
-            .filter(Message.conversation_id == Conversation.id)
-            .filter(Message.direction == MessageDirection.outbound)
-            .exists()
-        )
-        query = (
-            query.filter(Conversation.status != ConversationStatus.resolved)
-            .filter(inbound_exists)
-            .filter(~outbound_exists)
-        )
-    elif assignment_filter == "needs_attention":
-        latest_inbound_at = (
-            select(func.max(_message_activity_ts()))
-            .where(Message.conversation_id == Conversation.id)
-            .where(Message.direction == MessageDirection.inbound)
-            .scalar_subquery()
-        )
-        latest_outbound_at = (
-            select(func.max(_message_activity_ts()))
-            .where(Message.conversation_id == Conversation.id)
-            .where(Message.direction == MessageDirection.outbound)
-            .scalar_subquery()
-        )
-        query = (
-            query.filter(Conversation.status != ConversationStatus.resolved)
-            .filter(latest_inbound_at.isnot(None))
-            .filter(latest_outbound_at.isnot(None))
-            .filter(latest_inbound_at > latest_outbound_at)
-        )
-    elif assignment_filter == "my_team":
-        if not assigned_person_id:
-            return []
-        from app.models.crm.team import CrmTeam
-        from app.models.service_team import ServiceTeamMember
-
-        person_uuid = coerce_uuid(assigned_person_id)
-        # Find ServiceTeams the person belongs to
-        team_ids_subq = (
-            db.query(ServiceTeamMember.team_id)
-            .filter(ServiceTeamMember.person_id == person_uuid)
-            .filter(ServiceTeamMember.is_active.is_(True))
-        )
-        # Find CrmTeams linked to those ServiceTeams
-        crm_team_ids_subq = (
-            db.query(CrmTeam.id).filter(CrmTeam.service_team_id.in_(team_ids_subq)).filter(CrmTeam.is_active.is_(True))
-        )
-        # Find conversations assigned to those CRM teams
-        team_conv_subq = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.team_id.in_(crm_team_ids_subq))
-            .distinct()
-        )
-        query = query.filter(Conversation.id.in_(team_conv_subq))
+        # User selected the "Unreplied" queue chip.
+        query = query.filter(_latest_message_direction_subquery() == MessageDirection.inbound)
     elif assignment_filter == "agent":
         if not filter_agent_id:
-            return []
+            return query.filter(false())
         agent_uuid = coerce_uuid(filter_agent_id)
         agent_subq = (
             db.query(ConversationAssignment.conversation_id)
@@ -233,6 +239,7 @@ def list_inbox_conversations(
             agent_subq = agent_subq.filter(ConversationAssignment.assigned_at >= assigned_from)
         if assigned_to:
             agent_subq = agent_subq.filter(ConversationAssignment.assigned_at <= assigned_to)
+        # User selected the agent-specific queue filter.
         query = query.filter(Conversation.id.in_(agent_subq.distinct()))
 
     if search:
@@ -241,7 +248,6 @@ def list_inbox_conversations(
         phone_digits = "".join(ch for ch in raw_search if ch.isdigit())
 
         def _normalize_phone_sql(expr):
-            # Database-agnostic normalization by stripping common phone punctuation.
             return func.replace(
                 func.replace(
                     func.replace(
@@ -294,30 +300,75 @@ def list_inbox_conversations(
                 ]
             )
 
+        # User entered a search term.
         query = query.join(Conversation.contact).filter(or_(*search_filters))
 
-    # Missing data filter for data quality alerts
     if missing:
         from app.models.crm.conversation import ConversationTag
 
         missing_fields = [f.strip() for f in missing.split(",")]
         if "first_response" in missing_fields:
+            # User selected the "missing first response" data-quality filter.
             query = query.filter(Conversation.first_response_at.is_(None))
         if "tags" in missing_fields:
             tagged_ids = db.query(ConversationTag.conversation_id).distinct().subquery()
+            # User selected the "missing tags" data-quality filter.
             query = query.filter(~Conversation.id.in_(db.query(tagged_ids.c.conversation_id)))
 
-    if exclude_superseded_resolved and (not status or status != ConversationStatus.resolved):
-        other = aliased(Conversation)
-        newer_open = (
-            db.query(other.id)
-            .filter(other.person_id == Conversation.person_id)
-            .filter(other.status.in_([ConversationStatus.open, ConversationStatus.pending]))
-            .filter(other.is_active.is_(True))
-            .filter(other.updated_at > Conversation.updated_at)
-            .exists()
+    return query
+
+
+def list_inbox_conversations(
+    db: Session,
+    channel: ChannelType | None = None,
+    status: ConversationStatus | None = None,
+    statuses: list[ConversationStatus] | None = None,
+    priority: ConversationPriority | None = None,
+    outbox_status: str | None = None,
+    search: str | None = None,
+    assignment: str | None = None,
+    assigned_person_id: str | None = None,
+    channel_target_id: str | None = None,
+    filter_agent_id: str | None = None,
+    assigned_from: datetime | None = None,
+    assigned_to: datetime | None = None,
+    sort_by: str | None = None,
+    missing: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[tuple]:
+    """List inbox conversations with latest message and unread count.
+
+    Returns a list of tuples: (Conversation, latest_message_dict, unread_count, failed_outbox_summary)
+    where latest_message_dict contains: body, channel_type, received_at, sent_at, created_at,
+    last_message_at, message_type, has_attachments
+    """
+    query = (
+        db.query(Conversation)
+        .options(
+            selectinload(Conversation.contact).selectinload(Person.channels),
+            selectinload(Conversation.assignments),
+            selectinload(Conversation.tags),
         )
-        query = query.filter(~((Conversation.status == ConversationStatus.resolved) & newer_open))
+        .select_from(Conversation)
+        .filter(Conversation.is_active.is_(True))
+    )
+    query = _apply_inbox_filters(
+        db,
+        query,
+        channel=channel,
+        status=status,
+        statuses=statuses,
+        priority=priority,
+        search=search,
+        assignment=assignment,
+        assigned_person_id=assigned_person_id,
+        channel_target_id=channel_target_id,
+        filter_agent_id=filter_agent_id,
+        assigned_from=assigned_from,
+        assigned_to=assigned_to,
+        missing=missing,
+    )
 
     outbox_status_filter = (outbox_status or "").strip().lower() or None
     failed_outbox_subq = None
@@ -652,113 +703,28 @@ def _count_active_conversations_for_filter(
     assigned_person_id: str | None = None,
 ) -> int:
     query = db.query(Conversation.id).filter(Conversation.is_active.is_(True))
-    filter_key = (assignment_filter or "").strip().lower()
-
-    if filter_key in ("assigned", "assigned_to_me", "mine"):
-        if not assigned_person_id:
-            return 0
-        agent_ids = [
-            row[0]
-            for row in (
-                db.query(CrmAgent.id)
-                .filter(CrmAgent.person_id == coerce_uuid(assigned_person_id))
-                .filter(CrmAgent.is_active.is_(True))
-                .all()
-            )
-        ]
-        if not agent_ids:
-            return 0
-        assigned_subq = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.agent_id.in_(agent_ids))
-            .distinct()
-        )
-        query = query.filter(Conversation.id.in_(assigned_subq))
-    elif filter_key == "unassigned":
-        assigned_subq = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.is_active.is_(True))
-            .distinct()
-        )
-        query = query.filter(~Conversation.id.in_(assigned_subq)).filter(
-            _conversation_activity_ts() >= UNASSIGNED_ACTIVITY_START_UTC
-        )
-    elif filter_key == "unreplied":
-        inbound_exists = (
-            db.query(Message.id)
-            .filter(Message.conversation_id == Conversation.id)
-            .filter(Message.direction == MessageDirection.inbound)
-            .exists()
-        )
-        outbound_exists = (
-            db.query(Message.id)
-            .filter(Message.conversation_id == Conversation.id)
-            .filter(Message.direction == MessageDirection.outbound)
-            .exists()
-        )
-        query = (
-            query.filter(Conversation.status != ConversationStatus.resolved)
-            .filter(inbound_exists)
-            .filter(~outbound_exists)
-        )
-    elif filter_key == "needs_attention":
-        latest_inbound_at = (
-            select(func.max(_message_activity_ts()))
-            .where(Message.conversation_id == Conversation.id)
-            .where(Message.direction == MessageDirection.inbound)
-            .scalar_subquery()
-        )
-        latest_outbound_at = (
-            select(func.max(_message_activity_ts()))
-            .where(Message.conversation_id == Conversation.id)
-            .where(Message.direction == MessageDirection.outbound)
-            .scalar_subquery()
-        )
-        query = (
-            query.filter(Conversation.status != ConversationStatus.resolved)
-            .filter(latest_inbound_at.isnot(None))
-            .filter(latest_outbound_at.isnot(None))
-            .filter(latest_inbound_at > latest_outbound_at)
-        )
-    elif filter_key == "my_team":
-        if not assigned_person_id:
-            return 0
-        from app.models.crm.team import CrmTeam
-        from app.models.service_team import ServiceTeamMember
-
-        person_uuid = coerce_uuid(assigned_person_id)
-        team_ids_subq = (
-            db.query(ServiceTeamMember.team_id)
-            .filter(ServiceTeamMember.person_id == person_uuid)
-            .filter(ServiceTeamMember.is_active.is_(True))
-        )
-        crm_team_ids_subq = (
-            db.query(CrmTeam.id).filter(CrmTeam.service_team_id.in_(team_ids_subq)).filter(CrmTeam.is_active.is_(True))
-        )
-        team_conv_subq = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.team_id.in_(crm_team_ids_subq))
-            .distinct()
-        )
-        query = query.filter(Conversation.id.in_(team_conv_subq))
+    query = _apply_inbox_filters(
+        db,
+        query,
+        assignment=assignment_filter,
+        assigned_person_id=assigned_person_id,
+    )
 
     return int(query.count() or 0)
 
 
-def get_assignment_counts(
+def get_queue_counts(
     db: Session,
     *,
     assigned_person_id: str | None = None,
 ) -> dict[str, int]:
-    """Get inbox assignment bucket counts for sidebar chips."""
+    """Get inbox queue bucket counts for sidebar chips."""
     return {
         "all": _count_active_conversations_for_filter(
             db, assignment_filter="all", assigned_person_id=assigned_person_id
         ),
-        "assigned": _count_active_conversations_for_filter(
-            db, assignment_filter="assigned", assigned_person_id=assigned_person_id
+        "assigned_to_me": _count_active_conversations_for_filter(
+            db, assignment_filter="assigned_to_me", assigned_person_id=assigned_person_id
         ),
         "my_team": _count_active_conversations_for_filter(
             db, assignment_filter="my_team", assigned_person_id=assigned_person_id
@@ -772,6 +738,19 @@ def get_assignment_counts(
         "needs_attention": _count_active_conversations_for_filter(
             db, assignment_filter="needs_attention", assigned_person_id=assigned_person_id
         ),
+    }
+
+
+def get_assignment_counts(
+    db: Session,
+    *,
+    assigned_person_id: str | None = None,
+) -> dict[str, int]:
+    """Backward-compatible alias for inbox queue bucket counts."""
+    counts = get_queue_counts(db, assigned_person_id=assigned_person_id)
+    return {
+        **counts,
+        "assigned": counts["assigned_to_me"],
         "agent": 0,
     }
 
@@ -877,7 +856,6 @@ class InboxQueries:
         assignment: str | None = None,
         assigned_person_id: str | None = None,
         channel_target_id: str | None = None,
-        exclude_superseded_resolved: bool = True,
         filter_agent_id: str | None = None,
         assigned_from: datetime | None = None,
         assigned_to: datetime | None = None,
@@ -894,7 +872,6 @@ class InboxQueries:
             assignment=assignment,
             assigned_person_id=assigned_person_id,
             channel_target_id=channel_target_id,
-            exclude_superseded_resolved=exclude_superseded_resolved,
             filter_agent_id=filter_agent_id,
             assigned_from=assigned_from,
             assigned_to=assigned_to,

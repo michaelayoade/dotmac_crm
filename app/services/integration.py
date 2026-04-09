@@ -22,6 +22,7 @@ from app.schemas.integration import (
 )
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
+from app.websocket.broadcaster import broadcast_inbox_deleted
 
 logger = get_logger(__name__)
 
@@ -118,6 +119,8 @@ class IntegrationTargets(ListResponseMixin):
             raise HTTPException(status_code=404, detail="Integration target not found")
         target.is_active = False
         db.commit()
+        if target.target_type == IntegrationTargetType.crm:
+            broadcast_inbox_deleted(str(target.id))
 
     @staticmethod
     def get_channel_state(

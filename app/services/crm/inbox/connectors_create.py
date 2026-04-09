@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.integration import IntegrationTarget, IntegrationTargetType
+from app.services.crm.inbox.inbox_sources import serialize_inbox_source
+from app.websocket.broadcaster import broadcast_inbox_created
 
 
 def _ensure_unique_connector_name(
@@ -113,6 +115,7 @@ def create_email_connector_target(
         if not target.is_active:
             target.is_active = True
             db.commit()
+    broadcast_inbox_created(serialize_inbox_source(target, config.connector_type))
     return target
 
 
@@ -197,4 +200,5 @@ def create_whatsapp_connector_target(
         if not target.is_active:
             target.is_active = True
             db.commit()
+    broadcast_inbox_created(serialize_inbox_source(target, config.connector_type))
     return target

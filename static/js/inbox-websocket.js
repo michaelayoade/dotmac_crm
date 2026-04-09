@@ -139,6 +139,12 @@ class InboxWebSocket {
                     }
                     this._emitEvent('inbox-list-refresh', eventData);
                     break;
+                case 'inbox.created':
+                    this._emitEvent('inbox.created', eventData);
+                    break;
+                case 'inbox.deleted':
+                    this._emitEvent('inbox.deleted', eventData);
+                    break;
                 case 'connection_ack':
                     console.log('[InboxWS] Connection acknowledged:', eventData.user_id);
                     break;

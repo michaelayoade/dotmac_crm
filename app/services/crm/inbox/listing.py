@@ -50,7 +50,7 @@ async def load_inbox_list(
     sort_by: str | None = None,
     missing: str | None = None,
     offset: int = 0,
-    limit: int = 150,
+    limit: int = 50,
     include_thread: bool = False,
     fetch_comments: bool = False,
 ) -> InboxListResult:
@@ -101,19 +101,21 @@ async def load_inbox_list(
         except ValueError:
             priority_enum = None
     if status:
-        if status == "needs_action":
+        normalized_status = status.strip().lower()
+        if normalized_status == "needs_action":
             status_enums = [ConversationStatus.open, ConversationStatus.snoozed]
         else:
             try:
-                status_enum = ConversationStatus(status)
+                if normalized_status == "done":
+                    normalized_status = ConversationStatus.resolved.value
+                status_enum = ConversationStatus(normalized_status)
             except ValueError:
                 status_enum = None
 
-    exclude_superseded = status != ConversationStatus.resolved.value if status else True
     assignment_filter = (assignment or "").strip().lower()
     target_prefix = (target_id or "").strip()
     target_is_comment = target_prefix.startswith("fb:") or target_prefix.startswith("ig:")
-    include_comments = not channel and assignment_filter != "assigned" and (status_enum is None)
+    include_comments = not channel and assignment_filter not in {"assigned", "assigned_to_me"} and (status_enum is None)
     if outbox_status_filter:
         include_comments = False
     if assignment_filter in {"unreplied", "needs_attention"}:
@@ -140,7 +142,6 @@ async def load_inbox_list(
             assignment=assignment,
             assigned_person_id=assigned_person_id,
             channel_target_id=target_id,
-            exclude_superseded_resolved=exclude_superseded,
             filter_agent_id=filter_agent_id,
             assigned_from=assigned_from,
             assigned_to=assigned_to,
