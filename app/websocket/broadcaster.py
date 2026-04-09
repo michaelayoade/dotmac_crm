@@ -91,6 +91,10 @@ def _run_async(coro):
 
 def _ensure_manager_connected(manager) -> None:
     try:
+        # Tests do not need Redis-backed fanout; skipping auto-connect avoids
+        # orphaned background tasks on pytest-asyncio event loops.
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return
         if getattr(manager, "_redis_client", None) is None:
             _run_async(manager.connect())
     except Exception as exc:
