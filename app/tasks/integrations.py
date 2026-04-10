@@ -1381,6 +1381,3 @@ def sync_chatwoot(
         session.close()
         duration = time.monotonic() - start
         observe_job("chatwoot_sync", status, duration)
-
-    # Unreachable, but keep for type checkers.
-    return {"success": False}
