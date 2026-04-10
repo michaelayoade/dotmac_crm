@@ -1897,6 +1897,29 @@ def get_churn_table(
                         return cached_suspended_at.strftime("%Y-%m-%d")
             return ""
 
+        def _live_invoiced_until(
+            customer_payload: Mapping[str, Any],
+            sync_metadata: Mapping[str, Any],
+            billing_start_date: str,
+        ) -> str:
+            invoiced_until_text = _metadata_text(sync_metadata, "invoiced_until")
+            if invoiced_until_text:
+                return invoiced_until_text
+
+            for cached_lookup in (
+                subscriber_sync_by_external_id.get(str(customer_payload.get("id") or "").strip()),
+                subscriber_sync_by_login.get(str(customer_payload.get("login") or "").strip()),
+                subscriber_sync_by_email.get(str(customer_payload.get("email") or "").strip().lower()),
+            ):
+                if cached_lookup is None:
+                    continue
+                cached_sync, _cached_suspended_at = cached_lookup
+                cached_invoiced_until = _metadata_text(cached_sync, "invoiced_until")
+                if cached_invoiced_until:
+                    return cached_invoiced_until
+
+            return billing_start_date
+
         for customer in customers:
             if not isinstance(customer, Mapping):
                 continue
@@ -1908,7 +1931,7 @@ def get_churn_table(
             due_days = (next_bill_raw.date() - today).days if next_bill_raw is not None else None
             balance_amount = _parse_balance_amount(mapped.get("balance") or customer.get("balance"))
             sync_metadata = mapped.get("sync_metadata") if isinstance(mapped.get("sync_metadata"), Mapping) else {}
-            invoiced_until_text = _metadata_text(sync_metadata, "invoiced_until")
+            invoiced_until_text = _live_invoiced_until(customer, sync_metadata, billing_start_date)
             invoiced_until_date = _parse_iso_date_text(invoiced_until_text)
             days_since_last_payment = (
                 max(0, (today - invoiced_until_date).days) if invoiced_until_date is not None else None
@@ -2039,6 +2062,7 @@ def get_churn_table(
             Subscriber.external_id,
             Subscriber.person_id,
             Subscriber.status,
+            Subscriber.suspended_at,
             Subscriber.next_bill_date,
             Subscriber.balance,
             Subscriber.billing_cycle,
