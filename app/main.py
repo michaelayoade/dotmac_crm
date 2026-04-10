@@ -1,7 +1,26 @@
+import asyncio
+import platform
 import secrets
+import sys
 from contextlib import asynccontextmanager
 from threading import Lock
 from time import monotonic
+
+# ---------------------------------------------------------------------------
+# Python 3.12 PidfdChildWatcher workaround
+# On Linux with Python 3.12 the default PidfdChildWatcher can raise
+# "Exception in callback PidfdChildWatcher._do_wait()" when child processes
+# are reaped outside the event loop (e.g. Celery / uvicorn workers).
+# ThreadedChildWatcher is more robust for our use case.
+# ---------------------------------------------------------------------------
+if sys.version_info >= (3, 12) and platform.system() == "Linux":
+    _policy = asyncio.get_event_loop_policy()
+    if hasattr(_policy, "set_child_watcher") and hasattr(asyncio, "ThreadedChildWatcher"):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*child_watcher.*")
+            _policy.set_child_watcher(asyncio.ThreadedChildWatcher())
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
