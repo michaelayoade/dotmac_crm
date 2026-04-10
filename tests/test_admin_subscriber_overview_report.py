@@ -12,7 +12,9 @@ from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus, SalesOrd
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.models.tickets import Ticket, TicketStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
+from app.services import billing_risk_reports as billing_risk_service
 from app.services import subscriber_reports as subscriber_reports_service
+from app.web.admin import billing_risk as billing_risk_web
 from app.web.admin import reports as reports_web
 
 
@@ -3738,9 +3740,9 @@ def test_subscriber_billing_risk_export_returns_csv(monkeypatch):
 
 
 def test_subscriber_billing_risk_blocked_dates_returns_json(monkeypatch):
-    monkeypatch.setattr(reports_web, "get_current_user", lambda _request: {"id": "test-user"})
+    monkeypatch.setattr(billing_risk_web, "get_current_user", lambda _request: {"id": "test-user"})
     monkeypatch.setattr(
-        subscriber_reports_service,
+        billing_risk_service,
         "get_live_blocked_dates",
         lambda external_ids: {"12345": "2024-04-18"} if external_ids == ["12345"] else {},
     )
@@ -3758,7 +3760,7 @@ def test_subscriber_billing_risk_blocked_dates_returns_json(monkeypatch):
         }
     )
 
-    response = reports_web.subscriber_billing_risk_blocked_dates(
+    response = billing_risk_web.subscriber_billing_risk_blocked_dates(
         request=request,
         external_id=["12345"],
     )
@@ -3768,9 +3770,9 @@ def test_subscriber_billing_risk_blocked_dates_returns_json(monkeypatch):
 
 
 def test_subscriber_billing_risk_rows_returns_html(monkeypatch):
-    monkeypatch.setattr(reports_web, "get_current_user", lambda _request: {"id": "test-user"})
+    monkeypatch.setattr(billing_risk_web, "get_current_user", lambda _request: {"id": "test-user"})
     monkeypatch.setattr(
-        reports_web,
+        billing_risk_web,
         "_billing_risk_page_rows",
         lambda *_args, **_kwargs: (
             [
@@ -3807,7 +3809,7 @@ def test_subscriber_billing_risk_rows_returns_html(monkeypatch):
         }
     )
 
-    response = reports_web.subscriber_billing_risk_rows(
+    response = billing_risk_web.subscriber_billing_risk_rows(
         request=request,
         db=None,
         page=1,
@@ -3823,9 +3825,9 @@ def test_subscriber_billing_risk_rows_returns_html(monkeypatch):
 
 
 def test_subscriber_billing_risk_blocked_date_cell_returns_html(monkeypatch):
-    monkeypatch.setattr(reports_web, "get_current_user", lambda _request: {"id": "test-user"})
+    monkeypatch.setattr(billing_risk_web, "get_current_user", lambda _request: {"id": "test-user"})
     monkeypatch.setattr(
-        subscriber_reports_service,
+        billing_risk_service,
         "get_live_blocked_dates",
         lambda external_ids: {"12345": "2024-04-18"} if external_ids == ["12345"] else {},
     )
@@ -3843,7 +3845,7 @@ def test_subscriber_billing_risk_blocked_date_cell_returns_html(monkeypatch):
         }
     )
 
-    response = reports_web.subscriber_billing_risk_blocked_date_cell(
+    response = billing_risk_web.subscriber_billing_risk_blocked_date_cell(
         request=request,
         external_id="12345",
     )
