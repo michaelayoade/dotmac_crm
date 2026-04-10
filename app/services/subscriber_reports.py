@@ -5,7 +5,8 @@ from collections import defaultdict
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, TypedDict, cast as typing_cast
+from typing import Any, TypedDict
+from typing import cast as typing_cast
 
 from sqlalchemy import Date, DateTime, Integer, Numeric, String, and_, case, cast, false, func, or_, select, text, true
 from sqlalchemy.orm import Session
