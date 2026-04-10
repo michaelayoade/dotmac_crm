@@ -1,6 +1,21 @@
+import asyncio
 import os
+import platform
+import sys
 
 from celery import Celery
+
+# ---------------------------------------------------------------------------
+# Python 3.12 PidfdChildWatcher workaround (see app/main.py for details)
+# ---------------------------------------------------------------------------
+if sys.version_info >= (3, 12) and platform.system() == "Linux":
+    _policy = asyncio.get_event_loop_policy()
+    if hasattr(_policy, "set_child_watcher") and hasattr(asyncio, "ThreadedChildWatcher"):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*child_watcher.*")
+            _policy.set_child_watcher(asyncio.ThreadedChildWatcher())
 
 from app.services.scheduler_config import get_celery_config
 
