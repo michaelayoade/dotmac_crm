@@ -10,6 +10,7 @@ from datetime import UTC
 from email import message_from_bytes, policy
 from email.header import decode_header
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
+from importlib import import_module
 from typing import Any
 
 from app.db import SessionLocal
@@ -22,8 +23,8 @@ from app.services.webhook_dead_letter import write_dead_letter
 
 SMTPController: Any
 try:
-    from aiosmtpd.controller import Controller as SMTPController
-except ModuleNotFoundError:
+    SMTPController = import_module("aiosmtpd.controller").Controller
+except Exception:
     SMTPController = None
 
 logger = get_logger(__name__)

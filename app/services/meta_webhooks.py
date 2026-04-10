@@ -1040,7 +1040,7 @@ def process_whatsapp_webhook(
                         message.status.value,
                     )
                 except Exception:
-                    pass  # WebSocket broadcast is best-effort
+                    logger.debug("whatsapp_status_broadcast_failed message_id=%s", message.id, exc_info=True)
 
                 logger.info(
                     "whatsapp_status_updated wamid=%s message_id=%s status=%s",

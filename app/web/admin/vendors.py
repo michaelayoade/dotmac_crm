@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.db import SessionLocal
+from app.logging import get_logger
 from app.models.auth import AuthProvider, UserCredential
 from app.models.person import Person, PersonStatus
 from app.models.projects import Project
@@ -44,6 +45,7 @@ from app.services.storage import storage
 from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
+logger = get_logger(__name__)
 
 
 def _form_str(value: object | None) -> str:
@@ -155,7 +157,7 @@ async def _collect_attachment_uploads(
         form = await request.form()
         uploads.extend([item for item in form.getlist("attachments") if isinstance(item, UploadFile)])
     except Exception:
-        pass
+        logger.debug("vendor_request_form_attachments_unavailable", exc_info=True)
     deduped: list[UploadFile] = []
     seen: set[tuple[str, int]] = set()
     for item in uploads:
@@ -1051,7 +1053,7 @@ async def vendor_quote_add_comment(
                 },
             )
         except Exception:
-            pass
+            logger.debug("vendor_quote_comment_mentions_failed quote_id=%s", quote.id, exc_info=True)
 
     return RedirectResponse(url=_append_query_param(success_redirect, "quote_action", "commented"), status_code=303)
 
@@ -1149,7 +1151,7 @@ async def vendor_quote_edit_comment(
                 },
             )
         except Exception:
-            pass
+            logger.debug("vendor_quote_reply_mentions_failed quote_id=%s", quote.id, exc_info=True)
     return RedirectResponse(url=_append_query_param(success_redirect, "quote_action", "commented"), status_code=303)
 
 

@@ -1,5 +1,6 @@
 import logging
 import os
+from importlib import import_module
 
 from opentelemetry import trace
 
@@ -53,7 +54,7 @@ def setup_otel(app) -> None:
 
     # --- FastAPI ---
     try:
-        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        FastAPIInstrumentor = import_module("opentelemetry.instrumentation.fastapi").FastAPIInstrumentor
 
         FastAPIInstrumentor.instrument_app(app)
         logger.info("OTel: FastAPI instrumented")
@@ -62,7 +63,7 @@ def setup_otel(app) -> None:
 
     # --- SQLAlchemy (uses cached engine singleton) ---
     try:
-        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+        SQLAlchemyInstrumentor = import_module("opentelemetry.instrumentation.sqlalchemy").SQLAlchemyInstrumentor
 
         from app.db import get_engine
 
@@ -73,7 +74,7 @@ def setup_otel(app) -> None:
 
     # --- Celery ---
     try:
-        from opentelemetry.instrumentation.celery import CeleryInstrumentor
+        CeleryInstrumentor = import_module("opentelemetry.instrumentation.celery").CeleryInstrumentor
 
         CeleryInstrumentor().instrument()
         logger.info("OTel: Celery instrumented")
