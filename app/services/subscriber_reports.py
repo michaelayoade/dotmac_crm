@@ -5,7 +5,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast as typing_cast
 
 from sqlalchemy import Date, DateTime, Integer, Numeric, String, and_, case, cast, false, func, or_, select, text, true
 from sqlalchemy.orm import Session
@@ -1930,7 +1930,10 @@ def get_churn_table(
             next_bill_raw = _coerce_datetime_utc(mapped.get("next_bill_date"))
             due_days = (next_bill_raw.date() - today).days if next_bill_raw is not None else None
             balance_amount = _parse_balance_amount(mapped.get("balance") or customer.get("balance"))
-            sync_metadata = mapped.get("sync_metadata") if isinstance(mapped.get("sync_metadata"), Mapping) else {}
+            raw_sync_metadata = mapped.get("sync_metadata")
+            sync_metadata = (
+                typing_cast(Mapping[str, Any], raw_sync_metadata) if isinstance(raw_sync_metadata, Mapping) else {}
+            )
             invoiced_until_text = _live_invoiced_until(customer, sync_metadata, billing_start_date)
             invoiced_until_date = _parse_iso_date_text(invoiced_until_text)
             days_since_last_payment = (
@@ -2098,10 +2101,10 @@ def get_churn_table(
         sync_metadata = row.sync_metadata if isinstance(row.sync_metadata, Mapping) else {}
         invoiced_until_text = _metadata_text(sync_metadata, "invoiced_until")
         invoiced_until_date = _parse_iso_date_text(invoiced_until_text)
-        row_days_past_due: int | None = (
+        local_row_days_past_due: int | None = (
             max(0, (today - invoiced_until_date).days) if invoiced_until_date is not None else None
         )
-        days_since_last_payment = row_days_past_due
+        days_since_last_payment = local_row_days_past_due
         segment_value: str | None = None
         if status_value == SubscriberStatus.terminated.value:
             segment_value = "Churned"
@@ -2119,7 +2122,7 @@ def get_churn_table(
             continue
         if selected_segments and segment_value not in selected_segments:
             continue
-        if not _matches_days_past_due_bucket(row_days_past_due):
+        if not _matches_days_past_due_bucket(local_row_days_past_due):
             continue
 
         results.append(
@@ -2139,7 +2142,7 @@ def get_churn_table(
                 "expires_in": _metadata_text(sync_metadata, "expires_in"),
                 "invoiced_until": invoiced_until_text,
                 "days_since_last_payment": days_since_last_payment,
-                "days_past_due": row_days_past_due,
+                "days_past_due": local_row_days_past_due,
                 "total_paid": _parse_balance_amount(_metadata_text(sync_metadata, "total_paid")),
                 "days_to_due": due_days,
                 "risk_segment": segment_value,
