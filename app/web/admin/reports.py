@@ -570,10 +570,37 @@ def churned_subscribers(
         churned_count = kpis.get("terminated_in_period")
     if churned_count is None:
         churned_count = len(churned_rows)
-    kpis["churned_count"] = int(churned_count or 0)
+    period_churned_count = int(churned_count or 0)
+    churned_card_count = period_churned_count
+
+    try:
+        splynx_blocked_rows = sr.get_churn_table(
+            db,
+            source="splynx_live",
+            segments=["Suspended"],
+            limit=6000,
+            enrich_visible_rows=False,
+        )
+        blocked_90_plus_count = 0
+        for row in splynx_blocked_rows:
+            blocked_date_text = str(row.get("blocked_date") or "").strip()
+            if not blocked_date_text:
+                continue
+            try:
+                blocked_date_value = datetime.fromisoformat(blocked_date_text[:10]).date()
+            except ValueError:
+                continue
+            blocked_days = (datetime.now(UTC).date() - blocked_date_value).days
+            if blocked_days >= 90:
+                blocked_90_plus_count += 1
+        churned_card_count = blocked_90_plus_count
+    except Exception as exc:
+        logger.warning("splynx_live_blocked_90_plus_count_failed error=%s", exc)
+
+    kpis["churned_count"] = churned_card_count
 
     active_at_start = int(kpis.get("total_active_subscribers_start") or 0)
-    kpis["churn_rate"] = round((kpis["churned_count"] / active_at_start) * 100, 1) if active_at_start > 0 else 0.0
+    kpis["churn_rate"] = round((period_churned_count / active_at_start) * 100, 1) if active_at_start > 0 else 0.0
 
     return templates.TemplateResponse(
         "admin/reports/churned_subscribers.html",

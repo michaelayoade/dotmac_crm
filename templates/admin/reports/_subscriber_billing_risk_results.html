@@ -62,7 +62,7 @@
             <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.balance or 0)|float) }}</td>
         {% endcall %}
         {% else %}
-        {{ empty_state(title="No at-risk subscribers", message="No blocked, overdue, or due-soon subscribers matched the selected filters.", color="rose", color2="red", colspan=14) }}
+        {{ empty_state(title="No at-risk subscribers", message="No blocked, overdue, or due-soon subscribers matched the selected filters.", color="rose", color2="red", colspan=13) }}
         {% endfor %}
     </tbody>
 </table>
