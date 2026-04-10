@@ -27,9 +27,12 @@ Usage:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
 
-from dependency_injector import containers, providers
+_dependency_injector = import_module("dependency_injector")
+containers: Any = _dependency_injector.containers
+providers: Any = _dependency_injector.providers
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session

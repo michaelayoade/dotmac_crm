@@ -6,6 +6,8 @@ so we patch the minimal compatibility surface before generating PDFs.
 
 from __future__ import annotations
 
+from importlib import import_module
+
 
 def ensure_pydyf_compat() -> None:
     """Patch pydyf.PDF initializer for older API variants.
@@ -14,7 +16,7 @@ def ensure_pydyf_compat() -> None:
     """
 
     try:
-        import pydyf  # type: ignore[import-untyped]
+        pydyf = import_module("pydyf")
     except Exception:
         return
 

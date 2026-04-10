@@ -2,6 +2,7 @@
 
 import base64
 import mimetypes
+from importlib import import_module
 from urllib.parse import urljoin, urlparse
 
 from fastapi import HTTPException, Request
@@ -53,7 +54,7 @@ billing_service = _StubBillingService()
 
 def _ensure_pydyf_compat() -> None:
     try:
-        import pydyf  # type: ignore[import-untyped]
+        pydyf = import_module("pydyf")
     except Exception:
         return
     try:

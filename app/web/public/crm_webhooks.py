@@ -641,7 +641,7 @@ async def meta_webhook(
                     if secondary_name == "whatsapp_app_secret":
                         logger.info("meta_webhook_verified_with_whatsapp_secret")
             except Exception:
-                pass
+                logger.debug("meta_webhook_secondary_signature_verification_failed", exc_info=True)
         if not signature_valid:
             logger.info(
                 "meta_webhook_signature_invalid trace_id=%s signature_present=%s body_bytes=%s "
