@@ -15,19 +15,50 @@ from app.services.common import coerce_uuid
 logger = logging.getLogger(__name__)
 
 
+def _person_to_contact(person) -> dict | None:
+    """Convert a Person model to a contact dict if it has at least email or phone."""
+    if not person:
+        return None
+    contact = {
+        "name": person.display_name or f"{person.first_name} {person.last_name}".strip(),
+        "email": person.email,
+        "phone": person.phone,
+    }
+    if contact.get("email") or contact.get("phone"):
+        return contact
+    return None
+
+
 def _resolve_customer_contact(db: Session, work_order: WorkOrder) -> dict | None:
     """Resolve customer contact information from work order.
 
+    Tries multiple paths: subscriber -> person, then ticket -> customer person.
     Returns dict with name, email, phone if found, otherwise None.
     """
-
+    # Path 1: work_order -> subscriber -> person
     if work_order.subscriber and work_order.subscriber.person:
-        person = work_order.subscriber.person
-        return {
-            "name": person.display_name or f"{person.first_name} {person.last_name}".strip(),
-            "email": person.email,
-            "phone": person.phone,
-        }
+        contact = _person_to_contact(work_order.subscriber.person)
+        if contact:
+            return contact
+
+    # Path 2: work_order -> ticket -> customer_person
+    if work_order.ticket and work_order.ticket.customer_person_id:
+        from app.models.person import Person
+
+        customer = db.get(Person, work_order.ticket.customer_person_id)
+        contact = _person_to_contact(customer)
+        if contact:
+            return contact
+
+    # Path 3: work_order -> ticket -> subscriber -> person
+    if work_order.ticket and work_order.ticket.subscriber_id:
+        from app.models.subscriber import Subscriber
+
+        subscriber = db.get(Subscriber, work_order.ticket.subscriber_id)
+        if subscriber and subscriber.person:
+            contact = _person_to_contact(subscriber.person)
+            if contact:
+                return contact
 
     return None
 

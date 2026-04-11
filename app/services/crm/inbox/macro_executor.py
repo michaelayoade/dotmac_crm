@@ -66,6 +66,14 @@ def _exec_set_status(
         new_status=new_status,
         actor_id=actor_id,
     )
+    if result.kind == "invalid_transition":
+        logger.info(
+            "macro_set_status_transition_blocked conversation_id=%s target=%s reason=%s",
+            conversation_id,
+            new_status,
+            result.detail,
+        )
+        return {"action": "set_status", "ok": False, "skipped": True, "reason": result.detail}
     if result.kind != "updated":
         raise ValueError(f"Status update failed: {result.detail or result.kind}")
     return {"action": "set_status", "ok": True, "status": new_status}
@@ -143,6 +151,7 @@ def execute_macro(
     failed = 0
     results: list[dict[str, Any]] = []
 
+    skipped = 0
     for action in actions:
         action_type = action.get("action_type", "")
         params = action.get("params", {})
@@ -158,7 +167,10 @@ def execute_macro(
             else:
                 raise ValueError(f"Unknown action type: {action_type}")
             results.append(result)
-            executed += 1
+            if result.get("skipped"):
+                skipped += 1
+            else:
+                executed += 1
         except Exception as exc:
             logger.warning("Macro action %s failed: %s", action_type, exc)
             results.append({"action": action_type, "ok": False, "error": str(exc)})
@@ -176,7 +188,7 @@ def execute_macro(
         action="execute_macro",
         conversation_id=conversation_id,
         actor_id=actor_person_id,
-        metadata={"macro_id": macro_id, "executed": executed, "failed": failed},
+        metadata={"macro_id": macro_id, "executed": executed, "skipped": skipped, "failed": failed},
     )
 
     return MacroExecutionResult(

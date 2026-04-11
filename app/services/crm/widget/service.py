@@ -375,19 +375,21 @@ class ChatWidgetConfigManager:
     @staticmethod
     def validate_origin(config: ChatWidgetConfig, origin: str | None) -> bool:
         """Validate that the request origin is allowed."""
-        if not config.allowed_domains:
+        # Filter out empty/whitespace-only entries that can slip in from form input.
+        effective_domains = [d for d in (config.allowed_domains or []) if d and d.strip()]
+        if not effective_domains:
             # No restrictions - allow all
             return True
 
         if not origin:
-            # No origin header - reject
+            # No origin header - reject when domains are configured
             return False
 
         domain = _extract_domain_from_origin(origin)
         if not domain:
             return False
 
-        return any(_domain_matches_pattern(domain, pattern) for pattern in config.allowed_domains)
+        return any(_domain_matches_pattern(domain, pattern) for pattern in effective_domains)
 
     @staticmethod
     def get_public_config(config: ChatWidgetConfig) -> ChatWidgetPublicConfig:

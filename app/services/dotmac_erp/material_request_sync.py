@@ -155,6 +155,8 @@ class DotMacERPMaterialRequestSync:
             return f"Material request {mr.id} is in {mr.status.value} status and cannot be synced yet"
         if not mr.source_location:
             return "Source warehouse is required before syncing to ERP"
+        if not mr.items:
+            return f"Material request {mr.id} has no items — cannot sync to ERP"
         return None
 
 

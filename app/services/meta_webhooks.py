@@ -976,10 +976,14 @@ def process_whatsapp_webhook(
                 if target is None:
                     matches = message_query.limit(2).all()
                     if len(matches) > 1:
+                        target_ids = [str(m.channel_target_id) for m in matches]
                         logger.warning(
-                            "whatsapp_status_ambiguous_message wamid=%s status=%s",
+                            "whatsapp_status_ambiguous_message wamid=%s status=%s "
+                            "phone_number_id=%s match_target_ids=%s",
                             wa_message_id,
                             new_status_str,
+                            phone_number_id,
+                            target_ids,
                         )
                         results.append({"wamid": wa_message_id, "status": "skipped"})
                         continue

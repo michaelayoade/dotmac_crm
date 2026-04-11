@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from sqlalchemy.orm import Session
 
 from app.models.vendor import VendorPurchaseInvoice
-from app.services.dotmac_erp.client import DotMacERPClient
+from app.services.dotmac_erp.client import DotMacERPClient, DotMacERPTransientError
 from app.services.storage import storage
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,25 @@ class DotMacERPPurchaseInvoiceSync:
                 erp_purchase_invoice_id=invoice.erp_purchase_invoice_id,
             )
 
+        # Check prerequisite: PO must be synced before invoice can be pushed.
+        project = invoice.project
+        erp_po_id = (
+            (invoice.erp_purchase_order_id or "").strip()
+            or (getattr(project, "erp_purchase_order_id", None) or "").strip()
+        )
+        if not erp_po_id:
+            logger.info(
+                "purchase_invoice_sync_waiting_for_po invoice_id=%s project_id=%s",
+                invoice.id,
+                getattr(project, "id", None),
+            )
+            return PurchaseInvoiceSyncResult(
+                success=False,
+                invoice_id=str(invoice.id),
+                error="Waiting for PO sync — ERP purchase order ID not yet available",
+                error_type="PendingPrerequisite",
+            )
+
         try:
             payload = self._map_purchase_invoice(invoice)
             response = self.client.create_purchase_invoice(
@@ -73,6 +92,14 @@ class DotMacERPPurchaseInvoiceSync:
                 invoice_id=str(invoice.id),
                 erp_purchase_invoice_id=str(erp_id),
             )
+        except DotMacERPTransientError:
+            self.session.rollback()
+            raise
+        except (ConnectionError, TimeoutError, OSError) as exc:
+            self.session.rollback()
+            raise DotMacERPTransientError(
+                f"Transient transport error for invoice {invoice.id}: {exc}"
+            ) from exc
         except Exception as exc:
             self.session.rollback()
             try:

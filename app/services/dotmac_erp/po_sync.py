@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.vendor import ProjectQuote
 from app.models.workforce import WorkOrder
-from app.services.dotmac_erp.client import DotMacERPClient
+from app.services.dotmac_erp.client import DotMacERPClient, DotMacERPTransientError
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,12 @@ class DotMacERPPurchaseOrderSync:
                 work_order_id=str(work_order.id),
                 erp_po_id=erp_po_id,
             )
+        except DotMacERPTransientError:
+            raise
+        except (ConnectionError, TimeoutError, OSError) as e:
+            raise DotMacERPTransientError(
+                f"Transient transport error for PO sync WO {work_order.id}: {e}"
+            ) from e
         except Exception as e:
             logger.error("Failed to sync PO for WO %s to ERP: %s", work_order.id, e)
             return PurchaseOrderSyncResult(

@@ -78,6 +78,16 @@ def _record_channel_stat(channel: str, ok: bool, events: int | None = None) -> N
         stats["last_log"] = now
 
 
+def _is_broker_error(exc: Exception) -> bool:
+    """Check if an exception indicates the broker (Redis) is unreachable."""
+    # kombu.exceptions.OperationalError covers connection refused, timeout, etc.
+    cls_name = type(exc).__name__
+    if cls_name in ("OperationalError", "ConnectionError", "TimeoutError"):
+        return True
+    # redis-py wraps connection errors in its own ConnectionError
+    return "Connection" in cls_name or "Timeout" in cls_name
+
+
 def _enqueue_webhook_task(
     delay_fn: Callable[..., object],
     *,
@@ -85,10 +95,19 @@ def _enqueue_webhook_task(
     payload: dict,
     trace_id: str,
     message_id: str | None = None,
-) -> bool:
+) -> tuple[bool, bool]:
+    """Enqueue a webhook payload to Celery.
+
+    Returns (enqueued, broker_error): enqueued is True on success,
+    broker_error is True if the failure was a connection/timeout issue
+    (vs a per-message serialization error).
+
+    Relies on broker_connection_timeout (3-4s) configured in celery_app.py
+    to fail fast when Redis is unreachable.
+    """
     try:
         delay_fn(payload, trace_id=trace_id)
-        return True
+        return True, False
     except Exception as exc:
         logger.warning(
             "webhook_enqueue_failed channel=%s trace_id=%s message_id=%s error=%s",
@@ -104,7 +123,7 @@ def _enqueue_webhook_task(
             trace_id=trace_id,
             message_id=message_id,
         )
-        return False
+        return False, _is_broker_error(exc)
 
 
 def _webhook_tasks():
@@ -336,7 +355,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         try:
             parsed = WhatsAppWebhookPayload.model_validate_json(body)
             parsed_payload = parsed.model_dump()
-            enqueued = _enqueue_webhook_task(
+            enqueued, _ = _enqueue_webhook_task(
                 _webhook_tasks().process_whatsapp_webhook.delay,
                 channel="whatsapp",
                 payload=parsed_payload,
@@ -407,7 +426,7 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
         meta_payload, status_count = _parse_meta_whatsapp_status_payload(payload)
         if status_count and meta_payload is not None:
-            enqueued = _enqueue_webhook_task(
+            enqueued, _ = _enqueue_webhook_task(
                 _webhook_tasks().process_meta_webhook.delay,
                 channel="whatsapp",
                 payload=meta_payload.model_dump(),
@@ -439,9 +458,22 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
 
         enqueued_count = 0
         failed_count = 0
+        broker_dead = False
         for msg in messages:
             msg_payload = msg.model_dump()
-            enqueued = _enqueue_webhook_task(
+            if broker_dead:
+                # Short-circuit: broker already failed, dead-letter remaining messages
+                # without waiting for another timeout per message.
+                write_dead_letter(
+                    channel="whatsapp",
+                    raw_payload=msg_payload,
+                    error=ConnectionError("Broker unreachable — short-circuited"),
+                    trace_id=trace_id,
+                    message_id=msg.message_id,
+                )
+                failed_count += 1
+                continue
+            enqueued, is_broker_err = _enqueue_webhook_task(
                 _webhook_tasks().process_whatsapp_webhook.delay,
                 channel="whatsapp",
                 payload=msg_payload,
@@ -452,6 +484,8 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
                 enqueued_count += 1
             else:
                 failed_count += 1
+                if is_broker_err:
+                    broker_dead = True
 
         logger.info(
             "whatsapp_webhook_enqueued events=%d enqueued=%d failed=%d",
@@ -493,7 +527,7 @@ def email_webhook(payload: EmailWebhookPayload, db: Session = Depends(get_db)):
             body_len,
             attachments,
         )
-    enqueued = _enqueue_webhook_task(
+    enqueued, _ = _enqueue_webhook_task(
         _webhook_tasks().process_email_webhook.delay,
         channel="email",
         payload=payload.model_dump(),
@@ -666,7 +700,7 @@ async def meta_webhook(
             )
 
         event_count = sum(len(entry.messaging or []) + len(entry.changes or []) for entry in payload.entry)
-        enqueued = _enqueue_webhook_task(
+        enqueued, _ = _enqueue_webhook_task(
             _webhook_tasks().process_meta_webhook.delay,
             channel="meta",
             payload=payload.model_dump(),

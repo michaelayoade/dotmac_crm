@@ -39,6 +39,13 @@ def _base_celery_config() -> dict[str, object]:
         "beat_max_loop_interval": _env_int("CELERY_BEAT_MAX_LOOP_INTERVAL", 5),
         "beat_refresh_seconds": _env_int("CELERY_BEAT_REFRESH_SECONDS", 30),
         "beat_scheduler": "app.celery_scheduler.DbScheduler",
+        # Fail fast when Redis is unreachable so webhook handlers don't block.
+        "broker_connection_timeout": 4,
+        "broker_connection_retry_on_startup": True,
+        "broker_transport_options": {
+            "socket_connect_timeout": 3,
+            "socket_timeout": 3,
+        },
     }
 
 
