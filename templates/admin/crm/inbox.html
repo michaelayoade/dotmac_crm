@@ -13,6 +13,45 @@
         htmx.config.globalViewTransitions = false;
     });
 </script>
+<style>
+    .inbox-sidebar-tooltip {
+        position: relative;
+    }
+
+    .inbox-sidebar-tooltip::after {
+        content: attr(data-inbox-tooltip);
+        pointer-events: none;
+        position: absolute;
+        left: 50%;
+        top: calc(100% + 0.375rem);
+        z-index: 100;
+        max-width: 14rem;
+        transform: translateX(-50%);
+        white-space: nowrap;
+        border-radius: 0.375rem;
+        background: #0f172a;
+        padding: 0.25rem 0.5rem;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1.25;
+        opacity: 0;
+        visibility: hidden;
+        box-shadow: 0 10px 15px -3px rgb(15 23 42 / 0.2), 0 4px 6px -4px rgb(15 23 42 / 0.2);
+    }
+
+    .inbox-sidebar-tooltip:hover::after,
+    .inbox-sidebar-tooltip:focus-visible::after,
+    .inbox-sidebar-tooltip:focus-within::after {
+        opacity: 1;
+        visibility: visible;
+    }
+
+    .dark .inbox-sidebar-tooltip::after {
+        background: #f8fafc;
+        color: #0f172a;
+    }
+</style>
 <!-- Inbox styles are now in static/css/src/main.css -->
 {% endblock %}
 
@@ -98,9 +137,9 @@
     </div>
 
     <!-- Left Sidebar - Channel Filters & Conversation List -->
-    <aside class="w-full flex-shrink-0 flex flex-col border-r border-slate-200/60 bg-slate-50/50 dark:border-slate-700/60 dark:bg-slate-900/60"
+    <aside class="relative w-full flex-shrink-0 flex flex-col border-r border-slate-200/60 bg-slate-50/50 dark:border-slate-700/60 dark:bg-slate-900/60"
            :class="selectedConversation && isNarrowViewport ? 'hidden' : 'flex'"
-           :style="isNarrowViewport ? '' : 'width: 20rem;'">
+           :style="sidebarStyle()">
         <!-- Header -->
         <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200/60 dark:border-slate-700/60">
             <div class="flex items-center gap-3">
@@ -114,14 +153,14 @@
                     <p class="text-xs text-slate-500 dark:text-slate-400">
                         <span class="font-semibold text-amber-600 dark:text-amber-400" x-text="stats.unread || 0">{{ (stats or {}).get("unread", 0) }}</span> unread conversations
                         <span x-show="wsConnected"
-                              class="ml-2 inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"
-                              title="Real-time updates active">
+                              data-inbox-tooltip="Real-time updates active"
+                              class="inbox-sidebar-tooltip ml-2 inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                             <span class="text-[10px] uppercase tracking-wide font-medium">Live</span>
                         </span>
                         <span x-show="wsDisconnectedPermanently" x-cloak
-                              class="ml-2 inline-flex items-center gap-1 text-red-500 dark:text-red-400"
-                              title="Real-time updates offline — refresh to reconnect">
+                              data-inbox-tooltip="Real-time updates offline. Refresh to reconnect."
+                              class="inbox-sidebar-tooltip ml-2 inline-flex items-center gap-1 text-red-500 dark:text-red-400">
                             <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
                             <span class="text-[10px] uppercase tracking-wide font-medium">Offline</span>
                         </span>
@@ -130,8 +169,9 @@
             </div>
             <div class="flex items-center gap-1">
                 <button type="button" @click="showNewConversation = true"
-                        class="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:text-amber-600 hover:bg-amber-50 transition-colors dark:text-slate-400 dark:hover:text-amber-400 dark:hover:bg-amber-500/10"
-                        title="New conversation">
+                        aria-label="New conversation"
+                        data-inbox-tooltip="New conversation"
+                        class="inbox-sidebar-tooltip flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-amber-50 hover:text-amber-600 dark:text-slate-400 dark:hover:bg-amber-500/10 dark:hover:text-amber-400">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5"/>
                     </svg>
@@ -139,9 +179,9 @@
                 <button type="button"
                         @click="toggleNotificationSound()"
                         :class="notificationSoundEnabled ? 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:text-emerald-300 dark:hover:bg-emerald-500/10' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800'"
-                        class="flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
-                        :aria-label="notificationSoundEnabled ? 'Mute notification sound' : 'Enable notification sound'"
-                        title="Toggle notification sound">
+                        class="inbox-sidebar-tooltip flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
+                        :data-inbox-tooltip="notificationSoundEnabled ? 'Mute notification sound' : 'Enable notification sound'"
+                        :aria-label="notificationSoundEnabled ? 'Mute notification sound' : 'Enable notification sound'">
                     <svg x-show="notificationSoundEnabled" x-cloak class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5L6 9H3v6h3l5 4V5z"/>
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.5 8.5a5 5 0 010 7"/>
@@ -153,8 +193,9 @@
                     </svg>
                 </button>
                 <a href="/admin/crm/inbox/settings"
-                   class="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800"
-                   title="Inbox settings">
+                   aria-label="Inbox settings"
+                   data-inbox-tooltip="Inbox settings"
+                   class="inbox-sidebar-tooltip flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.370.996-.608.07 2.296-1.065 2.572-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.370-2.370.996.608 2.296.07 2.572-1.065z"/>
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
@@ -193,7 +234,7 @@
         <div class="px-4 pb-2">
             <button type="button"
                     @click="toggleInboxStats()"
-                    class="flex w-full items-center justify-between rounded-lg border border-slate-200/70 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700/70 dark:bg-slate-800/70 dark:text-slate-300 dark:hover:bg-slate-800">
+                    class="flex w-full items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 shadow-sm transition hover:border-amber-300 hover:bg-amber-100 hover:text-slate-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200 dark:hover:border-amber-400/50 dark:hover:bg-amber-500/20 dark:hover:text-amber-50">
                 <span>Inbox Stats & Filters</span>
                 <svg class="h-4 w-4 transition-transform"
                      :class="showInboxStats ? 'rotate-180' : ''"
@@ -374,11 +415,11 @@
                 </div>
                 {% endif %}
 
-                <div class="flex items-center gap-2" x-show="availableInboxes(currentChannel).length">
-                    <span class="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Inbox</span>
+                <div class="flex min-w-0 items-center gap-2" x-show="availableInboxes(currentChannel).length">
+                    <span class="shrink-0 text-[11px] font-semibold text-slate-500 dark:text-slate-400">Inbox</span>
                     <select x-model="currentInboxTargetId"
                             @change="filterConversations()"
-                            class="flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm focus:border-amber-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                            class="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm focus:border-amber-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                         <option value="">All inboxes</option>
                         <template x-for="inbox in availableInboxes(currentChannel)" :key="inbox.target_id">
                             <option :value="inbox.target_id"
@@ -504,6 +545,19 @@
             {% else %}
                 {% include "admin/crm/_conversation_list.html" %}
             {% endif %}
+        </div>
+
+        <div x-show="!isNarrowViewport"
+             x-cloak
+             @pointerdown.prevent="startSidebarResize($event)"
+             role="separator"
+             aria-orientation="vertical"
+             aria-label="Resize inbox sidebar"
+             title="Drag to resize sidebar"
+             class="group absolute -right-1 top-0 z-30 hidden h-full w-3 cursor-ew-resize items-center justify-center lg:flex">
+            <span class="flex h-14 w-1.5 items-center justify-center rounded-full bg-slate-300/70 opacity-0 transition group-hover:opacity-100 dark:bg-slate-600/80">
+                <span class="h-8 w-px rounded-full bg-amber-500 dark:bg-amber-300"></span>
+            </span>
         </div>
     </aside>
 
@@ -1027,6 +1081,16 @@ function inboxController() {
         replyTo: null,
         searchInteracted: false,
         isNarrowViewport: false,
+        sidebarWidthPx: 320,
+        sidebarMinWidthPx: 288,
+        sidebarMaxWidthPx: 448,
+        sidebarResizeActive: false,
+        sidebarResizeStartX: 0,
+        sidebarResizeStartWidth: 320,
+        sidebarResizeMoveHandler: null,
+        sidebarResizeEndHandler: null,
+        sidebarPreviousBodyCursor: '',
+        sidebarPreviousBodyUserSelect: '',
         _initialized: false,
         viewportMediaQuery: null,
         viewportListener: null,
@@ -1040,6 +1104,7 @@ function inboxController() {
             this.initializeSearchState();
             this.scheduleSearchAutofillGuard();
             this.initViewportMode();
+            this.restoreSidebarWidth();
             this.restoreInboxUiPreferences();
 
             // Setup HTMX event listeners
@@ -1279,6 +1344,62 @@ function inboxController() {
             this.showInboxStats = !this.showInboxStats;
             try {
                 window.localStorage.setItem('crmInboxShowStats', this.showInboxStats ? '1' : '0');
+            } catch (e) {}
+        },
+        clampSidebarWidth(width) {
+            const numericWidth = Number(width);
+            if (!Number.isFinite(numericWidth)) return this.sidebarResizeStartWidth;
+            return Math.min(this.sidebarMaxWidthPx, Math.max(this.sidebarMinWidthPx, numericWidth));
+        },
+        restoreSidebarWidth() {
+            try {
+                const stored = window.localStorage.getItem('crmInboxSidebarWidthPx');
+                if (!stored) return;
+                this.sidebarWidthPx = this.clampSidebarWidth(Number(stored));
+            } catch (e) {}
+        },
+        sidebarStyle() {
+            if (this.isNarrowViewport) return '';
+            return `width: ${this.clampSidebarWidth(this.sidebarWidthPx)}px;`;
+        },
+        startSidebarResize(event) {
+            if (this.isNarrowViewport) return;
+            this.sidebarResizeActive = true;
+            this.sidebarResizeStartX = event.clientX;
+            this.sidebarResizeStartWidth = this.clampSidebarWidth(this.sidebarWidthPx);
+            this.sidebarPreviousBodyCursor = document.body.style.cursor || '';
+            this.sidebarPreviousBodyUserSelect = document.body.style.userSelect || '';
+            document.body.style.cursor = 'ew-resize';
+            document.body.style.userSelect = 'none';
+
+            this.sidebarResizeMoveHandler = (moveEvent) => {
+                const nextWidth = this.sidebarResizeStartWidth + (moveEvent.clientX - this.sidebarResizeStartX);
+                this.sidebarWidthPx = this.clampSidebarWidth(nextWidth);
+            };
+            this.sidebarResizeEndHandler = () => {
+                this.stopSidebarResize();
+            };
+
+            window.addEventListener('pointermove', this.sidebarResizeMoveHandler);
+            window.addEventListener('pointerup', this.sidebarResizeEndHandler, { once: true });
+            window.addEventListener('pointercancel', this.sidebarResizeEndHandler, { once: true });
+        },
+        stopSidebarResize() {
+            if (!this.sidebarResizeActive) return;
+            this.sidebarResizeActive = false;
+            document.body.style.cursor = this.sidebarPreviousBodyCursor;
+            document.body.style.userSelect = this.sidebarPreviousBodyUserSelect;
+            if (this.sidebarResizeMoveHandler) {
+                window.removeEventListener('pointermove', this.sidebarResizeMoveHandler);
+                this.sidebarResizeMoveHandler = null;
+            }
+            if (this.sidebarResizeEndHandler) {
+                window.removeEventListener('pointerup', this.sidebarResizeEndHandler);
+                window.removeEventListener('pointercancel', this.sidebarResizeEndHandler);
+                this.sidebarResizeEndHandler = null;
+            }
+            try {
+                window.localStorage.setItem('crmInboxSidebarWidthPx', String(this.clampSidebarWidth(this.sidebarWidthPx)));
             } catch (e) {}
         },
         assignmentCount(key) {

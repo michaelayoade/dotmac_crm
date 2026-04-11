@@ -171,6 +171,11 @@
 
     <!-- 1. DASHBOARD -->
     <a href="/admin/dashboard"
+       data-sidebar-tooltip="Dashboard"
+       x-on:mouseenter="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
+       x-on:focus="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
+       x-on:mouseleave="$dispatch('admin-sidebar-tooltip-hide')"
+       x-on:blur="$dispatch('admin-sidebar-tooltip-hide')"
        class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
               {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'dashboard' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
         <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -181,7 +186,12 @@
 
     <!-- 1b. NEXTCLOUD TALK (opens drawer) -->
     <button type="button"
+            data-sidebar-tooltip="Talk"
             x-on:click="window.dispatchEvent(new CustomEvent('nextcloud-talk-toggle'))"
+            x-on:mouseenter="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
+            x-on:focus="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
+            x-on:mouseleave="$dispatch('admin-sidebar-tooltip-hide')"
+            x-on:blur="$dispatch('admin-sidebar-tooltip-hide')"
             class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                    text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white">
         <svg class="h-5 w-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -476,6 +486,11 @@
     {% if reports_section_visible %}
     <div>
         <button x-on:click="openMenu = openMenu === 'reports' ? '' : 'reports'"
+                data-sidebar-tooltip="Reports"
+                x-on:mouseenter="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
+                x-on:focus="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
+                x-on:mouseleave="$dispatch('admin-sidebar-tooltip-hide')"
+                x-on:blur="$dispatch('admin-sidebar-tooltip-hide')"
                 class="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors
                        dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white
                        {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_menu == 'reports' else '' }}">
@@ -526,6 +541,11 @@
     {% if system_section_visible %}
     <div>
         <button x-on:click="openMenu = openMenu === 'system' ? '' : 'system'"
+                data-sidebar-tooltip="System"
+                x-on:mouseenter="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
+                x-on:focus="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
+                x-on:mouseleave="$dispatch('admin-sidebar-tooltip-hide')"
+                x-on:blur="$dispatch('admin-sidebar-tooltip-hide')"
                 class="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors
                        dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white
                        {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_menu == 'system' else '' }}">
@@ -576,6 +596,11 @@
     {% if user_guide_section_visible %}
     <div>
         <button x-on:click="openMenu = openMenu === 'user-guide' ? '' : 'user-guide'"
+                data-sidebar-tooltip="User Guide"
+                x-on:mouseenter="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
+                x-on:focus="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
+                x-on:mouseleave="$dispatch('admin-sidebar-tooltip-hide')"
+                x-on:blur="$dispatch('admin-sidebar-tooltip-hide')"
                 class="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors
                        dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white
                        {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_menu == 'user-guide' else '' }}">
