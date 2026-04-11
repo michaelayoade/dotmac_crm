@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Literal
 
@@ -18,6 +19,12 @@ from app.services.common import coerce_uuid
 from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
+
+# Cache of attachment IDs that returned 400-level errors from Meta.
+# Maps attachment_id -> (status_code, timestamp).  Entries expire after 1 hour
+# so we can retry in case the issue was transient (e.g. token rotation).
+_FAILED_ATTACHMENT_CACHE: dict[str, tuple[int, float]] = {}
+_FAILED_CACHE_TTL = 3600  # seconds
 
 
 @dataclass(frozen=True)
@@ -56,6 +63,18 @@ def fetch_inbox_attachment(
     payload = payload_value if isinstance(payload_value, dict) else {}
     attachment_id = payload.get("attachment_id") or payload.get("id") or meta_attachment.get("id")
     url = payload.get("url") or meta_attachment.get("url")
+
+    # Skip re-fetching attachments that already failed with a client error from Meta.
+    if attachment_id and attachment_id in _FAILED_ATTACHMENT_CACHE:
+        cached_status, cached_at = _FAILED_ATTACHMENT_CACHE[attachment_id]
+        if time.monotonic() - cached_at < _FAILED_CACHE_TTL:
+            logger.debug(
+                "crm_inbox_attachment_cached_failure attachment_id=%s status=%s",
+                attachment_id,
+                cached_status,
+            )
+            return AttachmentFetchResult(kind="not_found")
+        del _FAILED_ATTACHMENT_CACHE[attachment_id]
     if url and not url.startswith(("http://", "https://")):
         return AttachmentFetchResult(kind="redirect", redirect_url=url)
 
@@ -115,11 +134,8 @@ def fetch_inbox_attachment(
                     timeout=10,
                 )
                 if response.status_code >= 400:
-                    logger.warning(
-                        "crm_inbox_attachment_fetch_failed message_id=%s attachment_id=%s status=%s",
-                        message_id,
-                        attachment_id,
-                        response.status_code,
+                    _cache_and_log_failure(
+                        attachment_id, response, message_id, message.channel_type,
                     )
                     return AttachmentFetchResult(kind="not_found")
                 payload = response.json() if response.content else {}
@@ -139,11 +155,8 @@ def fetch_inbox_attachment(
                     timeout=10,
                 )
                 if response.status_code >= 400:
-                    logger.warning(
-                        "crm_inbox_attachment_fetch_failed message_id=%s attachment_id=%s status=%s",
-                        message_id,
-                        attachment_id,
-                        response.status_code,
+                    _cache_and_log_failure(
+                        attachment_id, response, message_id, message.channel_type,
                     )
                     return AttachmentFetchResult(kind="not_found")
                 payload = response.json() if response.content else {}
@@ -156,11 +169,8 @@ def fetch_inbox_attachment(
                 timeout=10,
             )
         if media_response.status_code >= 400:
-            logger.warning(
-                "crm_inbox_attachment_fetch_failed message_id=%s attachment_id=%s status=%s",
-                message_id,
-                attachment_id,
-                media_response.status_code,
+            _cache_and_log_failure(
+                attachment_id, media_response, message_id, message.channel_type,
             )
             return AttachmentFetchResult(kind="not_found")
     except httpx.HTTPError:
@@ -172,3 +182,29 @@ def fetch_inbox_attachment(
         content=media_response.content,
         content_type=content_type,
     )
+
+
+def _cache_and_log_failure(
+    attachment_id: str | None,
+    response: httpx.Response,
+    message_id: str,
+    channel_type: ChannelType,
+) -> None:
+    """Log the Meta API error body and cache the failure to avoid repeated calls."""
+    error_body = response.text[:500] if response.text else "(empty)"
+    logger.warning(
+        "crm_inbox_attachment_fetch_failed message_id=%s attachment_id=%s "
+        "channel=%s status=%s body=%s",
+        message_id,
+        attachment_id,
+        channel_type.value if channel_type else "unknown",
+        response.status_code,
+        error_body,
+    )
+    if attachment_id and 400 <= response.status_code < 500:
+        # Cap cache size to prevent unbounded growth from many unique failures.
+        if len(_FAILED_ATTACHMENT_CACHE) >= 1000:
+            # Evict the oldest entry.
+            oldest_key = min(_FAILED_ATTACHMENT_CACHE, key=lambda k: _FAILED_ATTACHMENT_CACHE[k][1])
+            del _FAILED_ATTACHMENT_CACHE[oldest_key]
+        _FAILED_ATTACHMENT_CACHE[attachment_id] = (response.status_code, time.monotonic())

@@ -50,6 +50,10 @@ def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
     }
 
 
+class _ResolveError(Exception):
+    """Raised when a user-supplied reference can't be resolved."""
+
+
 def _resolve_ticket_id(db: Session, value: str | None):
     raw = (value or "").strip()
     if not raw:
@@ -57,7 +61,10 @@ def _resolve_ticket_id(db: Session, value: str | None):
     ticket = db.query(Ticket).filter(Ticket.number == raw).first()
     if ticket:
         return ticket.id
-    return coerce_uuid(raw)
+    try:
+        return coerce_uuid(raw)
+    except (ValueError, AttributeError):
+        raise _ResolveError(f"Ticket '{raw}' not found")
 
 
 def _resolve_project_id(db: Session, value: str | None):
@@ -67,14 +74,20 @@ def _resolve_project_id(db: Session, value: str | None):
     project = db.query(Project).filter(Project.number == raw).first()
     if project:
         return project.id
-    return coerce_uuid(raw)
+    try:
+        return coerce_uuid(raw)
+    except (ValueError, AttributeError):
+        raise _ResolveError(f"Project '{raw}' not found")
 
 
 def _resolve_warehouse_id(value: str | None):
     raw = (value or "").strip()
     if not raw:
         return None
-    return coerce_uuid(raw)
+    try:
+        return coerce_uuid(raw)
+    except (ValueError, AttributeError):
+        raise _ResolveError(f"Warehouse '{raw}' is not a valid ID")
 
 
 def _resolve_date(value: str | None) -> date | None:
@@ -217,14 +230,32 @@ def material_request_create(
                 )
             )
 
+    try:
+        resolved_ticket_id = _resolve_ticket_id(db, ticket_id)
+        resolved_project_id = _resolve_project_id(db, project_id)
+        resolved_source = _resolve_warehouse_id(source_location_id)
+        resolved_dest = _resolve_warehouse_id(destination_location_id)
+    except _ResolveError as exc:
+        context = _base_ctx(
+            request,
+            db,
+            mr=None,
+            ticket_id=ticket_id,
+            project_id=project_id,
+            priorities=[p.value for p in MaterialRequestPriority],
+            warehouses=_warehouse_choices(db),
+            error=str(exc),
+        )
+        return templates.TemplateResponse("admin/material_requests/form.html", context)
+
     payload = MaterialRequestCreate(
-        ticket_id=_resolve_ticket_id(db, ticket_id),
-        project_id=_resolve_project_id(db, project_id),
-        requested_by_person_id=person_id,
+        ticket_id=resolved_ticket_id,
+        project_id=resolved_project_id,
+        requested_by_person_id=coerce_uuid(person_id),
         priority=MaterialRequestPriority(priority) if priority else MaterialRequestPriority.medium,
         notes=notes,
-        source_location_id=_resolve_warehouse_id(source_location_id),
-        destination_location_id=_resolve_warehouse_id(destination_location_id),
+        source_location_id=resolved_source,
+        destination_location_id=resolved_dest,
         items=items or None,
     )
     mr = material_requests.create(db, payload)

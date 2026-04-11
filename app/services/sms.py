@@ -292,12 +292,12 @@ def send_sms(
         # Create delivery record
         delivery = NotificationDelivery(
             notification_id=notification.id,
-            channel=NotificationChannel.sms,
-            recipient=normalized_phone,
+            provider=provider or "unknown",
+            provider_message_id=external_id,
             status=DeliveryStatus.delivered if success else DeliveryStatus.failed,
             occurred_at=datetime.now(UTC),
-            external_id=external_id,
-            error_message=error_message,
+            response_code="200" if success else "500",
+            response_body=error_message,
         )
         db.add(delivery)
         db.commit()

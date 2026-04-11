@@ -37,6 +37,28 @@ def _is_valid_splynx_id(value: object) -> bool:
     return bool(cleaned) and cleaned.isdigit()
 
 
+def _clear_invalid_splynx_id(person_id: object) -> None:
+    """Remove invalid splynx_id from person metadata in an isolated transaction.
+
+    Uses its own session so the cleanup survives even if the calling handler
+    is rolled back by the event dispatcher.
+    """
+    from app.db import SessionLocal
+
+    isolated = SessionLocal()
+    try:
+        person = isolated.get(Person, person_id)
+        if person and isinstance(person.metadata_, dict) and "splynx_id" in person.metadata_:
+            person.metadata_ = {k: v for k, v in person.metadata_.items() if k != "splynx_id"}
+            isolated.add(person)
+            isolated.commit()
+    except Exception:
+        isolated.rollback()
+        logger.warning("splynx_clear_invalid_id_failed person_id=%s", person_id, exc_info=True)
+    finally:
+        isolated.close()
+
+
 class SplynxCustomerHandler:
     """Create Splynx customers when projects are created."""
 
@@ -79,10 +101,14 @@ class SplynxCustomerHandler:
 
             if existing_splynx_id:
                 logger.warning(
-                    "splynx_invalid_existing_id person_id=%s splynx_id=%s; creating new customer",
+                    "splynx_invalid_existing_id person_id=%s splynx_id=%s; clearing and creating new customer",
                     person.id,
                     person.splynx_id,
                 )
+                # Clear the invalid value using an isolated session so the
+                # cleanup persists even if create_customer() fails and the
+                # dispatcher rolls back the handler's shared session.
+                _clear_invalid_splynx_id(person.id)
 
         splynx_id = create_customer(db, person)
         if not splynx_id:

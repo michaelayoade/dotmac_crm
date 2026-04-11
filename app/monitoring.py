@@ -78,6 +78,12 @@ def setup_sentry(app_name: str, environment: str, glitchtip_dsn: str | None = No
         logging.getLogger(__name__).info("SENTRY_DSN not set — GlitchTip/Sentry disabled")
         return
 
+    if not _host_reachable(dsn):
+        logging.getLogger(__name__).warning(
+            "GlitchTip endpoint unreachable (%s) — Sentry SDK not initialised", dsn
+        )
+        return
+
     try:
         import sentry_sdk
     except ImportError:
@@ -91,7 +97,14 @@ def setup_sentry(app_name: str, environment: str, glitchtip_dsn: str | None = No
         environment=environment,
         traces_sample_rate=traces_sample_rate,
         server_name=app_name,
+        # Don't block app shutdown waiting for an unreachable GlitchTip.
+        shutdown_timeout=5,
     )
+
+    # Suppress noisy Sentry transport retry logs that flood when GlitchTip
+    # is persistently down. The SDK itself handles backoff internally.
+    logging.getLogger("sentry_sdk.errors").setLevel(logging.ERROR)
+    logging.getLogger("sentry_sdk.transport").setLevel(logging.ERROR)
 
 
 def _parse_traces_sample_rate(raw: str) -> float:
