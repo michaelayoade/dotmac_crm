@@ -135,7 +135,10 @@ def fetch_inbox_attachment(
                 )
                 if response.status_code >= 400:
                     _cache_and_log_failure(
-                        attachment_id, response, message_id, message.channel_type,
+                        attachment_id,
+                        response,
+                        message_id,
+                        message.channel_type,
                     )
                     return AttachmentFetchResult(kind="not_found")
                 payload = response.json() if response.content else {}
@@ -156,7 +159,10 @@ def fetch_inbox_attachment(
                 )
                 if response.status_code >= 400:
                     _cache_and_log_failure(
-                        attachment_id, response, message_id, message.channel_type,
+                        attachment_id,
+                        response,
+                        message_id,
+                        message.channel_type,
                     )
                     return AttachmentFetchResult(kind="not_found")
                 payload = response.json() if response.content else {}
@@ -170,7 +176,10 @@ def fetch_inbox_attachment(
             )
         if media_response.status_code >= 400:
             _cache_and_log_failure(
-                attachment_id, media_response, message_id, message.channel_type,
+                attachment_id,
+                media_response,
+                message_id,
+                message.channel_type,
             )
             return AttachmentFetchResult(kind="not_found")
     except httpx.HTTPError:
@@ -193,8 +202,7 @@ def _cache_and_log_failure(
     """Log the Meta API error body and cache the failure to avoid repeated calls."""
     error_body = response.text[:500] if response.text else "(empty)"
     logger.warning(
-        "crm_inbox_attachment_fetch_failed message_id=%s attachment_id=%s "
-        "channel=%s status=%s body=%s",
+        "crm_inbox_attachment_fetch_failed message_id=%s attachment_id=%s channel=%s status=%s body=%s",
         message_id,
         attachment_id,
         channel_type.value if channel_type else "unknown",

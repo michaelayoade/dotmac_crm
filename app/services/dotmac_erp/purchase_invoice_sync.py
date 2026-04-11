@@ -47,10 +47,9 @@ class DotMacERPPurchaseInvoiceSync:
 
         # Check prerequisite: PO must be synced before invoice can be pushed.
         project = invoice.project
-        erp_po_id = (
-            (invoice.erp_purchase_order_id or "").strip()
-            or (getattr(project, "erp_purchase_order_id", None) or "").strip()
-        )
+        erp_po_id = (invoice.erp_purchase_order_id or "").strip() or (
+            getattr(project, "erp_purchase_order_id", None) or ""
+        ).strip()
         if not erp_po_id:
             logger.info(
                 "purchase_invoice_sync_waiting_for_po invoice_id=%s project_id=%s",
@@ -60,7 +59,7 @@ class DotMacERPPurchaseInvoiceSync:
             return PurchaseInvoiceSyncResult(
                 success=False,
                 invoice_id=str(invoice.id),
-                error="Waiting for PO sync — ERP purchase order ID not yet available",
+                error="Waiting for PO sync — no ERP purchase order ID is available yet",
                 error_type="PendingPrerequisite",
             )
 
@@ -97,9 +96,7 @@ class DotMacERPPurchaseInvoiceSync:
             raise
         except (ConnectionError, TimeoutError, OSError) as exc:
             self.session.rollback()
-            raise DotMacERPTransientError(
-                f"Transient transport error for invoice {invoice.id}: {exc}"
-            ) from exc
+            raise DotMacERPTransientError(f"Transient transport error for invoice {invoice.id}: {exc}") from exc
         except Exception as exc:
             self.session.rollback()
             try:

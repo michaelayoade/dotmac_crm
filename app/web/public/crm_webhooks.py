@@ -700,12 +700,13 @@ async def meta_webhook(
             )
 
         event_count = sum(len(entry.messaging or []) + len(entry.changes or []) for entry in payload.entry)
-        enqueued, _ = _enqueue_webhook_task(
+        enqueue_result = _enqueue_webhook_task(
             _webhook_tasks().process_meta_webhook.delay,
             channel="meta",
             payload=payload.model_dump(),
             trace_id=trace_id,
         )
+        enqueued = bool(enqueue_result[0] if isinstance(enqueue_result, tuple) else enqueue_result)
         logger.info("meta_webhook_enqueued type=%s events=%d enqueued=%s", payload.object, event_count, enqueued)
         _record_channel_stat("meta", ok=enqueued, events=event_count)
         if _should_sample():
