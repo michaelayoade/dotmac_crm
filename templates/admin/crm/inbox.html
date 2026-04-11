@@ -5,7 +5,6 @@
 
 {% block head %}
 <script src="/static/js/inbox-websocket.js"></script>
-<script src="/static/js/inbox-shortcuts.js"></script>
 <script src="/static/js/inbox-shortcodes.js"></script>
 <script>
     // Disable view transitions for inbox to prevent refresh flicker
@@ -838,6 +837,8 @@
                     <textarea name="message"
                               x-ref="newConversationMessage"
                               rows="4"
+                              data-voice-enabled
+                              data-voice-context="crm_new_conversation"
                               placeholder="Write your message..."
                               :readonly="newConversationChannel === 'whatsapp' && selectedWhatsappTemplateName"
                               class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500"></textarea>
@@ -1023,7 +1024,6 @@ function inboxController() {
         notificationSoundEnabled: true,
         notificationAudio: null,
         showShortcutsHelp: false,
-        _inboxShortcuts: null,
         replyTo: null,
         searchInteracted: false,
         isNarrowViewport: false,
@@ -1220,38 +1220,6 @@ function inboxController() {
                     this.refreshThread(true);
                 });
             }
-
-            // Initialize keyboard shortcuts
-            this._inboxShortcuts = new InboxShortcuts();
-            document.addEventListener('inbox-shortcut-reply', () => {
-                const textarea = this.getReplyTextarea();
-                if (textarea) textarea.focus();
-            });
-            document.addEventListener('inbox-shortcut-resolve', () => {
-                if (!this.selectedConversation) return;
-                const resolveBtn = document.querySelector('[data-action="resolve-conversation"]');
-                if (resolveBtn) resolveBtn.click();
-            });
-            document.addEventListener('inbox-shortcut-navigate', (e) => {
-                this.navigateConversation(e.detail.direction);
-            });
-            document.addEventListener('inbox-shortcut-help', () => {
-                this.showShortcutsHelp = !this.showShortcutsHelp;
-            });
-            document.addEventListener('inbox-command-palette', () => {
-                if (this.showCommandPalette) {
-                    this.closeCommandPalette();
-                    return;
-                }
-                this.openCommandPalette();
-            });
-            document.addEventListener('inbox-shortcut-escape', () => {
-                if (this.showCommandPalette) {
-                    this.closeCommandPalette();
-                    return;
-                }
-                if (this.showShortcutsHelp) this.showShortcutsHelp = false;
-            });
 
             // Initialize shortcodes on reply textarea after thread loads
             document.body.addEventListener('htmx:afterSwap', (e) => {
@@ -2907,7 +2875,6 @@ function inboxController() {
                 { id: 'assign-me', label: 'Assign Conversation to Me', hint: 'Current conversation', group: 'Assignment', keywords: 'assign me owner' },
                 { id: 'next-conversation', label: 'Next Conversation', hint: 'Move down the list', group: 'Navigation', keywords: 'next down j' },
                 { id: 'prev-conversation', label: 'Previous Conversation', hint: 'Move up the list', group: 'Navigation', keywords: 'previous up k' },
-                { id: 'toggle-help', label: 'Toggle Keyboard Help', hint: 'Show shortcuts modal', group: 'General', keywords: 'help shortcuts' },
             ];
         },
 
