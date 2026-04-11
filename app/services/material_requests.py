@@ -32,6 +32,53 @@ from app.services.response import ListResponseMixin
 logger = logging.getLogger(__name__)
 
 # Terminal statuses that cannot transition further
+class ResolveError(Exception):
+    """Raised when a user-supplied reference (ticket, project, warehouse) can't be resolved."""
+
+
+def resolve_ticket_id(db: Session, value: str | None):
+    """Resolve a ticket number or UUID string to a ticket UUID. Returns None if empty."""
+    from app.models.tickets import Ticket
+
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    ticket = db.query(Ticket).filter(Ticket.number == raw).first()
+    if ticket:
+        return ticket.id
+    try:
+        return coerce_uuid(raw)
+    except (ValueError, AttributeError):
+        raise ResolveError(f"Ticket '{raw}' not found")
+
+
+def resolve_project_id(db: Session, value: str | None):
+    """Resolve a project number or UUID string to a project UUID. Returns None if empty."""
+    from app.models.projects import Project
+
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    project = db.query(Project).filter(Project.number == raw).first()
+    if project:
+        return project.id
+    try:
+        return coerce_uuid(raw)
+    except (ValueError, AttributeError):
+        raise ResolveError(f"Project '{raw}' not found")
+
+
+def resolve_warehouse_id(value: str | None):
+    """Resolve a warehouse UUID string. Returns None if empty."""
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        return coerce_uuid(raw)
+    except (ValueError, AttributeError):
+        raise ResolveError(f"Warehouse '{raw}' is not a valid ID")
+
+
 _TERMINAL_STATUSES = {
     MaterialRequestStatus.issued,
     MaterialRequestStatus.approved,

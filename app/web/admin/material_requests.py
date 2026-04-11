@@ -12,8 +12,6 @@ from app.models.auth import UserCredential
 from app.models.inventory import InventoryLocation
 from app.models.material_request import MaterialRequestPriority
 from app.models.person import Person
-from app.models.projects import Project
-from app.models.tickets import Ticket
 from app.schemas.material_request import (
     MaterialRequestCreate,
     MaterialRequestItemCreate,
@@ -22,7 +20,13 @@ from app.schemas.material_request import (
 from app.services.audit_helpers import log_audit_event
 from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
-from app.services.material_requests import material_requests
+from app.services.material_requests import (
+    ResolveError,
+    material_requests,
+    resolve_project_id,
+    resolve_ticket_id,
+    resolve_warehouse_id,
+)
 from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
@@ -50,44 +54,6 @@ def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
     }
 
 
-class _ResolveError(Exception):
-    """Raised when a user-supplied reference can't be resolved."""
-
-
-def _resolve_ticket_id(db: Session, value: str | None):
-    raw = (value or "").strip()
-    if not raw:
-        return None
-    ticket = db.query(Ticket).filter(Ticket.number == raw).first()
-    if ticket:
-        return ticket.id
-    try:
-        return coerce_uuid(raw)
-    except (ValueError, AttributeError):
-        raise _ResolveError(f"Ticket '{raw}' not found")
-
-
-def _resolve_project_id(db: Session, value: str | None):
-    raw = (value or "").strip()
-    if not raw:
-        return None
-    project = db.query(Project).filter(Project.number == raw).first()
-    if project:
-        return project.id
-    try:
-        return coerce_uuid(raw)
-    except (ValueError, AttributeError):
-        raise _ResolveError(f"Project '{raw}' not found")
-
-
-def _resolve_warehouse_id(value: str | None):
-    raw = (value or "").strip()
-    if not raw:
-        return None
-    try:
-        return coerce_uuid(raw)
-    except (ValueError, AttributeError):
-        raise _ResolveError(f"Warehouse '{raw}' is not a valid ID")
 
 
 def _resolve_date(value: str | None) -> date | None:
@@ -231,11 +197,11 @@ def material_request_create(
             )
 
     try:
-        resolved_ticket_id = _resolve_ticket_id(db, ticket_id)
-        resolved_project_id = _resolve_project_id(db, project_id)
-        resolved_source = _resolve_warehouse_id(source_location_id)
-        resolved_dest = _resolve_warehouse_id(destination_location_id)
-    except _ResolveError as exc:
+        resolved_ticket_id = resolve_ticket_id(db, ticket_id)
+        resolved_project_id = resolve_project_id(db, project_id)
+        resolved_source = resolve_warehouse_id(source_location_id)
+        resolved_dest = resolve_warehouse_id(destination_location_id)
+    except ResolveError as exc:
         context = _base_ctx(
             request,
             db,
@@ -310,12 +276,12 @@ def material_request_update(
         return RedirectResponse(url=f"/admin/operations/material-requests/{mr_id}", status_code=303)
 
     payload = MaterialRequestUpdate(
-        ticket_id=_resolve_ticket_id(db, ticket_id),
-        project_id=_resolve_project_id(db, project_id),
+        ticket_id=resolve_ticket_id(db, ticket_id),
+        project_id=resolve_project_id(db, project_id),
         priority=MaterialRequestPriority(priority) if priority else None,
         notes=notes,
-        source_location_id=_resolve_warehouse_id(source_location_id),
-        destination_location_id=_resolve_warehouse_id(destination_location_id),
+        source_location_id=resolve_warehouse_id(source_location_id),
+        destination_location_id=resolve_warehouse_id(destination_location_id),
     )
     material_requests.update(db, mr_id, payload)
 
