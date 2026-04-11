@@ -1210,7 +1210,7 @@ def test_lifecycle_funnel_sorts_stages_by_descending_count(db_session):
 
 
 def test_lifecycle_churn_trend_includes_inactive_terminated_subscribers(db_session):
-    now = datetime.now(UTC)
+    now = datetime.now(UTC).replace(day=25)
 
     active_person = Person(first_name="Active", last_name="Churn", email=f"active-churn-{uuid4().hex}@example.com")
     inactive_person = Person(
@@ -3291,14 +3291,7 @@ def test_subscriber_billing_risk_page_renders(monkeypatch):
     monkeypatch.setattr(
         subscriber_reports_service,
         "get_churn_table",
-        lambda _db,
-        due_soon_days=7,
-        high_balance_only=False,
-        segment=None,
-        segments=None,
-        days_past_due=None,
-        source="local",
-        limit=500: [
+        lambda _db, due_soon_days=7, high_balance_only=False, segment=None, segments=None, days_past_due=None, source="local", limit=500: [
             {
                 "name": "Blocked Customer",
                 "email": "blocked@example.com",
@@ -3394,14 +3387,7 @@ def test_subscriber_billing_risk_export_returns_csv(monkeypatch):
     monkeypatch.setattr(
         subscriber_reports_service,
         "get_churn_table",
-        lambda _db,
-        due_soon_days=7,
-        high_balance_only=False,
-        segment=None,
-        segments=None,
-        days_past_due=None,
-        source="local",
-        limit=2000: [
+        lambda _db, due_soon_days=7, high_balance_only=False, segment=None, segments=None, days_past_due=None, source="local", limit=2000: [
             {
                 "name": "Blocked Customer",
                 "email": "blocked@example.com",

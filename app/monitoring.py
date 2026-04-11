@@ -79,9 +79,7 @@ def setup_sentry(app_name: str, environment: str, glitchtip_dsn: str | None = No
         return
 
     if not _host_reachable(dsn):
-        logging.getLogger(__name__).warning(
-            "GlitchTip endpoint unreachable (%s) — Sentry SDK not initialised", dsn
-        )
+        logging.getLogger(__name__).warning("GlitchTip endpoint unreachable (%s) — Sentry SDK not initialised", dsn)
         return
 
     try:

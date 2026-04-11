@@ -1215,26 +1215,30 @@ def lifecycle_churn_trend(db: Session) -> list[dict]:
     """Monthly churn count over the last 12 months."""
     current_month = _month_start(datetime.now(UTC))
     cutoff = _add_months(current_month, -11)
-    churn_event_at = _churn_event_at(db)
-    dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else ""
-    if dialect_name == "sqlite":
-        churn_month = func.strftime("%Y-%m", churn_event_at).label("month")
-    else:
-        churn_month = func.to_char(func.date_trunc("month", churn_event_at), "YYYY-MM").label("month")
-
     rows = db.execute(
         select(
-            churn_month,
-            func.count(Subscriber.id).label("total_churn"),
+            Subscriber.status,
+            Subscriber.is_active,
+            Subscriber.terminated_at,
+            Subscriber.updated_at,
+        ).where(
+            Subscriber.status == SubscriberStatus.terminated,
+            or_(
+                Subscriber.terminated_at.isnot(None),
+                Subscriber.is_active.is_(False),
+            ),
         )
-        .where(
-            churn_event_at.isnot(None),
-            churn_event_at >= cutoff,
-        )
-        .group_by("month")
-        .order_by("month")
     ).all()
-    counts_by_month = {str(row.month)[:7]: int(row.total_churn or 0) for row in rows if row.month}
+    counts_by_month: dict[str, int] = {}
+    for row in rows:
+        event_at = row.terminated_at
+        if event_at is None and row.status == SubscriberStatus.terminated and row.is_active is False:
+            event_at = row.updated_at
+        normalized_event = _coerce_datetime_utc(event_at)
+        if normalized_event is None or normalized_event < cutoff:
+            continue
+        month_key = _month_start(normalized_event).strftime("%Y-%m")
+        counts_by_month[month_key] = counts_by_month.get(month_key, 0) + 1
 
     trend: list[dict] = []
     month_cursor = cutoff
@@ -1959,13 +1963,16 @@ def get_churn_table(
             except Exception:
                 return {}
             detailed_sync_metadata = (
-                detailed_mapped.get("sync_metadata") if isinstance(detailed_mapped.get("sync_metadata"), Mapping) else {}
+                detailed_mapped.get("sync_metadata")
+                if isinstance(detailed_mapped.get("sync_metadata"), Mapping)
+                else {}
             )
             billing_start_date = _live_billing_start_date(detailed_customer, detailed_mapped)
             invoiced_until_text = _metadata_text(detailed_sync_metadata, "invoiced_until")
             if not invoiced_until_text:
                 invoiced_until_text = (
-                    _metadata_text(_live_cached_sync_metadata(detailed_customer), "invoiced_until") or billing_start_date
+                    _metadata_text(_live_cached_sync_metadata(detailed_customer), "invoiced_until")
+                    or billing_start_date
                 )
             invoiced_until_date = _parse_iso_date_text(invoiced_until_text)
             next_bill_raw = _coerce_datetime_utc(detailed_mapped.get("next_bill_date"))
@@ -1973,11 +1980,11 @@ def get_churn_table(
             return {
                 "billing_start_date": billing_start_date or str(entry.get("billing_start_date") or ""),
                 "invoiced_until": invoiced_until_text or str(entry.get("invoiced_until") or ""),
-                "next_bill_date": next_bill_raw.strftime("%Y-%m-%d") if next_bill_raw else str(entry.get("next_bill_date") or ""),
+                "next_bill_date": next_bill_raw.strftime("%Y-%m-%d")
+                if next_bill_raw
+                else str(entry.get("next_bill_date") or ""),
                 "days_to_due": (
-                    (next_bill_raw.date() - today).days
-                    if next_bill_raw is not None
-                    else entry.get("days_to_due")
+                    (next_bill_raw.date() - today).days if next_bill_raw is not None else entry.get("days_to_due")
                 ),
                 "days_past_due": (
                     max(0, (today - invoiced_until_date).days)
@@ -2004,7 +2011,9 @@ def get_churn_table(
             sync_metadata = mapped.get("sync_metadata") if isinstance(mapped.get("sync_metadata"), Mapping) else {}
             invoiced_until_text = _metadata_text(sync_metadata, "invoiced_until")
             if not invoiced_until_text:
-                invoiced_until_text = _metadata_text(_live_cached_sync_metadata(customer), "invoiced_until") or billing_start_date
+                invoiced_until_text = (
+                    _metadata_text(_live_cached_sync_metadata(customer), "invoiced_until") or billing_start_date
+                )
             invoiced_until_date = _parse_iso_date_text(invoiced_until_text)
             days_since_last_payment = (
                 max(0, (today - invoiced_until_date).days) if invoiced_until_date is not None else None
@@ -2180,10 +2189,10 @@ def get_churn_table(
         sync_metadata = row.sync_metadata if isinstance(row.sync_metadata, Mapping) else {}
         invoiced_until_text = _metadata_text(sync_metadata, "invoiced_until")
         invoiced_until_date = _parse_iso_date_text(invoiced_until_text)
-        row_days_past_due: int | None = (
+        db_row_days_past_due: int | None = (
             max(0, (today - invoiced_until_date).days) if invoiced_until_date is not None else None
         )
-        days_since_last_payment = row_days_past_due
+        days_since_last_payment = db_row_days_past_due
         segment_value: str | None = None
         if status_value == SubscriberStatus.terminated.value:
             segment_value = "Churned"
@@ -2201,7 +2210,7 @@ def get_churn_table(
             continue
         if selected_segments and segment_value not in selected_segments:
             continue
-        if not _matches_days_past_due_bucket(row_days_past_due):
+        if not _matches_days_past_due_bucket(db_row_days_past_due):
             continue
         results.append(
             {
@@ -2220,7 +2229,7 @@ def get_churn_table(
                 "expires_in": _metadata_text(sync_metadata, "expires_in"),
                 "invoiced_until": invoiced_until_text,
                 "days_since_last_payment": days_since_last_payment,
-                "days_past_due": row_days_past_due,
+                "days_past_due": db_row_days_past_due,
                 "total_paid": _parse_balance_amount(_metadata_text(sync_metadata, "total_paid")),
                 "days_to_due": due_days,
                 "risk_segment": segment_value,
@@ -3363,7 +3372,7 @@ def _postgres_interval_days(day_count: int) -> Any:
     """Build a PostgreSQL interval expression for integer day offsets."""
 
     safe_day_count = max(1, int(day_count))
-    return text(f"interval '{safe_day_count} days'")
+    return text(f"({safe_day_count} * interval '1 day')")
 
 
 def _behavioral_churn_event_at(db: Session):

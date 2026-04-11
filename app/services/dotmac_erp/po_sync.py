@@ -79,9 +79,7 @@ class DotMacERPPurchaseOrderSync:
         except DotMacERPTransientError:
             raise
         except (ConnectionError, TimeoutError, OSError) as e:
-            raise DotMacERPTransientError(
-                f"Transient transport error for PO sync WO {work_order.id}: {e}"
-            ) from e
+            raise DotMacERPTransientError(f"Transient transport error for PO sync WO {work_order.id}: {e}") from e
         except Exception as e:
             logger.error("Failed to sync PO for WO %s to ERP: %s", work_order.id, e)
             return PurchaseOrderSyncResult(

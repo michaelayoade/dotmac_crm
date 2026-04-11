@@ -103,8 +103,7 @@ def _validate_origin(
     origin = request.headers.get("origin")
     if not widget_configs.validate_origin(config, origin):
         logger.warning(
-            "widget_origin_rejected config_id=%s config_name=%s origin=%s "
-            "allowed_domains=%s referer=%s",
+            "widget_origin_rejected config_id=%s config_name=%s origin=%s allowed_domains=%s referer=%s",
             config.id,
             config.name,
             origin,
