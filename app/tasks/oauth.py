@@ -97,53 +97,10 @@ def refresh_expiring_tokens(buffer_days: int = 7):
 
 
 def _refresh_meta_token(session, token: OAuthToken) -> None:
-    """Refresh a single Meta OAuth token.
-
-    Args:
-        session: Database session
-        token: OAuthToken to refresh
-
-    Raises:
-        ValueError: If required settings missing or token invalid
-        Exception: If API call fails
-    """
-    import asyncio
-
+    """Refresh a single Meta OAuth token via the shared sync helper."""
     from app.services import meta_oauth
 
-    # Get settings from database (falls back to env vars)
-    settings = meta_oauth.get_meta_settings(session)
-    app_id = settings.get("meta_app_id")
-    app_secret = settings.get("meta_app_secret")
-
-    if not app_id or not app_secret:
-        raise ValueError("Meta App ID and App Secret required for token refresh. Configure in Settings > Comms.")
-
-    if not token.access_token:
-        raise ValueError("Token has no access_token to refresh")
-
-    # Run async refresh in sync context
-    loop = asyncio.new_event_loop()
-    try:
-        result = loop.run_until_complete(
-            meta_oauth.refresh_long_lived_token(
-                app_id,
-                app_secret,
-                token.access_token,
-                meta_oauth._get_meta_graph_base_url(session),
-            )
-        )
-    finally:
-        loop.close()
-
-    # Update token with new values
-    token.access_token = result.get("access_token")
-    token.token_expires_at = result.get("expires_at")
-    token.last_refreshed_at = datetime.now(UTC)
-    token.refresh_error = None
-
-    session.commit()
-    session.refresh(token)
+    meta_oauth.refresh_token_sync(session, token)
 
 
 @celery_app.task(name="app.tasks.oauth.check_token_health")
@@ -214,3 +171,5 @@ def check_token_health():
         raise
     finally:
         session.close()
+
+

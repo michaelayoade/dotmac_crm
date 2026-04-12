@@ -12,6 +12,7 @@ from app.models.comms import (
     CustomerSurveyStatus,
     Survey,
     SurveyInvitation,
+    SurveyInvitationStatus,
     SurveyResponse,
     SurveyTriggerType,
 )
@@ -49,6 +50,7 @@ class CsatQueueResult:
         "no_person_email",
         "no_active_survey",
         "already_invited",
+        "send_failed",
         "error",
     ]
     detail: str | None = None
@@ -200,6 +202,14 @@ def queue_for_resolved_conversation(
     conversation_id: str,
     author_id: str | None = None,
 ) -> CsatQueueResult:
+    """Persist + send a CSAT invitation when a conversation resolves.
+
+    Note: this function commits the session (twice — once after creating the
+    invitation, once after a successful send). Callers must not have
+    uncommitted writes pending in `db` when invoking it. The current call site
+    in conversation_status.py is safe because the resolve transition is
+    committed before this runs.
+    """
     try:
         conversation = db.get(Conversation, coerce_uuid(conversation_id))
         if not conversation:
@@ -232,6 +242,12 @@ def queue_for_resolved_conversation(
             .filter(SurveyInvitation.survey_id == survey.id, SurveyInvitation.person_id == person.id)
             .first()
         )
+        if invitation and invitation.status in (
+            SurveyInvitationStatus.sent,
+            SurveyInvitationStatus.opened,
+            SurveyInvitationStatus.completed,
+        ):
+            return CsatQueueResult(kind="already_invited")
         created_new_invitation = invitation is None
         if not invitation:
             invitation = survey_invitations.create_for_person(
@@ -240,40 +256,126 @@ def queue_for_resolved_conversation(
                 person_id=str(person.id),
                 email=person.email or f"csat+{person.id}@local.invalid",
                 ticket_id=str(conversation.ticket_id) if conversation.ticket_id else None,
+                conversation_id=str(conversation.id),
                 expires_at=survey.expires_at,
             )
         survey_url = _resolve_survey_link(db, invitation.token)
-
-        if channel_type == ChannelType.email:
-            csat_body = (
-                "Your conversation has been resolved. We'd love to hear how we did!\n\n"
-                f"Please take a moment to rate your experience: {survey_url}\n\n"
-                "Your feedback helps us improve our service. Thank you!"
-            )
-        else:
-            csat_body = f"Your conversation has been resolved. How was your experience? Rate us here: {survey_url}"
-
         outbound_payload = InboxSendRequest(
             conversation_id=conversation.id,
             channel_type=channel_type,
             channel_target_id=coerce_uuid(target_id) if target_id else None,
             reply_to_message_id=last_inbound.id if last_inbound else None,
-            body=csat_body,
+            body=_build_csat_body(channel_type, survey_url),
         )
-        crm_service.inbox.send_message_with_retry(
-            db,
-            outbound_payload,
-            author_id=author_id,
-        )
-        survey_invitations.mark_sent(db, invitation)
+        # Capture log context before any commit/rollback so we don't trip over
+        # expired attributes if the session state changes.
+        log_person_id = str(person.id)
+        log_channel = channel_type.value if channel_type else None
+
+        # Persist the invitation BEFORE attempting send so we never lose the
+        # record if the send fails. A subsequent retry job (or admin retry) can
+        # find pending invitations and re-send.
         if created_new_invitation:
             survey.total_invited = (survey.total_invited or 0) + 1
+        db.commit()
+
+        try:
+            crm_service.inbox.send_message_with_retry(
+                db,
+                outbound_payload,
+                author_id=author_id,
+            )
+        except Exception as send_exc:
+            db.rollback()
+            logger.warning(
+                "csat_send_failed conversation_id=%s person_id=%s channel=%s error=%s",
+                conversation_id,
+                log_person_id,
+                log_channel,
+                send_exc,
+            )
+            return CsatQueueResult(kind="send_failed", detail=str(send_exc))
+
+        survey_invitations.mark_sent(db, invitation)
         db.commit()
         return CsatQueueResult(kind="queued")
     except Exception as exc:
         db.rollback()
         logger.exception("Failed to queue CSAT invitation for resolved conversation %s", conversation_id)
         return CsatQueueResult(kind="error", detail=str(exc))
+
+
+def _build_csat_body(channel_type: ChannelType, survey_url: str) -> str:
+    if channel_type == ChannelType.email:
+        return (
+            "Your conversation has been resolved. We'd love to hear how we did!\n\n"
+            f"Please take a moment to rate your experience: {survey_url}\n\n"
+            "Your feedback helps us improve our service. Thank you!"
+        )
+    return f"Your conversation has been resolved. How was your experience? Rate us here: {survey_url}"
+
+
+def retry_pending_invitation(
+    db: Session,
+    *,
+    invitation: SurveyInvitation,
+) -> CsatQueueResult:
+    """Re-attempt delivery of a pending CSAT invitation that previously failed.
+
+    Looks up the source conversation, rebuilds the outbound payload, and sends.
+    Used by the periodic retry task. The invitation must already be persisted.
+    """
+    if invitation.status != SurveyInvitationStatus.pending:
+        return CsatQueueResult(kind="already_invited")
+    if not invitation.conversation_id:
+        return CsatQueueResult(kind="error", detail="invitation has no conversation_id")
+
+    conversation = db.get(Conversation, invitation.conversation_id)
+    if not conversation:
+        return CsatQueueResult(kind="error", detail="conversation not found")
+
+    conversation_id = str(conversation.id)
+    last_inbound = _resolve_latest_inbound_message(db, conversation_id)
+    target_id = _resolve_target_id(db, conversation_id)
+    channel_type = last_inbound.channel_type if last_inbound and last_inbound.channel_type else None
+    if channel_type is None:
+        channel_type = _resolve_latest_channel_type(db, conversation_id)
+    if channel_type is None or not target_id:
+        return CsatQueueResult(kind="no_target")
+
+    survey_url = _resolve_survey_link(db, invitation.token)
+    outbound_payload = InboxSendRequest(
+        conversation_id=conversation.id,
+        channel_type=channel_type,
+        channel_target_id=coerce_uuid(target_id),
+        reply_to_message_id=last_inbound.id if last_inbound else None,
+        body=_build_csat_body(channel_type, survey_url),
+    )
+    log_channel = channel_type.value
+    invitation_id = invitation.id
+    try:
+        crm_service.inbox.send_message_with_retry(db, outbound_payload, author_id=None)
+    except Exception as send_exc:
+        # No db state mutated yet — nothing to roll back. send_message_with_retry
+        # owns its own per-attempt rollback for the message record it writes.
+        logger.warning(
+            "csat_retry_send_failed invitation_id=%s conversation_id=%s channel=%s error=%s",
+            invitation_id,
+            conversation_id,
+            log_channel,
+            send_exc,
+        )
+        return CsatQueueResult(kind="send_failed", detail=str(send_exc))
+
+    survey_invitations.mark_sent(db, invitation)
+    db.commit()
+    logger.info(
+        "csat_retry_send_succeeded invitation_id=%s conversation_id=%s channel=%s",
+        invitation_id,
+        conversation_id,
+        log_channel,
+    )
+    return CsatQueueResult(kind="queued")
 
 
 def _extract_feedback_text(response_payload: object) -> str | None:

@@ -156,6 +156,7 @@ class SurveyInvitation(Base):
     # Trigger context (which entity triggered this invitation)
     ticket_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("tickets.id"))
     work_order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("work_orders.id"))
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
     # Timestamps
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

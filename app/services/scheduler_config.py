@@ -501,6 +501,16 @@ def build_beat_schedule() -> dict:
             interval_seconds=900,
         )
 
+        # CRM inbox CSAT retry — every 10 minutes; re-attempts pending CSAT
+        # invitations whose original send failed (channel-side error).
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_retry_csat",
+            task_name="app.tasks.crm_inbox.retry_pending_csat_invitations",
+            enabled=True,
+            interval_seconds=600,
+        )
+
         # CRM inbox data quality check — daily
         _sync_scheduled_task(
             session,

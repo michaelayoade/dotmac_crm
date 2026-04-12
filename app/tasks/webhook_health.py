@@ -89,6 +89,39 @@ def _send_alert(session, recipient: str, subject: str, body: str) -> None:
     logger.warning("webhook_health_alert subject=%s recipient=%s", subject, recipient)
 
 
+def _fanout_admin_push(session, subject: str, body: str) -> int:
+    """Fan out a push notification to all active CRM agents.
+
+    Used for actionable alerts (e.g. expired OAuth tokens) that need to land in
+    the in-app notification dropdown so admins notice without checking email.
+    Returns the number of push notifications created.
+    """
+    from app.models.crm.team import CrmAgent
+
+    agent_person_ids = (
+        session.query(CrmAgent.person_id)
+        .filter(CrmAgent.is_active.is_(True))
+        .filter(CrmAgent.person_id.isnot(None))
+        .all()
+    )
+    created = 0
+    for (person_id,) in agent_person_ids:
+        session.add(
+            Notification(
+                channel=NotificationChannel.push,
+                recipient=str(person_id),
+                subject=subject,
+                body=body,
+                status=NotificationStatus.delivered,
+                sent_at=datetime.now(UTC),
+            )
+        )
+        created += 1
+    if created:
+        session.flush()
+    return created
+
+
 def _check_channel_silence(session, recipient: str) -> list[str]:
     """Detect channels with no inbound messages beyond their silence threshold."""
     issues = []
@@ -198,23 +231,37 @@ def _check_token_expiry(session, recipient: str) -> list[str]:
     )
 
     for token in expiring_tokens:
-        is_expired = token.token_expires_at <= now
+        expires_at = token.token_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        is_expired = expires_at <= now
         status_word = "EXPIRED" if is_expired else "expiring soon"
 
         alert_key = f"[Token {status_word.split()[0]}] {token.provider}:{token.external_account_name}"
         if not _was_recently_alerted(session, alert_key):
             issue = f"{token.provider}/{token.external_account_name}: {status_word} ({token.token_expires_at.strftime('%Y-%m-%d %H:%M')} UTC)"
             issues.append(issue)
-            _send_alert(
-                session,
-                recipient,
-                alert_key,
+            email_body = (
                 f"OAuth token for {token.provider} account '{token.external_account_name}' "
                 f"is {status_word}.\n\n"
                 f"Expires: {token.token_expires_at.strftime('%Y-%m-%d %H:%M')} UTC\n"
                 f"{'This token has already expired and the integration is broken.' if is_expired else 'Refresh this token before it expires to avoid service disruption.'}\n\n"
-                f"Refresh via: CRM Admin → Settings → Meta OAuth",
+                f"Refresh via: CRM Admin → Settings → Meta OAuth"
             )
+            _send_alert(session, recipient, alert_key, email_body)
+            # Already-expired tokens cannot be auto-refreshed by the scheduler;
+            # surface them in the in-app dropdown so an admin notices fast.
+            if is_expired:
+                _fanout_admin_push(
+                    session,
+                    subject=f"Reconnect required: {token.provider} {token.external_account_name}",
+                    body=(
+                        f"{token.provider.title()} token for "
+                        f"{token.external_account_name} has expired and cannot be "
+                        f"auto-refreshed.\n"
+                        f"Open: /admin/crm/inbox/settings"
+                    ),
+                )
 
     # Check domain_settings access token overrides by testing the Meta Graph API
     _check_meta_token_health(session, recipient, issues)

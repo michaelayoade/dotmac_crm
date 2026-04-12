@@ -269,6 +269,46 @@ async def refresh_long_lived_token(
     )
 
 
+def refresh_token_sync(session: Session, token: OAuthToken) -> OAuthToken:
+    """Synchronously refresh a single Meta OAuth token in-place.
+
+    Meta requires the token to be at least 24h old and not yet fully expired.
+    Once expired, this will fail with a 401 — manual re-auth is the only path.
+
+    Raises ValueError on missing settings, httpx.HTTPStatusError on API failure.
+    """
+    import asyncio
+
+    settings_map = get_meta_settings(session)
+    app_id = settings_map.get("meta_app_id")
+    app_secret = settings_map.get("meta_app_secret")
+    if not app_id or not app_secret:
+        raise ValueError("Meta App ID and App Secret required for token refresh")
+    if not token.access_token:
+        raise ValueError("Token has no access_token to refresh")
+
+    loop = asyncio.new_event_loop()
+    try:
+        result = loop.run_until_complete(
+            refresh_long_lived_token(
+                app_id,
+                app_secret,
+                token.access_token,
+                _get_meta_graph_base_url(session),
+            )
+        )
+    finally:
+        loop.close()
+
+    token.access_token = result.get("access_token")
+    token.token_expires_at = result.get("expires_at")
+    token.last_refreshed_at = datetime.now(UTC)
+    token.refresh_error = None
+    session.commit()
+    session.refresh(token)
+    return token
+
+
 async def get_user_pages(access_token: str, base_url: str | None = None) -> list[dict]:
     """Get list of Facebook Pages the user manages.
 
