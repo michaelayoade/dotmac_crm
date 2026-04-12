@@ -339,6 +339,7 @@ class SurveyInvitationManager:
         email: str,
         ticket_id: str | None = None,
         work_order_id: str | None = None,
+        conversation_id: str | None = None,
         expires_at: datetime | None = None,
     ) -> SurveyInvitation:
         invitation = SurveyInvitation(
@@ -348,6 +349,7 @@ class SurveyInvitationManager:
             email=email,
             ticket_id=coerce_uuid(ticket_id) if ticket_id else None,
             work_order_id=coerce_uuid(work_order_id) if work_order_id else None,
+            conversation_id=coerce_uuid(conversation_id) if conversation_id else None,
             expires_at=expires_at,
         )
         db.add(invitation)

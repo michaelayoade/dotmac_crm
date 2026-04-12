@@ -137,7 +137,7 @@ def _build_instagram_login_message_payload(message_text: str, image_url: str | N
     return {"text": text}
 
 
-def _get_token_for_channel(
+def get_token_for_channel(
     db: Session,
     channel_type: ChannelType,
     target: IntegrationTarget | None,
@@ -240,7 +240,7 @@ async def send_facebook_message(
     raw_override_token = _get_meta_channel_access_token_override(db, ChannelType.facebook_messenger)
     # Keep Facebook on the legacy Meta Graph flow; ignore IG login tokens.
     override_token = None if _is_instagram_login_token(raw_override_token) else raw_override_token
-    token = _get_token_for_channel(db, ChannelType.facebook_messenger, target, account_id=account_id)
+    token = get_token_for_channel(db, ChannelType.facebook_messenger, target, account_id=account_id)
     _ensure_token_scopes(token, _FACEBOOK_REQUIRED_SCOPES, "facebook_messenger")
     if not token and not override_token:
         raise ValueError("No active Facebook Page token found")
@@ -324,7 +324,7 @@ async def send_instagram_message(
     """
     override_token = _get_meta_channel_access_token_override(db, ChannelType.instagram_dm)
     use_instagram_login_api = bool(_is_instagram_login_token(override_token))
-    token = _get_token_for_channel(db, ChannelType.instagram_dm, target, account_id=account_id)
+    token = get_token_for_channel(db, ChannelType.instagram_dm, target, account_id=account_id)
     if not use_instagram_login_api:
         _ensure_token_scopes(token, _INSTAGRAM_REQUIRED_SCOPES, "instagram_dm")
     if not token and not override_token:

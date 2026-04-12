@@ -70,6 +70,79 @@ META_CIRCUIT = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
 _META_MEDIA_URL_TTL_SECONDS = 7 * 24 * 60 * 60
 
 
+def _looks_like_meta_oauth_error(response_text: str | None) -> bool:
+    """Detect Meta OAuthException-style errors in a Graph API response body.
+
+    Conservative on purpose: matches on phrases Meta only emits for token-state
+    failures so we don't trigger an unnecessary refresh on unrelated 401s.
+    """
+    if not response_text:
+        return False
+    lowered = response_text.lower()
+    return (
+        "oauthexception" in lowered
+        or "session has expired" in lowered
+        or "access token has expired" in lowered
+        or "access token is invalid" in lowered
+    )
+
+
+def _try_instagram_token_refresh_and_resend(
+    db: Session,
+    target: IntegrationTarget | None,
+    account_id: str | None,
+    resend_callable,
+) -> tuple[dict | None, str | None, int | None]:
+    """Refresh the Instagram OAuth token in-place and retry the send once.
+
+    Returns (result_dict, response_text, status_code). result_dict is non-None
+    only on a successful retry. On any failure (refresh impossible, refresh API
+    error, retry still failing) returns (None, latest_text, latest_status).
+    """
+    from app.models.crm.enums import ChannelType as _ChannelType
+    from app.services import meta_messaging, meta_oauth
+
+    token = meta_messaging.get_token_for_channel(
+        db,
+        _ChannelType.instagram_dm,
+        target,
+        account_id=account_id,
+    )
+    if token is None:
+        logger.warning("instagram_token_refresh_skipped reason=no_token account_id=%s", account_id)
+        return None, None, None
+    try:
+        meta_oauth.refresh_token_sync(db, token)
+    except httpx.HTTPStatusError as refresh_exc:
+        status = refresh_exc.response.status_code if refresh_exc.response is not None else None
+        text = refresh_exc.response.text if refresh_exc.response is not None else None
+        token.refresh_error = f"reauth_required:{(text or str(refresh_exc))[:400]}"
+        db.commit()
+        logger.warning(
+            "instagram_token_refresh_failed token_id=%s status=%s",
+            token.id,
+            status,
+        )
+        return None, text, status
+    except Exception as refresh_exc:
+        token.refresh_error = f"reauth_required:{str(refresh_exc)[:400]}"
+        db.commit()
+        logger.warning("instagram_token_refresh_failed token_id=%s error=%s", token.id, refresh_exc)
+        return None, None, None
+
+    logger.info("instagram_token_refreshed_inline token_id=%s, retrying send", token.id)
+    try:
+        return resend_callable(), None, None
+    except httpx.HTTPStatusError as retry_exc:
+        status = retry_exc.response.status_code if retry_exc.response is not None else None
+        text = retry_exc.response.text if retry_exc.response is not None else None
+        logger.warning("instagram_resend_after_refresh_failed status=%s", status)
+        return None, text, status
+    except Exception as retry_exc:
+        logger.warning("instagram_resend_after_refresh_failed error=%s", retry_exc)
+        return None, None, None
+
+
 def _infer_stored_name_from_attachment_url(attachment_url: str | None) -> str | None:
     """Infer stored file name from known internal attachment URL formats."""
     if not isinstance(attachment_url, str) or not attachment_url:
@@ -1011,9 +1084,8 @@ def _send_instagram_message(
         ),
     )
 
-    retry_error: OutboundSendError | None = None
-    try:
-        result = META_CIRCUIT.call(
+    def _do_instagram_send():
+        return META_CIRCUIT.call(
             meta_messaging.send_instagram_message_sync,
             db,
             person_channel.address,
@@ -1022,6 +1094,10 @@ def _send_instagram_message(
             account_id=account_id,
             image_url=image_url,
         )
+
+    retry_error: OutboundSendError | None = None
+    try:
+        result = _do_instagram_send()
         message.status = MessageStatus.sent
         _store_external_message_id(message, result.get("message_id"))
     except CircuitOpenError as exc:
@@ -1030,24 +1106,44 @@ def _send_instagram_message(
         if raise_on_failure:
             retry_error = TransientOutboundError("Instagram circuit open")
     except httpx.HTTPStatusError as exc:
-        message.status = MessageStatus.failed
         status_code = exc.response.status_code if exc.response is not None else None
         response_text = exc.response.text if exc.response is not None else None
-        _set_message_send_error(
-            message,
-            "instagram_dm",
-            str(exc),
-            status_code=status_code,
-            response_text=response_text,
-        )
-        if isinstance(message.metadata_, dict) and message.metadata_.get("send_error"):
-            # Preserve raw Meta error body for debugging.
-            message.metadata_["send_error"]["meta_error"] = response_text or ""
-        if raise_on_failure:
-            if _is_transient_exception(exc, status_code=status_code):
-                retry_error = TransientOutboundError("Instagram send failed")
+        is_oauth_error = status_code == 401 and _looks_like_meta_oauth_error(response_text)
+        # Event-driven token refresh: on 401 OAuth errors, attempt an inline
+        # refresh and retry the send once. Only works if the token isn't fully
+        # expired yet (Meta requires a still-valid token to refresh).
+        if is_oauth_error:
+            recovered_result, retry_text, retry_status = _try_instagram_token_refresh_and_resend(
+                db,
+                target,
+                account_id,
+                _do_instagram_send,
+            )
+            if recovered_result is not None:
+                message.status = MessageStatus.sent
+                _store_external_message_id(message, recovered_result.get("message_id"))
             else:
-                retry_error = PermanentOutboundError("Instagram send failed")
+                response_text = retry_text or response_text
+                status_code = retry_status or status_code
+        if message.status != MessageStatus.sent:
+            message.status = MessageStatus.failed
+            _set_message_send_error(
+                message,
+                "instagram_dm",
+                str(exc),
+                status_code=status_code,
+                response_text=response_text,
+            )
+            if isinstance(message.metadata_, dict) and message.metadata_.get("send_error"):
+                # Preserve raw Meta error body for debugging.
+                message.metadata_["send_error"]["meta_error"] = response_text or ""
+                if is_oauth_error:
+                    message.metadata_["send_error"]["needs_reauth"] = True
+            if raise_on_failure:
+                if _is_transient_exception(exc, status_code=status_code):
+                    retry_error = TransientOutboundError("Instagram send failed")
+                else:
+                    retry_error = PermanentOutboundError("Instagram send failed")
     except Exception as exc:
         logger.error(
             "instagram_dm_send_failed conversation_id=%s error=%s",

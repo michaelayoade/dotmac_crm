@@ -216,6 +216,78 @@ def check_sla_breaches_task():
         observe_job("check_sla_breaches", status, time.monotonic() - start)
 
 
+@celery_app.task(name="app.tasks.crm_inbox.retry_pending_csat_invitations")
+def retry_pending_csat_invitations_task(limit: int = 50):
+    """Retry CSAT invitations that were created but never delivered.
+
+    Picks up `pending` SurveyInvitation rows where the original send raised
+    (e.g. WhatsApp #131000, transient Meta failures). Each retry runs through
+    the same outbound circuit breaker and per-channel retry logic.
+
+    Skips invitations younger than 5 minutes (to avoid racing the original
+    queue path) and older than 24 hours (to avoid sending CSATs for stale
+    conversations).
+    """
+    import logging
+    import time
+    from datetime import UTC, datetime, timedelta
+
+    from app.metrics import observe_job
+    from app.models.comms import SurveyInvitation, SurveyInvitationStatus
+
+    logger = logging.getLogger(__name__)
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    results = {"retried": 0, "succeeded": 0, "failed": 0, "skipped": 0}
+    try:
+        from app.services.crm.inbox.csat import retry_pending_invitation
+
+        now = datetime.now(UTC)
+        cutoff_recent = now - timedelta(minutes=5)
+        cutoff_stale = now - timedelta(hours=24)
+        pending = (
+            session.query(SurveyInvitation)
+            .filter(SurveyInvitation.status == SurveyInvitationStatus.pending)
+            .filter(SurveyInvitation.conversation_id.isnot(None))
+            .filter(SurveyInvitation.created_at <= cutoff_recent)
+            .filter(SurveyInvitation.created_at >= cutoff_stale)
+            .order_by(SurveyInvitation.created_at.asc())
+            .limit(limit)
+            .all()
+        )
+        for invitation in pending:
+            results["retried"] += 1
+            try:
+                outcome = retry_pending_invitation(session, invitation=invitation)
+            except Exception:
+                session.rollback()
+                results["failed"] += 1
+                logger.exception("csat_retry_invitation_unexpected_error invitation_id=%s", invitation.id)
+                continue
+            if outcome.kind == "queued":
+                results["succeeded"] += 1
+            elif outcome.kind in ("send_failed", "no_target", "error"):
+                results["failed"] += 1
+            else:
+                results["skipped"] += 1
+        logger.info(
+            "csat_retry_complete retried=%d succeeded=%d failed=%d skipped=%d",
+            results["retried"],
+            results["succeeded"],
+            results["failed"],
+            results["skipped"],
+        )
+        return results
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("crm_inbox_retry_csat", status, time.monotonic() - start)
+
+
 @celery_app.task(name="app.tasks.crm_inbox.check_conversation_data_quality")
 def check_conversation_data_quality_task():
     """Daily check for conversations with missing data fields."""

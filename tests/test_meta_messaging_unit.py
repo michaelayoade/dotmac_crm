@@ -75,7 +75,7 @@ def test_get_token_for_channel(db_session):
     db_session.add(token)
     db_session.commit()
 
-    found = meta_messaging._get_token_for_channel(db_session, ChannelType.facebook_messenger, target)
+    found = meta_messaging.get_token_for_channel(db_session, ChannelType.facebook_messenger, target)
     assert found is not None
     assert found.access_token == "token"
 

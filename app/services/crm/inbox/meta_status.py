@@ -39,9 +39,18 @@ def get_meta_connection_status(db: Session) -> dict:
         .all()
     )
 
+    expired_count = 0
+    reauth_required = False
+
     pages = []
     for token in page_tokens:
         metadata = token.metadata_ or {}
+        is_expired = token.is_token_expired()
+        has_error = bool(token.refresh_error)
+        if is_expired:
+            expired_count += 1
+        if is_expired or has_error:
+            reauth_required = True
         pages.append(
             {
                 "id": token.external_account_id,
@@ -50,13 +59,21 @@ def get_meta_connection_status(db: Session) -> dict:
                 "category": metadata.get("category"),
                 "expires_at": token.token_expires_at,
                 "needs_refresh": token.should_refresh(),
-                "has_error": bool(token.refresh_error),
+                "has_error": has_error,
+                "is_expired": is_expired,
+                "refresh_error": token.refresh_error,
             }
         )
 
     instagram_accounts = []
     for token in instagram_tokens:
         metadata = token.metadata_ or {}
+        is_expired = token.is_token_expired()
+        has_error = bool(token.refresh_error)
+        if is_expired:
+            expired_count += 1
+        if is_expired or has_error:
+            reauth_required = True
         instagram_accounts.append(
             {
                 "id": token.external_account_id,
@@ -64,7 +81,9 @@ def get_meta_connection_status(db: Session) -> dict:
                 "profile_picture_url": metadata.get("profile_picture_url"),
                 "expires_at": token.token_expires_at,
                 "needs_refresh": token.should_refresh(),
-                "has_error": bool(token.refresh_error),
+                "has_error": has_error,
+                "is_expired": is_expired,
+                "refresh_error": token.refresh_error,
             }
         )
 
@@ -72,4 +91,6 @@ def get_meta_connection_status(db: Session) -> dict:
         "connected": len(pages) > 0,
         "pages": pages,
         "instagram_accounts": instagram_accounts,
+        "expired_count": expired_count,
+        "reauth_required": reauth_required,
     }
