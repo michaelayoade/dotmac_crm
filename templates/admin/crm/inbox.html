@@ -1390,6 +1390,9 @@ function inboxController() {
                 const resp = await fetch('/admin/crm/inbox/summary-counts', {
                     headers: { Accept: 'application/json' }
                 });
+                if (window.DotMacAuth && window.DotMacAuth.handleAuthResponse(resp, '/auth/login')) {
+                    return;
+                }
                 if (!resp.ok) return;
                 const payload = await resp.json();
                 if (payload && payload.assignment_counts && typeof payload.assignment_counts === 'object') {

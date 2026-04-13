@@ -220,6 +220,31 @@ def _list_assignment_groups(db: Session, *, limit: int = 200) -> list[dict[str, 
     return items
 
 
+def _load_ticket_region_options(db: Session) -> list[str]:
+    seen: set[str] = set()
+    options: list[str] = []
+    for region in REGION_OPTIONS:
+        cleaned = (region or "").strip()
+        if cleaned and cleaned.lower() not in seen:
+            seen.add(cleaned.lower())
+            options.append(cleaned)
+
+    rows = (
+        db.query(Ticket.region)
+        .filter(Ticket.is_active.is_(True))
+        .filter(Ticket.region.isnot(None))
+        .distinct()
+        .order_by(Ticket.region.asc())
+        .all()
+    )
+    for (region,) in rows:
+        cleaned = (region or "").strip()
+        if cleaned and cleaned.lower() not in seen:
+            seen.add(cleaned.lower())
+            options.append(cleaned)
+    return options
+
+
 def _coerce_uuid_optional(value: str | None, label: str) -> UUID | None:
     if not value:
         return None
@@ -297,6 +322,17 @@ def _coerce_int_query_value(
     if maximum is not None:
         result = min(maximum, result)
     return result
+
+
+def _coerce_bool_query_value(value: object, *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    result = getattr(value, "default", default)
+    if isinstance(result, bool):
+        return result
+    if isinstance(result, str):
+        return result.strip().lower() in {"1", "true", "yes", "on"}
+    return default
 
 
 def _redirect_if_ticket_merged(ticket: Ticket) -> RedirectResponse | None:
@@ -631,10 +667,13 @@ def tickets_list(
     status: str | None = None,
     ticket_type: str | None = None,
     assigned: str | None = None,
+    region: str | None = None,
+    group: str | None = None,
     pm: str | None = None,
     spc: str | None = None,
     subscriber: str | None = None,
     filters: str | None = None,
+    clear_filters: bool = Query(False),
     order_by: str = Query("created_at"),
     order_dir: str = Query("desc"),
     page: int = Query(1, ge=1),
@@ -644,6 +683,7 @@ def tickets_list(
     """List all tickets with filters."""
     page = _coerce_int_query_value(page, default=1, minimum=1)
     per_page = _coerce_int_query_value(per_page, default=25, minimum=10, maximum=100)
+    clear_filters = _coerce_bool_query_value(clear_filters, default=False)
     if order_by not in {"created_at", "updated_at", "status", "priority"}:
         order_by = "created_at"
     if order_dir not in {"asc", "desc"}:
@@ -671,6 +711,19 @@ def tickets_list(
             current_person_uuid = coerce_uuid(current_person_id)
         except Exception:
             current_person_uuid = None
+
+    if clear_filters:
+        if current_person_uuid:
+            filter_preferences_service.clear_preference(
+                db,
+                current_person_uuid,
+                filter_preferences_service.TICKETS_PAGE.key,
+            )
+        target_params = {}
+        if subscriber:
+            target_params["subscriber"] = subscriber
+        target_url = request.url.path if not target_params else f"{request.url.path}?{urlencode(target_params)}"
+        return RedirectResponse(url=target_url, status_code=302)
 
     query_params_map = {key: value for key, value in request.query_params.items()}
     if current_person_uuid:
@@ -704,6 +757,15 @@ def tickets_list(
     assigned_to_person_id = None
     if assigned == "me" and current_person_id:
         assigned_to_person_id = current_person_id
+
+    region_filter = (region or "").strip() or None
+
+    group_id = None
+    if group:
+        try:
+            group_id = coerce_uuid(group)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid group filter") from exc
 
     pm_person_id = None
     if pm == "me":
@@ -747,6 +809,8 @@ def tickets_list(
         base_query = (
             base_query.by_ticket_type(ticket_type if ticket_type else None)
             .search(search if search else None)
+            .by_region(region_filter)
+            .by_service_team(group_id)
             .by_ticket_manager(pm_person_id)
             .by_assistant_manager(spc_person_id)
             .active_only()
@@ -773,7 +837,8 @@ def tickets_list(
     ticket_type_options = [item.get("name") for item in ticket_types if item.get("is_active") and item.get("name")]
     if ticket_type and ticket_type not in ticket_type_options:
         ticket_type_options = [ticket_type, *ticket_type_options]
-    pm_options, spc_options = _load_ticket_pm_spc_options(db)
+    region_options = _load_ticket_region_options(db)
+    group_options = _list_assignment_groups(db)
     csrf_token = get_csrf_token(request)
 
     if request.headers.get("HX-Request"):
@@ -789,6 +854,8 @@ def tickets_list(
                 "effective_status": effective_status,
                 "ticket_type": ticket_type,
                 "assigned": assigned,
+                "region": region_filter,
+                "group": group,
                 "pm": pm,
                 "spc": spc,
                 "subscriber": subscriber,
@@ -818,10 +885,12 @@ def tickets_list(
             "ticket_type": ticket_type,
             "ticket_type_options": ticket_type_options,
             "assigned": assigned,
+            "region": region_filter,
+            "group": group,
+            "region_options": region_options,
+            "group_options": group_options,
             "pm": pm,
             "spc": spc,
-            "pm_options": pm_options,
-            "spc_options": spc_options,
             "subscriber": subscriber,
             "subscriber_display": subscriber_display,
             "subscriber_url": subscriber_url,
@@ -1540,6 +1609,7 @@ async def ticket_edit_post(
     ticket_manager_person_id: str | None = Form(None),
     assistant_manager_person_id: str | None = Form(None),
     region: str | None = Form(None),
+    clear_region_assignment: str | None = Form(None),
     ticket_type: str | None = Form(None),
     priority: str | None = Form(None),
     channel: str | None = Form(None),
@@ -1813,6 +1883,17 @@ async def ticket_edit_post(
         region_value = ticket.region
         if region is not None:
             region_value = region.strip() or None
+        should_clear_region_assignment = str(clear_region_assignment or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        if should_clear_region_assignment:
+            region_value = None
+            service_team_value = None
+            ticket_manager_value = None
+            assistant_manager_value = None
         ticket_type_value = ticket.ticket_type
         if ticket_type is not None:
             ticket_type_value = ticket_type.strip() or None

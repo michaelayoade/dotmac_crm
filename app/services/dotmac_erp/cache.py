@@ -30,7 +30,9 @@ def _coerce_amount(value: object) -> float:
         try:
             return float(normalized)
         except ValueError:
+            logger.debug("Invalid ERP expense amount %r; defaulting to 0.0", value)
             return 0.0
+    logger.debug("Invalid ERP expense amount %r; defaulting to 0.0", value)
     return 0.0
 
 

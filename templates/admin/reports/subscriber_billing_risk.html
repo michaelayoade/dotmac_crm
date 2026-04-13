@@ -16,8 +16,8 @@
     {% endcall %}
 
     {% call dashboard_kpi_grid(cols="3") %}
-        {{ stats_card("Computed Risk Accounts", kpis.total_at_risk|default(0), color="amber", color2="orange") }}
-        {{ stats_card("Balance Exposure", "₦" ~ "{:,.2f}".format(kpis.total_balance_exposure|default(0)), color="rose", color2="red") }}
+        {{ stats_card("At-Risk Subscribers", kpis.total_at_risk|default(0), color="amber", color2="orange") }}
+        {{ stats_card("Overdue Invoices", "₦" ~ "{:,.2f}".format(kpis.total_balance_exposure|default(0)), color="rose", color2="red") }}
         {{ stats_card("High Balance Risk", kpis.high_balance_risk_count|default(0), color="slate", color2="gray") }}
     {% endcall %}
 

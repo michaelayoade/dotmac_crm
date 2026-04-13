@@ -2,6 +2,8 @@
 
 import contextlib
 import logging
+from threading import Lock
+from time import monotonic
 from urllib.parse import quote, urlparse, urlunparse
 
 from fastapi import HTTPException, Request
@@ -31,6 +33,9 @@ _UNSAFE_REFRESH_SEGMENTS = {
     "/agents",
     "/agent-teams",
 }
+_REFRESH_LOG_COOLDOWN_SECONDS = 60.0
+_REFRESH_LOG_CACHE: dict[tuple[str, str], float] = {}
+_REFRESH_LOG_LOCK = Lock()
 
 
 def _is_expected_refresh_failure(exc: Exception) -> bool:
@@ -40,6 +45,38 @@ def _is_expected_refresh_failure(exc: Exception) -> bool:
         return False
     detail = str(exc.detail or "").lower()
     return "invalid refresh token" in detail or "refresh token expired" in detail
+
+
+def _should_log_refresh_event(reason: str, ip: str | None) -> bool:
+    key = (reason, ip or "")
+    now = monotonic()
+    with _REFRESH_LOG_LOCK:
+        last = _REFRESH_LOG_CACHE.get(key)
+        if last is not None and now - last < _REFRESH_LOG_COOLDOWN_SECONDS:
+            return False
+        _REFRESH_LOG_CACHE[key] = now
+        if len(_REFRESH_LOG_CACHE) > 2048:
+            stale_before = now - (_REFRESH_LOG_COOLDOWN_SECONDS * 2)
+            stale_keys = [cache_key for cache_key, seen_at in _REFRESH_LOG_CACHE.items() if seen_at < stale_before]
+            for stale_key in stale_keys:
+                _REFRESH_LOG_CACHE.pop(stale_key, None)
+        return True
+
+
+def _clear_auth_cookies(response: RedirectResponse, db: Session) -> None:
+    response.delete_cookie(
+        key="session_token",
+        secure=settings.cookie_secure,
+        samesite="lax",
+    )
+    refresh_settings = AuthFlow.refresh_cookie_settings(db)
+    response.delete_cookie(
+        key=refresh_settings["key"],
+        secure=refresh_settings["secure"],
+        samesite=refresh_settings["samesite"],
+        domain=refresh_settings["domain"],
+        path=refresh_settings["path"],
+    )
 
 
 def _sanitize_refresh_next(next_url: str | None, fallback: str) -> str:
@@ -371,30 +408,37 @@ def reset_password_submit(
 def refresh(request: Request, db: Session, next_url: str | None = None):
     redirect_url = _safe_next(next_url)
     refresh_token = AuthFlow.resolve_refresh_token(request, None, db)
+    client_ip = request.client.host if request.client else None
     if not refresh_token:
         login_url = "/auth/login"
         if next_url and next_url.startswith("/"):
             login_url = f"/auth/login?next={quote(next_url)}"
-        logger.info(
-            "web_refresh_redirect_login reason=missing_refresh_cookie next=%s ip=%s",
-            next_url or "",
-            request.client.host if request.client else None,
-        )
-        return RedirectResponse(url=login_url, status_code=303)
+        response = RedirectResponse(url=login_url, status_code=303)
+        _clear_auth_cookies(response, db)
+        if _should_log_refresh_event("missing_refresh_cookie", client_ip):
+            logger.info(
+                "web_refresh_redirect_login reason=missing_refresh_cookie next=%s ip=%s",
+                next_url or "",
+                client_ip,
+            )
+        return response
     try:
         result = auth_flow_service.auth_flow.refresh(db, refresh_token, request)
     except Exception as exc:
         login_url = "/auth/login"
         if next_url and next_url.startswith("/"):
             login_url = f"/auth/login?next={quote(next_url)}"
-        log = logger.info if _is_expected_refresh_failure(exc) else logger.warning
-        log(
-            "web_refresh_redirect_login reason=refresh_failed next=%s ip=%s error=%s",
-            next_url or "",
-            request.client.host if request.client else None,
-            str(exc),
-        )
-        return RedirectResponse(url=login_url, status_code=303)
+        response = RedirectResponse(url=login_url, status_code=303)
+        _clear_auth_cookies(response, db)
+        if _should_log_refresh_event("refresh_failed", client_ip):
+            log = logger.info if _is_expected_refresh_failure(exc) else logger.warning
+            log(
+                "web_refresh_redirect_login reason=refresh_failed next=%s ip=%s error=%s",
+                next_url or "",
+                client_ip,
+                str(exc),
+            )
+        return response
 
     response = RedirectResponse(url=redirect_url, status_code=303)
     response.set_cookie(
@@ -411,7 +455,7 @@ def refresh(request: Request, db: Session, next_url: str | None = None):
         "web_refresh_redirect_success next=%s target=%s ip=%s",
         next_url or "",
         redirect_url,
-        request.client.host if request.client else None,
+        client_ip,
     )
     return response
 

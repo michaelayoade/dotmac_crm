@@ -531,7 +531,12 @@
                         },
                         refresh() {
                             fetch('/admin/crm/agents/presence/self', { headers: { 'Accept': 'application/json' }})
-                                .then(r => r.ok ? r.json() : null)
+                                .then(r => {
+                                    if (window.DotMacAuth && window.DotMacAuth.handleAuthResponse(r, '/auth/login')) {
+                                        return null;
+                                    }
+                                    return r.ok ? r.json() : null;
+                                })
                                 .then(data => {
                                     if (!data) return;
                                     this.status = data.status || null;
@@ -1038,7 +1043,12 @@
 
 	                // Sync based on server's effective status + server-computed shift work seconds.
 	                fetch(selfEndpoint, { headers: { "Accept": "application/json" } })
-	                    .then((r) => (r.ok ? r.json() : null))
+	                    .then((r) => {
+	                        if (window.DotMacAuth && window.DotMacAuth.handleAuthResponse(r, "/auth/login")) {
+	                            return null;
+	                        }
+	                        return r.ok ? r.json() : null;
+	                    })
 	                    .then((data) => {
 	                        if (!data) return;
 	                        this.agentId = data.agent_id || null;
@@ -1229,7 +1239,12 @@
 	            },
 	            refresh() {
 	                return fetch("/admin/crm/agents/presence/self", { headers: { "Accept": "application/json" } })
-	                    .then((r) => (r.ok ? r.json() : null))
+	                    .then((r) => {
+	                        if (window.DotMacAuth && window.DotMacAuth.handleAuthResponse(r, "/auth/login")) {
+	                            return null;
+	                        }
+	                        return r.ok ? r.json() : null;
+	                    })
 	                    .then((data) => {
 	                        if (!data) {
 	                            this.agentKnown = false;
@@ -1390,7 +1405,12 @@
 	            timerId: null,
 	            init() {
 	                fetch(selfEndpoint, { headers: { "Accept": "application/json" } })
-	                    .then((r) => (r.ok ? r.json() : null))
+	                    .then((r) => {
+	                        if (window.DotMacAuth && window.DotMacAuth.handleAuthResponse(r, "/auth/login")) {
+	                            return null;
+	                        }
+	                        return r.ok ? r.json() : null;
+	                    })
 	                    .then((data) => {
 	                        if (!data) return;
 	                        this.agentKnown = true;
@@ -1503,5 +1523,6 @@
 	        document.querySelectorAll("[data-attachments-selected]").forEach(wire);
 	    })();
 	</script>
+    <script src="/static/js/voice-input.js?v=20260413d"></script>
 {% include "components/modals/confirm_modal.html" %}
 {% endblock %}

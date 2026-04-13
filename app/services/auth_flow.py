@@ -256,6 +256,11 @@ def hash_session_token(token: str) -> str:
     return _hash_token(token)
 
 
+def _access_token_for_session(db: Session, session: AuthSession) -> str:
+    roles, permissions = _load_rbac_claims(db, str(session.person_id))
+    return _issue_access_token(db, str(session.person_id), str(session.id), roles, permissions)
+
+
 def _issue_access_token(
     db: Session | None,
     person_id: str,
@@ -659,8 +664,32 @@ class AuthFlow(ListResponseMixin):
                 rotated_at = _as_utc(reused.token_rotated_at)
                 if rotated_at is not None and (now - rotated_at).total_seconds() <= _REFRESH_REUSE_GRACE_SECONDS:
                     # Allow a short overlap for concurrent refresh requests from the same
-                    # browser/session so races do not force-log users out.
-                    session = reused
+                    # browser/session so races do not force-log users out. Do not rotate
+                    # again here: returning no refresh token prevents older responses from
+                    # overwriting the browser's newest refresh cookie.
+                    expires_at = _as_utc(reused.expires_at)
+                    if expires_at and expires_at <= now:
+                        reused.status = SessionStatus.expired
+                        db.commit()
+                        logger.info(
+                            "auth_refresh_failed reason=expired session_id=%s person_id=%s ip=%s",
+                            reused.id,
+                            reused.person_id,
+                            _request_ip(request),
+                        )
+                        raise HTTPException(status_code=401, detail="Refresh token expired")
+                    reused.last_seen_at = now
+                    if request.client:
+                        reused.ip_address = request.client.host
+                    reused.user_agent = _truncate_user_agent(request.headers.get("user-agent"))
+                    db.commit()
+                    logger.info(
+                        "auth_refresh_replay_tolerated session_id=%s person_id=%s ip=%s",
+                        reused.id,
+                        reused.person_id,
+                        _request_ip(request),
+                    )
+                    return {"access_token": _access_token_for_session(db, reused), "refresh_token": None}  # nosec B105
                 else:
                     reused.status = SessionStatus.revoked
                     reused.revoked_at = now
@@ -710,8 +739,7 @@ class AuthFlow(ListResponseMixin):
             _request_ip(request),
         )
 
-        roles, permissions = _load_rbac_claims(db, str(session.person_id))
-        access_token = _issue_access_token(db, str(session.person_id), str(session.id), roles, permissions)
+        access_token = _access_token_for_session(db, session)
         return {"access_token": access_token, "refresh_token": new_refresh}
 
     @staticmethod

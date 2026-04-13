@@ -153,6 +153,12 @@
                     </option>
                     {% endfor %}
                 </select>
+                <input type="hidden" name="clear_region_assignment" value="" data-clear-region-assignment>
+                <button type="button"
+                        class="mt-2 inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                        data-clear-region-assignment-button>
+                    Clear Region Assignment
+                </button>
             </div>
 
             <div>
@@ -553,6 +559,8 @@
         const regionSelect = document.getElementById("region");
         const managerSelect = document.getElementById("ticket_manager_person_id");
         const assistantSelect = document.getElementById("assistant_manager_person_id");
+        const clearAssignmentInput = document.querySelector("[data-clear-region-assignment]");
+        const clearAssignmentButton = document.querySelector("[data-clear-region-assignment-button]");
         if (!regionSelect || (!managerSelect && !assistantSelect)) {
             return;
         }
@@ -611,7 +619,29 @@
             assistantSelect.addEventListener("change", markManual);
         }
 
-        regionSelect.addEventListener("change", applyAssignments);
+        regionSelect.addEventListener("change", () => {
+            if (clearAssignmentInput) {
+                clearAssignmentInput.value = "";
+            }
+            applyAssignments();
+        });
+        if (clearAssignmentButton) {
+            clearAssignmentButton.addEventListener("click", () => {
+                regionSelect.value = "";
+                if (managerSelect) {
+                    managerSelect.value = "";
+                    managerSelect.dataset.autofill = "false";
+                }
+                if (assistantSelect) {
+                    assistantSelect.value = "";
+                    assistantSelect.dataset.autofill = "false";
+                }
+                if (clearAssignmentInput) {
+                    clearAssignmentInput.value = "1";
+                }
+                document.dispatchEvent(new CustomEvent("ticket:clear-assignment"));
+            });
+        }
         applyAssignments();
     })();
 
@@ -740,6 +770,10 @@
         const setGroup = (item) => {
             const normalizedId = String(item.id || "").replace(/^group:/, "");
             if (!normalizedId) return;
+            const clearAssignmentInput = document.querySelector("[data-clear-region-assignment]");
+            if (clearAssignmentInput) {
+                clearAssignmentInput.value = "";
+            }
             if (selectedGroup && selectedGroup.id === normalizedId) {
                 input.value = "";
                 renderResults();
@@ -852,6 +886,11 @@
             if (!root.contains(event.target)) {
                 results.innerHTML = "";
             }
+        });
+
+        document.addEventListener("ticket:clear-assignment", () => {
+            clearGroup();
+            results.innerHTML = "";
         });
 
         seedHidden();

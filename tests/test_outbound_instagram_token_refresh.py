@@ -20,7 +20,7 @@ from app.services.crm.inbox import outbound
     [
         (None, False),
         ("", False),
-        ("{\"error\":\"random\"}", False),
+        ('{"error":"random"}', False),
         # No longer false-positives on the bare phrase "access token"
         ("Missing access token parameter", False),
         ("Session has expired on Sunday, 12-Apr-26", True),
@@ -44,9 +44,7 @@ def _make_http_status_error(status_code: int, text: str = "boom") -> httpx.HTTPS
 
 def test_refresh_and_resend_returns_none_when_no_token(monkeypatch):
     db = MagicMock()
-    monkeypatch.setattr(
-        "app.services.meta_messaging.get_token_for_channel", lambda *a, **kw: None
-    )
+    monkeypatch.setattr("app.services.meta_messaging.get_token_for_channel", lambda *a, **kw: None)
     result, text, status = outbound._try_instagram_token_refresh_and_resend(
         db, target=None, account_id="me", resend_callable=lambda: {"message_id": "x"}
     )
@@ -57,9 +55,7 @@ def test_refresh_failure_marks_token_for_reauth(monkeypatch):
     db = MagicMock()
     fake_token = MagicMock()
     fake_token.refresh_error = None
-    monkeypatch.setattr(
-        "app.services.meta_messaging.get_token_for_channel", lambda *a, **kw: fake_token
-    )
+    monkeypatch.setattr("app.services.meta_messaging.get_token_for_channel", lambda *a, **kw: fake_token)
 
     def _boom_refresh(_db, _token):
         raise _make_http_status_error(401, "OAuthException expired")
@@ -79,9 +75,7 @@ def test_refresh_then_successful_resend_returns_result(monkeypatch):
     db = MagicMock()
     fake_token = MagicMock()
     fake_token.refresh_error = "stale"
-    monkeypatch.setattr(
-        "app.services.meta_messaging.get_token_for_channel", lambda *a, **kw: fake_token
-    )
+    monkeypatch.setattr("app.services.meta_messaging.get_token_for_channel", lambda *a, **kw: fake_token)
 
     def _ok_refresh(_db, _token):
         return _token
@@ -99,12 +93,8 @@ def test_refresh_then_successful_resend_returns_result(monkeypatch):
 def test_refresh_succeeds_but_resend_still_fails(monkeypatch):
     db = MagicMock()
     fake_token = MagicMock()
-    monkeypatch.setattr(
-        "app.services.meta_messaging.get_token_for_channel", lambda *a, **kw: fake_token
-    )
-    monkeypatch.setattr(
-        "app.services.meta_oauth.refresh_token_sync", lambda _db, _t: _t
-    )
+    monkeypatch.setattr("app.services.meta_messaging.get_token_for_channel", lambda *a, **kw: fake_token)
+    monkeypatch.setattr("app.services.meta_oauth.refresh_token_sync", lambda _db, _t: _t)
 
     def _resend():
         raise _make_http_status_error(500, "still broken")

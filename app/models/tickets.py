@@ -54,6 +54,16 @@ class Ticket(Base):
             "status",
             postgresql_where=text("is_active IS TRUE"),
         ),
+        Index(
+            "ix_tickets_active_region",
+            "region",
+            postgresql_where=text("is_active IS TRUE"),
+        ),
+        Index(
+            "ix_tickets_active_service_team",
+            "service_team_id",
+            postgresql_where=text("is_active IS TRUE"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

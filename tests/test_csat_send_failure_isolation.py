@@ -44,9 +44,7 @@ def _make_survey(db_session):
 def _stub_csat_lookups(monkeypatch):
     monkeypatch.setattr(csat, "_resolve_latest_inbound_message", lambda db, cid: None)
     monkeypatch.setattr(csat, "_resolve_target_id", lambda db, cid: "00000000-0000-0000-0000-000000000001")
-    monkeypatch.setattr(
-        csat, "_resolve_latest_channel_type", lambda db, cid: ChannelType.whatsapp
-    )
+    monkeypatch.setattr(csat, "_resolve_latest_channel_type", lambda db, cid: ChannelType.whatsapp)
     monkeypatch.setattr(
         csat,
         "get_enabled_map",
@@ -68,9 +66,7 @@ def test_send_failure_keeps_invitation_for_retry(monkeypatch, db_session, crm_co
 
     monkeypatch.setattr(csat, "crm_service", _StubCrmService)
 
-    result = csat.queue_for_resolved_conversation(
-        db_session, conversation_id=str(convo.id)
-    )
+    result = csat.queue_for_resolved_conversation(db_session, conversation_id=str(convo.id))
 
     assert result.kind == "send_failed"
     assert "131000" in (result.detail or "")
@@ -101,9 +97,7 @@ def test_successful_send_marks_invitation_sent(monkeypatch, db_session, crm_cont
 
     monkeypatch.setattr(csat, "crm_service", _StubCrmService)
 
-    result = csat.queue_for_resolved_conversation(
-        db_session, conversation_id=str(convo.id)
-    )
+    result = csat.queue_for_resolved_conversation(db_session, conversation_id=str(convo.id))
 
     assert result.kind == "queued"
     invitation = (
@@ -150,9 +144,7 @@ def test_already_sent_invitation_short_circuits(monkeypatch, db_session, crm_con
 
     monkeypatch.setattr(csat, "crm_service", _StubCrmService)
 
-    result = csat.queue_for_resolved_conversation(
-        db_session, conversation_id=str(convo.id)
-    )
+    result = csat.queue_for_resolved_conversation(db_session, conversation_id=str(convo.id))
 
     assert result.kind == "already_invited"
     assert send_calls == []  # never attempted re-send
@@ -197,9 +189,7 @@ def test_retry_pending_invitation_succeeds(monkeypatch, db_session, crm_contact)
     assert invitation.sent_at is not None
 
 
-def test_retry_pending_invitation_send_failure_keeps_pending(
-    monkeypatch, db_session, crm_contact
-):
+def test_retry_pending_invitation_send_failure_keeps_pending(monkeypatch, db_session, crm_contact):
     convo = _make_conversation(db_session, crm_contact)
     survey = _make_survey(db_session)
     _stub_csat_lookups(monkeypatch)

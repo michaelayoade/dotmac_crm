@@ -160,6 +160,22 @@ class TicketQuery(BaseQuery[Ticket]):
         clone._query = clone._query.filter(Ticket.assistant_manager_person_id == coerce_uuid(person_id))
         return clone
 
+    def by_region(self, region: str | None) -> TicketQuery:
+        """Filter by ticket region."""
+        if not region or not region.strip():
+            return self
+        clone = self._clone()
+        clone._query = clone._query.filter(Ticket.region == region.strip())
+        return clone
+
+    def by_service_team(self, service_team_id: UUID | str | None) -> TicketQuery:
+        """Filter by assigned service team/group."""
+        if not service_team_id:
+            return self
+        clone = self._clone()
+        clone._query = clone._query.filter(Ticket.service_team_id == coerce_uuid(service_team_id))
+        return clone
+
     def by_ticket_type(self, ticket_type: str | None) -> TicketQuery:
         """Filter by ticket type."""
         if not ticket_type or not ticket_type.strip():

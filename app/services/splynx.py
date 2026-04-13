@@ -370,10 +370,17 @@ def map_customer_to_subscriber_data(
         "service_speed": speed_value,
         "balance": balance_value,
         "currency": _coalesce_str(customer.get("currency"), customer.get("currency_code")) or "USD",
-        "service_address_line1": _coalesce_str(customer.get("street"), customer.get("street_1")),
-        "service_city": _coalesce_str(customer.get("city")),
-        "service_region": _coalesce_str(customer.get("state"), customer.get("region")),
-        "service_postal_code": _coalesce_str(customer.get("zip"), customer.get("zip_code")),
+        "service_address_line1": _coalesce_str(customer.get("street"), customer.get("street_1"))
+        or _nested_coalesce_str([customer, primary_service], ("street", "street_1", "address", "service_address")),
+        "service_city": _coalesce_str(customer.get("city"))
+        or _nested_coalesce_str([customer, primary_service], ("city", "town", "service_city")),
+        "service_region": _coalesce_str(customer.get("state"), customer.get("region"))
+        or _nested_coalesce_str(
+            [customer, primary_service],
+            ("state", "region", "area", "nas_name", "router_name", "access_router", "service_region"),
+        ),
+        "service_postal_code": _coalesce_str(customer.get("zip"), customer.get("zip_code"))
+        or _nested_coalesce_str([customer, primary_service], ("zip", "zip_code", "postal_code", "postcode")),
         "next_bill_date": next_bill_date,
         "activated_at": activated_at,
         "terminated_at": terminated_at,
@@ -481,6 +488,93 @@ def _extract_speed(source: dict[str, Any], description: str | None) -> str | Non
     return None
 
 
+def _normalized_lookup_key(value: object) -> str:
+    text = str(value or "").strip().lower()
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def _iter_nested_custom_values(payload: object):
+    if isinstance(payload, dict):
+        yield payload
+        for key in (
+            "additional_attributes",
+            "additionalAttributes",
+            "custom_attributes",
+            "customAttributes",
+            "custom_fields",
+            "customFields",
+            "attributes",
+            "fields",
+            "metadata",
+        ):
+            nested = payload.get(key)
+            if isinstance(nested, dict | list):
+                yield from _iter_nested_custom_values(nested)
+        for value in payload.values():
+            if isinstance(value, dict | list):
+                yield from _iter_nested_custom_values(value)
+    elif isinstance(payload, list):
+        for item in payload:
+            if isinstance(item, dict | list):
+                yield from _iter_nested_custom_values(item)
+
+
+def _find_nested_value(payload: object, aliases: tuple[str, ...]) -> object | None:
+    normalized_aliases = {_normalized_lookup_key(alias) for alias in aliases}
+    for node in _iter_nested_custom_values(payload):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if _normalized_lookup_key(key) in normalized_aliases and _has_value(value):
+                    return value
+            label_key = _coalesce_str(node.get("name"), node.get("label"), node.get("key"), node.get("field"))
+            if label_key and _normalized_lookup_key(label_key) in normalized_aliases:
+                candidate_value = node.get("value")
+                if not _has_value(candidate_value):
+                    candidate_value = node.get("content")
+                if _has_value(candidate_value):
+                    return candidate_value
+    return None
+
+
+def _nested_coalesce_str(payloads: list[object], aliases: tuple[str, ...]) -> str | None:
+    for payload in payloads:
+        candidate = _find_nested_value(payload, aliases)
+        text = _coalesce_str(candidate)
+        if text:
+            return text
+    return None
+
+
+def _nested_date_str(payloads: list[object], aliases: tuple[str, ...]) -> str | None:
+    for payload in payloads:
+        candidate = _find_nested_value(payload, aliases)
+        parsed = _parse_splynx_date(candidate)
+        if parsed is not None:
+            return parsed.strftime("%Y-%m-%d")
+        text = _coalesce_str(candidate)
+        if text:
+            return text
+    return None
+
+
+def _nested_datetime(payloads: list[object], aliases: tuple[str, ...]) -> datetime | None:
+    for payload in payloads:
+        candidate = _find_nested_value(payload, aliases)
+        parsed = _parse_splynx_date(candidate)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _nested_decimal_str(payloads: list[object], aliases: tuple[str, ...]) -> str | None:
+    for payload in payloads:
+        candidate = _find_nested_value(payload, aliases)
+        normalized = _normalize_decimal_str(candidate)
+        if normalized is not None:
+            return normalized
+    return None
+
+
 def _extract_balance(
     customer: dict[str, Any],
     billing: dict[str, Any] | None,
@@ -497,6 +591,12 @@ def _extract_balance(
         normalized = _normalize_decimal_str(candidate)
         if normalized is not None:
             return normalized
+    nested_value = _nested_decimal_str(
+        [billing, customer, primary_service],
+        ("balance", "account_balance", "mrr_total", "deposit", "unit_price", "amount_due", "balance_due"),
+    )
+    if nested_value is not None:
+        return nested_value
     return None
 
 
@@ -521,6 +621,12 @@ def _extract_last_transaction_date(
         text = _coalesce_str(candidate)
         if text:
             return text
+    nested_value = _nested_date_str(
+        [billing, customer, primary_service],
+        ("last_transaction_date", "transaction_date", "last_payment_date", "payment_date", "last_paid_date"),
+    )
+    if nested_value is not None:
+        return nested_value
     return None
 
 
@@ -536,6 +642,9 @@ def _extract_expires_in(
         billing.get("expires_in") if billing else None,
         primary_service.get("expire_in") if primary_service else None,
         primary_service.get("expires_in") if primary_service else None,
+    ) or _nested_coalesce_str(
+        [customer, billing, primary_service],
+        ("expire_in", "expires_in", "expiry", "expires"),
     )
 
 
@@ -560,6 +669,12 @@ def _extract_invoiced_until(
         text = _coalesce_str(candidate)
         if text:
             return text
+    nested_value = _nested_date_str(
+        [billing, customer, primary_service],
+        ("invoiced_until", "invoiced_to", "paid_until", "invoice_until", "paid_to"),
+    )
+    if nested_value is not None:
+        return nested_value
     return None
 
 
@@ -580,6 +695,12 @@ def _extract_total_paid(
         normalized = _normalize_decimal_str(candidate)
         if normalized is not None:
             return normalized
+    nested_value = _nested_decimal_str(
+        [billing, customer, primary_service],
+        ("total_paid", "paid_total", "payments_total", "total_payments", "paid_amount"),
+    )
+    if nested_value is not None:
+        return nested_value
     return None
 
 
@@ -618,6 +739,12 @@ def _extract_next_bill_date(
         parsed = _parse_splynx_date(candidate)
         if parsed is not None:
             return parsed
+    nested_value = _nested_datetime(
+        [customer, billing, primary_service],
+        ("next_bill_date", "next_billing_date", "expire", "due_date", "billing_date_next"),
+    )
+    if nested_value is not None:
+        return nested_value
 
     if billing:
         billing_day = billing.get("billing_date")
@@ -643,6 +770,12 @@ def _extract_activation_date(customer: dict[str, Any], primary_service: dict[str
         parsed = _parse_splynx_date(candidate)
         if parsed is not None:
             return parsed
+    nested_value = _nested_datetime(
+        [customer, primary_service],
+        ("start_date", "date_add", "conversion_date", "created_at", "created", "registration_date", "activated_at"),
+    )
+    if nested_value is not None:
+        return nested_value
     return None
 
 
@@ -663,6 +796,12 @@ def _extract_termination_date(
         parsed = _parse_splynx_date(candidate)
         if parsed is not None:
             return parsed
+    nested_value = _nested_datetime(
+        [customer, primary_service],
+        ("end_date", "expire", "terminated_at", "termination_date", "disabled_at"),
+    )
+    if nested_value is not None:
+        return nested_value
     return None
 
 
@@ -684,6 +823,12 @@ def _extract_suspended_date(
         parsed = _parse_splynx_date(candidate)
         if parsed is not None:
             return parsed
+    nested_value = _nested_datetime(
+        [billing, customer, primary_service],
+        ("blocking_date", "blocked_date", "suspended_at", "suspension_date"),
+    )
+    if nested_value is not None:
+        return nested_value
     return None
 
 

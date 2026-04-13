@@ -665,7 +665,23 @@ def subscriber_create(
     )
 
 
-@router.get("/{subscriber_id}", response_class=HTMLResponse)
+@router.get("/billing-risk")
+def subscriber_billing_risk_alias(request: Request):
+    url = "/admin/reports/subscribers/billing-risk"
+    if request.url.query:
+        url = f"{url}?{request.url.query}"
+    return RedirectResponse(url=url, status_code=302)
+
+
+@router.get("/billing-risk/export")
+def subscriber_billing_risk_export_alias(request: Request):
+    url = "/admin/reports/subscribers/billing-risk/export"
+    if request.url.query:
+        url = f"{url}?{request.url.query}"
+    return RedirectResponse(url=url, status_code=302)
+
+
+@router.get("/{subscriber_id:uuid}", response_class=HTMLResponse)
 def subscriber_detail(
     request: Request,
     subscriber_id: UUID,
@@ -694,7 +710,7 @@ def subscriber_detail(
     )
 
 
-@router.get("/{subscriber_id}/edit", response_class=HTMLResponse)
+@router.get("/{subscriber_id:uuid}/edit", response_class=HTMLResponse)
 def subscriber_edit(
     request: Request,
     subscriber_id: UUID,
@@ -725,7 +741,7 @@ def subscriber_edit(
     )
 
 
-@router.post("/{subscriber_id}", response_class=HTMLResponse)
+@router.post("/{subscriber_id:uuid}", response_class=HTMLResponse)
 def subscriber_update(
     request: Request,
     subscriber_id: UUID,
@@ -751,7 +767,7 @@ def subscriber_update(
     )
 
 
-@router.post("/{subscriber_id}/link-person", response_class=HTMLResponse)
+@router.post("/{subscriber_id:uuid}/link-person", response_class=HTMLResponse)
 def subscriber_link_person(
     request: Request,
     subscriber_id: UUID,
@@ -776,7 +792,7 @@ def _subscriber_action_redirect(request: Request, url: str) -> Response:
     return RedirectResponse(url=url, status_code=303)
 
 
-@router.post("/{subscriber_id}/delete", response_class=HTMLResponse)
+@router.post("/{subscriber_id:uuid}/delete", response_class=HTMLResponse)
 def subscriber_delete(
     request: Request,
     subscriber_id: UUID,
@@ -789,7 +805,7 @@ def subscriber_delete(
     return _subscriber_action_redirect(request, "/admin/subscribers")
 
 
-@router.post("/{subscriber_id}/deactivate", response_class=HTMLResponse)
+@router.post("/{subscriber_id:uuid}/deactivate", response_class=HTMLResponse)
 def subscriber_deactivate(
     request: Request,
     subscriber_id: UUID,

@@ -171,5 +171,3 @@ def check_token_health():
         raise
     finally:
         session.close()
-
-

@@ -6,8 +6,13 @@ from fastapi import HTTPException
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
+from app.models.crm.team import CrmTeam
+from app.models.performance import AgentPerformanceSnapshot
 from app.models.person import Person
+from app.models.projects import Project
 from app.models.service_team import ServiceTeam, ServiceTeamMember
+from app.models.tickets import Ticket
+from app.models.workflow import TicketAssignmentRule
 from app.schemas.service_team import (
     ServiceTeamCreate,
     ServiceTeamMemberCreate,
@@ -73,8 +78,61 @@ class ServiceTeams(ListResponseMixin):
 
     @staticmethod
     def delete(db: Session, team_id: str) -> None:
+        ServiceTeams.deactivate(db, team_id)
+
+    @staticmethod
+    def deactivate(db: Session, team_id: str) -> ServiceTeam:
         team = get_or_404(db, ServiceTeam, team_id)
         team.is_active = False
+        db.commit()
+        db.refresh(team)
+        return team
+
+    @staticmethod
+    def activate(db: Session, team_id: str) -> ServiceTeam:
+        team = get_or_404(db, ServiceTeam, team_id)
+        team.is_active = True
+        db.commit()
+        db.refresh(team)
+        return team
+
+    @staticmethod
+    def dependency_summary(db: Session, team_id: str) -> dict[str, int]:
+        team_uuid = coerce_uuid(team_id)
+        return {
+            "tickets": db.query(Ticket).filter(Ticket.service_team_id == team_uuid).count(),
+            "projects": db.query(Project).filter(Project.service_team_id == team_uuid).count(),
+            "crm_teams": db.query(CrmTeam).filter(CrmTeam.service_team_id == team_uuid).count(),
+            "assignment_rules": db.query(TicketAssignmentRule).filter(TicketAssignmentRule.team_id == team_uuid).count(),
+            "performance_snapshots": db.query(AgentPerformanceSnapshot)
+            .filter(AgentPerformanceSnapshot.team_id == team_uuid)
+            .count(),
+            "members": db.query(ServiceTeamMember).filter(ServiceTeamMember.team_id == team_uuid).count(),
+        }
+
+    @staticmethod
+    def can_delete_permanently(db: Session, team_id: str) -> bool:
+        summary = ServiceTeams.dependency_summary(db, team_id)
+        return not any(
+            summary[key]
+            for key in (
+                "tickets",
+                "projects",
+                "crm_teams",
+                "assignment_rules",
+                "performance_snapshots",
+            )
+        )
+
+    @staticmethod
+    def hard_delete(db: Session, team_id: str) -> None:
+        team = get_or_404(db, ServiceTeam, team_id)
+        if not ServiceTeams.can_delete_permanently(db, team_id):
+            raise HTTPException(
+                status_code=409,
+                detail="This group has linked operational history. Deactivate it instead.",
+            )
+        db.delete(team)
         db.commit()
 
     @staticmethod

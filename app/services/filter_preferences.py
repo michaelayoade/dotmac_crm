@@ -22,8 +22,8 @@ TICKETS_PAGE = FilterPreferencePage(
         "status",
         "ticket_type",
         "assigned",
-        "pm",
-        "spc",
+        "region",
+        "group",
         "subscriber",
         "filters",
         "order_by",
@@ -38,8 +38,7 @@ PROJECTS_PAGE = FilterPreferencePage(
         "search",
         "status",
         "project_type",
-        "pm",
-        "spc",
+        "region",
         "filters",
         "order_by",
         "order_dir",
@@ -132,7 +131,10 @@ def merge_query_with_state(
     merged = {str(k): str(v) for k, v in query_params.items()}
     for key in page.managed_keys:
         merged.pop(key, None)
+    managed = set(page.managed_keys)
     for key, value in state.items():
+        if str(key) not in managed:
+            continue
         if value is None:
             continue
         text = str(value).strip()

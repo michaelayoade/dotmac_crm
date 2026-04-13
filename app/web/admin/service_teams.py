@@ -41,6 +41,13 @@ def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
     }
 
 
+def _current_actor_id(request: Request) -> str | None:
+    from app.web.admin._auth_helpers import get_current_user
+
+    current_user = get_current_user(request)
+    return str(current_user.get("person_id")) if current_user and current_user.get("person_id") else None
+
+
 @router.get("", response_class=HTMLResponse)
 def service_team_list(request: Request, search: str | None = None, db: Session = Depends(get_db)):
     teams = service_teams.list(db, order_by="name", order_dir="asc", limit=100, offset=0)
@@ -138,6 +145,8 @@ def service_team_detail(request: Request, team_id: str, db: Session = Depends(ge
         members=members,
         member_roles=[r.value for r in ServiceTeamMemberRole],
         people_options=people_options,
+        dependency_summary=service_teams.dependency_summary(db, team_id),
+        can_delete_permanently=service_teams.can_delete_permanently(db, team_id),
     )
     return templates.TemplateResponse("admin/system/service_teams/detail.html", context)
 
@@ -183,6 +192,53 @@ def service_team_update(
     )
 
     return RedirectResponse(url=f"/admin/system/teams/{team_id}", status_code=303)
+
+
+@router.post("/{team_id}/activate")
+def service_team_activate(request: Request, team_id: str, db: Session = Depends(get_db)):
+    team = service_teams.activate(db, team_id)
+    log_audit_event(
+        db=db,
+        request=request,
+        action="activate",
+        entity_type="service_team",
+        entity_id=team_id,
+        actor_id=_current_actor_id(request),
+        metadata={"name": team.name},
+    )
+    return RedirectResponse(url=f"/admin/system/teams/{team_id}", status_code=303)
+
+
+@router.post("/{team_id}/deactivate")
+def service_team_deactivate(request: Request, team_id: str, db: Session = Depends(get_db)):
+    team = service_teams.deactivate(db, team_id)
+    log_audit_event(
+        db=db,
+        request=request,
+        action="deactivate",
+        entity_type="service_team",
+        entity_id=team_id,
+        actor_id=_current_actor_id(request),
+        metadata={"name": team.name},
+    )
+    return RedirectResponse(url=f"/admin/system/teams/{team_id}", status_code=303)
+
+
+@router.post("/{team_id}/delete")
+def service_team_delete(request: Request, team_id: str, db: Session = Depends(get_db)):
+    team = service_teams.get(db, team_id)
+    team_name = team.name
+    service_teams.hard_delete(db, team_id)
+    log_audit_event(
+        db=db,
+        request=request,
+        action="delete",
+        entity_type="service_team",
+        entity_id=team_id,
+        actor_id=_current_actor_id(request),
+        metadata={"name": team_name},
+    )
+    return RedirectResponse(url="/admin/system/teams", status_code=303)
 
 
 @router.post("/{team_id}/members/add")
