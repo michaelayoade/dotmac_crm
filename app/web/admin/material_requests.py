@@ -54,8 +54,6 @@ def _base_ctx(request: Request, db: Session, **kwargs) -> dict:
     }
 
 
-
-
 def _resolve_date(value: str | None) -> date | None:
     raw = (value or "").strip()
     if not raw:

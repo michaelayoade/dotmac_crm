@@ -66,6 +66,37 @@ def test_projects_service_list_applies_filters_payload(db_session):
     assert {row.id for row in rows} == {matching.id}
 
 
+def test_projects_service_list_filters_by_region(db_session):
+    matching = projects_service.projects.create(
+        db_session,
+        ProjectCreate(name="Project Garki", status="active", region="Garki"),
+    )
+    projects_service.projects.create(
+        db_session,
+        ProjectCreate(name="Project Wuse", status="active", region="Wuse"),
+    )
+
+    rows = projects_service.projects.list(
+        db=db_session,
+        subscriber_id=None,
+        status=None,
+        project_type=None,
+        priority=None,
+        owner_person_id=None,
+        manager_person_id=None,
+        project_manager_person_id=None,
+        assistant_manager_person_id=None,
+        is_active=True,
+        order_by="created_at",
+        order_dir="desc",
+        limit=50,
+        offset=0,
+        search=None,
+        region="Garki",
+    )
+    assert {row.id for row in rows} == {matching.id}
+
+
 def test_project_tasks_service_list_applies_filters_payload(db_session):
     project = projects_service.projects.create(
         db_session,

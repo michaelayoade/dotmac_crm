@@ -157,7 +157,7 @@ async def build_inbox_page_context(
             comment_id=comment_id,
             offset=safe_offset,
             limit=page_limit,
-            fetch=False,
+            fetch=True,
             target_id=target_id,
             force_refresh_thread=force_refresh_thread,
         )
@@ -240,7 +240,7 @@ async def build_inbox_page_context(
                 comment_id=comment_id,
                 offset=0,
                 limit=1,
-                fetch=False,
+                fetch=True,
                 target_id=target_id,
                 include_thread=True,
                 force_refresh_thread=force_refresh_thread,

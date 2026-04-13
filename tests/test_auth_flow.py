@@ -55,12 +55,46 @@ def test_login_and_refresh_previous_token_within_grace_is_tolerated(db_session, 
     # Simulate a concurrent in-flight refresh request that still carries the
     # previous refresh token.
     replayed = AuthFlow.refresh(db_session, old_refresh, request)
-    assert replayed["refresh_token"]
-    assert replayed["refresh_token"] != rotated["refresh_token"]
+    assert replayed["access_token"]
+    assert replayed["refresh_token"] is None
 
     session = db_session.query(AuthSession).first()
     assert session.status == SessionStatus.active
     assert session.revoked_at is None
+    assert session.token_hash == hashlib.sha256(rotated["refresh_token"].encode("utf-8")).hexdigest()
+
+
+def test_multiple_previous_refresh_replays_do_not_revoke_session(db_session, person):
+    credential = UserCredential(
+        person_id=person.id,
+        provider=AuthProvider.local,
+        username="user@example.com",
+        password_hash=hash_password("secret"),
+        is_active=True,
+    )
+    db_session.add(credential)
+    db_session.commit()
+    db_session.refresh(credential)
+
+    request = _make_request()
+    tokens = AuthFlow.login(db_session, "user@example.com", "secret", request, None)
+    old_refresh = tokens["refresh_token"]
+
+    rotated = AuthFlow.refresh(db_session, old_refresh, request)
+    first_replay = AuthFlow.refresh(db_session, old_refresh, request)
+    second_replay = AuthFlow.refresh(db_session, old_refresh, request)
+
+    assert rotated["refresh_token"]
+    assert first_replay["refresh_token"] is None
+    assert second_replay["refresh_token"] is None
+    assert first_replay["access_token"]
+    assert second_replay["access_token"]
+
+    session = db_session.query(AuthSession).first()
+    assert session.status == SessionStatus.active
+    assert session.revoked_at is None
+    assert session.previous_token_hash == hashlib.sha256(old_refresh.encode("utf-8")).hexdigest()
+    assert session.token_hash == hashlib.sha256(rotated["refresh_token"].encode("utf-8")).hexdigest()
 
 
 def test_login_and_refresh_reuse_detection_after_grace(db_session, person):

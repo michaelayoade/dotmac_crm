@@ -628,6 +628,19 @@ def _metadata_text(metadata: Mapping[str, Any] | None, key: str) -> str:
     return text
 
 
+def _first_nonempty_text(*values: object) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _format_local_date(value: datetime | date | None) -> str:
+    normalized = _coerce_datetime_utc(value)
+    return normalized.strftime("%Y-%m-%d") if normalized is not None else ""
+
+
 def _parse_iso_date_text(value: str) -> date | None:
     text = str(value or "").strip()
     if not text:
@@ -1701,6 +1714,9 @@ def get_churn_table(
         subscriber_sync_by_external_id: dict[str, tuple[Mapping[str, Any], datetime | None]] = {}
         subscriber_sync_by_email: dict[str, tuple[Mapping[str, Any], datetime | None]] = {}
         subscriber_sync_by_login: dict[str, tuple[Mapping[str, Any], datetime | None]] = {}
+        subscriber_local_by_external_id: dict[str, dict[str, Any]] = {}
+        subscriber_local_by_email: dict[str, dict[str, Any]] = {}
+        subscriber_local_by_login: dict[str, dict[str, Any]] = {}
         if customer_emails:
             matched_people = db.execute(
                 select(Person.id, Person.email, Person.phone).where(func.lower(Person.email).in_(customer_emails))
@@ -1729,9 +1745,16 @@ def get_churn_table(
                 select(
                     Subscriber.external_id,
                     Subscriber.subscriber_number,
+                    Subscriber.activated_at,
+                    Subscriber.created_at,
+                    Subscriber.next_bill_date,
+                    Subscriber.billing_cycle,
+                    Subscriber.service_region,
+                    Subscriber.service_city,
                     Subscriber.sync_metadata,
                     Subscriber.suspended_at,
                     Person.email,
+                    Person.phone,
                 )
                 .select_from(Subscriber)
                 .outerjoin(Person, Person.id == Subscriber.person_id)
@@ -1743,20 +1766,43 @@ def get_churn_table(
                     )
                 )
             ).all()
-            for external_id, subscriber_number, sync_metadata, suspended_at, person_email in subscriber_rows:
+            for (
+                external_id,
+                subscriber_number,
+                activated_at,
+                created_at,
+                local_next_bill_date,
+                local_billing_cycle,
+                service_region,
+                service_city,
+                sync_metadata,
+                suspended_at,
+                person_email,
+                person_phone,
+            ) in subscriber_rows:
                 cached_tuple = (
                     sync_metadata if isinstance(sync_metadata, Mapping) else {},
                     _coerce_datetime_utc(suspended_at),
                 )
+                local_context = {
+                    "phone": str(person_phone or "").strip(),
+                    "area": _first_nonempty_text(service_region, service_city),
+                    "billing_start_date": _format_local_date(_coerce_datetime_utc(activated_at) or _coerce_datetime_utc(created_at)),
+                    "next_bill_date": _format_local_date(local_next_bill_date),
+                    "billing_cycle": str(local_billing_cycle or "").strip(),
+                }
                 external_key = str(external_id or "").strip()
                 if external_key:
                     subscriber_sync_by_external_id[external_key] = cached_tuple
+                    subscriber_local_by_external_id[external_key] = local_context
                 login_key = str(subscriber_number or "").strip()
                 if login_key:
                     subscriber_sync_by_login[login_key] = cached_tuple
+                    subscriber_local_by_login[login_key] = local_context
                 email_key = str(person_email or "").strip().lower()
                 if email_key:
                     subscriber_sync_by_email[email_key] = cached_tuple
+                    subscriber_local_by_email[email_key] = local_context
 
         def _contact_phone(email_value: str, default_phone: str) -> str:
             email_key = email_value.strip().lower()
@@ -1790,6 +1836,55 @@ def get_churn_table(
                 if any_channel:
                     return any_channel
             return person_phone or default_phone
+
+        def _custom_customer_text(customer_payload: Mapping[str, Any], aliases: tuple[str, ...]) -> str:
+            normalized_aliases = {re.sub(r"[^a-z0-9]+", "", alias.lower()) for alias in aliases}
+
+            def _walk(node: object) -> str:
+                if isinstance(node, Mapping):
+                    for key, value in node.items():
+                        if re.sub(r"[^a-z0-9]+", "", str(key).lower()) in normalized_aliases:
+                            text = str(value or "").strip()
+                            if text:
+                                return text
+                    label = ""
+                    for label_key in ("name", "label", "key", "field"):
+                        label_value = node.get(label_key)
+                        if label_value:
+                            label = str(label_value).strip()
+                            break
+                    if label and re.sub(r"[^a-z0-9]+", "", label.lower()) in normalized_aliases:
+                        for value_key in ("value", "content", "text"):
+                            value = node.get(value_key)
+                            text = str(value or "").strip()
+                            if text:
+                                return text
+                    for value in node.values():
+                        found = _walk(value)
+                        if found:
+                            return found
+                elif isinstance(node, list):
+                    for item in node:
+                        found = _walk(item)
+                        if found:
+                            return found
+                return ""
+
+            return _walk(customer_payload)
+
+        def _local_customer_context(customer_payload: Mapping[str, Any]) -> dict[str, Any]:
+            external_key = str(customer_payload.get("id") or "").strip()
+            if external_key and external_key in subscriber_local_by_external_id:
+                return subscriber_local_by_external_id[external_key]
+
+            login_key = str(customer_payload.get("login") or "").strip()
+            if login_key and login_key in subscriber_local_by_login:
+                return subscriber_local_by_login[login_key]
+
+            email_key = str(customer_payload.get("email") or "").strip().lower()
+            if email_key and email_key in subscriber_local_by_email:
+                return subscriber_local_by_email[email_key]
+            return {}
 
         def _live_billing_start_date(
             customer_payload: Mapping[str, Any],
@@ -2002,11 +2097,20 @@ def get_churn_table(
             if not isinstance(customer, Mapping):
                 continue
             mapped = map_customer_to_subscriber_data(db, dict(customer), include_remote_details=False)
+            local_context = _local_customer_context(customer)
             status_value = str(mapped.get("status") or "unknown")
             billing_start_date = _live_billing_start_date(customer, mapped)
-            area_value = _live_area_from_customer(customer)
+            if not billing_start_date:
+                billing_start_date = str(local_context.get("billing_start_date") or "")
+            area_value = _live_area_from_customer(customer) or str(local_context.get("area") or "")
             next_bill_raw = _coerce_datetime_utc(mapped.get("next_bill_date"))
-            due_days = (next_bill_raw.date() - today).days if next_bill_raw is not None else None
+            next_bill_date_text = next_bill_raw.strftime("%Y-%m-%d") if next_bill_raw else str(local_context.get("next_bill_date") or "")
+            next_bill_fallback_date = _parse_iso_date_text(next_bill_date_text)
+            due_days = (
+                (next_bill_raw.date() - today).days
+                if next_bill_raw is not None
+                else (next_bill_fallback_date - today).days if next_bill_fallback_date is not None else None
+            )
             balance_amount = _parse_balance_amount(mapped.get("balance") or customer.get("balance"))
             sync_metadata = mapped.get("sync_metadata") if isinstance(mapped.get("sync_metadata"), Mapping) else {}
             invoiced_until_text = _metadata_text(sync_metadata, "invoiced_until")
@@ -2040,19 +2144,22 @@ def get_churn_table(
 
             display_name = str(customer.get("name") or "").strip() or str(mapped.get("subscriber_number") or "").strip()
             email_value = str(customer.get("email") or "").strip()
-            phone_value = str(customer.get("phone") or "").strip()
+            phone_value = str(customer.get("phone") or "").strip() or _custom_customer_text(
+                customer,
+                ("phone", "mobile", "cell", "telephone", "phone_number", "contact_phone"),
+            )
             live_results.append(
                 {
                     "subscriber_id": str(customer.get("id") or ""),
                     "name": _clean_report_name(display_name or "Unknown"),
                     "email": email_value,
-                    "phone": _contact_phone(email_value, phone_value),
+                    "phone": _contact_phone(email_value, phone_value) or str(local_context.get("phone") or ""),
                     "subscriber_status": status_value.replace("_", " ").title(),
                     "area": area_value,
                     "billing_start_date": billing_start_date,
-                    "next_bill_date": next_bill_raw.strftime("%Y-%m-%d") if next_bill_raw else "",
+                    "next_bill_date": next_bill_date_text,
                     "balance": balance_amount,
-                    "billing_cycle": str(mapped.get("billing_cycle") or ""),
+                    "billing_cycle": str(mapped.get("billing_cycle") or local_context.get("billing_cycle") or ""),
                     "blocked_date": blocked_date_text,
                     "last_transaction_date": _metadata_text(sync_metadata, "last_transaction_date"),
                     "expires_in": _metadata_text(sync_metadata, "expires_in"),
@@ -2156,6 +2263,10 @@ def get_churn_table(
             Subscriber.next_bill_date,
             Subscriber.balance,
             Subscriber.billing_cycle,
+            Subscriber.activated_at,
+            Subscriber.created_at,
+            Subscriber.service_region,
+            Subscriber.service_city,
             Subscriber.sync_metadata,
             Subscriber.suspended_at,
             Subscriber.last_synced_at,
@@ -2219,8 +2330,10 @@ def get_churn_table(
                 "email": row.email or "",
                 "phone": row.phone or "",
                 "subscriber_status": status_value.replace("_", " ").title(),
-                "area": "",
-                "billing_start_date": "",
+                "area": _first_nonempty_text(row.service_region, row.service_city),
+                "billing_start_date": _format_local_date(
+                    _coerce_datetime_utc(row.activated_at) or _coerce_datetime_utc(row.created_at)
+                ),
                 "next_bill_date": row.next_bill_date.strftime("%Y-%m-%d") if row.next_bill_date else "",
                 "balance": balance_amount,
                 "billing_cycle": row.billing_cycle or "",

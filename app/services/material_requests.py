@@ -31,6 +31,7 @@ from app.services.response import ListResponseMixin
 
 logger = logging.getLogger(__name__)
 
+
 # Terminal statuses that cannot transition further
 class ResolveError(Exception):
     """Raised when a user-supplied reference (ticket, project, warehouse) can't be resolved."""

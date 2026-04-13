@@ -1,7 +1,8 @@
 import pytest
 from fastapi import HTTPException
 
-from app.models.service_team import ServiceTeamMemberRole, ServiceTeamType
+from app.models.service_team import ServiceTeamMember, ServiceTeamMemberRole, ServiceTeamType
+from app.models.tickets import Ticket
 from app.schemas.service_team import (
     ServiceTeamCreate,
     ServiceTeamMemberCreate,
@@ -66,6 +67,39 @@ class TestServiceTeamsCRUD:
         service_teams.delete(db_session, str(team.id))
         fetched = service_teams.get(db_session, str(team.id))
         assert fetched.is_active is False
+
+    def test_activate_deactivate(self, db_session):
+        team = _make_team(db_session)
+
+        deactivated = service_teams.deactivate(db_session, str(team.id))
+        assert deactivated.is_active is False
+
+        activated = service_teams.activate(db_session, str(team.id))
+        assert activated.is_active is True
+
+    def test_hard_delete_removes_unreferenced_team_and_members(self, db_session, person):
+        team = _make_team(db_session)
+        service_team_members.add_member(
+            db_session,
+            str(team.id),
+            ServiceTeamMemberCreate(person_id=person.id),
+        )
+
+        service_teams.hard_delete(db_session, str(team.id))
+
+        assert db_session.get(type(team), team.id) is None
+        assert db_session.query(ServiceTeamMember).filter(ServiceTeamMember.team_id == team.id).count() == 0
+
+    def test_hard_delete_blocks_linked_history(self, db_session):
+        team = _make_team(db_session)
+        db_session.add(Ticket(title="Linked ticket", service_team_id=team.id))
+        db_session.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            service_teams.hard_delete(db_session, str(team.id))
+
+        assert exc.value.status_code == 409
+        assert service_teams.get(db_session, str(team.id)).id == team.id
 
 
 class TestServiceTeamMembers:

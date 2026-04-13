@@ -33,6 +33,17 @@
             Add Member
         </button>
         {{ action_button("Edit Group", "/admin/system/teams/" ~ team.id ~ "/edit", color="indigo") }}
+        {% if team.is_active %}
+        {{ danger_button("Deactivate", "Deactivate Group", "Deactivate this group? It will stop appearing in active group filters, mentions, and assignment options.", "/admin/system/teams/" ~ team.id ~ "/deactivate", size="sm", icon="x") }}
+        {% else %}
+        <form method="POST" action="/admin/system/teams/{{ team.id }}/activate" class="inline-flex">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-emerald-700">Activate Group</button>
+        </form>
+        {% if can_delete_permanently %}
+        {{ danger_button("Delete Permanently", "Delete Group Permanently", "Delete this group permanently? This cannot be undone.", "/admin/system/teams/" ~ team.id ~ "/delete", size="sm") }}
+        {% endif %}
+        {% endif %}
     {% endcall %}
 
     <div class="grid gap-6 lg:grid-cols-3">
@@ -160,6 +171,49 @@
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Created</dt>
                         <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ team.created_at.strftime('%b %d, %Y at %H:%M') if team.created_at else '-' }}</dd>
                     </div>
+                </div>
+            </div>
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 125ms;">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Removal</h2>
+                </div>
+                <div class="p-5 space-y-4">
+                    <p class="text-sm text-slate-600 dark:text-slate-400">
+                        Deactivate keeps history intact and removes this group from active options. Permanent delete is only available when there are no linked tickets, projects, CRM teams, assignment rules, or performance snapshots.
+                    </p>
+                    <dl class="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                            <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Tickets</dt>
+                            <dd class="mt-1 font-medium text-slate-900 dark:text-white">{{ dependency_summary.tickets }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Projects</dt>
+                            <dd class="mt-1 font-medium text-slate-900 dark:text-white">{{ dependency_summary.projects }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">CRM Teams</dt>
+                            <dd class="mt-1 font-medium text-slate-900 dark:text-white">{{ dependency_summary.crm_teams }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Rules</dt>
+                            <dd class="mt-1 font-medium text-slate-900 dark:text-white">{{ dependency_summary.assignment_rules }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Snapshots</dt>
+                            <dd class="mt-1 font-medium text-slate-900 dark:text-white">{{ dependency_summary.performance_snapshots }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Members</dt>
+                            <dd class="mt-1 font-medium text-slate-900 dark:text-white">{{ dependency_summary.members }}</dd>
+                        </div>
+                    </dl>
+                    {% if not can_delete_permanently %}
+                    <p class="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">This group has linked history, so permanent delete is disabled. Use deactivate.</p>
+                    {% elif team.is_active %}
+                    <p class="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:bg-slate-900/40 dark:text-slate-300">Deactivate this group first before permanent deletion.</p>
+                    {% else %}
+                    {{ danger_button("Delete Permanently", "Delete Group Permanently", "Delete this group permanently? This cannot be undone.", "/admin/system/teams/" ~ team.id ~ "/delete", size="sm") }}
+                    {% endif %}
                 </div>
             </div>
         </div>

@@ -476,29 +476,29 @@ def _person_filter_label(person: Person) -> str:
     return person.email or str(person.id)
 
 
-def _load_project_pm_spc_options(db: Session) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+def _load_project_region_options(db: Session) -> list[str]:
+    seen: set[str] = set()
+    options: list[str] = []
+    for region in REGION_OPTIONS:
+        cleaned = (region or "").strip()
+        if cleaned and cleaned.lower() not in seen:
+            seen.add(cleaned.lower())
+            options.append(cleaned)
+
     rows = (
-        db.query(Project.project_manager_person_id, Project.assistant_manager_person_id)
+        db.query(Project.region)
         .filter(Project.is_active.is_(True))
+        .filter(Project.region.isnot(None))
+        .distinct()
+        .order_by(Project.region.asc())
         .all()
     )
-    pm_ids = {str(manager_id) for manager_id, _ in rows if manager_id}
-    spc_ids = {str(spc_id) for _, spc_id in rows if spc_id}
-    all_ids = pm_ids | spc_ids
-    if not all_ids:
-        return [], []
-
-    people = db.query(Person).filter(Person.id.in_([coerce_uuid(person_id) for person_id in all_ids])).all()
-    labels = {str(person.id): _person_filter_label(person) for person in people}
-    pm_options = [
-        {"value": person_id, "label": labels[person_id]}
-        for person_id in sorted(pm_ids, key=lambda pid: labels.get(pid, ""))
-    ]
-    spc_options = [
-        {"value": person_id, "label": labels[person_id]}
-        for person_id in sorted(spc_ids, key=lambda pid: labels.get(pid, ""))
-    ]
-    return pm_options, spc_options
+    for (region,) in rows:
+        cleaned = (region or "").strip()
+        if cleaned and cleaned.lower() not in seen:
+            seen.add(cleaned.lower())
+            options.append(cleaned)
+    return options
 
 
 @router.get(
@@ -511,9 +511,9 @@ def projects_list(
     search: str | None = None,
     status: str | None = None,
     project_type: str | None = None,
-    pm: str | None = None,
-    spc: str | None = None,
+    region: str | None = None,
     notice: str | None = None,
+    clear_filters: bool = Query(False),
     filters: str | None = None,
     order_by: str = Query("created_at"),
     order_dir: str = Query("desc"),
@@ -545,6 +545,14 @@ def projects_list(
             current_person_uuid = None
 
     query_params_map = {key: value for key, value in request.query_params.items()}
+    if clear_filters and current_person_uuid:
+        filter_preferences_service.clear_preference(
+            db,
+            current_person_uuid,
+            filter_preferences_service.PROJECTS_PAGE.key,
+        )
+        return RedirectResponse(url="/admin/projects", status_code=302)
+
     if current_person_uuid:
         if filter_preferences_service.has_managed_params(query_params_map, filter_preferences_service.PROJECTS_PAGE):
             state = filter_preferences_service.extract_managed_state(
@@ -573,27 +581,7 @@ def projects_list(
                     target_url = request.url.path if not merged else f"{request.url.path}?{urlencode(merged)}"
                     return RedirectResponse(url=target_url, status_code=302)
 
-    pm_person_id = None
-    if pm == "me":
-        if not current_person_id:
-            raise HTTPException(status_code=400, detail="Unable to resolve current user for PM filter")
-        pm_person_id = current_person_id
-    elif pm:
-        try:
-            pm_person_id = str(coerce_uuid(pm))
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail="Invalid PM filter") from exc
-
-    spc_person_id = None
-    if spc == "me":
-        if not current_person_id:
-            raise HTTPException(status_code=400, detail="Unable to resolve current user for SPC filter")
-        spc_person_id = current_person_id
-    elif spc:
-        try:
-            spc_person_id = str(coerce_uuid(spc))
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail="Invalid SPC filter") from exc
+    region_filter = region.strip() if region and region.strip() else None
 
     projects = projects_service.projects.list(
         db=db,
@@ -603,8 +591,8 @@ def projects_list(
         priority=None,
         owner_person_id=None,
         manager_person_id=None,
-        project_manager_person_id=pm_person_id,
-        assistant_manager_person_id=spc_person_id,
+        project_manager_person_id=None,
+        assistant_manager_person_id=None,
         is_active=None,
         order_by=order_by,
         order_dir=order_dir,
@@ -612,6 +600,7 @@ def projects_list(
         offset=offset,
         search=search,
         filters_payload=filters_payload,
+        region=region_filter,
     )
 
     all_projects = projects_service.projects.list(
@@ -622,8 +611,8 @@ def projects_list(
         priority=None,
         owner_person_id=None,
         manager_person_id=None,
-        project_manager_person_id=pm_person_id,
-        assistant_manager_person_id=spc_person_id,
+        project_manager_person_id=None,
+        assistant_manager_person_id=None,
         is_active=None,
         order_by=order_by,
         order_dir=order_dir,
@@ -631,6 +620,7 @@ def projects_list(
         offset=0,
         search=search,
         filters_payload=filters_payload,
+        region=region_filter,
     )
     total = len(all_projects)
     total_pages = (total + per_page - 1) // per_page if total else 1
@@ -644,8 +634,8 @@ def projects_list(
         priority=None,
         owner_person_id=None,
         manager_person_id=None,
-        project_manager_person_id=pm_person_id,
-        assistant_manager_person_id=spc_person_id,
+        project_manager_person_id=None,
+        assistant_manager_person_id=None,
         is_active=None,
         order_by="created_at",
         order_dir="desc",
@@ -653,12 +643,13 @@ def projects_list(
         offset=0,
         search=search,
         filters_payload=filters_payload,
+        region=region_filter,
     )
     for project in all_projects_unfiltered:
         status_value = project.status.value if project.status else ProjectStatus.open.value
         status_counts[status_value] = status_counts.get(status_value, 0) + 1
     total_count = len(all_projects_unfiltered)
-    pm_options, spc_options = _load_project_pm_spc_options(db)
+    region_options = _load_project_region_options(db)
     csrf_token = get_csrf_token(request)
 
     return templates.TemplateResponse(
@@ -670,11 +661,9 @@ def projects_list(
             "search": search,
             "project_type": project_type,
             "project_types": [item.value for item in ProjectType],
-            "pm": pm,
-            "spc": spc,
+            "region": region,
             "filters": filters,
-            "pm_options": pm_options,
-            "spc_options": spc_options,
+            "region_options": region_options,
             "order_by": order_by,
             "order_dir": order_dir,
             "page": page,

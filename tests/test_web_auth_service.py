@@ -42,6 +42,7 @@ def test_login_submit_redirects_to_mfa_when_mfa_required(db_session, monkeypatch
 
 def test_refresh_invalid_token_logs_at_info(db_session, monkeypatch, caplog):
     request = _make_request()
+    web_auth._REFRESH_LOG_CACHE.clear()
 
     monkeypatch.setattr(web_auth.AuthFlow, "resolve_refresh_token", lambda request, token, db: "refresh-token")
 
@@ -56,3 +57,24 @@ def test_refresh_invalid_token_logs_at_info(db_session, monkeypatch, caplog):
     assert response.status_code == 303
     assert "web_refresh_redirect_login reason=refresh_failed" in caplog.text
     assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
+    set_cookie = response.headers.getlist("set-cookie")
+    assert any(cookie.startswith("session_token=") and "Max-Age=0" in cookie for cookie in set_cookie)
+    assert any(cookie.startswith("refresh_token=") and "Max-Age=0" in cookie for cookie in set_cookie)
+
+
+def test_refresh_missing_cookie_logs_once_and_clears_auth_cookies(db_session, monkeypatch, caplog):
+    request = _make_request()
+    web_auth._REFRESH_LOG_CACHE.clear()
+
+    monkeypatch.setattr(web_auth.AuthFlow, "resolve_refresh_token", lambda request, token, db: None)
+
+    with caplog.at_level(logging.INFO, logger="app.services.web_auth"):
+        first_response = web_auth.refresh(request=request, db=db_session, next_url="/admin/crm/inbox")
+        second_response = web_auth.refresh(request=request, db=db_session, next_url="/admin/crm/inbox")
+
+    assert first_response.status_code == 303
+    assert second_response.status_code == 303
+    assert caplog.text.count("web_refresh_redirect_login reason=missing_refresh_cookie") == 1
+    set_cookie = first_response.headers.getlist("set-cookie")
+    assert any(cookie.startswith("session_token=") and "Max-Age=0" in cookie for cookie in set_cookie)
+    assert any(cookie.startswith("refresh_token=") and "Max-Age=0" in cookie for cookie in set_cookie)

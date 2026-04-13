@@ -972,6 +972,24 @@ def seed_integration_settings(db: Session) -> None:
         value_type=SettingValueType.integer,
         value_text=os.getenv("VLLM_MAX_TOKENS", "2048"),
     )
+    integration_settings.ensure_by_key(
+        db,
+        key="voice_transcription_model",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("VOICE_TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="voice_transcription_timeout_seconds",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("VOICE_TRANSCRIPTION_TIMEOUT_SECONDS", "45"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="voice_transcription_max_retries",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("VOICE_TRANSCRIPTION_MAX_RETRIES", "1"),
+    )
     require_key_raw = os.getenv("VLLM_REQUIRE_API_KEY", "false")
     integration_settings.ensure_by_key(
         db,
@@ -1067,6 +1085,25 @@ def seed_integration_settings(db: Session) -> None:
             key="vllm_api_key",
             value_type=SettingValueType.string,
             value_text=api_key,
+            is_secret=True,
+        )
+
+    voice_base_url = (os.getenv("VOICE_TRANSCRIPTION_BASE_URL") or "").strip()
+    if voice_base_url:
+        integration_settings.ensure_by_key(
+            db,
+            key="voice_transcription_base_url",
+            value_type=SettingValueType.string,
+            value_text=voice_base_url,
+        )
+
+    voice_api_key = (os.getenv("VOICE_TRANSCRIPTION_API_KEY") or "").strip()
+    if voice_api_key and is_openbao_ref(voice_api_key):
+        integration_settings.ensure_by_key(
+            db,
+            key="voice_transcription_api_key",
+            value_type=SettingValueType.string,
+            value_text=voice_api_key,
             is_secret=True,
         )
 

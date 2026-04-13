@@ -53,90 +53,106 @@
     {% set sub_param = '&subscriber=' ~ subscriber if subscriber else '' %}
     {% set type_param = '&ticket_type=' ~ ticket_type|urlencode if ticket_type else '' %}
     {% set assigned_param = '&assigned=' ~ assigned if assigned else '' %}
-    {% set pm_param = '&pm=' ~ pm if pm else '' %}
-    {% set spc_param = '&spc=' ~ spc if spc else '' %}
+    {% set region_param = '&region=' ~ region|urlencode if region else '' %}
+    {% set group_param = '&group=' ~ group|urlencode if group else '' %}
     <div class="grid gap-3 sm:grid-cols-3 lg:grid-cols-6 animate-fade-in-up" style="animation-delay: 100ms;">
-        {{ status_filter_card("Not Closed", stats.not_closed, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6M7 4h10a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>', base_url ~ '?status=not_closed' ~ type_param ~ sub_param ~ assigned_param ~ pm_param ~ spc_param, "amber", "orange", effective_status == 'not_closed') }}
-        {{ status_filter_card("New", stats.new, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>', base_url ~ '?status=new' ~ type_param ~ sub_param ~ assigned_param ~ pm_param ~ spc_param, "blue", "indigo", effective_status == 'new') }}
-        {{ status_filter_card("Open", stats.open, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>', base_url ~ '?status=open' ~ type_param ~ sub_param ~ assigned_param ~ pm_param ~ spc_param, "emerald", "green", effective_status == 'open') }}
-        {{ status_filter_card("Pending", stats.pending, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=pending' ~ type_param ~ sub_param ~ assigned_param ~ pm_param ~ spc_param, "amber", "yellow", effective_status == 'pending') }}
-        {{ status_filter_card("On Hold", stats.on_hold, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=on_hold' ~ type_param ~ sub_param ~ assigned_param ~ pm_param ~ spc_param, "orange", "red", effective_status == 'on_hold') }}
-        {{ status_filter_card("Closed", stats.closed, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>', base_url ~ '?status=closed' ~ type_param ~ sub_param ~ assigned_param ~ pm_param ~ spc_param, "slate", "slate", effective_status == 'closed') }}
+        {{ status_filter_card("Not Closed", stats.not_closed, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6M7 4h10a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>', base_url ~ '?status=not_closed' ~ type_param ~ sub_param ~ assigned_param ~ region_param ~ group_param, "amber", "orange", effective_status == 'not_closed') }}
+        {{ status_filter_card("New", stats.new, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>', base_url ~ '?status=new' ~ type_param ~ sub_param ~ assigned_param ~ region_param ~ group_param, "blue", "indigo", effective_status == 'new') }}
+        {{ status_filter_card("Open", stats.open, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>', base_url ~ '?status=open' ~ type_param ~ sub_param ~ assigned_param ~ region_param ~ group_param, "emerald", "green", effective_status == 'open') }}
+        {{ status_filter_card("Pending", stats.pending, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=pending' ~ type_param ~ sub_param ~ assigned_param ~ region_param ~ group_param, "amber", "yellow", effective_status == 'pending') }}
+        {{ status_filter_card("On Hold", stats.on_hold, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=on_hold' ~ type_param ~ sub_param ~ assigned_param ~ region_param ~ group_param, "orange", "red", effective_status == 'on_hold') }}
+        {{ status_filter_card("Closed", stats.closed, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>', base_url ~ '?status=closed' ~ type_param ~ sub_param ~ assigned_param ~ region_param ~ group_param, "slate", "slate", effective_status == 'closed') }}
     </div>
 
     {# Filters #}
+    {% set tickets_clear_query = 'clear_filters=1' %}
+    {% set tickets_clear_url = '/admin/support/tickets?' ~ tickets_clear_query ~ ('&subscriber=' ~ subscriber|urlencode if subscriber else '') %}
     {% call filter_bar() %}
     <div class="flex flex-col gap-4">
         <form id="tickets-filter-form" hx-get="/admin/support/tickets" hx-target="#tickets-table" hx-trigger="submit, change from:select:not([data-filter-builder-control])" class="space-y-4">
             <input type="hidden" name="order_by" value="{{ order_by|default('created_at') }}" data-default="created_at">
             <input type="hidden" name="order_dir" value="{{ order_dir|default('desc') }}" data-default="desc">
             <input type="hidden" name="filters" value="{{ filters or '' }}" />
-            <div class="w-full">
-                <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Tickets</label>
-                {{ search_input("search", search or '', "Search by ticket/customer ID, title, description, or customer name...", "amber", {"hx-get": "/admin/support/tickets", "hx-target": "#tickets-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
+            <div class="flex flex-col gap-3 lg:flex-row lg:items-end">
+                <div class="min-w-0 flex-1">
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Tickets</label>
+                    {{ search_input("search", search or '', "Search by ticket/customer ID, title, description, or customer name...", "amber", {"hx-get": "/admin/support/tickets", "hx-target": "#tickets-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
+                </div>
+                <button type="button" id="tickets-filter-toggle" class="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" aria-expanded="false" aria-controls="tickets-filter-panel">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h18l-7 8v6l-4 2v-8L3 4z"/>
+                    </svg>
+                    Filters
+                    {% if status or ticket_type or assigned or region or group or filters %}
+                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">Active</span>
+                    {% endif %}
+                    <svg class="h-4 w-4 transition-transform" data-filter-chevron fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
             </div>
             {% if subscriber %}
             <input type="hidden" name="subscriber" value="{{ subscriber }}" />
             {% endif %}
-            <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-6 xl:items-end">
-                <div class="w-full">
-                    {{ filter_select("status", [
-                        {"value": "not_closed", "label": "Not Closed"},
-                        {"value": "", "label": "All Status"},
-                        {"value": "new", "label": "New"},
-                        {"value": "open", "label": "Open"},
-                        {"value": "pending", "label": "Pending"},
-                        {"value": "waiting_on_customer", "label": "Waiting on Customer"},
-                        {"value": "lastmile_rerun", "label": "Lastmile Rerun"},
-                        {"value": "site_under_construction", "label": "Site Under Construction"},
-                        {"value": "on_hold", "label": "On Hold"},
-                        {"value": "closed", "label": "Closed"},
-                        {"value": "canceled", "label": "Canceled"}
-                    ], effective_status, "Status", "amber") }}
+            <div id="tickets-filter-panel" class="hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/30">
+                <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5 xl:items-end">
+                    <div class="w-full">
+                        {{ filter_select("status", [
+                            {"value": "not_closed", "label": "Not Closed"},
+                            {"value": "", "label": "All Status"},
+                            {"value": "new", "label": "New"},
+                            {"value": "open", "label": "Open"},
+                            {"value": "pending", "label": "Pending"},
+                            {"value": "waiting_on_customer", "label": "Waiting on Customer"},
+                            {"value": "lastmile_rerun", "label": "Lastmile Rerun"},
+                            {"value": "site_under_construction", "label": "Site Under Construction"},
+                            {"value": "on_hold", "label": "On Hold"},
+                            {"value": "closed", "label": "Closed"},
+                            {"value": "canceled", "label": "Canceled"}
+                        ], effective_status, "Status", "amber") }}
+                    </div>
+                    <div class="w-full">
+                        {% set type_filter_options = [{"value": "", "label": "All Ticket Types"}] %}
+                        {% for item in ticket_type_options or [] %}
+                            {% set _ = type_filter_options.append({"value": item, "label": item}) %}
+                        {% endfor %}
+                        {{ filter_select("ticket_type", type_filter_options, ticket_type or '', "Ticket Type", "amber") }}
+                    </div>
+                    <div class="w-full">
+                        {{ filter_select("assigned", [
+                            {"value": "", "label": "All Assignees"},
+                            {"value": "me", "label": "Assigned to Me"}
+                        ], assigned or '', "Assigned", "amber") }}
+                    </div>
+                    <div class="w-full">
+                        {% set region_filter_options = [{"value": "", "label": "All Regions"}] %}
+                        {% for item in region_options or [] %}
+                            {% set _ = region_filter_options.append({"value": item, "label": item}) %}
+                        {% endfor %}
+                        {{ filter_select("region", region_filter_options, region or '', "Region", "amber") }}
+                    </div>
+                    <div class="w-full">
+                        {% set group_filter_options = [{"value": "", "label": "All Groups"}] %}
+                        {% for option in group_options or [] %}
+                            {% set _ = group_filter_options.append({"value": option.id, "label": option.label}) %}
+                        {% endfor %}
+                        {{ filter_select("group", group_filter_options, group or '', "Group", "amber") }}
+                    </div>
                 </div>
-                <div class="w-full">
-                    {% set type_filter_options = [{"value": "", "label": "All Ticket Types"}] %}
-                    {% for item in ticket_type_options or [] %}
-                        {% set _ = type_filter_options.append({"value": item, "label": item}) %}
-                    {% endfor %}
-                    {{ filter_select("ticket_type", type_filter_options, ticket_type or '', "Ticket Type", "amber") }}
+                <div class="mt-4 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/20">
+                    <div class="mb-2 flex items-center justify-between">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Advanced Filters</p>
+                    </div>
+                    <div id="tickets-advanced-filters"></div>
                 </div>
-                <div class="w-full">
-                    {{ filter_select("assigned", [
-                        {"value": "", "label": "All Assignees"},
-                        {"value": "me", "label": "Assigned to Me"}
-                    ], assigned or '', "Assigned", "amber") }}
-                </div>
-                <div class="w-full">
-                    {% set pm_filter_options = [{"value": "", "label": "All Project Managers"}, {"value": "me", "label": "Me"}] %}
-                    {% for option in pm_options or [] %}
-                        {% set _ = pm_filter_options.append(option) %}
-                    {% endfor %}
-                    {{ filter_select("pm", pm_filter_options, pm or '', "PM", "amber") }}
-                </div>
-                <div class="w-full">
-                    {% set spc_filter_options = [{"value": "", "label": "All Site Coordinators"}, {"value": "me", "label": "Me"}] %}
-                    {% for option in spc_options or [] %}
-                        {% set _ = spc_filter_options.append(option) %}
-                    {% endfor %}
-                    {{ filter_select("spc", spc_filter_options, spc or '', "SPC", "amber") }}
-                </div>
-                <div class="flex items-end">
+                <div class="mt-4 flex flex-wrap items-center gap-2">
                     <button type="submit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                         Apply Filters
                     </button>
-                    {% if status or ticket_type or assigned or pm or spc or filters %}
-                    <span class="ml-2">
-                        {{ action_button("Clear Filters", "/admin/support/tickets" ~ ("?subscriber=" ~ subscriber if subscriber else ""), '<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>', "secondary", "slate", None, "md", "link", {"data-clear-filters": "tickets"}) }}
-                    </span>
+                    {% if status or ticket_type or assigned or region or group or filters %}
+                    {{ action_button("Clear Filters", tickets_clear_url, '<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>', "secondary", "slate", None, "md", "link", {"data-clear-filters": "tickets"}) }}
                     {% endif %}
                 </div>
-            </div>
-            <div class="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/20">
-                <div class="mb-2 flex items-center justify-between">
-                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Advanced Filters</p>
-                </div>
-                <div id="tickets-advanced-filters"></div>
             </div>
         </form>
 
@@ -229,6 +245,16 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
     const userId = "{{ (current_user.get('person_id') if current_user and current_user.get('person_id') else 'anon') }}";
+    const filterToggle = document.getElementById("tickets-filter-toggle");
+    const filterPanel = document.getElementById("tickets-filter-panel");
+    const filterChevron = filterToggle ? filterToggle.querySelector("[data-filter-chevron]") : null;
+    if (filterToggle && filterPanel) {
+        filterToggle.addEventListener("click", () => {
+            const isHidden = filterPanel.classList.toggle("hidden");
+            filterToggle.setAttribute("aria-expanded", isHidden ? "false" : "true");
+            if (filterChevron) filterChevron.classList.toggle("rotate-180", !isHidden);
+        });
+    }
     const columnDefinitions = [
         { key: "ticket", defaultVisible: true },
         { key: "type", defaultVisible: true },
@@ -295,7 +321,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!window.DotmacUiFilterState || !window.DotmacUiFilterState.init) return;
     window.DotmacUiFilterState.init({
         formId: "tickets-filter-form",
-        fields: ["status", "ticket_type", "assigned", "pm", "spc", "order_by", "order_dir", "filters"],
+        fields: ["status", "ticket_type", "assigned", "region", "group", "order_by", "order_dir", "filters"],
         urlSyncFields: ["order_by", "order_dir"],
         filterStorageKey: `admin:tickets:filters:${userId}`,
         restoreOnEmptyQuery: false,

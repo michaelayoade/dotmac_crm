@@ -3,21 +3,56 @@
  *
  * WhatsApp-style push-to-talk voice input for textareas.
  * Auto-attaches to any <textarea data-voice-enabled>.
- * Uses the browser-native Web Speech API — no backend required.
+ * Uses backend audio transcription when available, with Web Speech API fallback.
  */
 (function () {
   "use strict";
 
   var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
+  var hasMediaRecorder =
+    !!window.MediaRecorder &&
+    !!navigator.mediaDevices &&
+    typeof navigator.mediaDevices.getUserMedia === "function";
+  if (!SpeechRecognition && !hasMediaRecorder) {
     return;
   }
 
   var MAX_RECORDING_SECONDS = 120;
 
+  function getPreferredAudioMimeType() {
+    var candidates = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/mp4",
+      "audio/mpeg",
+      "audio/ogg;codecs=opus",
+      "audio/ogg",
+    ];
+    if (!window.MediaRecorder || typeof window.MediaRecorder.isTypeSupported !== "function") {
+      return "";
+    }
+    for (var i = 0; i < candidates.length; i++) {
+      if (window.MediaRecorder.isTypeSupported(candidates[i])) {
+        return candidates[i];
+      }
+    }
+    return "";
+  }
+
+  function normalizeTranscriptFingerprint(text) {
+    return String(text || "")
+      .toLowerCase()
+      .replace(/[\s.,;:!?'"()[\]{}<>/\\|`~@#$%^&*_+=-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   function VoiceRecorder(opts) {
     this._recording = false;
-    this._chunks = [];
+    this._finalResults = {};
+    this._interimText = "";
+    this._sessionId = null;
+    this._delivered = false;
     this._onResult = opts.onResult || function () {};
     this._onError = opts.onError || function () {};
     this._recognition = null;
@@ -42,7 +77,9 @@
     this._recognition.onresult = function (event) {
       for (var i = event.resultIndex; i < event.results.length; i++) {
         if (event.results[i].isFinal) {
-          self._chunks.push(event.results[i][0].transcript);
+          self._finalResults[i] = event.results[i][0].transcript;
+        } else {
+          self._interimText = event.results[i][0].transcript;
         }
       }
     };
@@ -51,10 +88,12 @@
       if (event.error === "aborted") {
         return;
       }
-      var text = self._chunks.join(" ").trim();
+      var text = self._getFinalText();
       self._recording = false;
-      if (text) {
-        self._onResult(text);
+      self._recognition = null;
+      if (text && !self._delivered) {
+        self._delivered = true;
+        self._onResult(text, self._sessionId);
       }
       self._onError(event.error || "unknown");
     };
@@ -62,22 +101,56 @@
     this._recognition.onend = function () {
       if (self._recording) {
         self._recording = false;
-        var text = self._chunks.join(" ").trim();
-        if (text) {
-          self._onResult(text);
+        var text = self._getFinalText();
+        self._recognition = null;
+        if (text && !self._delivered) {
+          self._delivered = true;
+          self._onResult(text, self._sessionId);
         }
+      } else {
+        self._recognition = null;
       }
     };
   };
 
-  VoiceRecorder.prototype.start = function () {
+  VoiceRecorder.prototype._getFinalText = function () {
+    var keys = Object.keys(this._finalResults).sort(function (a, b) {
+      return Number(a) - Number(b);
+    });
+    var chunks = [];
+    var seen = {};
+    for (var i = 0; i < keys.length; i++) {
+      var text = String(this._finalResults[keys[i]] || "").trim();
+      var fingerprint = normalizeTranscriptFingerprint(text);
+      if (text && !seen[fingerprint]) {
+        seen[fingerprint] = true;
+        chunks.push(text);
+      }
+    }
+    var finalText = chunks.join(" ").trim();
+    return finalText || String(this._interimText || "").trim();
+  };
+
+  VoiceRecorder.prototype.start = function (sessionId) {
+    if (this._recognition) {
+      try {
+        this._recognition.abort();
+      } catch (e) {
+        // Ignore stale recognizers from previous sessions.
+      }
+      this._recognition = null;
+    }
     this._ensureRecognition();
-    this._chunks = [];
+    this._finalResults = {};
+    this._interimText = "";
+    this._sessionId = sessionId;
+    this._delivered = false;
     this._recording = true;
     try {
       this._recognition.start();
     } catch (e) {
-      // Already started.
+      this._recording = false;
+      this._onError(e && e.message ? e.message : "start_failed");
     }
   };
 
@@ -87,6 +160,82 @@
       this._recognition.stop();
     } catch (e) {
       this._recording = false;
+    }
+  };
+
+  function BackendAudioRecorder(opts) {
+    this._recording = false;
+    this._chunks = [];
+    this._stream = null;
+    this._recorder = null;
+    this._mimeType = "";
+    this._sessionId = null;
+    this._onResult = opts.onResult || function () {};
+    this._onError = opts.onError || function () {};
+  }
+
+  Object.defineProperty(BackendAudioRecorder.prototype, "recording", {
+    get: function () {
+      return this._recording;
+    },
+  });
+
+  BackendAudioRecorder.prototype._releaseStream = function () {
+    if (!this._stream) return;
+    var tracks = this._stream.getTracks();
+    for (var i = 0; i < tracks.length; i++) {
+      tracks[i].stop();
+    }
+    this._stream = null;
+  };
+
+  BackendAudioRecorder.prototype.start = function (sessionId) {
+    var self = this;
+    this._chunks = [];
+    this._mimeType = "";
+    this._sessionId = sessionId;
+    this._recording = false;
+    return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      self._stream = stream;
+      var preferredType = getPreferredAudioMimeType();
+      var options = preferredType ? { mimeType: preferredType } : {};
+      self._recorder = new MediaRecorder(stream, options);
+      self._mimeType = self._recorder.mimeType || preferredType || "audio/webm";
+      self._recorder.ondataavailable = function (event) {
+        if (event.data && event.data.size > 0) {
+          self._chunks.push(event.data);
+        }
+      };
+      self._recorder.onstop = function () {
+        var stoppedSessionId = self._sessionId;
+        self._recording = false;
+        self._releaseStream();
+        var blob = new Blob(self._chunks, { type: self._mimeType });
+        if (blob.size > 0) {
+          self._onResult(blob, self._mimeType, stoppedSessionId);
+        } else {
+          self._onError("empty_audio", stoppedSessionId);
+        }
+      };
+      self._recorder.onerror = function (event) {
+        var failedSessionId = self._sessionId;
+        self._recording = false;
+        self._releaseStream();
+        self._onError((event.error && event.error.name) || "recording_failed", failedSessionId);
+      };
+      self._recording = true;
+      self._recorder.start();
+    });
+  };
+
+  BackendAudioRecorder.prototype.stop = function () {
+    if (!this._recorder || !this._recording) return;
+    try {
+      this._recorder.stop();
+    } catch (e) {
+      this._recording = false;
+      this._releaseStream();
+      this._onError(e && e.message ? e.message : "stop_failed");
     }
   };
 
@@ -784,27 +933,51 @@
     }
 
     var recorder = null;
+    var parallelRecorder = null;
+    var audioRecorder = null;
+    var activeRecordingMode = null;
+    var backendStarting = false;
+    var backendStopRequested = false;
+    var backendUnavailable = !hasMediaRecorder;
+    var recordingSequence = 0;
+    var activeRecordingId = null;
+    var insertedRecordingIds = {};
+    var uploadedRecordingIds = {};
+    var fallbackTextByRecordingId = {};
+
+    function insertVoiceText(text, recordingId) {
+      if (recordingId && insertedRecordingIds[recordingId]) {
+        return;
+      }
+      var baseText = textarea.value || "";
+      var cleanedText = normalizeTranscriptText(text);
+      if (!cleanedText) {
+        return;
+      }
+      if (recordingId) {
+        insertedRecordingIds[recordingId] = true;
+      }
+      var nextValue = joinTranscript(baseText, cleanedText);
+      textarea.value = nextValue;
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      liveRegion.textContent = "Voice text added";
+      setTimeout(function () {
+        liveRegion.textContent = "";
+      }, 2000);
+      hideSuggestionPanel();
+    }
 
     function ensureRecorder() {
       if (recorder) return;
+      if (!SpeechRecognition) return;
       recorder = new VoiceRecorder({
-        onResult: function (text) {
-          var baseText = textarea.value || "";
-          var cleanedText = normalizeTranscriptText(text);
-          if (!cleanedText) {
-            return;
-          }
-          var nextValue = joinTranscript(baseText, cleanedText);
-          textarea.value = nextValue;
-          textarea.dispatchEvent(new Event("input", { bubbles: true }));
-          liveRegion.textContent = "Voice text added";
-          setTimeout(function () {
-            liveRegion.textContent = "";
-          }, 2000);
-          hideSuggestionPanel();
+        onResult: function (text, recordingId) {
+          insertVoiceText(text, recordingId);
         },
         onError: function (errMsg) {
           console.warn("Voice input error:", errMsg);
+          activeRecordingMode = null;
+          activeRecordingId = null;
           liveRegion.textContent = "Voice input error";
           setTimeout(function () {
             liveRegion.textContent = "";
@@ -814,12 +987,116 @@
       });
     }
 
+    function ensureParallelRecorder() {
+      if (parallelRecorder) return;
+      if (!SpeechRecognition) return;
+      parallelRecorder = new VoiceRecorder({
+        onResult: function (text, recordingId) {
+          if (!recordingId || !text) {
+            return;
+          }
+          fallbackTextByRecordingId[recordingId] = text;
+        },
+        onError: function (errMsg) {
+          console.warn("Voice fallback input error:", errMsg);
+        },
+      });
+    }
+
+    function uploadVoiceAudio(blob, contentType, recordingId) {
+      if (recordingId && uploadedRecordingIds[recordingId]) {
+        return Promise.resolve();
+      }
+      if (recordingId) {
+        uploadedRecordingIds[recordingId] = true;
+      }
+      var formData = new FormData();
+      var extension = contentType && contentType.indexOf("mp4") !== -1 ? "m4a" : "webm";
+      formData.append("audio", blob, "voice." + extension);
+      formData.append("context", textarea.dataset.voiceContext || "");
+      liveRegion.textContent = "Transcribing voice";
+      return fetch("/admin/ai/voice/transcription", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "X-CSRF-Token": typeof getCsrfToken === "function" ? getCsrfToken() || "" : "",
+        },
+        body: formData,
+      })
+        .then(function (response) {
+          return response.json();
+        })
+        .then(function (payload) {
+          if (!payload || !payload.ok || !payload.text) {
+            throw new Error(payload && payload.error ? String(payload.error) : "transcription_failed");
+          }
+          insertVoiceText(payload.text, recordingId);
+        });
+    }
+
+    function ensureAudioRecorder() {
+      if (audioRecorder) return;
+      audioRecorder = new BackendAudioRecorder({
+        onResult: function (blob, contentType, recordingId) {
+          hideOverlay();
+          uploadVoiceAudio(blob, contentType, recordingId).catch(function (error) {
+            backendUnavailable = true;
+            console.warn("Voice transcription error:", error);
+            if (recordingId && fallbackTextByRecordingId[recordingId]) {
+              insertVoiceText(fallbackTextByRecordingId[recordingId], recordingId);
+              return;
+            }
+            liveRegion.textContent = SpeechRecognition
+              ? "Voice transcription unavailable. Browser speech fallback enabled."
+              : "Voice transcription unavailable";
+            setTimeout(function () {
+              liveRegion.textContent = "";
+            }, 4000);
+          });
+        },
+        onError: function (errMsg, recordingId) {
+          backendUnavailable = true;
+          console.warn("Voice recording error:", errMsg);
+          hideOverlay();
+          if (recordingId && fallbackTextByRecordingId[recordingId]) {
+            insertVoiceText(fallbackTextByRecordingId[recordingId], recordingId);
+            return;
+          }
+          liveRegion.textContent = SpeechRecognition
+            ? "Voice recording unavailable. Browser speech fallback enabled."
+            : "Voice recording unavailable";
+          setTimeout(function () {
+            liveRegion.textContent = "";
+          }, 4000);
+        },
+      });
+    }
+
     function stopRecording() {
       if (safetyTimeout) {
         clearTimeout(safetyTimeout);
         safetyTimeout = null;
       }
-      recorder.stop();
+      if (activeRecordingMode === "backend") {
+        if (backendStarting) {
+          backendStopRequested = true;
+          return;
+        }
+        if (audioRecorder) {
+          audioRecorder.stop();
+        }
+        if (parallelRecorder && parallelRecorder.recording) {
+          parallelRecorder.stop();
+        }
+        activeRecordingMode = null;
+        activeRecordingId = null;
+        return;
+      }
+      if (recorder) {
+        recorder.stop();
+      }
+      activeRecordingMode = null;
+      activeRecordingId = null;
       hideOverlay();
     }
 
@@ -852,12 +1129,78 @@
     }
 
     function startRecording() {
-      ensureRecorder();
-      recorder.start();
-      showOverlay();
+      if (activeRecordingMode || backendStarting || (recorder && recorder.recording) || (audioRecorder && audioRecorder.recording)) {
+        return;
+      }
+      recordingSequence++;
+      activeRecordingId = String(recordingSequence);
+      hideSuggestionPanel();
       safetyTimeout = setTimeout(function () {
         stopRecording();
       }, MAX_RECORDING_SECONDS * 1000);
+      if (!backendUnavailable) {
+        activeRecordingMode = "backend";
+        backendStarting = true;
+        backendStopRequested = false;
+        ensureAudioRecorder();
+        ensureParallelRecorder();
+        showOverlay();
+        if (parallelRecorder) {
+          parallelRecorder.start(activeRecordingId);
+        }
+        audioRecorder
+          .start(activeRecordingId)
+          .then(function () {
+            backendStarting = false;
+            if (backendStopRequested) {
+              stopRecording();
+            }
+          })
+          .catch(function (error) {
+            backendStarting = false;
+            backendUnavailable = true;
+            activeRecordingMode = null;
+            activeRecordingId = null;
+            hideOverlay();
+            console.warn("Voice recording start error:", error);
+            if (parallelRecorder && parallelRecorder.recording) {
+              parallelRecorder.stop();
+            }
+            if (SpeechRecognition) {
+              if (safetyTimeout) {
+                clearTimeout(safetyTimeout);
+                safetyTimeout = null;
+              }
+              startRecording();
+            } else {
+              if (safetyTimeout) {
+                clearTimeout(safetyTimeout);
+                safetyTimeout = null;
+              }
+              liveRegion.textContent = "Voice recording unavailable";
+              setTimeout(function () {
+                liveRegion.textContent = "";
+              }, 3000);
+            }
+          });
+        return;
+      }
+
+      ensureRecorder();
+      if (!recorder) {
+        if (safetyTimeout) {
+          clearTimeout(safetyTimeout);
+          safetyTimeout = null;
+        }
+        liveRegion.textContent = "Voice input unavailable";
+        setTimeout(function () {
+          liveRegion.textContent = "";
+        }, 3000);
+        return;
+      }
+      activeRecordingMode = "speech";
+      recorder.start(activeRecordingId);
+      showOverlay();
     }
 
     btn.addEventListener("pointerdown", function (e) {
@@ -871,13 +1214,18 @@
       stopRecording();
     });
 
+    btn.addEventListener("pointercancel", function (e) {
+      e.preventDefault();
+      stopRecording();
+    });
+
     aiBadge.addEventListener("click", function (e) {
       e.preventDefault();
       requestSuggestionFromCurrentText();
     });
 
     btn.addEventListener("lostpointercapture", function () {
-      if (recorder && recorder.recording) {
+      if ((recorder && recorder.recording) || (audioRecorder && audioRecorder.recording) || backendStarting) {
         stopRecording();
       }
     });
@@ -885,7 +1233,11 @@
     btn.addEventListener("keydown", function (e) {
       if (e.key !== " " || e.repeat) return;
       e.preventDefault();
-      if (!recorder || !recorder.recording) {
+      if (
+        (!recorder || !recorder.recording) &&
+        (!audioRecorder || !audioRecorder.recording) &&
+        !backendStarting
+      ) {
         startRecording();
       }
     });
@@ -893,7 +1245,7 @@
     btn.addEventListener("keyup", function (e) {
       if (e.key !== " ") return;
       e.preventDefault();
-      if (recorder && recorder.recording) {
+      if ((recorder && recorder.recording) || (audioRecorder && audioRecorder.recording) || backendStarting) {
         stopRecording();
       }
     });

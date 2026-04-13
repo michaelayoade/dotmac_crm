@@ -1112,6 +1112,7 @@ class Projects(ListResponseMixin):
         offset: int,
         search: str | None = None,
         filters_payload: list[Any] | None = None,
+        region: str | None = None,
     ):
         query = db.query(Project)
         if subscriber_id:
@@ -1130,6 +1131,8 @@ class Projects(ListResponseMixin):
             query = query.filter(Project.project_manager_person_id == coerce_uuid(project_manager_person_id))
         if assistant_manager_person_id:
             query = query.filter(Project.assistant_manager_person_id == coerce_uuid(assistant_manager_person_id))
+        if region and region.strip():
+            query = query.filter(Project.region == region.strip())
         if search and search.strip():
             like_term = f"%{search.strip()}%"
             query = query.filter(

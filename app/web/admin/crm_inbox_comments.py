@@ -83,7 +83,7 @@ async def inbox_comments_thread(
         db,
         search=search,
         comment_id=comment_id,
-        fetch=False,
+        fetch=True,
         target_id=target_id,
     )
     return templates.TemplateResponse(
