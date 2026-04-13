@@ -46,12 +46,15 @@ async def test_inbox_comments_thread_route_fetches_latest_comment_data():
         next_offset=None,
     )
 
-    with patch(
-        "app.services.crm.inbox.comments_context.load_comments_context",
-        new=AsyncMock(return_value=mock_context),
-    ) as mock_load, patch(
-        "app.web.admin.crm_inbox_comments.templates.TemplateResponse",
-        return_value=SimpleNamespace(),
+    with (
+        patch(
+            "app.services.crm.inbox.comments_context.load_comments_context",
+            new=AsyncMock(return_value=mock_context),
+        ) as mock_load,
+        patch(
+            "app.web.admin.crm_inbox_comments.templates.TemplateResponse",
+            return_value=SimpleNamespace(),
+        ),
     ):
         await inbox_comments_thread(
             request=_request(),
@@ -76,36 +79,47 @@ async def test_build_inbox_page_context_fetches_comments_in_comments_mode():
         next_offset=None,
     )
 
-    with patch(
-        "app.services.crm.inbox.page_context.load_comments_context",
-        new=AsyncMock(return_value=mock_context),
-    ) as mock_load, patch(
-        "app.services.crm.inbox.page_context.resolve_company_time_prefs",
-        return_value=("UTC", "%Y-%m-%d", "%H:%M", "monday"),
-    ), patch(
-        "app.services.crm.inbox.page_context.load_inbox_stats",
-        return_value=({}, {}),
-    ), patch(
-        "app.services.crm.inbox.page_context.get_assignment_counts",
-        return_value={},
-    ), patch(
-        "app.services.crm.inbox.page_context.get_email_channel_state",
-        return_value={},
-    ), patch(
-        "app.services.crm.inbox.page_context.list_channel_targets",
-        return_value=[],
-    ), patch(
-        "app.services.crm.inbox.page_context.list_comment_inboxes",
-        return_value=([], []),
-    ), patch(
-        "app.services.crm.inbox.page_context.crm_service.get_agent_team_options",
-        return_value={"agents": [], "teams": [], "agent_labels": {}},
-    ), patch(
-        "app.services.crm.inbox.page_context.resolve_value",
-        return_value=5,
-    ), patch(
-        "app.services.crm.inbox.page_context.conversation_macros.list",
-        return_value=[],
+    with (
+        patch(
+            "app.services.crm.inbox.page_context.load_comments_context",
+            new=AsyncMock(return_value=mock_context),
+        ) as mock_load,
+        patch(
+            "app.services.crm.inbox.page_context.resolve_company_time_prefs",
+            return_value=("UTC", "%Y-%m-%d", "%H:%M", "monday"),
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.load_inbox_stats",
+            return_value=({}, {}),
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.get_assignment_counts",
+            return_value={},
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.get_email_channel_state",
+            return_value={},
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.list_channel_targets",
+            return_value=[],
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.list_comment_inboxes",
+            return_value=([], []),
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.crm_service.get_agent_team_options",
+            return_value={"agents": [], "teams": [], "agent_labels": {}},
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.resolve_value",
+            return_value=5,
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.conversation_macros.list",
+            return_value=[],
+        ),
     ):
         await _build_page_context(channel="comments", comment_id="comment-1")
 
@@ -131,42 +145,55 @@ async def test_build_inbox_page_context_fetches_selected_comment_thread_outside_
         next_offset=None,
     )
 
-    with patch(
-        "app.services.crm.inbox.page_context.load_inbox_list",
-        new=AsyncMock(return_value=mock_listing),
-    ), patch(
-        "app.services.crm.inbox.page_context.load_comments_context",
-        new=AsyncMock(return_value=mock_context),
-    ) as mock_load, patch(
-        "app.services.crm.inbox.page_context.resolve_company_time_prefs",
-        return_value=("UTC", "%Y-%m-%d", "%H:%M", "monday"),
-    ), patch(
-        "app.services.crm.inbox.page_context.load_inbox_stats",
-        return_value=({}, {}),
-    ), patch(
-        "app.services.crm.inbox.page_context.get_assignment_counts",
-        return_value={},
-    ), patch(
-        "app.services.crm.inbox.page_context.get_email_channel_state",
-        return_value={},
-    ), patch(
-        "app.services.crm.inbox.page_context.list_channel_targets",
-        return_value=[],
-    ), patch(
-        "app.services.crm.inbox.page_context.list_comment_inboxes",
-        return_value=([], []),
-    ), patch(
-        "app.services.crm.inbox.page_context.crm_service.get_agent_team_options",
-        return_value={"agents": [], "teams": [], "agent_labels": {}},
-    ), patch(
-        "app.services.crm.inbox.page_context.resolve_value",
-        return_value=5,
-    ), patch(
-        "app.services.crm.inbox.page_context.enrich_formatted_conversations_with_labels",
-        return_value=None,
-    ), patch(
-        "app.services.crm.inbox.page_context.conversation_macros.list",
-        return_value=[],
+    with (
+        patch(
+            "app.services.crm.inbox.page_context.load_inbox_list",
+            new=AsyncMock(return_value=mock_listing),
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.load_comments_context",
+            new=AsyncMock(return_value=mock_context),
+        ) as mock_load,
+        patch(
+            "app.services.crm.inbox.page_context.resolve_company_time_prefs",
+            return_value=("UTC", "%Y-%m-%d", "%H:%M", "monday"),
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.load_inbox_stats",
+            return_value=({}, {}),
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.get_assignment_counts",
+            return_value={},
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.get_email_channel_state",
+            return_value={},
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.list_channel_targets",
+            return_value=[],
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.list_comment_inboxes",
+            return_value=([], []),
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.crm_service.get_agent_team_options",
+            return_value={"agents": [], "teams": [], "agent_labels": {}},
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.resolve_value",
+            return_value=5,
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.enrich_formatted_conversations_with_labels",
+            return_value=None,
+        ),
+        patch(
+            "app.services.crm.inbox.page_context.conversation_macros.list",
+            return_value=[],
+        ),
     ):
         await _build_page_context(comment_id="comment-1")
 

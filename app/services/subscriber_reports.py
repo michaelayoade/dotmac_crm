@@ -1787,7 +1787,9 @@ def get_churn_table(
                 local_context = {
                     "phone": str(person_phone or "").strip(),
                     "area": _first_nonempty_text(service_region, service_city),
-                    "billing_start_date": _format_local_date(_coerce_datetime_utc(activated_at) or _coerce_datetime_utc(created_at)),
+                    "billing_start_date": _format_local_date(
+                        _coerce_datetime_utc(activated_at) or _coerce_datetime_utc(created_at)
+                    ),
                     "next_bill_date": _format_local_date(local_next_bill_date),
                     "billing_cycle": str(local_billing_cycle or "").strip(),
                 }
@@ -2104,12 +2106,16 @@ def get_churn_table(
                 billing_start_date = str(local_context.get("billing_start_date") or "")
             area_value = _live_area_from_customer(customer) or str(local_context.get("area") or "")
             next_bill_raw = _coerce_datetime_utc(mapped.get("next_bill_date"))
-            next_bill_date_text = next_bill_raw.strftime("%Y-%m-%d") if next_bill_raw else str(local_context.get("next_bill_date") or "")
+            next_bill_date_text = (
+                next_bill_raw.strftime("%Y-%m-%d") if next_bill_raw else str(local_context.get("next_bill_date") or "")
+            )
             next_bill_fallback_date = _parse_iso_date_text(next_bill_date_text)
             due_days = (
                 (next_bill_raw.date() - today).days
                 if next_bill_raw is not None
-                else (next_bill_fallback_date - today).days if next_bill_fallback_date is not None else None
+                else (next_bill_fallback_date - today).days
+                if next_bill_fallback_date is not None
+                else None
             )
             balance_amount = _parse_balance_amount(mapped.get("balance") or customer.get("balance"))
             sync_metadata = mapped.get("sync_metadata") if isinstance(mapped.get("sync_metadata"), Mapping) else {}
