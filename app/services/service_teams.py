@@ -103,7 +103,9 @@ class ServiceTeams(ListResponseMixin):
             "tickets": db.query(Ticket).filter(Ticket.service_team_id == team_uuid).count(),
             "projects": db.query(Project).filter(Project.service_team_id == team_uuid).count(),
             "crm_teams": db.query(CrmTeam).filter(CrmTeam.service_team_id == team_uuid).count(),
-            "assignment_rules": db.query(TicketAssignmentRule).filter(TicketAssignmentRule.team_id == team_uuid).count(),
+            "assignment_rules": db.query(TicketAssignmentRule)
+            .filter(TicketAssignmentRule.team_id == team_uuid)
+            .count(),
             "performance_snapshots": db.query(AgentPerformanceSnapshot)
             .filter(AgentPerformanceSnapshot.team_id == team_uuid)
             .count(),

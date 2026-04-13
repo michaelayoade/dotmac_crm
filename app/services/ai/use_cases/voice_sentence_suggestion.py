@@ -78,11 +78,7 @@ def suggest_voice_sentence(
 
     normalized_context = str(context or _DEFAULT_CONTEXT).strip().lower() or _DEFAULT_CONTEXT
     context_label = _CONTEXT_LABELS.get(normalized_context, _CONTEXT_LABELS[_DEFAULT_CONTEXT])
-    prompt = (
-        f"Context: {context_label}\n"
-        f"Transcript:\n{normalized_text}\n\n"
-        "Return JSON only."
-    )
+    prompt = f"Context: {context_label}\nTranscript:\n{normalized_text}\n\nReturn JSON only."
 
     result, routing = ai_gateway.generate_with_fallback(
         db,
