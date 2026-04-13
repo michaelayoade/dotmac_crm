@@ -26,8 +26,7 @@ def test_admin_router_exposes_customer_retention_tracker_from_billing_risk_modul
     matching = [
         route
         for route in router.routes
-        if getattr(route, "path", "") == "/admin/customer-retention"
-        and "GET" in getattr(route, "methods", set())
+        if getattr(route, "path", "") == "/admin/customer-retention" and "GET" in getattr(route, "methods", set())
     ]
 
     assert matching
@@ -139,27 +138,29 @@ def test_subscriber_billing_risk_live_bucket_requests_keep_segment_filters(monke
     monkeypatch.setattr(
         billing_risk_service,
         "get_billing_risk_table",
-        lambda *_args, **kwargs: [
-            {
-                "name": "Suspended Customer",
-                "email": "suspended@example.com",
-                "phone": "+2348099991111",
-                "city": "Abuja",
-                "area": "Maitama",
-                "plan": "Home Fiber 50Mbps",
-                "mrr_total": 42000.0,
-                "subscriber_status": "Suspended",
-                "risk_segment": "Suspended",
-                "billing_start_date": "2024-01-15",
-                "blocked_date": "2024-04-18",
-                "blocked_for_days": 18,
-                "balance": 9200.0,
-                "days_past_due": 18,
-                "is_high_balance_risk": True,
-            }
-        ]
-        if kwargs.get("limit") == 6000
-        else [],
+        lambda *_args, **kwargs: (
+            [
+                {
+                    "name": "Suspended Customer",
+                    "email": "suspended@example.com",
+                    "phone": "+2348099991111",
+                    "city": "Abuja",
+                    "area": "Maitama",
+                    "plan": "Home Fiber 50Mbps",
+                    "mrr_total": 42000.0,
+                    "subscriber_status": "Suspended",
+                    "risk_segment": "Suspended",
+                    "billing_start_date": "2024-01-15",
+                    "blocked_date": "2024-04-18",
+                    "blocked_for_days": 18,
+                    "balance": 9200.0,
+                    "days_past_due": 18,
+                    "is_high_balance_risk": True,
+                }
+            ]
+            if kwargs.get("limit") == 6000
+            else []
+        ),
     )
     monkeypatch.setattr(billing_risk_service, "get_overdue_invoices_table", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(
