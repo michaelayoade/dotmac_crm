@@ -878,9 +878,8 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
             or _amount(entry.get("mrr_total")) <= 0
             or _amount(entry.get("balance")) <= 0
         )
-        needs_billing = (
-            not is_active_overdue
-            and (not str(entry.get("blocked_date") or "").strip() or _amount(entry.get("balance")) <= 0)
+        needs_billing = not is_active_overdue and (
+            not str(entry.get("blocked_date") or "").strip() or _amount(entry.get("balance")) <= 0
         )
         splynx_db = SessionLocal()
         try:
