@@ -37,7 +37,7 @@ _SPYLNX_LIVE_CACHE_TTLS = {
 }
 _SPYLNX_LIVE_CACHE: dict[tuple[str, tuple[object, ...]], tuple[float, Any]] = {}
 _SPYLNX_LIVE_CACHE_LOCK = Lock()
-_BILLING_RISK_SEGMENT_ORDER = ["Overdue", "Suspended", "Churned", "Pending", "Due Soon"]
+_BILLING_RISK_SEGMENT_ORDER = ["Due Soon", "Suspended", "Churned", "Pending"]
 
 
 def clear_live_splynx_cache() -> None:
@@ -129,10 +129,8 @@ def get_billing_risk_table(
 
     def _normalize_segment(value: str | None) -> str | None:
         normalized_segment = (value or "").strip().lower()
-        if normalized_segment in {"due_soon", "due soon"}:
+        if normalized_segment in {"due_soon", "due soon", "overdue"}:
             return "Due Soon"
-        if normalized_segment == "overdue":
-            return "Overdue"
         if normalized_segment == "suspended":
             return "Suspended"
         if normalized_segment == "churned":
@@ -304,6 +302,9 @@ def get_billing_risk_table(
                 Subscriber.balance,
                 Subscriber.billing_cycle,
                 Subscriber.service_plan,
+                Subscriber.service_city,
+                Subscriber.service_region,
+                Subscriber.service_address_line1,
                 Subscriber.activated_at,
                 Person.email,
             )
@@ -326,6 +327,9 @@ def get_billing_risk_table(
             balance,
             billing_cycle,
             service_plan,
+            service_city,
+            service_region,
+            service_address_line1,
             activated_at,
             person_email,
         ) in subscriber_rows:
@@ -336,6 +340,9 @@ def get_billing_risk_table(
                 "balance": _parse_balance_amount(balance),
                 "billing_cycle": str(billing_cycle or "").strip(),
                 "service_plan": str(service_plan or "").strip(),
+                "service_city": str(service_city or "").strip(),
+                "service_region": str(service_region or "").strip(),
+                "service_address_line1": str(service_address_line1 or "").strip(),
                 "activated_at": _coerce_datetime_utc(activated_at),
             }
             external_key = str(external_id or "").strip()
@@ -463,6 +470,49 @@ def get_billing_risk_table(
                         return direct_area
         return ""
 
+    def _infer_city(*values: object) -> str:
+        haystack = " ".join(str(value or "") for value in values).strip()
+        if not haystack:
+            return ""
+        city_markers = (
+            (
+                "Abuja",
+                (
+                    "abuja",
+                    "fct",
+                    "wuse",
+                    "wuse-1",
+                    "gwarimpa",
+                    "gwarinpa",
+                    "maitama",
+                    "mabushi",
+                    "kubwa",
+                    "jabi",
+                    "asokoro",
+                    "cbd",
+                    "central business district",
+                    "kaura",
+                    "apo",
+                    "gaduwa",
+                    "gudu",
+                ),
+            ),
+            ("Lagos", ("lagos", "ikeja", "lekki", "victoria island", "vi ", "ikoyi")),
+            ("Port Harcourt", ("port harcourt", "phc")),
+            ("Nasarawa", ("nasarawa", "mararaba")),
+            ("Abeokuta", ("abeokuta", "oke mosan")),
+            ("Maiduguri", ("maiduguri",)),
+            ("Yola", ("yola",)),
+            ("Awka", ("awka",)),
+            ("Kaduna", ("kaduna",)),
+            ("Kano", ("kano",)),
+        )
+        normalized = f" {haystack.lower()} "
+        for label, markers in city_markers:
+            if any(marker in normalized for marker in markers):
+                return label
+        return ""
+
     def _live_blocked_date(customer_payload: Mapping[str, Any], mapped_payload: Mapping[str, Any]) -> str:
         direct_suspended = _coerce_datetime_utc(mapped_payload.get("suspended_at"))
         if direct_suspended is not None:
@@ -579,11 +629,14 @@ def get_billing_risk_table(
         elif status_value == SubscriberStatus.pending.value:
             live_segment_value = "Pending"
         elif status_value == SubscriberStatus.active.value and due_days is not None and due_days < 0:
-            live_segment_value = "Overdue"
+            live_segment_value = "Due Soon"
         elif status_value == SubscriberStatus.active.value and due_days is not None and due_days <= due_soon_days:
             live_segment_value = "Due Soon"
         if live_segment_value is None:
             continue
+        if status_value == SubscriberStatus.active.value and live_segment_value == "Due Soon":
+            blocked_date_text = ""
+            blocked_for_days = None
         if selected_segments and live_segment_value not in selected_segments:
             continue
         if not _matches_days_past_due_bucket(row_days_past_due):
@@ -592,7 +645,17 @@ def get_billing_risk_table(
         display_name = str(customer.get("name") or "").strip() or str(mapped.get("subscriber_number") or "").strip()
         email_value = str(customer.get("email") or "").strip()
         phone_value = str(customer.get("phone") or "").strip()
-        city_value = str(customer.get("city") or "").strip()
+        city_value = (
+            str(customer.get("city") or "").strip()
+            or str(cached_subscriber.get("service_city") or "").strip()
+            or _infer_city(
+                display_name,
+                cached_subscriber.get("service_region"),
+                cached_subscriber.get("service_address_line1"),
+                customer.get("street_1"),
+                customer.get("street_2"),
+            )
+        )
         mrr_total_value = _parse_balance_amount(customer.get("mrr_total"))
         live_results.append(
             {
@@ -632,7 +695,7 @@ def get_billing_risk_table(
     avg_balance = round(sum(row["balance"] for row in live_results) / len(live_results), 2) if live_results else 0.0
     for entry in live_results:
         entry["is_high_balance_risk"] = entry["balance"] > avg_balance and entry["risk_segment"] in {
-            "Overdue",
+            "Due Soon",
             "Suspended",
             "Churned",
         }
@@ -656,6 +719,10 @@ def get_billing_risk_table(
         external_id = str(entry.get("_external_id") or "").strip()
         if not external_id:
             return updates
+        is_active_overdue = (
+            str(entry.get("subscriber_status") or "").strip().lower() == "active"
+            and str(entry.get("risk_segment") or "").strip() == "Due Soon"
+        )
         splynx_db = SessionLocal()
         try:
             if not str(entry.get("plan") or "").strip() and str(entry.get("risk_segment") or "") == "Suspended":
@@ -682,6 +749,10 @@ def get_billing_risk_table(
                 billing_payload = {}
         finally:
             splynx_db.close()
+        if is_active_overdue:
+            updates["blocked_date"] = ""
+            updates["blocked_for_days"] = None
+            return updates
         if not isinstance(billing_payload, Mapping):
             return updates
         live_last_transaction_date = _live_billing_text(billing_payload, "last_transaction_date")
@@ -759,14 +830,63 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
                 return text
         return ""
 
+    def _amount(value: object) -> float:
+        return _parse_balance_amount(value)
+
+    def _service_amount(services_payload: object) -> float:
+        if not isinstance(services_payload, list):
+            return 0.0
+        services = [service for service in services_payload if isinstance(service, dict)]
+        primary_service = _select_primary_service(services)
+        if not isinstance(primary_service, Mapping):
+            return 0.0
+        for candidate in (
+            primary_service.get("unit_price"),
+            primary_service.get("price"),
+            primary_service.get("monthly_price"),
+            primary_service.get("amount"),
+        ):
+            amount = _amount(candidate)
+            if amount > 0:
+                return amount
+        return 0.0
+
+    def _service_start_date(services_payload: object) -> str:
+        if not isinstance(services_payload, list):
+            return ""
+        parsed_dates = [
+            parsed
+            for service in services_payload
+            if isinstance(service, Mapping)
+            for parsed in [_parse_iso_date_text(str(service.get("start_date") or ""))]
+            if parsed is not None
+        ]
+        if not parsed_dates:
+            return ""
+        return min(parsed_dates).strftime("%Y-%m-%d")
+
     def _enrich_live_entry(entry: dict[str, Any]) -> dict[str, Any]:
         updates: dict[str, Any] = {}
         external_id = str(entry.get("_external_id") or "").strip()
         if not external_id:
             return updates
+        is_active_overdue = (
+            str(entry.get("subscriber_status") or "").strip().lower() == "active"
+            and str(entry.get("risk_segment") or "").strip() == "Due Soon"
+        )
+        needs_services = (
+            not str(entry.get("plan") or "").strip()
+            or not str(entry.get("billing_start_date") or "").strip()
+            or _amount(entry.get("mrr_total")) <= 0
+            or _amount(entry.get("balance")) <= 0
+        )
+        needs_billing = (
+            not is_active_overdue
+            and (not str(entry.get("blocked_date") or "").strip() or _amount(entry.get("balance")) <= 0)
+        )
         splynx_db = SessionLocal()
         try:
-            if not str(entry.get("plan") or "").strip() and str(entry.get("risk_segment") or "") == "Suspended":
+            if needs_services:
                 try:
                     services_payload = _cached_live_splynx_read(
                         "fetch_customer_internet_services",
@@ -779,18 +899,40 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
                 live_plan = _live_service_plan(services_payload)
                 if live_plan:
                     updates["plan"] = live_plan
-            try:
-                billing_payload = _cached_live_splynx_read(
-                    "fetch_customer_billing",
-                    lambda: fetch_customer_billing(splynx_db, external_id),
-                    external_id,
-                    cache_scope=fetch_customer_billing,
-                )
-            except Exception:
+                live_start_date = _service_start_date(services_payload)
+                if live_start_date and not str(entry.get("billing_start_date") or "").strip():
+                    updates["billing_start_date"] = live_start_date
+                live_service_amount = _service_amount(services_payload)
+                if live_service_amount > 0:
+                    if _amount(entry.get("mrr_total")) <= 0:
+                        updates["mrr_total"] = live_service_amount
+                    if _amount(entry.get("balance")) <= 0:
+                        updates["balance"] = live_service_amount
+            if needs_billing:
+                try:
+                    billing_payload = _cached_live_splynx_read(
+                        "fetch_customer_billing",
+                        lambda: fetch_customer_billing(splynx_db, external_id),
+                        external_id,
+                        cache_scope=fetch_customer_billing,
+                    )
+                except Exception:
+                    billing_payload = {}
+            else:
                 billing_payload = {}
         finally:
             splynx_db.close()
         if not isinstance(billing_payload, Mapping):
+            return updates
+        live_month_price = _amount(billing_payload.get("month_price"))
+        if live_month_price > 0 and _amount(entry.get("mrr_total")) <= 0:
+            updates["mrr_total"] = live_month_price
+        live_balance = _amount(billing_payload.get("deposit"))
+        if live_balance > 0 and _amount(entry.get("balance")) <= 0:
+            updates["balance"] = live_balance
+        if is_active_overdue:
+            updates["blocked_date"] = ""
+            updates["blocked_for_days"] = None
             return updates
         live_last_transaction_date = _live_billing_text(billing_payload, "last_transaction_date")
         if live_last_transaction_date:
@@ -936,9 +1078,9 @@ def get_billing_risk_summary(
     total_at_risk = len(churn_rows)
     total_balance_exposure = round(sum(float(row.get("balance") or 0) for row in churn_rows), 2)
     high_balance_risk_count = sum(1 for row in churn_rows if bool(row.get("is_high_balance_risk")))
-    overdue_count = sum(1 for row in churn_rows if row.get("risk_segment") == "Overdue")
+    overdue_count = sum(1 for row in churn_rows if row.get("risk_segment") == "Due Soon")
     overdue_balance_exposure = round(
-        sum(float(row.get("balance") or 0) for row in churn_rows if row.get("risk_segment") == "Overdue"),
+        sum(float(row.get("balance") or 0) for row in churn_rows if row.get("risk_segment") == "Due Soon"),
         2,
     )
     overdue_invoice_balance = round(

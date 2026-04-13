@@ -3291,7 +3291,7 @@ def test_subscriber_billing_risk_page_renders(monkeypatch):
     monkeypatch.setattr(
         subscriber_reports_service,
         "get_churn_table",
-        lambda _db, due_soon_days=7, high_balance_only=False, segment=None, segments=None, days_past_due=None, source="local", limit=500: [
+        lambda _db, due_soon_days=7, high_balance_only=False, segment=None, segments=None, days_past_due=None, source="local", limit=500, enrich_visible_rows=True: [
             {
                 "name": "Blocked Customer",
                 "email": "blocked@example.com",

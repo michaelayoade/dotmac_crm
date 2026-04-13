@@ -32,6 +32,7 @@ def build_router() -> APIRouter:
     from app.web.admin.admin_hub import router as admin_hub_router
     from app.web.admin.ai import router as ai_router
     from app.web.admin.automations import router as automations_router
+    from app.web.admin.billing_risk import customer_retention_router
     from app.web.admin.billing_risk import router as billing_risk_router
     from app.web.admin.campaigns import router as campaigns_router
     from app.web.admin.crm import router as crm_router
@@ -98,6 +99,7 @@ def build_router() -> APIRouter:
     router.include_router(operations_router)
     router.include_router(material_requests_router)
     router.include_router(service_teams_router)
+    router.include_router(customer_retention_router)
     router.include_router(billing_risk_router)
     router.include_router(reports_router)
     router.include_router(performance_router)

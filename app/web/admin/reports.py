@@ -666,6 +666,7 @@ def subscriber_billing_risk(
         days_past_due=query_days_past_due or days_past_due,
         source="splynx_live",
         limit=500,
+        enrich_visible_rows=False,
     )
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:

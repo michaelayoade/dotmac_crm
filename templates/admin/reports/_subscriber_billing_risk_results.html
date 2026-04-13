@@ -44,10 +44,15 @@
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Blocked Date</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Blocked For</th>
             <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Balance</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Outcome</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Follow-up</th>
+            <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Engagement</th>
         </tr>
     </thead>
     <tbody id="billing-risk-live-body" class="divide-y divide-slate-200 dark:divide-slate-700">
         {% for row in churn_rows %}
+        {% set blocked_for_days = row.blocked_for_days if row.blocked_for_days is defined and row.blocked_for_days is not none else none %}
+        {% set engagement_customer_id = row.get('_external_id') or row.subscriber_id or row.get('_subscriber_number') or '' %}
         {% call table_row(color="rose") %}
             <td
                 class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white"
@@ -58,7 +63,8 @@
                 data-area="{{ (row.area or '')|lower }}"
                 data-plan="{{ (row.plan or '')|lower }}"
                 data-balance="{{ (row.balance or 0)|float }}"
-                data-blocked-for-days=""
+                data-blocked-for-days="{{ blocked_for_days if blocked_for_days is not none else '' }}"
+                data-customer-id="{{ engagement_customer_id }}"
             >{{ row.name }}</td>
             <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.phone or "N/A" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.city or "N/A" }}</td>
@@ -70,12 +76,30 @@
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.billing_start_date or "N/A" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300" data-blocked-date-cell="1">{{ row.blocked_date or "N/A" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">
-                <span data-blocked-for-tag class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">N/A</span>
+                <span data-blocked-for-tag data-blocked-for-days="{{ blocked_for_days if blocked_for_days is not none else '' }}" class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    {% if blocked_for_days is not none %}Blocked for {{ blocked_for_days }}d{% else %}-{% endif %}
+                </span>
             </td>
             <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.balance or 0)|float) }}</td>
+            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300" data-engagement-outcome-cell="{{ engagement_customer_id }}">-</td>
+            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300" data-engagement-follow-up-cell="{{ engagement_customer_id }}">-</td>
+            <td class="px-6 py-3 text-right text-sm">
+                <div class="flex flex-col items-end gap-1">
+                    <button
+                        type="button"
+                        class="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                        data-engagement-open="1"
+                        data-customer-id="{{ engagement_customer_id }}"
+                        data-customer-name="{{ row.name|e }}"
+                        data-customer-plan="{{ (row.plan or 'N/A')|e }}"
+                        data-customer-price="{{ '{:,.2f}'.format((row.mrr_total or 0)|float) }}"
+                    >Update</button>
+                    <a href="/admin/customer-retention/{{ engagement_customer_id }}" class="text-xs font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-300 dark:hover:text-rose-200">View tracker</a>
+                </div>
+            </td>
         {% endcall %}
         {% else %}
-        {{ empty_state(title="No billing-risk rows", message="No subscribers matched the current computed billing-risk rules and filters.", color="rose", color2="red", colspan=13) }}
+        {{ empty_state(title="No billing-risk rows", message="No subscribers matched the current computed billing-risk rules and filters.", color="rose", color2="red", colspan=15) }}
         {% endfor %}
     </tbody>
 </table>

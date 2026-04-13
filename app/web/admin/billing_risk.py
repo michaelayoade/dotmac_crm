@@ -25,6 +25,7 @@ from app.web.templates import Jinja2Templates
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
+customer_retention_router = APIRouter(tags=["admin-customer-retention"])
 templates = Jinja2Templates(directory="templates")
 
 
@@ -51,7 +52,7 @@ def _normalize_segment_filters(segments: list[str] | str | None, segment: str | 
 
 def _segment_labels(selected_segments: list[str]) -> set[str]:
     mapping = {
-        "overdue": "Overdue",
+        "overdue": "Due Soon",
         "suspended": "Suspended",
         "due_soon": "Due Soon",
         "churned": "Churned",
@@ -134,13 +135,14 @@ def _billing_risk_page_rows(
         page_size=fetch_size,
         search=search,
         overdue_bucket=overdue_bucket,
-        enrich_visible_rows=True,
+        enrich_visible_rows=False,
     )
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
     has_next = len(churn_rows) > page_size
     visible_rows = churn_rows[:page_size]
+    billing_risk_service.enrich_billing_risk_rows(visible_rows)
     return visible_rows, _billing_risk_page_metrics(visible_rows), has_next
 
 
@@ -153,6 +155,83 @@ def _billing_risk_initial_rows(
     visible_rows = [dict(row) for row in churn_rows[:page_size]]
     billing_risk_service.enrich_billing_risk_rows(visible_rows)
     return visible_rows, _billing_risk_page_metrics(visible_rows), has_next
+
+
+def _retention_tracker_rows(churn_rows: list[dict], *, limit: int = 100) -> list[dict]:
+    segment_priority = {
+        "Suspended": 0,
+        "Due Soon": 1,
+        "Pending": 3,
+        "Churned": 4,
+    }
+
+    def _int_value(value: object) -> int:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+            return int(value.strip())
+        return 0
+
+    def _stage_for(row: dict) -> str:
+        segment = str(row.get("risk_segment") or "")
+        days_past_due = _int_value(row.get("days_past_due"))
+        if segment == "Churned":
+            return "Win-back review"
+        if segment == "Suspended" or days_past_due >= 30:
+            return "Recovery priority"
+        if segment in {"Due Soon", "Pending"}:
+            return "Retention watch"
+        return "Monitor"
+
+    def _action_for(row: dict) -> str:
+        segment = str(row.get("risk_segment") or "")
+        days_past_due = _int_value(row.get("days_past_due"))
+        balance = float(row.get("balance") or 0)
+        if segment == "Churned":
+            return "Confirm cancellation reason and queue a win-back offer."
+        if segment == "Suspended":
+            return "Call today, confirm payment path, and document restore conditions."
+        if days_past_due >= 30 or balance >= 50000:
+            return "Escalate to collections with a retention note before disconnection."
+        if segment in {"Due Soon", "Pending"}:
+            return "Confirm next invoice readiness and update customer contact status."
+        return "Review account notes and keep in the retention watch list."
+
+    tracker_rows = []
+    for row in churn_rows:
+        candidate = dict(row)
+        candidate["retention_stage"] = _stage_for(candidate)
+        candidate["recommended_action"] = _action_for(candidate)
+        candidate["days_past_due_display"] = _int_value(candidate.get("days_past_due"))
+        tracker_rows.append(candidate)
+
+    tracker_rows.sort(
+        key=lambda row: (
+            segment_priority.get(str(row.get("risk_segment") or ""), 99),
+            -_int_value(row.get("days_past_due")),
+            -float(row.get("balance") or 0),
+            str(row.get("name") or "").casefold(),
+        )
+    )
+    return tracker_rows[:limit]
+
+
+def _retention_tracker_kpis(churn_rows: list[dict]) -> dict[str, int | float]:
+    recovery_segments = {"Suspended", "Due Soon"}
+    tracked_count = len(churn_rows)
+    recovery_priority_count = sum(1 for row in churn_rows if str(row.get("risk_segment") or "") in recovery_segments)
+    due_soon_count = sum(1 for row in churn_rows if str(row.get("risk_segment") or "") in {"Due Soon", "Pending"})
+    winback_count = sum(1 for row in churn_rows if str(row.get("risk_segment") or "") == "Churned")
+    revenue_at_risk = round(sum(float(row.get("balance") or 0) for row in churn_rows), 2)
+    high_balance_count = sum(1 for row in churn_rows if bool(row.get("is_high_balance_risk")))
+    return {
+        "tracked_count": tracked_count,
+        "recovery_priority_count": recovery_priority_count,
+        "due_soon_count": due_soon_count,
+        "winback_count": winback_count,
+        "revenue_at_risk": revenue_at_risk,
+        "high_balance_count": high_balance_count,
+    }
 
 
 @router.get("/subscribers/billing-risk", response_class=HTMLResponse)
@@ -204,6 +283,15 @@ def subscriber_billing_risk(
         },
         doseq=True,
     )
+    retention_tracker_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "segments": selected_segments,
+            "days_past_due": query_days_past_due or days_past_due,
+        },
+        doseq=True,
+    )
     refresh_query = urlencode(
         {
             "due_soon_days": due_soon_days,
@@ -236,6 +324,7 @@ def subscriber_billing_risk(
             "selected_segments": selected_segments,
             "days_past_due": query_days_past_due or days_past_due,
             "export_query": export_query,
+            "retention_tracker_query": retention_tracker_query,
             "refresh_query": refresh_query,
             "last_synced_at": _latest_subscriber_sync_at(db),
             "csrf_token": get_csrf_token(request),
@@ -250,6 +339,122 @@ def subscriber_billing_risk(
             "page": 1,
             "has_prev": False,
             "has_next": has_next,
+        },
+    )
+
+
+@customer_retention_router.get("/customer-retention", response_class=HTMLResponse)
+def customer_retention_tracker(
+    request: Request,
+    db: Session = Depends(get_db),
+    due_soon_days: int = Query(7, ge=1, le=30),
+    high_balance_only: bool = Query(False),
+    segment: str | None = Query(None),
+    segments: list[str] = Query(default=[]),
+    days_past_due: str | None = Query(None),
+):
+    user = get_current_user(request)
+    query_segments = request.query_params.getlist("segments")
+    query_segment = request.query_params.get("segment")
+    query_days_past_due = request.query_params.get("days_past_due")
+    selected_segments = _normalize_segment_filters(
+        query_segments if query_segments else segments,
+        query_segment or segment,
+    )
+    churn_rows = billing_risk_service.get_billing_risk_table(
+        db,
+        due_soon_days=due_soon_days,
+        high_balance_only=high_balance_only,
+        segment=segment,
+        segments=selected_segments,
+        days_past_due=query_days_past_due or days_past_due,
+        limit=6000,
+        enrich_visible_rows=False,
+    )
+    tracker_rows = _retention_tracker_rows(churn_rows)
+    segment_breakdown = billing_risk_service.get_billing_risk_segment_breakdown(churn_rows)
+    filter_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "segments": selected_segments,
+            "days_past_due": query_days_past_due or days_past_due,
+        },
+        doseq=True,
+    )
+
+    return templates.TemplateResponse(
+        "admin/reports/customer_retention_tracker.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "customer-retention",
+            "active_menu": "reports",
+            "kpis": _retention_tracker_kpis(churn_rows),
+            "tracker_rows": tracker_rows,
+            "segment_breakdown": segment_breakdown,
+            "due_soon_days": due_soon_days,
+            "high_balance_only": high_balance_only,
+            "selected_segments": selected_segments,
+            "days_past_due": query_days_past_due or days_past_due,
+            "filter_query": filter_query,
+            "last_synced_at": _latest_subscriber_sync_at(db),
+        },
+    )
+
+
+@customer_retention_router.get("/customer-retention/{customer_id}", response_class=HTMLResponse)
+def customer_retention_tracker_detail(
+    customer_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    due_soon_days: int = Query(7, ge=1, le=30),
+):
+    user = get_current_user(request)
+    churn_rows = billing_risk_service.get_billing_risk_table(
+        db,
+        due_soon_days=due_soon_days,
+        limit=6000,
+        enrich_visible_rows=False,
+    )
+    customer = next(
+        (
+            row
+            for row in churn_rows
+            if str(row.get("_external_id") or row.get("subscriber_id") or row.get("_subscriber_number") or "")
+            == str(customer_id)
+        ),
+        None,
+    )
+    if customer is not None:
+        visible_customer = dict(customer)
+        billing_risk_service.enrich_billing_risk_rows([visible_customer])
+    else:
+        visible_customer = {
+            "name": "Unknown customer",
+            "_external_id": customer_id,
+            "plan": "",
+            "mrr_total": 0,
+            "balance": 0,
+            "risk_segment": "",
+            "subscriber_status": "",
+            "blocked_for_days": None,
+        }
+
+    return templates.TemplateResponse(
+        "admin/reports/customer_retention_profile.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "customer-retention",
+            "active_menu": "reports",
+            "customer": visible_customer,
+            "customer_id": customer_id,
+            "back_url": "/admin/reports/subscribers/billing-risk",
         },
     )
 
