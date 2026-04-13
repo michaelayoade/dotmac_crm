@@ -20,7 +20,10 @@ if sys.version_info >= (3, 12) and platform.system() == "Linux":
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*child_watcher.*")
-            _policy.set_child_watcher(asyncio.ThreadedChildWatcher())
+            try:
+                _policy.set_child_watcher(asyncio.ThreadedChildWatcher())
+            except NotImplementedError:
+                pass
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles

@@ -56,8 +56,10 @@
             <input type="hidden" name="order_by" value="{{ order_by|default('created_at') }}" data-default="created_at">
             <input type="hidden" name="order_dir" value="{{ order_dir|default('desc') }}" data-default="desc">
             <div class="flex-1">
-                <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Subscribers</label>
-                {{ search_input("search", search or '', "Search by name, email, or subscriber ID...", "amber", {"hx-get": "/admin/subscribers", "hx-target": "#subscribers-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
+                {% set is_blocked_customers = status == 'suspended' %}
+                {% set search_value = '' if status == 'suspended' else (search or '') %}
+                <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ 'Search Blocked Customers' if is_blocked_customers else 'Search Subscribers' }}</label>
+                {{ search_input("search", search_value, "Search by name, email, or subscriber ID...", "amber", {"id": "subscribers-search-input", "hx-get": "/admin/subscribers", "hx-target": "#subscribers-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
             </div>
             <div class="w-full lg:w-48">
                 {{ filter_select("external_system", [
@@ -335,6 +337,29 @@ function subscribersList() {
         }
     }
 }
+</script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const form = document.getElementById("subscribers-filter-form");
+    if (!form) return;
+
+    function clearBlockedCustomerSearch() {
+        const statusSelect = form.querySelector("select[name='status']");
+        const searchInput = form.querySelector("input[name='search']");
+        if (!statusSelect || !searchInput || statusSelect.value !== "suspended") return;
+        searchInput.value = "";
+        searchInput.setAttribute("value", "");
+    }
+
+    clearBlockedCustomerSearch();
+    [150, 500, 1200].forEach((delay) => window.setTimeout(clearBlockedCustomerSearch, delay));
+
+    form.addEventListener("change", (event) => {
+        if (event.target && event.target.matches("select[name='status']")) {
+            clearBlockedCustomerSearch();
+        }
+    }, true);
+});
 </script>
 <script src="/static/js/ui-filter-state.js"></script>
 <script>
