@@ -83,9 +83,7 @@ def _resolve_target(db: Session, policy_id, priority: str | None) -> SlaTarget |
     if priority:
         priority_key = priority.strip().lower()
         match = (
-            query.filter(SlaTarget.priority.is_not(None))
-            .filter(func.lower(SlaTarget.priority) == priority_key)
-            .first()
+            query.filter(SlaTarget.priority.is_not(None)).filter(func.lower(SlaTarget.priority) == priority_key).first()
         )
         if match:
             return match
