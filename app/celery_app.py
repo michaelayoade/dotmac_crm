@@ -2,6 +2,7 @@ import asyncio
 import os
 import platform
 import sys
+from contextlib import suppress
 
 from celery import Celery
 
@@ -15,10 +16,8 @@ if sys.version_info >= (3, 12) and platform.system() == "Linux":
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*child_watcher.*")
-            try:
+            with suppress(NotImplementedError):
                 _policy.set_child_watcher(asyncio.ThreadedChildWatcher())
-            except NotImplementedError:
-                pass
 
 from app.services.scheduler_config import get_celery_config
 

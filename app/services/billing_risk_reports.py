@@ -628,8 +628,6 @@ def get_billing_risk_table(
             live_segment_value = "Suspended"
         elif status_value == SubscriberStatus.pending.value:
             live_segment_value = "Pending"
-        elif status_value == SubscriberStatus.active.value and due_days is not None and due_days < 0:
-            live_segment_value = "Due Soon"
         elif status_value == SubscriberStatus.active.value and due_days is not None and due_days <= due_soon_days:
             live_segment_value = "Due Soon"
         if live_segment_value is None:
