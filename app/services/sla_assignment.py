@@ -1,9 +1,6 @@
 """SLA assignment service for tickets.
 
-Resolves the appropriate SLA policy for a ticket based on:
-  1. ticket_type match
-  2. channel (inbox source) match
-  3. fallback to default ticket SLA policy
+Resolves tickets to the explicit default ticket SLA policy.
 
 Then creates/manages SLA clocks on the ticket lifecycle.
 """
@@ -11,6 +8,7 @@ Then creates/manages SLA clocks on the ticket lifecycle.
 import logging
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.tickets import Ticket, TicketStatus
@@ -25,6 +23,8 @@ from app.models.workflow import (
 )
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_TICKET_SLA_POLICY_NAME = "Ticket Resolution SLA"
 
 # Ticket statuses that pause SLA clocks (waiting on external input)
 SLA_PAUSE_STATUSES = frozenset(
@@ -57,53 +57,36 @@ SLA_RUNNING_STATUSES = frozenset(
 def resolve_sla_policy(db: Session, ticket: Ticket) -> SlaPolicy | None:
     """Find the best matching SLA policy for a ticket.
 
-    Resolution order:
-      1. Policy with matching ticket_type in description (convention: "type:<ticket_type>")
-      2. Policy with matching channel in description (convention: "channel:<channel>")
-      3. Default policy (description starts with "default" or first active ticket policy)
-
-    Returns None if no suitable policy exists.
+    All support tickets use the explicit default ticket SLA policy.
     """
-    policies = (
+    policy = (
         db.query(SlaPolicy)
         .filter(SlaPolicy.entity_type == WorkflowEntityType.ticket)
         .filter(SlaPolicy.is_active.is_(True))
-        .all()
+        .filter(func.lower(SlaPolicy.name) == DEFAULT_TICKET_SLA_POLICY_NAME.lower())
+        .first()
     )
-    if not policies:
-        return None
+    if policy:
+        return policy
 
-    ticket_type = (ticket.ticket_type or "").strip().lower()
-    channel = ticket.channel.value if ticket.channel else ""
-
-    # Try to match by ticket_type
-    if ticket_type:
-        for policy in policies:
-            desc = (policy.description or "").lower()
-            if f"type:{ticket_type}" in desc:
-                return policy
-
-    # Try to match by channel
-    if channel:
-        for policy in policies:
-            desc = (policy.description or "").lower()
-            if f"channel:{channel}" in desc:
-                return policy
-
-    # Fallback: policy marked as default or first available
-    for policy in policies:
-        desc = (policy.description or "").lower()
-        if desc.startswith("default"):
-            return policy
-
-    return policies[0] if policies else None
+    logger.warning(
+        "ticket_sla_policy_not_found ticket_id=%s expected_policy_name=%s",
+        getattr(ticket, "id", None),
+        DEFAULT_TICKET_SLA_POLICY_NAME,
+    )
+    return None
 
 
 def _resolve_target(db: Session, policy_id, priority: str | None) -> SlaTarget | None:
     """Find matching SLA target by priority, with fallback to null-priority."""
     query = db.query(SlaTarget).filter(SlaTarget.policy_id == policy_id).filter(SlaTarget.is_active.is_(True))
     if priority:
-        match = query.filter(SlaTarget.priority == priority).first()
+        priority_key = priority.strip().lower()
+        match = (
+            query.filter(SlaTarget.priority.is_not(None))
+            .filter(func.lower(SlaTarget.priority) == priority_key)
+            .first()
+        )
         if match:
             return match
     return query.filter(SlaTarget.priority.is_(None)).first()
@@ -122,7 +105,13 @@ def create_sla_clock_for_ticket(db: Session, ticket: Ticket) -> SlaClock | None:
     priority_value = ticket.priority.value if ticket.priority else None
     target = _resolve_target(db, policy.id, priority_value)
     if not target:
-        logger.debug("No SLA target for policy %s priority %s", policy.name, priority_value)
+        logger.warning(
+            "ticket_sla_target_not_found ticket_id=%s policy_id=%s policy_name=%s priority=%s",
+            ticket.id,
+            policy.id,
+            policy.name,
+            priority_value,
+        )
         return None
 
     # Check if clock already exists for this ticket + policy

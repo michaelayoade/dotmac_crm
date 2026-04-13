@@ -32,9 +32,9 @@ from app.services.sla_assignment import (
 def sla_policy(db_session):
     """Default SLA policy for tickets."""
     policy = SlaPolicy(
-        name="Default Ticket SLA",
+        name="Ticket Resolution SLA",
         entity_type=WorkflowEntityType.ticket,
-        description="default ticket response SLA",
+        description="Default ticket SLA policy. Priority-driven resolution SLA for support tickets.",
         is_active=True,
     )
     db_session.add(policy)
@@ -115,24 +115,68 @@ class TestResolveSlaPolicy:
         result = resolve_sla_policy(db_session, ticket)
         assert result is None
 
-    def test_matches_by_ticket_type(self, db_session, ticket, sla_policy_by_type, sla_policy):
+    def test_ignores_ticket_type_policy_without_ticket_resolution_sla(self, db_session, ticket, sla_policy_by_type):
         ticket.ticket_type = "fiber_fault"
         db_session.commit()
         result = resolve_sla_policy(db_session, ticket)
-        assert result.id == sla_policy_by_type.id
+        assert result is None
 
-    def test_matches_by_channel(self, db_session, ticket, sla_policy_by_channel, sla_policy):
+    def test_ignores_channel_policy_without_ticket_resolution_sla(self, db_session, ticket, sla_policy_by_channel):
         from app.models.tickets import TicketChannel
 
         ticket.channel = TicketChannel.email
         ticket.ticket_type = None
         db_session.commit()
         result = resolve_sla_policy(db_session, ticket)
-        assert result.id == sla_policy_by_channel.id
+        assert result is None
 
-    def test_falls_back_to_default(self, db_session, ticket, sla_policy):
+    def test_ignores_description_default_without_ticket_resolution_sla(self, db_session, ticket):
+        policy = SlaPolicy(
+            name="Default Ticket SLA",
+            entity_type=WorkflowEntityType.ticket,
+            description="default ticket response SLA",
+            is_active=True,
+        )
+        db_session.add(policy)
+        db_session.commit()
+
         result = resolve_sla_policy(db_session, ticket)
-        assert result.id == sla_policy.id
+        assert result is None
+
+    def test_prefers_ticket_resolution_sla_over_first_active_policy(self, db_session, ticket):
+        wrong_policy = SlaPolicy(
+            name="High Priority",
+            entity_type=WorkflowEntityType.ticket,
+            description="Policy for High priority Tickets",
+            is_active=True,
+        )
+        default_policy = SlaPolicy(
+            name="Ticket Resolution SLA",
+            entity_type=WorkflowEntityType.ticket,
+            description="Priority-driven resolution SLA for support tickets.",
+            is_active=True,
+        )
+        db_session.add_all([wrong_policy, default_policy])
+        db_session.commit()
+
+        result = resolve_sla_policy(db_session, ticket)
+
+        assert result.id == default_policy.id
+
+    def test_returns_none_instead_of_first_policy_when_no_default(self, db_session, ticket, caplog):
+        policy = SlaPolicy(
+            name="High Priority",
+            entity_type=WorkflowEntityType.ticket,
+            description="Policy for High priority Tickets",
+            is_active=True,
+        )
+        db_session.add(policy)
+        db_session.commit()
+
+        result = resolve_sla_policy(db_session, ticket)
+
+        assert result is None
+        assert "ticket_sla_policy_not_found" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +214,32 @@ class TestCreateSlaClock:
         # Policy exists but no targets
         clock = create_sla_clock_for_ticket(db_session, ticket)
         assert clock is None
+
+    def test_matches_priority_target_case_insensitively(self, db_session, ticket):
+        policy = SlaPolicy(
+            name="Ticket Resolution SLA",
+            entity_type=WorkflowEntityType.ticket,
+            description="Priority-driven resolution SLA for support tickets.",
+            is_active=True,
+        )
+        db_session.add(policy)
+        db_session.flush()
+        db_session.add(
+            SlaTarget(
+                policy_id=policy.id,
+                priority="High",
+                target_minutes=240,
+                is_active=True,
+            )
+        )
+        ticket.priority = TicketPriority.high
+        db_session.commit()
+
+        clock = create_sla_clock_for_ticket(db_session, ticket)
+        db_session.commit()
+
+        assert clock is not None
+        assert clock.due_at == clock.started_at + timedelta(minutes=240)
 
 
 # ---------------------------------------------------------------------------
