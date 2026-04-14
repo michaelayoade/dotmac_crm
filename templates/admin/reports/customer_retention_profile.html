@@ -15,10 +15,9 @@
         ) }}
     {% endcall %}
 
-    {% call dashboard_kpi_grid(cols="4") %}
+    {% call dashboard_kpi_grid(cols="3") %}
         {{ stats_card("Customer ID", customer_id, color="slate", color2="gray") }}
         {{ stats_card("Plan", customer.plan or "N/A", color="sky", color2="cyan") }}
-        {{ stats_card("Amount Owed", "₦" ~ "{:,.2f}".format((customer.balance or 0)|float), color="rose", color2="red") }}
         {{ stats_card("MRR", "₦" ~ "{:,.2f}".format((customer.mrr_total or 0)|float), color="amber", color2="orange") }}
     {% endcall %}
 
@@ -50,25 +49,77 @@
                 </div>
                 <div class="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
                     <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Recovery Stage</div>
-                    <div class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">Follow-up Pending</div>
+                    <div class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">{{ pipeline_stage }}</div>
+                    {% if follow_up_due_label %}
+                    <div class="mt-1 text-xs font-semibold {{ 'text-rose-600 dark:text-rose-300' if 'overdue' in follow_up_due_label or follow_up_due_label == 'Due today' else 'text-slate-500 dark:text-slate-400' }}">{{ follow_up_due_label }}</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="mt-6 rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Ticket Status</div>
+                <div class="mt-3 flex flex-wrap gap-2">
+                    {% if customer.ticket_subscriber_id %}
+                    <a href="/admin/support/tickets?subscriber={{ customer.ticket_subscriber_id }}&status=not_closed" class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50">Open {{ customer.open_tickets|default(0) }}</a>
+                    <a href="/admin/support/tickets?subscriber={{ customer.ticket_subscriber_id }}&status=closed" class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:hover:bg-emerald-900/50">Closed {{ customer.closed_tickets|default(0) }}</a>
+                    <a href="/admin/support/tickets?subscriber={{ customer.ticket_subscriber_id }}&status=" class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Total {{ customer.total_tickets|default(0) }}</a>
+                    {% else %}
+                    <span class="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-200">Open {{ customer.open_tickets|default(0) }}</span>
+                    <span class="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200">Closed {{ customer.closed_tickets|default(0) }}</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">Total {{ customer.total_tickets|default(0) }}</span>
+                    {% endif %}
                 </div>
             </div>
 
             <div class="mt-6">
                 <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Engagement History</h3>
+                {% if engagement_history %}
+                <div class="mt-4 space-y-0">
+                    {% for entry in engagement_history %}
+                    <div class="relative border-l border-slate-200 pb-5 pl-5 last:pb-0 dark:border-slate-700">
+                        <span class="absolute -left-1.5 top-1.5 h-3 w-3 rounded-full {{ 'bg-blue-500' if loop.first else 'bg-slate-400' }}"></span>
+                        <div class="flex flex-wrap items-center gap-2">
+                            {{ status_badge(entry.outcome, "success" if entry.outcome == "Renewing" else ("danger" if entry.outcome == "Churning" else "warning"), size="sm") }}
+                            <span class="text-xs text-slate-500 dark:text-slate-400">{{ entry.createdAt[:19].replace("T", " ") if entry.createdAt else "" }}</span>
+                        </div>
+                        {% if entry.note %}
+                        <p class="mt-2 text-sm text-slate-700 dark:text-slate-300">"{{ entry.note }}"</p>
+                        {% endif %}
+                        <div class="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+                            <span>Rep: {{ entry.rep or "Unassigned" }}</span>
+                            <span>Follow-up: {{ entry.followUp or "-" }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
                 {{ empty_state(title="No engagement history yet", message="Use the quick log on Billing Risk to capture the first customer touchpoint.", color="rose", color2="pink", colspan=1) }}
+                {% endif %}
             </div>
         </section>
 
         <aside class="space-y-4">
             <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
+                <label for="retention-rep" class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Rep</label>
+                <select id="retention-rep" name="rep_id" class="mt-3 block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                    <option value="">Select rep</option>
+                    {% for rep in rep_options %}
+                    <option value="{{ rep.value }}">{{ rep.label }}{% if rep.team %} - {{ rep.team }}{% endif %}</option>
+                    {% endfor %}
+                </select>
+                {% if not rep_options %}
+                <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">No active Helpdesk or Enterprise Sales reps found.</p>
+                {% endif %}
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
                 <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Pipeline</h2>
                 <ol class="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
-                    <li>Contacted</li>
-                    <li>Follow-up Pending</li>
-                    <li>Promised to Pay</li>
-                    <li>Resolved</li>
-                    <li>Lost</li>
+                    {% for step in pipeline_steps %}
+                    <li class="flex items-center gap-2 rounded-lg px-2 py-1 {{ 'bg-rose-50 font-semibold text-rose-700 dark:bg-rose-900/30 dark:text-rose-200' if step == pipeline_stage else '' }}">
+                        <span class="h-2 w-2 rounded-full {{ 'bg-rose-500' if step == pipeline_stage else 'bg-slate-300 dark:bg-slate-600' }}"></span>
+                        <span>{{ step }}</span>
+                    </li>
+                    {% endfor %}
                 </ol>
             </div>
             <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">

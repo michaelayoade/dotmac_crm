@@ -15,11 +15,9 @@
         ) }}
     {% endcall %}
 
-    {% call dashboard_kpi_grid(cols="5") %}
+    {% call dashboard_kpi_grid(cols="3") %}
         {{ stats_card("Tracked Accounts", kpis.tracked_count|default(0), color="rose", color2="pink") }}
-        {{ stats_card("Recovery Priority", kpis.recovery_priority_count|default(0), color="amber", color2="orange") }}
-        {{ stats_card("Retention Watch", kpis.due_soon_count|default(0), color="sky", color2="cyan") }}
-        {{ stats_card("Win-back Review", kpis.winback_count|default(0), color="violet", color2="purple") }}
+        {{ stats_card("Win-back Rate", (kpis.winback_rate|default(0)) ~ "%", color="violet", color2="purple") }}
         {{ stats_card("Revenue At Risk", "₦" ~ "{:,.2f}".format(kpis.revenue_at_risk|default(0)), color="slate", color2="gray") }}
     {% endcall %}
 
@@ -29,36 +27,89 @@
             <thead>
                 <tr>
                     <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Customer</th>
-                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Stage</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pipeline Stage</th>
                     <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Risk</th>
                     <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Balance</th>
+                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Latest Engagement</th>
                     <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Next Action</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
                 {% for row in tracker_rows %}
+                {% set customer_id = row._external_id or row.subscriber_id or row._subscriber_number %}
+                {% set customer_key = customer_id|string if customer_id else "" %}
+                {% set latest_engagement = (engagement_history.get(customer_key) or [none])[0] if customer_key else none %}
                 {% call table_row(color="rose") %}
                     <td class="px-6 py-4 align-top">
                         <div class="text-sm font-semibold text-slate-900 dark:text-white">{{ row.name or "Unknown Customer" }}</div>
                         <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ row.phone or row.email or "No contact on file" }}</div>
                         <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ row.city or "Unknown city" }}{% if row.area %} / {{ row.area }}{% endif %}</div>
+                        {% if customer_id %}
+                        <a href="/admin/customer-retention/{{ customer_id }}" class="mt-2 inline-flex text-xs font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-300 dark:hover:text-rose-200">View profile</a>
+                        {% endif %}
                     </td>
-                    <td class="px-6 py-4 align-top text-sm font-medium text-slate-900 dark:text-white">{{ row.retention_stage }}</td>
+                    <td class="px-6 py-4 align-top">
+                        {{ status_badge(row.pipeline_stage, "success" if row.pipeline_stage == "Resolved" else ("danger" if row.pipeline_stage == "Lost" else ("warning" if row.pipeline_stage == "Promised to Pay" else "info")), size="sm") }}
+                        {% if row.latest_follow_up %}
+                        <div class="mt-2 text-xs text-slate-500 dark:text-slate-400">Follow-up: {{ row.latest_follow_up }}</div>
+                        {% endif %}
+                        {% if row.follow_up_due_label %}
+                        <div class="mt-1 text-xs font-semibold {{ 'text-rose-600 dark:text-rose-300' if 'overdue' in row.follow_up_due_label or row.follow_up_due_label == 'Due today' else 'text-slate-500 dark:text-slate-400' }}">{{ row.follow_up_due_label }}</div>
+                        {% endif %}
+                    </td>
                     <td class="px-6 py-4 align-top">
                         <div>{{ status_badge(row.risk_segment, "danger" if row.risk_segment in ["Suspended", "Churned"] else "warning", size="sm") }}</div>
                         <div class="mt-2 text-xs text-slate-500 dark:text-slate-400">{{ row.days_past_due_display }} days past due</div>
                     </td>
                     <td class="px-6 py-4 align-top text-right text-sm font-semibold text-slate-900 dark:text-white">₦{{ "{:,.2f}".format((row.balance or 0)|float) }}</td>
-                    <td class="px-6 py-4 align-top text-sm leading-6 text-slate-600 dark:text-slate-300">{{ row.recommended_action }}</td>
+                    <td class="px-6 py-4 align-top text-sm leading-6 text-slate-600 dark:text-slate-300">
+                        {% if latest_engagement %}
+                        <div class="font-medium text-slate-900 dark:text-white">{{ latest_engagement.outcome }}</div>
+                        <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ latest_engagement.note or "No note" }}</div>
+                        <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ latest_engagement.createdAt[:10] if latest_engagement.createdAt else "" }}</div>
+                        {% else %}
+                        <span class="text-xs text-slate-500 dark:text-slate-400">No history yet</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4 align-top text-sm leading-6 text-slate-600 dark:text-slate-300">
+                        {% if row.follow_up_due_label and ("overdue" in row.follow_up_due_label or row.follow_up_due_label == "Due today") %}
+                        <span class="font-semibold text-rose-600 dark:text-rose-300">Follow up now.</span>
+                        {% else %}
+                        {{ row.recommended_action }}
+                        {% endif %}
+                    </td>
                 {% endcall %}
                 {% else %}
-                {{ empty_state(title="No retention accounts", message="No customers matched the current Billing Risk filters.", color="rose", color2="pink", colspan=5) }}
+                {{ empty_state(title="No retention accounts", message="No customers matched the current Billing Risk filters.", color="rose", color2="pink", colspan=6) }}
                 {% endfor %}
             </tbody>
         </table>
         {% endcall %}
 
         <div class="space-y-4">
+            <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
+                <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Follow-ups Due</h2>
+                <div class="mt-4 space-y-3">
+                    {% for reminder in follow_up_reminders %}
+                    <div class="rounded-lg border border-rose-100 bg-rose-50 p-3 dark:border-rose-900/40 dark:bg-rose-900/20">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <a href="/admin/customer-retention/{{ reminder.customer_id }}" class="text-sm font-semibold text-slate-900 hover:text-rose-700 dark:text-white dark:hover:text-rose-200">{{ reminder.customer_name }}</a>
+                                <div class="mt-1 text-xs text-slate-600 dark:text-slate-300">{{ reminder.phone or "No contact on file" }}</div>
+                            </div>
+                            <span class="shrink-0 rounded-full bg-white px-2 py-1 text-xs font-semibold text-rose-700 dark:bg-rose-950/60 dark:text-rose-200">{{ reminder.due_label }}</span>
+                        </div>
+                        <div class="mt-2 text-xs text-slate-600 dark:text-slate-300">Marked date: {{ reminder.follow_up }}</div>
+                        {% if reminder.rep %}
+                        <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">Rep: {{ reminder.rep }}</div>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <p class="text-sm text-slate-500 dark:text-slate-400">No follow-ups are due today.</p>
+                    {% endfor %}
+                </div>
+            </div>
+
             <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
                 <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Segment Focus</h2>
                 <div class="mt-4 space-y-3">
@@ -78,17 +129,6 @@
                 </div>
             </div>
 
-            <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
-                <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Flow</h2>
-                <ol class="mt-4 space-y-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
-                    <li>1. Review Billing Risk for the source segment.</li>
-                    <li>2. Open this tracker for the customer queue.</li>
-                    <li>3. Work recovery priority first, then retention watch, then win-back review.</li>
-                </ol>
-                {% if last_synced_at %}
-                <p class="mt-4 text-xs text-slate-500 dark:text-slate-400">Last subscriber sync: {{ last_synced_at.strftime("%Y-%m-%d %H:%M UTC") }}</p>
-                {% endif %}
-            </div>
         </div>
     </div>
 </div>
