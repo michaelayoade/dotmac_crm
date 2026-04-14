@@ -328,7 +328,8 @@ def _retention_rows_with_pipeline(
     enriched_rows: list[dict] = []
     for row in tracker_rows:
         customer_id = _retention_customer_id(row)
-        latest_engagement = (engagement_history.get(customer_id) or [None])[0]
+        customer_engagements = engagement_history.get(customer_id) or []
+        latest_engagement = customer_engagements[0] if customer_engagements else None
         candidate = dict(row)
         candidate["pipeline_stage"] = _pipeline_stage_from_engagement(latest_engagement)
         if latest_engagement:
@@ -357,7 +358,8 @@ def _retention_follow_up_reminders(
     reminders: list[dict[str, object]] = []
     for row in tracker_rows:
         customer_id = _retention_customer_id(row)
-        latest_engagement = (engagement_history.get(customer_id) or [None])[0]
+        customer_engagements = engagement_history.get(customer_id) or []
+        latest_engagement = customer_engagements[0] if customer_engagements else None
         if not latest_engagement:
             continue
         stage = _pipeline_stage_from_engagement(latest_engagement)
@@ -380,7 +382,12 @@ def _retention_follow_up_reminders(
                 "stage": stage,
             }
         )
-    reminders.sort(key=lambda reminder: (-int(reminder["days_overdue"]), str(reminder["customer_name"]).casefold()))
+    reminders.sort(
+        key=lambda reminder: (
+            -int(reminder["days_overdue"]) if isinstance(reminder["days_overdue"], int) else 0,
+            str(reminder["customer_name"]).casefold(),
+        )
+    )
     return reminders
 
 
@@ -757,7 +764,7 @@ def customer_retention_tracker_detail(
         }
 
     engagement_history = _retention_engagements_by_customer(db, [customer_id]).get(customer_id, [])
-    latest_engagement = (engagement_history or [None])[0]
+    latest_engagement = engagement_history[0] if engagement_history else None
     pipeline_stage = _pipeline_stage_from_engagement(latest_engagement)
     follow_up_due_label = ""
     if latest_engagement:
