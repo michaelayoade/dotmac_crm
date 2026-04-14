@@ -1,3 +1,5 @@
+from urllib.parse import urlsplit
+
 from starlette.requests import Request
 
 from app.models.service_team import ServiceTeam, ServiceTeamType
@@ -10,13 +12,14 @@ from app.web.admin import tickets as admin_tickets
 
 
 def _make_request(path: str = "/admin/support/tickets") -> Request:
+    parsed = urlsplit(path)
     return Request(
         {
             "type": "http",
             "method": "GET",
-            "path": path,
+            "path": parsed.path,
             "headers": [],
-            "query_string": b"",
+            "query_string": parsed.query.encode(),
         }
     )
 
@@ -147,6 +150,50 @@ def test_tickets_list_filters_by_region_and_group(monkeypatch, db_session):
     assert response.context["region"] == "Garki"
     assert response.context["group"] == str(noc_team.id)
     assert [ticket.id for ticket in response.context["tickets"]] == [matching_ticket.id]
+
+
+def test_tickets_list_search_without_status_uses_all_statuses(monkeypatch, db_session, person):
+    open_ticket = tickets_service.tickets.create(
+        db_session,
+        TicketCreate(title="Cabinet disconnection open", status=TicketStatus.open),
+    )
+    closed_ticket = tickets_service.tickets.create(
+        db_session,
+        TicketCreate(
+            title="Cabinet disconnection closed", status=TicketStatus.closed, closed_at=open_ticket.created_at
+        ),
+    )
+    tickets_service.tickets.create(
+        db_session,
+        TicketCreate(title="Different ticket", status=TicketStatus.open),
+    )
+    preferences.save_preference(
+        db_session,
+        person.id,
+        preferences.TICKETS_PAGE.key,
+        {"status": "closed"},
+    )
+    monkeypatch.setattr("app.web.admin._auth_helpers.get_sidebar_stats", lambda _db: {})
+    monkeypatch.setattr(
+        "app.web.admin._auth_helpers.get_current_user",
+        lambda _request: {"person_id": str(person.id), "roles": [], "permissions": []},
+    )
+
+    response = admin_tickets.tickets_list(
+        request=_make_request("/admin/support/tickets?search=cabinet+disconnection&order_by=created_at&order_dir=desc"),
+        search="cabinet disconnection",
+        order_by="created_at",
+        order_dir="desc",
+        db=db_session,
+    )
+
+    assert response.context["effective_status"] == ""
+    assert [ticket.id for ticket in response.context["tickets"]] == [closed_ticket.id, open_ticket.id]
+    assert preferences.get_preference(db_session, person.id, preferences.TICKETS_PAGE.key) == {
+        "search": "cabinet disconnection",
+        "order_by": "created_at",
+        "order_dir": "desc",
+    }
 
 
 def test_tickets_list_clear_filters_clears_saved_preference(monkeypatch, db_session, person):
