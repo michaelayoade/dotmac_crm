@@ -229,7 +229,117 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
     assert "engagement-note-suggestions" in body
     assert "Customer said will pay next week" in body
     assert 'id="billing-risk-search-button"' in body
+    assert "syncExportLink" in body
+    assert "params.set(&#39;search&#39;" in body or "params.set('search'" in body
+    assert "params.set(&#39;bucket&#39;" in body or "params.set('bucket'" in body
     assert "'X-CSRF-Token': csrfToken()" in body
+
+
+def test_subscriber_billing_risk_export_matches_visible_columns_and_filters(monkeypatch):
+    captured_kwargs = {}
+
+    def fake_table(_db, **kwargs):
+        captured_kwargs.update(kwargs)
+        return [
+            {
+                "name": "Blocked Customer",
+                "_external_id": "12345",
+                "phone": "+2348099991111",
+                "city": "Abuja",
+                "street": "12 Aminu Kano Crescent",
+                "area": "Maitama",
+                "plan": "Home Fiber 50Mbps",
+                "mrr_total": 42000.0,
+                "subscriber_status": "Suspended",
+                "risk_segment": "Suspended",
+                "billing_start_date": "2024-01-15",
+                "blocked_date": "2024-04-18",
+                "blocked_for_days": 18,
+                "open_tickets": 2,
+                "closed_tickets": 5,
+                "total_tickets": 7,
+            }
+        ]
+
+    monkeypatch.setattr(billing_risk_service, "get_billing_risk_table", fake_table)
+    monkeypatch.setattr(
+        billing_risk_web,
+        "_retention_engagements_by_customer",
+        lambda _db, customer_ids: (
+            {
+                "12345": [
+                    {
+                        "outcome": "Promised to Pay",
+                        "followUp": "2026-04-20",
+                    }
+                ]
+            }
+            if customer_ids == ["12345"]
+            else {}
+        ),
+    )
+    monkeypatch.setattr(
+        billing_risk_web,
+        "_csv_response",
+        lambda data, filename: SimpleNamespace(status_code=200, media_type="text/csv", data=data, filename=filename),
+    )
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/reports/subscribers/billing-risk/export",
+            "headers": [],
+            "query_string": b"segments=suspended&search=blocked&bucket=8-30",
+            "server": ("testserver", 80),
+            "client": ("testclient", 50000),
+            "scheme": "http",
+        }
+    )
+    response = billing_risk_web.subscriber_billing_risk_export(
+        request=request,
+        db=SimpleNamespace(),
+        due_soon_days=7,
+        high_balance_only=False,
+        segment=None,
+        segments=["suspended"],
+        search="blocked",
+        bucket="8-30",
+    )
+
+    assert captured_kwargs["search"] == "blocked"
+    assert captured_kwargs["overdue_bucket"] == "8-30"
+    assert captured_kwargs["segments"] == ["suspended"]
+    assert captured_kwargs["limit"] == 6000
+    assert response.status_code == 200
+    assert list(response.data[0]) == [
+        "Name",
+        "Phone",
+        "City",
+        "Street",
+        "Area",
+        "Plan",
+        "MRR Total",
+        "Status",
+        "Risk Segment",
+        "Billing Start Date",
+        "Blocked Date",
+        "Blocked For",
+        "Tickets Open",
+        "Tickets Closed",
+        "Tickets Total",
+        "Last Outcome",
+        "Follow-up",
+    ]
+    assert response.data[0]["Name"] == "Blocked Customer"
+    assert response.data[0]["Street"] == "12 Aminu Kano Crescent"
+    assert response.data[0]["Blocked For"] == "Blocked for 18 days"
+    assert response.data[0]["Tickets Open"] == 2
+    assert response.data[0]["Last Outcome"] == "Promised to Pay"
+    assert response.data[0]["Follow-up"] == "2026-04-20"
+    assert "Balance" not in response.data[0]
+    assert "Email" not in response.data[0]
+    assert "Billing Cycle" not in response.data[0]
 
 
 def test_subscriber_billing_risk_live_bucket_requests_keep_segment_filters(monkeypatch):

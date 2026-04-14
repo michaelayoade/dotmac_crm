@@ -176,6 +176,7 @@
             const searchInput = document.getElementById('billing-risk-search');
             const searchButton = document.getElementById('billing-risk-search-button');
             const bucketButtons = Array.from(document.querySelectorAll('.billing-risk-bucket'));
+            const exportLink = document.querySelector('a[href^="/admin/reports/subscribers/billing-risk/export"]');
             let activeBucket = results.dataset.bucket || 'all';
             let currentPage = Number(results.dataset.page || '1');
             let activeRequestId = 0;
@@ -459,6 +460,15 @@
                 }
             }
 
+            function syncExportLink() {
+                if (!exportLink) return;
+                const [, queryString = ''] = exportLink.href.split('?');
+                const params = new URLSearchParams(queryString);
+                params.set('search', (searchInput?.value || '').trim());
+                params.set('bucket', activeBucket);
+                exportLink.href = `/admin/reports/subscribers/billing-risk/export?${params.toString()}`;
+            }
+
             function parseBlockedDate(text) {
                 const value = (text || '').trim();
                 if (!value || value === '-' || value === 'N/A' || value === 'Loading...') return null;
@@ -555,11 +565,13 @@
                 results.innerHTML = await response.text();
                 results.dataset.page = String(currentPage);
                 results.dataset.bucket = activeBucket;
+                syncExportLink();
                 hydrateResults();
             }
 
             hydrateResults();
             applyBucketButtonState();
+            syncExportLink();
 
             searchButton?.addEventListener('click', () => {
                 loadResults(1, true);
@@ -577,6 +589,7 @@
                     loadResults(1, true);
                 });
             }
+            exportLink?.addEventListener('click', syncExportLink);
 
             panelOverlay?.addEventListener('click', closeEngagementPanel);
             panelClose?.addEventListener('click', closeEngagementPanel);
