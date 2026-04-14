@@ -1,4 +1,4 @@
-{% from "components/ui/macros.html" import empty_state, icon_edit, icon_view, pagination, row_action, sortable_table_head, table_shell, table_row %}
+{% from "components/ui/macros.html" import empty_state, icon_delete, icon_edit, icon_view, pagination, row_action, sortable_table_head, table_shell, table_row %}
 {# Slightly denser padding so wide tables fit better without horizontal scrolling. #}
 {% set pad = 'px-4 py-2' %}
 
@@ -20,7 +20,7 @@
     <table class="w-full table-fixed divide-y divide-slate-200/60 dark:divide-slate-700/60">
         {{ sortable_table_head(
             columns=[
-                {'label': 'Ticket ID', 'sortable': false, 'attrs': {'data-ticket-column': 'ticket', 'class': pad ~ ' w-28 truncate'}},
+                {'label': 'Ticket ID', 'sortable': false, 'attrs': {'data-ticket-column': 'ticket', 'class': pad ~ ' w-32'}},
                 {'label': 'Type', 'sortable': false, 'attrs': {'data-ticket-column': 'type', 'class': pad ~ ' truncate'}},
                 {'label': 'Customer', 'sortable': false, 'attrs': {'data-ticket-column': 'customer', 'class': pad ~ ' truncate'}},
                 {'label': 'Cust ID', 'sortable': false, 'attrs': {'data-ticket-column': 'customer_id', 'class': pad ~ ' truncate'}},
@@ -54,9 +54,9 @@
                         <div class="flex items-center gap-3">
                             <div class="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full {% if priority_val == 'urgent' %}bg-red-500 animate-pulse{% elif priority_val == 'high' %}bg-orange-500{% elif status_val == 'new' or priority_val == 'medium' or priority_val == 'normal' %}bg-blue-500{% else %}bg-slate-300 dark:bg-slate-600{% endif %}"></div>
                             <a href="/admin/support/tickets/{{ ticket.number or ticket.id }}"
-                               class="group/link inline-flex max-w-full items-center gap-1.5 truncate text-sm font-semibold text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
-                               title="{{ ticket.title or '' }}">
-                                <span class="truncate">{{ ticket.number or (ticket.id|string)[:8] }}</span>
+                               class="group/link inline-flex max-w-full items-center gap-1.5 text-sm font-semibold text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+                               title="{{ ticket.number or ticket.id }}">
+                                <span class="break-all">{{ ticket.number or ticket.id }}</span>
                                 <svg class="h-3.5 w-3.5 flex-shrink-0 opacity-0 transition-all group-hover/link:opacity-100 group-hover/link:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                             </a>
                         </div>
@@ -279,11 +279,10 @@
                                   onsubmit="return confirm('Delete this ticket? This will hide it from the list.')">
                                 <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                                 <button type="submit"
-                                        class="inline-flex items-center px-3 py-1.5 text-xs gap-1.5 rounded-xl bg-gradient-to-r from-red-500 to-rose-600 font-semibold text-white shadow-lg shadow-red-500/25 transition-all hover:shadow-xl hover:shadow-red-500/30 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
-                                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                    </svg>
-                                    Delete
+                                        class="inline-flex items-center justify-center rounded-lg p-2 text-slate-400 transition-all hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+                                        title="Delete ticket"
+                                        aria-label="Delete ticket">
+                                    {{ icon_delete() }}
                                 </button>
                             </form>
                             {% endif %}

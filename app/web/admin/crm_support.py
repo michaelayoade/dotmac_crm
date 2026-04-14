@@ -392,3 +392,17 @@ def _can_write_sales(request: Request) -> bool:
         return True
     scopes = set(_get_current_scopes(request))
     return bool({"crm:lead:write", "crm:lead", "crm"} & scopes)
+
+
+def _can_delete_leads(request: Request) -> bool:
+    if _is_admin_request(request):
+        return True
+    scopes = set(_get_current_scopes(request))
+    return "crm:lead:delete" in scopes
+
+
+def _can_delete_contacts(request: Request) -> bool:
+    if _is_admin_request(request):
+        return True
+    scopes = set(_get_current_scopes(request))
+    return "crm:contact:delete" in scopes

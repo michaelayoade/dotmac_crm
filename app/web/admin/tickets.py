@@ -641,14 +641,19 @@ def _build_ticket_relationships_map(db: Session, tickets: list[Ticket]) -> dict[
     return relationships
 
 
-def _normalize_ticket_status_filter(status: str | None) -> str:
+def _normalize_ticket_status_filter(status: str | None, *, default: str = DEFAULT_TICKET_STATUS_FILTER) -> str:
     """Return the effective ticket list status filter for the UI and query layer."""
-    return DEFAULT_TICKET_STATUS_FILTER if status is None else status
+    return default if status is None else status
 
 
-def _apply_ticket_status_filter(query: TicketQuery, status: str | None) -> TicketQuery:
+def _apply_ticket_status_filter(
+    query: TicketQuery,
+    status: str | None,
+    *,
+    default: str = DEFAULT_TICKET_STATUS_FILTER,
+) -> TicketQuery:
     """Apply the ticket list status filter, including synthetic list-only values."""
-    effective_status = _normalize_ticket_status_filter(status)
+    effective_status = _normalize_ticket_status_filter(status, default=default)
     if effective_status == "":
         return query
     if effective_status == DEFAULT_TICKET_STATUS_FILTER:
@@ -689,7 +694,8 @@ def tickets_list(
     if order_dir not in {"asc", "desc"}:
         order_dir = "desc"
     offset = (page - 1) * per_page
-    effective_status = _normalize_ticket_status_filter(status)
+    default_status = "" if status is None and (search or "").strip() else DEFAULT_TICKET_STATUS_FILTER
+    effective_status = _normalize_ticket_status_filter(status, default=default_status)
     from app.csrf import get_csrf_token
 
     subscriber_display = None
@@ -805,7 +811,7 @@ def tickets_list(
         total_pages = 1
     else:
         base_query = TicketQuery(db).by_subscriber(subscriber_id)
-        base_query = _apply_ticket_status_filter(base_query, status)
+        base_query = _apply_ticket_status_filter(base_query, status, default=default_status)
         base_query = (
             base_query.by_ticket_type(ticket_type if ticket_type else None)
             .search(search if search else None)

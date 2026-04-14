@@ -159,7 +159,9 @@ class ConversationSummary(Base):
     unread_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     has_failed_outbox: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     primary_channel_type: Mapped[ChannelType | None] = mapped_column(Enum(ChannelType))
-    active_assignment_agent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_agents.id"))
+    active_assignment_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crm_agents.id")
+    )
     active_assignment_team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_teams.id"))
     needs_attention: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     unreplied: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

@@ -690,6 +690,15 @@ def subscriber_billing_risk(
         },
         doseq=True,
     )
+    retention_tracker_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "segments": selected_segments,
+            "days_past_due": query_days_past_due or days_past_due,
+        },
+        doseq=True,
+    )
     refresh_query = urlencode(
         {
             "due_soon_days": due_soon_days,
@@ -722,8 +731,10 @@ def subscriber_billing_risk(
             "selected_segments": selected_segments,
             "days_past_due": query_days_past_due or days_past_due,
             "export_query": export_query,
+            "retention_tracker_query": retention_tracker_query,
             "refresh_query": refresh_query,
             "last_synced_at": _latest_subscriber_sync_at(db),
+            "billing_risk_cache": {"row_count": len(churn_rows)},
             "csrf_token": get_csrf_token(request),
             "refresh_started": request.query_params.get("refresh_started") == "1",
             "refresh_error": request.query_params.get("refresh_error"),

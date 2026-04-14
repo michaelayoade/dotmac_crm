@@ -17,6 +17,7 @@ from app.models.person import Person
 from app.models.subscriber import Organization
 from app.services import crm as crm_service
 from app.services.audit_helpers import recent_activity_for_paths
+from app.services.auth_dependencies import require_permission
 from app.services.crm.web_contacts import (
     ContactUpsertInput,
     contact_detail_data,
@@ -31,7 +32,12 @@ from app.services.crm.web_contacts import (
     new_contact_form_context,
     update_contact,
 )
-from app.web.admin.crm_support import _crm_base_context, _is_safe_url, _load_crm_agent_team_options
+from app.web.admin.crm_support import (
+    _can_delete_contacts,
+    _crm_base_context,
+    _is_safe_url,
+    _load_crm_agent_team_options,
+)
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
@@ -136,6 +142,7 @@ def crm_contacts_list(
             per_page=per_page,
         )
     )
+    context["can_delete_contacts"] = _can_delete_contacts(request)
     context["recent_activities"] = recent_activity_for_paths(db, ["/admin/crm"])
     context["export_days"] = str(_parse_export_days(export_days))
     return templates.TemplateResponse("admin/crm/contacts.html", context)
@@ -486,7 +493,11 @@ def crm_contact_update(
     return templates.TemplateResponse("admin/crm/contact_form.html", context, status_code=400)
 
 
-@router.post("/contacts/{contact_id}/delete", response_class=HTMLResponse)
+@router.post(
+    "/contacts/{contact_id}/delete",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("crm:contact:delete"))],
+)
 def crm_contact_delete(request: Request, contact_id: str, db: Session = Depends(get_db)):
     _ = request
     delete_contact(db, contact_id)

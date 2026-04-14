@@ -109,6 +109,7 @@ def list_leads_page_data(
     per_page: int,
     options: dict[str, Any],
     can_write_leads: bool,
+    can_delete_leads: bool,
 ) -> dict[str, Any]:
     offset = (page - 1) * per_page
     leads = crm_service.leads.list(
@@ -198,6 +199,7 @@ def list_leads_page_data(
         "stage_map": stage_map,
         "lead_stats": lead_stats,
         "can_write_leads": can_write_leads,
+        "can_delete_leads": can_delete_leads,
     }
 
 

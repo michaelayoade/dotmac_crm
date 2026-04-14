@@ -156,10 +156,13 @@ def list_inbox_conversations(
             return []
         query = query.filter(ConversationSummary.active_assignment_agent_id.in_(agent_ids))
     elif assignment_filter == "unassigned":
-        query = query.filter(ConversationSummary.active_assignment_agent_id.is_(None)).filter(
-            ConversationSummary.active_assignment_team_id.is_(None)
-        ).filter(
-            func.coalesce(ConversationSummary.latest_message_at, Conversation.updated_at) >= UNASSIGNED_ACTIVITY_START_UTC
+        query = (
+            query.filter(ConversationSummary.active_assignment_agent_id.is_(None))
+            .filter(ConversationSummary.active_assignment_team_id.is_(None))
+            .filter(
+                func.coalesce(ConversationSummary.latest_message_at, Conversation.updated_at)
+                >= UNASSIGNED_ACTIVITY_START_UTC
+            )
         )
     elif assignment_filter == "team_assigned":
         query = query.filter(ConversationSummary.active_assignment_team_id.isnot(None)).filter(
@@ -614,10 +617,10 @@ def _count_active_conversations_for_filter(
             return 0
         query = query.filter(ConversationSummary.active_assignment_agent_id.in_(agent_ids))
     elif filter_key == "unassigned":
-        query = query.filter(ConversationSummary.active_assignment_agent_id.is_(None)).filter(
-            ConversationSummary.active_assignment_team_id.is_(None)
-        ).filter(
-            ConversationSummary.latest_message_at >= UNASSIGNED_ACTIVITY_START_UTC
+        query = (
+            query.filter(ConversationSummary.active_assignment_agent_id.is_(None))
+            .filter(ConversationSummary.active_assignment_team_id.is_(None))
+            .filter(ConversationSummary.latest_message_at >= UNASSIGNED_ACTIVITY_START_UTC)
         )
     elif filter_key == "unreplied":
         query = query.filter(ConversationSummary.unreplied.is_(True))

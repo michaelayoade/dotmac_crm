@@ -24,6 +24,7 @@ from app.services.crm.web_leads import (
 )
 from app.services.regions import REGION_OPTIONS
 from app.web.admin.crm_support import (
+    _can_delete_leads,
     _can_write_sales,
     _crm_base_context,
     _load_crm_sales_options,
@@ -74,6 +75,7 @@ def crm_leads_list(
             per_page=per_page,
             options=options,
             can_write_leads=_can_write_sales(request),
+            can_delete_leads=_can_delete_leads(request),
         )
     )
     return templates.TemplateResponse("admin/crm/leads.html", context)
@@ -341,7 +343,7 @@ def crm_lead_update(
 @router.post(
     "/leads/{lead_id}/delete",
     response_class=HTMLResponse,
-    dependencies=[Depends(require_permission("crm:lead:write"))],
+    dependencies=[Depends(require_permission("crm:lead:delete"))],
 )
 def crm_lead_delete(request: Request, lead_id: str, db: Session = Depends(get_db)):
     _ = request
