@@ -467,7 +467,24 @@ def get_billing_risk_table(
                 return _format_phone_display(any_channel)
         return _format_phone_display(person_phone or formatted_default)
 
-    def _live_billing_start_date(customer_payload: Mapping[str, Any], mapped_payload: Mapping[str, Any]) -> str:
+    def _live_billing_start_date(
+        customer_payload: Mapping[str, Any],
+        mapped_payload: Mapping[str, Any],
+        billing_payload: Mapping[str, Any] | None = None,
+    ) -> str:
+        if isinstance(billing_payload, Mapping):
+            billing_start = _live_billing_text(
+                billing_payload,
+                "billing_start_date",
+                "billing_start",
+                "start_date",
+                "date_from",
+                "from_date",
+                "period_from",
+            )
+            if billing_start:
+                return billing_start
+
         mapped_start = _coerce_datetime_utc(mapped_payload.get("activated_at"))
         if mapped_start is not None:
             return mapped_start.strftime("%Y-%m-%d")
@@ -599,44 +616,6 @@ def get_billing_risk_table(
             return street
         return ""
 
-    def _live_blocked_date(customer_payload: Mapping[str, Any], mapped_payload: Mapping[str, Any]) -> str:
-        direct_suspended = _coerce_datetime_utc(mapped_payload.get("suspended_at"))
-        if direct_suspended is not None:
-            return direct_suspended.strftime("%Y-%m-%d")
-        for candidate in (
-            customer_payload.get("blocking_date"),
-            customer_payload.get("blocked_date"),
-            customer_payload.get("suspended_at"),
-        ):
-            parsed_date = _parse_iso_date_text(str(candidate or ""))
-            if parsed_date is not None:
-                return parsed_date.strftime("%Y-%m-%d")
-
-        external_key = str(customer_payload.get("id") or "").strip()
-        if external_key:
-            cached_match = subscriber_sync_by_external_id.get(external_key)
-            if cached_match is not None:
-                cached_suspended_at = _coerce_datetime_utc(cached_match.get("suspended_at"))
-                if cached_suspended_at is not None:
-                    return cached_suspended_at.strftime("%Y-%m-%d")
-
-        login_key = str(customer_payload.get("login") or "").strip()
-        if login_key:
-            cached_match = subscriber_sync_by_login.get(login_key)
-            if cached_match is not None:
-                cached_suspended_at = _coerce_datetime_utc(cached_match.get("suspended_at"))
-                if cached_suspended_at is not None:
-                    return cached_suspended_at.strftime("%Y-%m-%d")
-
-        email_key = str(customer_payload.get("email") or "").strip().lower()
-        if email_key:
-            cached_match = subscriber_sync_by_email.get(email_key)
-            if cached_match is not None:
-                cached_suspended_at = _coerce_datetime_utc(cached_match.get("suspended_at"))
-                if cached_suspended_at is not None:
-                    return cached_suspended_at.strftime("%Y-%m-%d")
-        return ""
-
     def _live_billing_text(payload: Mapping[str, Any] | None, *keys: str) -> str:
         if not isinstance(payload, Mapping):
             return ""
@@ -651,6 +630,20 @@ def get_billing_risk_table(
             if candidate_text:
                 return candidate_text
         return ""
+
+    def _live_invoiced_until_date(billing_payload: Mapping[str, Any] | None) -> str:
+        return _live_billing_text(
+            billing_payload,
+            "invoiced_until",
+            "invoiced_to",
+            "paid_until",
+            "invoice_until",
+            "paid_to",
+        )
+
+    def _live_blocked_date_from_billing(billing_payload: Mapping[str, Any] | None) -> str:
+        blocking_date = _live_billing_text(billing_payload, "blocking_date", "request_auto_next", "blocked_date")
+        return blocking_date or _live_invoiced_until_date(billing_payload)
 
     def _live_service_plan(services_payload: object) -> str:
         if not isinstance(services_payload, list):
@@ -683,7 +676,8 @@ def get_billing_risk_table(
         )
         status_value = str(mapped.get("status") or "unknown")
         plan_value = str(mapped.get("service_plan") or "").strip() or str(cached_subscriber.get("service_plan") or "")
-        billing_start_date = _live_billing_start_date(customer, mapped)
+        embedded_billing = customer.get("billing") if isinstance(customer.get("billing"), Mapping) else None
+        billing_start_date = _live_billing_start_date(customer, mapped, embedded_billing)
         if not billing_start_date:
             cached_activated_at = _coerce_datetime_utc(cached_subscriber.get("activated_at"))
             if cached_activated_at is not None:
@@ -704,7 +698,8 @@ def get_billing_risk_table(
         days_since_last_payment = max(0, (today - invoiced_until_date).days) if invoiced_until_date else None
         row_days_past_due = days_since_last_payment
         customer_last_update = _live_billing_text(customer, "last_update")
-        blocked_date_text = _live_blocked_date(customer, mapped) or customer_last_update
+        embedded_blocking_date = _live_blocked_date_from_billing(embedded_billing)
+        blocked_date_text = embedded_blocking_date or invoiced_until_text
         blocked_for_days = _blocked_days_from_text(blocked_date_text)
 
         live_segment_value: str | None = None
@@ -851,15 +846,16 @@ def get_billing_risk_table(
         live_last_transaction_date = _live_billing_text(billing_payload, "last_transaction_date")
         if live_last_transaction_date:
             updates["last_transaction_date"] = live_last_transaction_date
-        live_blocked_date = _live_billing_text(billing_payload, "blocking_date", "request_auto_next")
+        live_start_date = _live_billing_start_date({}, {}, billing_payload)
+        if live_start_date:
+            updates["billing_start_date"] = live_start_date
+        live_invoiced_until = _live_invoiced_until_date(billing_payload)
+        if live_invoiced_until:
+            updates["invoiced_until"] = live_invoiced_until
+        live_blocked_date = _live_blocked_date_from_billing(billing_payload)
         if live_blocked_date:
             updates["blocked_date"] = live_blocked_date
             updates["blocked_for_days"] = _blocked_days_from_text(live_blocked_date)
-        else:
-            customer_last_update = str(entry.get("_customer_last_update") or "").strip()
-            if customer_last_update:
-                updates["blocked_date"] = customer_last_update
-                updates["blocked_for_days"] = _blocked_days_from_text(customer_last_update)
         return updates
 
     if enrich_visible_rows and visible_results:
@@ -958,6 +954,31 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
             return ""
         return min(parsed_dates).strftime("%Y-%m-%d")
 
+    def _billing_start_date(billing_payload: Mapping[str, Any] | None) -> str:
+        return _live_billing_text(
+            billing_payload,
+            "billing_start_date",
+            "billing_start",
+            "start_date",
+            "date_from",
+            "from_date",
+            "period_from",
+        )
+
+    def _invoiced_until_date(billing_payload: Mapping[str, Any] | None) -> str:
+        return _live_billing_text(
+            billing_payload,
+            "invoiced_until",
+            "invoiced_to",
+            "paid_until",
+            "invoice_until",
+            "paid_to",
+        )
+
+    def _blocked_date_from_billing(billing_payload: Mapping[str, Any] | None) -> str:
+        blocking_date = _live_billing_text(billing_payload, "blocking_date", "request_auto_next", "blocked_date")
+        return blocking_date or _invoiced_until_date(billing_payload)
+
     def _enrich_live_entry(entry: dict[str, Any]) -> dict[str, Any]:
         updates: dict[str, Any] = {}
         external_id = str(entry.get("_external_id") or "").strip()
@@ -974,7 +995,9 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
             or _amount(entry.get("balance")) <= 0
         )
         needs_billing = not is_active_overdue and (
-            not str(entry.get("blocked_date") or "").strip() or _amount(entry.get("balance")) <= 0
+            not str(entry.get("billing_start_date") or "").strip()
+            or not str(entry.get("blocked_date") or "").strip()
+            or _amount(entry.get("balance")) <= 0
         )
         splynx_db = SessionLocal()
         try:
@@ -1029,15 +1052,16 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
         live_last_transaction_date = _live_billing_text(billing_payload, "last_transaction_date")
         if live_last_transaction_date:
             updates["last_transaction_date"] = live_last_transaction_date
-        live_blocked_date = _live_billing_text(billing_payload, "blocking_date", "request_auto_next")
+        live_start_date = _billing_start_date(billing_payload)
+        if live_start_date:
+            updates["billing_start_date"] = live_start_date
+        live_invoiced_until = _invoiced_until_date(billing_payload)
+        if live_invoiced_until:
+            updates["invoiced_until"] = live_invoiced_until
+        live_blocked_date = _blocked_date_from_billing(billing_payload)
         if live_blocked_date:
             updates["blocked_date"] = live_blocked_date
             updates["blocked_for_days"] = _blocked_days_from_text(live_blocked_date)
-        else:
-            customer_last_update = str(entry.get("_customer_last_update") or "").strip()
-            if customer_last_update:
-                updates["blocked_date"] = customer_last_update
-                updates["blocked_for_days"] = _blocked_days_from_text(customer_last_update)
         return updates
 
     if rows:
@@ -1083,7 +1107,17 @@ def get_live_blocked_dates(external_ids: list[str]) -> dict[str, str]:
         if not isinstance(billing_payload, Mapping):
             continue
         blocked_date = _parse_iso_date_text(
-            str(billing_payload.get("blocking_date") or billing_payload.get("request_auto_next") or "")
+            str(
+                billing_payload.get("blocking_date")
+                or billing_payload.get("request_auto_next")
+                or billing_payload.get("blocked_date")
+                or billing_payload.get("invoiced_until")
+                or billing_payload.get("invoiced_to")
+                or billing_payload.get("paid_until")
+                or billing_payload.get("invoice_until")
+                or billing_payload.get("paid_to")
+                or ""
+            )
         )
         if blocked_date is not None:
             blocked_dates[external_id] = blocked_date.strftime("%Y-%m-%d")

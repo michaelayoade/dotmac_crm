@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from starlette.requests import Request
 
 from app.services import billing_risk_reports as billing_risk_service
+from app.services import splynx as splynx_service
 from app.web.admin import billing_risk as billing_risk_web
 from app.web.admin import build_router
 
@@ -444,6 +445,121 @@ def test_billing_risk_search_rows_skip_live_enrichment(monkeypatch):
     assert metrics["total_count"] == 1
     assert has_next is False
     assert enrich_calls == []
+
+
+def test_billing_risk_visible_enrichment_uses_splynx_billing_start_and_blocking_date(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer_billing",
+        lambda _db, _external_id: {
+            "billing_start_date": "2024-01-15",
+            "blocking_date": "2024-04-10",
+            "invoiced_until": "2024-04-18",
+        },
+    )
+
+    rows = [
+        {
+            "name": "Blocked Customer",
+            "_external_id": "12345",
+            "subscriber_status": "Suspended",
+            "risk_segment": "Suspended",
+            "billing_start_date": "",
+            "blocked_date": "",
+            "balance": 9200.0,
+            "mrr_total": 42000.0,
+            "plan": "Home Fiber 50Mbps",
+        }
+    ]
+
+    enriched = billing_risk_service.enrich_billing_risk_rows(rows)
+
+    assert enriched[0]["billing_start_date"] == "2024-01-15"
+    assert enriched[0]["invoiced_until"] == "2024-04-18"
+    assert enriched[0]["blocked_date"] == "2024-04-10"
+    assert isinstance(enriched[0]["blocked_for_days"], int)
+
+
+def test_billing_risk_visible_enrichment_falls_back_to_invoiced_until_without_blocking_date(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer_billing",
+        lambda _db, _external_id: {
+            "billing_start_date": "2024-01-15",
+            "invoiced_until": "2024-04-18",
+        },
+    )
+
+    rows = [
+        {
+            "name": "Blocked Customer",
+            "_external_id": "12345",
+            "subscriber_status": "Suspended",
+            "risk_segment": "Suspended",
+            "billing_start_date": "",
+            "blocked_date": "",
+            "balance": 9200.0,
+            "mrr_total": 42000.0,
+            "plan": "Home Fiber 50Mbps",
+        }
+    ]
+
+    enriched = billing_risk_service.enrich_billing_risk_rows(rows)
+
+    assert enriched[0]["billing_start_date"] == "2024-01-15"
+    assert enriched[0]["invoiced_until"] == "2024-04-18"
+    assert enriched[0]["blocked_date"] == "2024-04-18"
+
+
+def test_get_live_blocked_dates_prefers_splynx_blocking_date(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer_billing",
+        lambda _db, _external_id: {
+            "blocking_date": "2024-01-01",
+            "invoiced_until": "2024-04-18",
+        },
+    )
+
+    assert billing_risk_service.get_live_blocked_dates(["12345"]) == {"12345": "2024-01-01"}
+
+
+def test_get_live_blocked_dates_falls_back_to_splynx_invoiced_until(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer_billing",
+        lambda _db, _external_id: {
+            "invoiced_until": "2024-04-18",
+        },
+    )
+
+    assert billing_risk_service.get_live_blocked_dates(["12345"]) == {"12345": "2024-04-18"}
 
 
 def test_customer_retention_tracker_renders_from_billing_risk_filters(monkeypatch):
