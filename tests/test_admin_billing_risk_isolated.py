@@ -233,6 +233,9 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
     assert "syncExportLink" in body
     assert "params.set(&#39;search&#39;" in body or "params.set('search'" in body
     assert "params.set(&#39;bucket&#39;" in body or "params.set('bucket'" in body
+    assert "downloadVisibleRowsCsv" in body
+    assert "event.preventDefault()" in body
+    assert "subscriber_billing_risk_visible_" in body
     assert "'X-CSRF-Token': csrfToken()" in body
 
 
