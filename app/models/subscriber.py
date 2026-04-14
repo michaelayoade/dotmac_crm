@@ -1,14 +1,17 @@
 import enum
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
     Index,
+    Integer,
+    Numeric,
     String,
     Text,
     text,
@@ -281,3 +284,66 @@ class Subscriber(Base):
             self.service_postal_code,
         ]
         return ", ".join(p for p in parts if p)
+
+
+class SubscriberBillingRiskSnapshot(Base):
+    """Cached billing-risk report row built from live billing/provider data."""
+
+    __tablename__ = "subscriber_billing_risk_snapshots"
+    __table_args__ = (
+        Index("ix_billing_risk_snapshot_external", "external_system", "external_id", unique=True),
+        Index("ix_billing_risk_snapshot_segment_balance", "risk_segment", "balance"),
+        Index("ix_billing_risk_snapshot_high_balance", "is_high_balance_risk"),
+        Index("ix_billing_risk_snapshot_days_past_due", "days_past_due"),
+        Index("ix_billing_risk_snapshot_blocked_for_days", "blocked_for_days"),
+        Index("ix_billing_risk_snapshot_refreshed_at", "refreshed_at"),
+        Index("ix_billing_risk_snapshot_search_name", "name"),
+        Index("ix_billing_risk_snapshot_search_phone", "phone"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    external_system: Mapped[str] = mapped_column(String(60), default="splynx", nullable=False)
+    external_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    subscriber_number: Mapped[str | None] = mapped_column(String(60))
+
+    person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
+    subscriber_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("subscribers.id"))
+
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255))
+    phone: Mapped[str | None] = mapped_column(String(120))
+    city: Mapped[str | None] = mapped_column(String(120))
+    area: Mapped[str | None] = mapped_column(String(160))
+    plan: Mapped[str | None] = mapped_column(String(200))
+
+    subscriber_status: Mapped[str | None] = mapped_column(String(80))
+    risk_segment: Mapped[str] = mapped_column(String(40), nullable=False)
+    is_high_balance_risk: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    mrr_total: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    balance: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
+    total_paid: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    billing_cycle: Mapped[str | None] = mapped_column(String(80))
+
+    billing_start_date: Mapped[date | None] = mapped_column(Date)
+    billing_end_date: Mapped[date | None] = mapped_column(Date)
+    next_bill_date: Mapped[date | None] = mapped_column(Date)
+    blocked_date: Mapped[date | None] = mapped_column(Date)
+    last_transaction_date: Mapped[date | None] = mapped_column(Date)
+    invoiced_until: Mapped[date | None] = mapped_column(Date)
+
+    days_to_due: Mapped[int | None] = mapped_column(Integer)
+    days_past_due: Mapped[int | None] = mapped_column(Integer)
+    days_since_last_payment: Mapped[int | None] = mapped_column(Integer)
+    blocked_for_days: Mapped[int | None] = mapped_column(Integer)
+    expires_in: Mapped[str | None] = mapped_column(String(80))
+
+    source_metadata: Mapped[dict | None] = mapped_column(MutableDict.as_mutable(JSON()))
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )

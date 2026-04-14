@@ -20,9 +20,10 @@ from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.person import Person
 from app.models.service_team import ServiceTeam, ServiceTeamMember
 from app.models.subscriber import Subscriber, SubscriberStatus
+from app.services import billing_risk_cache as billing_risk_cache_service
 from app.services import billing_risk_reports as billing_risk_service
 from app.services.common import coerce_uuid
-from app.tasks.subscribers import sync_subscribers_from_splynx
+from app.tasks.subscribers import refresh_billing_risk_cache
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.auth.rbac import require_web_role
 from app.web.templates import Jinja2Templates
@@ -586,25 +587,32 @@ def subscriber_billing_risk(
         query_segments if query_segments else segments,
         query_segment or segment,
     )
-    global_churn_rows = billing_risk_service.get_billing_risk_table(
+    global_churn_rows = billing_risk_cache_service.all_cached_rows(
         db,
         due_soon_days=due_soon_days,
         high_balance_only=high_balance_only,
-        segment=segment,
-        segments=selected_segments,
+        selected_segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
-        limit=6000,
-        enrich_visible_rows=False,
+        limit=10000,
     )
-    churn_rows, page_metrics, has_next = _billing_risk_initial_rows(global_churn_rows, page_size=50)
+    page = billing_risk_cache_service.list_cached_rows(
+        db,
+        due_soon_days=due_soon_days,
+        high_balance_only=high_balance_only,
+        selected_segments=selected_segments,
+        days_past_due=query_days_past_due or days_past_due,
+        page=1,
+        page_size=50,
+    )
     overdue_invoices = billing_risk_service.get_overdue_invoices_table(
         db,
         min_days_past_due=overdue_invoice_days,
         limit=250,
     )
-    kpis = billing_risk_service.get_billing_risk_summary(global_churn_rows, overdue_invoices)
-    segment_breakdown = billing_risk_service.get_billing_risk_segment_breakdown(global_churn_rows)
-    aging_buckets = billing_risk_service.get_billing_risk_aging_buckets(global_churn_rows)
+    kpis = billing_risk_cache_service.summary(global_churn_rows, overdue_invoices)
+    segment_breakdown = billing_risk_cache_service.segment_breakdown(global_churn_rows)
+    aging_buckets = billing_risk_cache_service.aging_buckets(global_churn_rows)
+    cache_meta = billing_risk_cache_service.cache_metadata(db)
 
     export_query = urlencode(
         {
@@ -649,7 +657,7 @@ def subscriber_billing_risk(
             "kpis": kpis,
             "segment_breakdown": segment_breakdown,
             "aging_buckets": aging_buckets,
-            "churn_rows": churn_rows,
+            "churn_rows": page.rows,
             "overdue_invoices": overdue_invoices,
             "due_soon_days": due_soon_days,
             "overdue_invoice_days": overdue_invoice_days,
@@ -659,19 +667,20 @@ def subscriber_billing_risk(
             "export_query": export_query,
             "retention_tracker_query": retention_tracker_query,
             "refresh_query": refresh_query,
-            "last_synced_at": _latest_subscriber_sync_at(db),
+            "last_synced_at": cache_meta.get("refreshed_at") or _latest_subscriber_sync_at(db),
+            "billing_risk_cache": cache_meta,
             "csrf_token": get_csrf_token(request),
             "refresh_started": request.query_params.get("refresh_started") == "1",
             "refresh_error": request.query_params.get("refresh_error"),
             "live_page": 1,
             "live_page_size": 50,
-            "live_has_next": has_next,
+            "live_has_next": page.has_next,
             "live_search": "",
             "live_bucket": "all",
-            "page_metrics": page_metrics,
+            "page_metrics": page.page_metrics,
             "page": 1,
             "has_prev": False,
-            "has_next": has_next,
+            "has_next": page.has_next,
             "rep_options": _retention_rep_options(db),
         },
     )
@@ -878,10 +887,10 @@ def subscriber_billing_risk_refresh(
         next_url = "/admin/reports/subscribers/billing-risk"
 
     try:
-        sync_subscribers_from_splynx.delay()
+        refresh_billing_risk_cache.delay()
         return RedirectResponse(url=_append_query_flag(next_url, "refresh_started", "1"), status_code=303)
     except Exception:
-        logger.exception("Failed to enqueue Splynx subscriber sync")
+        logger.exception("Failed to enqueue billing risk cache refresh")
         return RedirectResponse(url=_append_query_flag(next_url, "refresh_error", "queue_unavailable"), status_code=303)
 
 
@@ -918,11 +927,10 @@ def subscriber_billing_risk_rows(
         query_segments if query_segments else segments,
         query_segment or segment,
     )
-    churn_rows, page_metrics, has_next = _billing_risk_page_rows(
+    page_result = billing_risk_cache_service.list_cached_rows(
         db,
         due_soon_days=due_soon_days,
         high_balance_only=high_balance_only,
-        segment=segment,
         selected_segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
         page=page,
@@ -934,11 +942,11 @@ def subscriber_billing_risk_rows(
         "admin/reports/_subscriber_billing_risk_results.html",
         {
             "request": request,
-            "churn_rows": churn_rows,
-            "page_metrics": page_metrics,
+            "churn_rows": page_result.rows,
+            "page_metrics": page_result.page_metrics,
             "page": page,
             "has_prev": page > 1,
-            "has_next": has_next,
+            "has_next": page_result.has_next,
         },
     )
 
@@ -973,17 +981,15 @@ def subscriber_billing_risk_export(
         query_segment or segment,
     )
 
-    churn_rows = billing_risk_service.get_billing_risk_table(
+    churn_rows = billing_risk_cache_service.all_cached_rows(
         db,
         due_soon_days=due_soon_days,
         high_balance_only=high_balance_only,
-        segment=segment,
-        segments=selected_segments,
+        selected_segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
         search=search,
         overdue_bucket=bucket,
         limit=6000,
-        enrich_visible_rows=False,
     )
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:

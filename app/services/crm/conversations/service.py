@@ -116,6 +116,9 @@ class Conversations(ListResponseMixin):
                 raise HTTPException(status_code=404, detail="Person not found")
         for key, value in data.items():
             setattr(conversation, key, value)
+        from app.services.crm.inbox.summaries import recompute_conversation_summary
+
+        recompute_conversation_summary(db, str(conversation.id))
         db.commit()
         db.refresh(conversation)
         return conversation
@@ -236,6 +239,9 @@ class ConversationAssignments(ListResponseMixin):
                     existing.assigned_by_id = payload.assigned_by_id
                 if payload.assigned_at is not None:
                     existing.assigned_at = assigned_at_value
+                from app.services.crm.inbox.summaries import recompute_conversation_summary
+
+                recompute_conversation_summary(db, str(payload.conversation_id))
                 db.commit()
                 db.refresh(existing)
                 return existing
@@ -252,6 +258,9 @@ class ConversationAssignments(ListResponseMixin):
                 existing.is_active = True
                 existing.assigned_at = assigned_at_value
                 existing.assigned_by_id = payload.assigned_by_id
+                from app.services.crm.inbox.summaries import recompute_conversation_summary
+
+                recompute_conversation_summary(db, str(payload.conversation_id))
                 db.commit()
                 db.refresh(existing)
                 return existing
@@ -260,6 +269,9 @@ class ConversationAssignments(ListResponseMixin):
             if assignment.assigned_at is None:
                 assignment.assigned_at = assigned_at_value
             db.add(assignment)
+            from app.services.crm.inbox.summaries import recompute_conversation_summary
+
+            recompute_conversation_summary(db, str(payload.conversation_id))
             db.commit()
             db.refresh(assignment)
             return assignment
@@ -377,6 +389,9 @@ class Messages(ListResponseMixin):
                 conversation.first_response_at = timestamp
                 conversation.response_time_seconds = int((timestamp - conversation.created_at).total_seconds())
 
+        from app.services.crm.inbox.summaries import recompute_conversation_summary
+
+        recompute_conversation_summary(db, str(conversation.id))
         db.commit()
         db.refresh(message)
         if message.direction == MessageDirection.inbound:
@@ -688,6 +703,9 @@ def mark_conversation_read(
         Message.read_at.is_(None),
         func.coalesce(Message.received_at, Message.created_at) <= last_seen_at,
     ).update({"read_at": _now()})
+    from app.services.crm.inbox.summaries import recompute_conversation_summary
+
+    recompute_conversation_summary(db, conversation_id)
     db.commit()
 
 
@@ -794,6 +812,9 @@ def assign_conversation(
             ConversationAssignment.conversation_id == conversation.id,
             ConversationAssignment.is_active.is_(True),
         ).update({"is_active": False, "updated_at": _now()})
+        from app.services.crm.inbox.summaries import recompute_conversation_summary
+
+        recompute_conversation_summary(db, str(conversation.id))
         db.commit()
         return None
 
@@ -831,6 +852,9 @@ def unassign_conversation(
         ConversationAssignment.conversation_id == coerce_uuid(conversation_id),
         ConversationAssignment.is_active.is_(True),
     ).update({"is_active": False, "updated_at": _now()})
+    from app.services.crm.inbox.summaries import recompute_conversation_summary
+
+    recompute_conversation_summary(db, conversation_id)
     db.commit()
 
 

@@ -45,6 +45,7 @@ from app.models.crm import (  # noqa: F401
     ConversationAssignment,
     ConversationLabel,
     ConversationStatus,
+    ConversationSummary,
     ConversationTag,
     CrmAgent,
     CrmAgentTeam,
@@ -255,6 +256,7 @@ from app.models.subscriber import (  # noqa: F401
     AddressType,
     Organization,
     Subscriber,
+    SubscriberBillingRiskSnapshot,
     SubscriberStatus,
 )
 from app.models.tickets import (  # noqa: F401

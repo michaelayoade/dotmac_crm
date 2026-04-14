@@ -135,6 +135,44 @@ class ConversationTag(Base):
     conversation = relationship("Conversation", back_populates="tags")
 
 
+class ConversationSummary(Base):
+    __tablename__ = "crm_conversation_summaries"
+    __table_args__ = (
+        Index("idx_crm_conv_summaries_active_status", "is_active", "status", "latest_message_at"),
+        Index("idx_crm_conv_summaries_assignment", "active_assignment_agent_id", "active_assignment_team_id"),
+        Index("idx_crm_conv_summaries_needs_attention", "needs_attention", "latest_message_at"),
+        Index("idx_crm_conv_summaries_unreplied", "unreplied", "latest_message_at"),
+        Index("idx_crm_conv_summaries_unread", "unread_count"),
+        Index("idx_crm_conv_summaries_channel", "primary_channel_type", "latest_message_at"),
+    )
+
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("crm_conversations.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"), nullable=False)
+    latest_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_messages.id"))
+    latest_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    latest_inbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    latest_outbound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    unread_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    has_failed_outbox: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    primary_channel_type: Mapped[ChannelType | None] = mapped_column(Enum(ChannelType))
+    active_assignment_agent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_agents.id"))
+    active_assignment_team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_teams.id"))
+    needs_attention: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    unreplied: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    status: Mapped[ConversationStatus] = mapped_column(Enum(ConversationStatus), nullable=False)
+    priority: Mapped[ConversationPriority | None] = mapped_column(Enum(ConversationPriority))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
 class Message(Base):
     __tablename__ = "crm_messages"
     __table_args__ = (
