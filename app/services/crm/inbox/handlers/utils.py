@@ -175,4 +175,7 @@ def create_message_and_touch_conversation(
     conversation.last_message_at = timestamp
     conversation.updated_at = timestamp
     db.flush()
+    from app.services.crm.inbox.summaries import recompute_conversation_summary
+
+    recompute_conversation_summary(db, str(conversation.id))
     return conversation, message

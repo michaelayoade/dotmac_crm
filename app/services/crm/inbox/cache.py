@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 INBOX_LIST_TTL_SECONDS = 5
+SUMMARY_COUNTS_TTL_SECONDS = 30
 COMMENTS_LIST_TTL_SECONDS = 60
 COMMENTS_THREAD_TTL_SECONDS = 60
 
@@ -59,6 +60,7 @@ def invalidate_prefix(prefix: str) -> None:
 
 def invalidate_inbox_list() -> None:
     invalidate_prefix("inbox_list:")
+    invalidate_prefix("summary_counts:")
 
 
 def invalidate_comments() -> None:
@@ -69,6 +71,11 @@ def invalidate_comments() -> None:
 def build_inbox_list_key(params: dict[str, Any]) -> str:
     encoded = json.dumps(params, sort_keys=True, default=str)
     return f"inbox_list:{encoded}"
+
+
+def build_summary_counts_key(params: dict[str, Any]) -> str:
+    encoded = json.dumps(params, sort_keys=True, default=str)
+    return f"summary_counts:{encoded}"
 
 
 def build_comments_list_key(params: dict[str, Any]) -> str:

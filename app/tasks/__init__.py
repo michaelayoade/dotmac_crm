@@ -47,6 +47,7 @@ from app.tasks.oauth import check_token_health, refresh_expiring_tokens
 from app.tasks.performance import compute_weekly_scores, generate_flagged_reviews, update_goal_progress
 from app.tasks.subscribers import (
     reconcile_subscriber_identity,
+    refresh_billing_risk_cache,
     sync_subscribers_from_splynx,
     sync_subscribers_from_ucrm,
     sync_subscribers_generic,
@@ -85,6 +86,7 @@ __all__ = [
     "process_survey_triggers",
     "process_whatsapp_webhook",
     "reconcile_subscriber_identity",
+    "refresh_billing_risk_cache",
     "refresh_expiring_tokens",
     "retry_failed_deliveries",
     "run_integration_job",

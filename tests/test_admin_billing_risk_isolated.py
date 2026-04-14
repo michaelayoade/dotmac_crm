@@ -6,6 +6,7 @@ from starlette.requests import Request
 
 from app.services import billing_risk_reports as billing_risk_service
 from app.services import splynx as splynx_service
+from app.services.billing_risk_cache import BillingRiskPage
 from app.web.admin import billing_risk as billing_risk_web
 from app.web.admin import build_router
 
@@ -100,6 +101,37 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
     monkeypatch.setattr(billing_risk_web, "get_sidebar_stats", lambda _db: {})
     monkeypatch.setattr(billing_risk_web, "get_csrf_token", lambda _request: "csrf-token")
     monkeypatch.setattr(billing_risk_web, "_latest_subscriber_sync_at", lambda _db: datetime.now(UTC))
+    row = {
+        "name": "Blocked Customer",
+        "_external_id": "12345",
+        "email": "blocked@example.com",
+        "phone": "+2348099991111",
+        "city": "Abuja",
+        "street": "12 Aminu Kano Crescent",
+        "area": "Maitama",
+        "plan": "Home Fiber 50Mbps",
+        "mrr_total": 42000.0,
+        "subscriber_status": "Suspended",
+        "risk_segment": "Suspended",
+        "billing_start_date": "2024-01-15",
+        "blocked_date": "2024-04-18",
+        "balance": 9200.0,
+        "billing_cycle": "monthly",
+        "last_transaction_date": "2024-03-01",
+        "expires_in": "15d",
+        "invoiced_until": "2024-03-31",
+        "days_since_last_payment": 18,
+        "days_past_due": 18,
+        "total_paid": 12000.0,
+        "days_to_due": -3,
+        "is_high_balance_risk": True,
+        "open_tickets": 2,
+        "closed_tickets": 5,
+        "total_tickets": 7,
+        "ticket_subscriber_id": "11111111-1111-1111-1111-111111111111",
+        "_subscriber_uuid": "11111111-1111-1111-1111-111111111111",
+    }
+    monkeypatch.setattr(billing_risk_web.billing_risk_cache_service, "all_cached_rows", lambda *_args, **_kwargs: [row])
     monkeypatch.setattr(
         billing_risk_web,
         "_retention_rep_options",
@@ -129,43 +161,18 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        billing_risk_service,
-        "get_billing_risk_table",
-        lambda *_args, **kwargs: (
-            [
-                {
-                    "name": "Blocked Customer",
-                    "email": "blocked@example.com",
-                    "phone": "+2348099991111",
-                    "city": "Abuja",
-                    "street": "12 Aminu Kano Crescent",
-                    "area": "Maitama",
-                    "plan": "Home Fiber 50Mbps",
-                    "mrr_total": 42000.0,
-                    "subscriber_status": "Suspended",
-                    "risk_segment": "Suspended",
-                    "billing_start_date": "2024-01-15",
-                    "blocked_date": "2024-04-18",
-                    "balance": 9200.0,
-                    "billing_cycle": "monthly",
-                    "last_transaction_date": "2024-03-01",
-                    "expires_in": "15d",
-                    "invoiced_until": "2024-03-31",
-                    "days_since_last_payment": 18,
-                    "days_past_due": 18,
-                    "total_paid": 12000.0,
-                    "days_to_due": -3,
-                    "is_high_balance_risk": True,
-                    "open_tickets": 2,
-                    "closed_tickets": 5,
-                    "total_tickets": 7,
-                    "ticket_subscriber_id": "11111111-1111-1111-1111-111111111111",
-                    "_subscriber_uuid": "11111111-1111-1111-1111-111111111111",
-                }
-            ]
-            if kwargs.get("limit") == 6000 or kwargs.get("page_size") is not None
-            else []
+        billing_risk_web.billing_risk_cache_service,
+        "list_cached_rows",
+        lambda *_args, **_kwargs: BillingRiskPage(
+            rows=[row],
+            page_metrics={"total_count": 1, "total_balance": 9200.0, "avg_days_overdue": 18},
+            has_next=False,
         ),
+    )
+    monkeypatch.setattr(
+        billing_risk_web.billing_risk_cache_service,
+        "cache_metadata",
+        lambda _db: {"row_count": 1, "refreshed_at": datetime.now(UTC)},
     )
     monkeypatch.setattr(
         billing_risk_service,
@@ -265,7 +272,7 @@ def test_subscriber_billing_risk_export_matches_visible_columns_and_filters(monk
             }
         ]
 
-    monkeypatch.setattr(billing_risk_service, "get_billing_risk_table", fake_table)
+    monkeypatch.setattr(billing_risk_web.billing_risk_cache_service, "all_cached_rows", fake_table)
     monkeypatch.setattr(
         billing_risk_web,
         "_retention_engagements_by_customer",
@@ -313,7 +320,7 @@ def test_subscriber_billing_risk_export_matches_visible_columns_and_filters(monk
 
     assert captured_kwargs["search"] == "blocked"
     assert captured_kwargs["overdue_bucket"] == "8-30"
-    assert captured_kwargs["segments"] == ["suspended"]
+    assert captured_kwargs["selected_segments"] == ["suspended"]
     assert captured_kwargs["limit"] == 6000
     assert response.status_code == 200
     assert list(response.data[0]) == [
@@ -351,37 +358,42 @@ def test_subscriber_billing_risk_live_bucket_requests_keep_segment_filters(monke
     monkeypatch.setattr(billing_risk_web, "get_sidebar_stats", lambda _db: {})
     monkeypatch.setattr(billing_risk_web, "get_csrf_token", lambda _request: "csrf-token")
     monkeypatch.setattr(billing_risk_web, "_latest_subscriber_sync_at", lambda _db: datetime.now(UTC))
+    row = {
+        "name": "Suspended Customer",
+        "email": "suspended@example.com",
+        "phone": "+2348099991111",
+        "city": "Abuja",
+        "area": "Maitama",
+        "plan": "Home Fiber 50Mbps",
+        "mrr_total": 42000.0,
+        "subscriber_status": "Suspended",
+        "risk_segment": "Suspended",
+        "billing_start_date": "2024-01-15",
+        "blocked_date": "2024-04-18",
+        "blocked_for_days": 18,
+        "balance": 9200.0,
+        "days_past_due": 18,
+        "is_high_balance_risk": True,
+    }
+    monkeypatch.setattr(billing_risk_web.billing_risk_cache_service, "all_cached_rows", lambda *_args, **_kwargs: [row])
     monkeypatch.setattr(
         billing_risk_web,
         "_retention_rep_options",
         lambda _db: [{"value": "rep-1", "label": "Sales Rep", "team": "Enterprise sales"}],
     )
     monkeypatch.setattr(
-        billing_risk_service,
-        "get_billing_risk_table",
-        lambda *_args, **kwargs: (
-            [
-                {
-                    "name": "Suspended Customer",
-                    "email": "suspended@example.com",
-                    "phone": "+2348099991111",
-                    "city": "Abuja",
-                    "area": "Maitama",
-                    "plan": "Home Fiber 50Mbps",
-                    "mrr_total": 42000.0,
-                    "subscriber_status": "Suspended",
-                    "risk_segment": "Suspended",
-                    "billing_start_date": "2024-01-15",
-                    "blocked_date": "2024-04-18",
-                    "blocked_for_days": 18,
-                    "balance": 9200.0,
-                    "days_past_due": 18,
-                    "is_high_balance_risk": True,
-                }
-            ]
-            if kwargs.get("limit") == 6000
-            else []
+        billing_risk_web.billing_risk_cache_service,
+        "list_cached_rows",
+        lambda *_args, **_kwargs: BillingRiskPage(
+            rows=[row],
+            page_metrics={"total_count": 1, "total_balance": 9200.0, "avg_days_overdue": 18},
+            has_next=False,
         ),
+    )
+    monkeypatch.setattr(
+        billing_risk_web.billing_risk_cache_service,
+        "cache_metadata",
+        lambda _db: {"row_count": 1, "refreshed_at": datetime.now(UTC)},
     )
     monkeypatch.setattr(billing_risk_service, "get_overdue_invoices_table", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(
@@ -712,10 +724,10 @@ def test_subscriber_billing_risk_blocked_dates_returns_json(monkeypatch):
 def test_subscriber_billing_risk_rows_returns_html(monkeypatch):
     monkeypatch.setattr(billing_risk_web, "get_current_user", lambda _request: {"id": "test-user"})
     monkeypatch.setattr(
-        billing_risk_web,
-        "_billing_risk_page_rows",
-        lambda *_args, **_kwargs: (
-            [
+        billing_risk_web.billing_risk_cache_service,
+        "list_cached_rows",
+        lambda *_args, **_kwargs: BillingRiskPage(
+            rows=[
                 {
                     "name": "Blocked Customer",
                     "phone": "+2348099991111",
@@ -736,8 +748,8 @@ def test_subscriber_billing_risk_rows_returns_html(monkeypatch):
                     "_subscriber_uuid": "11111111-1111-1111-1111-111111111111",
                 }
             ],
-            {"total_count": 1, "total_balance": 9200.0, "avg_days_overdue": 48},
-            True,
+            page_metrics={"total_count": 1, "total_balance": 9200.0, "avg_days_overdue": 48},
+            has_next=True,
         ),
     )
 

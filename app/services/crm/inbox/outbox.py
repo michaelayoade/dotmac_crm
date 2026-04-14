@@ -19,6 +19,7 @@ from app.services.crm.inbox.outbound import (
     TransientOutboundError,
     send_message_with_retry,
 )
+from app.services.crm.inbox.summaries import recompute_conversation_summary
 
 STATUS_QUEUED = "queued"
 STATUS_SENDING = "sending"
@@ -92,6 +93,7 @@ def enqueue_outbound_message(
     )
     db.add(outbox)
     try:
+        recompute_conversation_summary(db, str(outbox.conversation_id))
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -137,6 +139,7 @@ def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
         outbox.status = STATUS_FAILED
         outbox.last_error = f"Max attempts ({MAX_OUTBOX_ATTEMPTS}) exceeded"
         outbox.next_attempt_at = None
+        recompute_conversation_summary(db, str(outbox.conversation_id))
         db.commit()
         db.refresh(outbox)
         return outbox
@@ -144,6 +147,7 @@ def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
     outbox.status = STATUS_SENDING
     outbox.attempts = attempts
     outbox.last_attempt_at = _now()
+    recompute_conversation_summary(db, str(outbox.conversation_id))
     db.commit()
     db.refresh(outbox)
 
@@ -166,6 +170,7 @@ def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
         outbox.message_id = message.id
         outbox.last_error = None
         outbox.next_attempt_at = None
+        recompute_conversation_summary(db, str(outbox.conversation_id))
         db.commit()
         db.refresh(outbox)
         return outbox
@@ -173,6 +178,7 @@ def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
         outbox.status = STATUS_RETRYING
         outbox.last_error = str(exc)
         outbox.next_attempt_at = _now() + timedelta(seconds=_compute_backoff_seconds(outbox.attempts or 1))
+        recompute_conversation_summary(db, str(outbox.conversation_id))
         db.commit()
         db.refresh(outbox)
         raise
@@ -180,6 +186,7 @@ def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
         outbox.status = STATUS_FAILED
         outbox.last_error = str(exc)
         outbox.next_attempt_at = None
+        recompute_conversation_summary(db, str(outbox.conversation_id))
         db.commit()
         db.refresh(outbox)
         return outbox
@@ -188,12 +195,14 @@ def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
             outbox.status = STATUS_RETRYING
             outbox.last_error = str(exc.detail)
             outbox.next_attempt_at = _now() + timedelta(seconds=_compute_backoff_seconds(outbox.attempts or 1))
+            recompute_conversation_summary(db, str(outbox.conversation_id))
             db.commit()
             db.refresh(outbox)
             raise TransientOutboundError(str(exc.detail))
         outbox.status = STATUS_FAILED
         outbox.last_error = str(exc.detail)
         outbox.next_attempt_at = None
+        recompute_conversation_summary(db, str(outbox.conversation_id))
         db.commit()
         db.refresh(outbox)
         return outbox
@@ -201,6 +210,7 @@ def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
         outbox.status = STATUS_FAILED
         outbox.last_error = str(exc)
         outbox.next_attempt_at = None
+        recompute_conversation_summary(db, str(outbox.conversation_id))
         db.commit()
         db.refresh(outbox)
         return outbox

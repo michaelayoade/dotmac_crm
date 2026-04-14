@@ -233,6 +233,29 @@ def build_beat_schedule() -> dict:
             enabled=notification_queue_enabled,
             interval_seconds=notification_queue_interval_seconds,
         )
+
+        billing_risk_cache_enabled = _effective_bool(
+            session,
+            SettingDomain.scheduler,
+            "billing_risk_cache_refresh_enabled",
+            "BILLING_RISK_CACHE_REFRESH_ENABLED",
+            True,
+        )
+        billing_risk_cache_interval = _effective_int(
+            session,
+            SettingDomain.scheduler,
+            "billing_risk_cache_refresh_interval_seconds",
+            "BILLING_RISK_CACHE_REFRESH_INTERVAL_SECONDS",
+            1800,
+        )
+        _sync_scheduled_task(
+            session,
+            name="billing_risk_cache_refresh",
+            task_name="app.tasks.subscribers.refresh_billing_risk_cache",
+            enabled=billing_risk_cache_enabled,
+            interval_seconds=max(billing_risk_cache_interval, 600),
+        )
+
         retention_enabled = _effective_bool(
             session,
             SettingDomain.catalog,

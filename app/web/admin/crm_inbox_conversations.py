@@ -40,6 +40,7 @@ async def inbox_summary_counts(
     db: Session = Depends(get_db),
 ):
     """Live summary counters for inbox sidebar chips/KPI."""
+    from app.services.crm.inbox import cache as inbox_cache
     from app.services.crm.inbox.queries import get_assignment_counts, get_inbox_stats, get_resolved_today_count
     from app.services.time_preferences import resolve_company_time_prefs
     from app.web.admin._auth_helpers import get_current_user
@@ -47,13 +48,23 @@ async def inbox_summary_counts(
     current_user = get_current_user(request)
     assigned_person_id = current_user.get("person_id") if isinstance(current_user, dict) else None
     timezone = resolve_company_time_prefs(db)[0]
-    return JSONResponse(
+    cache_key = inbox_cache.build_summary_counts_key(
         {
-            "assignment_counts": get_assignment_counts(db, assigned_person_id=assigned_person_id),
-            "unread": int(get_inbox_stats(db).get("unread", 0)),
-            "resolved_today": get_resolved_today_count(db, timezone=timezone),
+            "assigned_person_id": assigned_person_id,
+            "timezone": timezone,
         }
     )
+    cached_payload = inbox_cache.get(cache_key)
+    if cached_payload is not None:
+        return JSONResponse(cached_payload)
+
+    payload = {
+        "assignment_counts": get_assignment_counts(db, assigned_person_id=assigned_person_id),
+        "unread": int(get_inbox_stats(db).get("unread", 0)),
+        "resolved_today": get_resolved_today_count(db, timezone=timezone),
+    }
+    inbox_cache.set(cache_key, payload, inbox_cache.SUMMARY_COUNTS_TTL_SECONDS)
+    return JSONResponse(payload)
 
 
 @router.get("/inbox/conversations", response_class=HTMLResponse)

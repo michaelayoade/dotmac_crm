@@ -7,6 +7,7 @@ from app.models.crm.comments import SocialComment, SocialCommentPlatform, Social
 from app.models.crm.conversation import (
     Conversation,
     ConversationAssignment,
+    ConversationSummary,
     ConversationTag,
     Message,
     MessageAttachment,
@@ -57,6 +58,7 @@ __all__ = [
     "ConversationLabel",
     "ConversationPriority",
     "ConversationStatus",
+    "ConversationSummary",
     "ConversationTag",
     "CrmAgent",
     "CrmAgentTeam",

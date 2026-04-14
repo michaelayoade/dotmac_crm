@@ -10,6 +10,7 @@ from sqlalchemy.sql import lateral
 from app.models.crm.conversation import (
     Conversation,
     ConversationAssignment,
+    ConversationSummary,
     Message,
     MessageAttachment,
 )
@@ -28,6 +29,24 @@ from app.services.common import coerce_uuid
 from app.services.crm.inbox import outbox as outbox_service
 
 UNASSIGNED_ACTIVITY_START_UTC = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+def _ensure_summary_rows(db: Session) -> None:
+    """Backfill summaries in-process only when the table is empty.
+
+    Production migrations populate this table. This guard keeps tests and
+    unusual direct inserts correct without adding per-request recomputation.
+    """
+    summary_count = db.query(func.count(ConversationSummary.conversation_id)).scalar() or 0
+    if summary_count:
+        return
+    conversation_ids = [str(row[0]) for row in db.query(Conversation.id).filter(Conversation.is_active.is_(True)).all()]
+    if not conversation_ids:
+        return
+    from app.services.crm.inbox.summaries import recompute_conversation_summaries
+
+    recompute_conversation_summaries(db, conversation_ids)
+    db.flush()
 
 
 def _message_activity_ts():
@@ -73,6 +92,7 @@ def list_inbox_conversations(
     where latest_message_dict contains: body, channel_type, received_at, sent_at, created_at,
     last_message_at, message_type, has_attachments
     """
+    _ensure_summary_rows(db)
     query = (
         db.query(Conversation)
         .options(
@@ -81,6 +101,7 @@ def list_inbox_conversations(
             selectinload(Conversation.tags),
         )
         .select_from(Conversation)
+        .outerjoin(ConversationSummary, ConversationSummary.conversation_id == Conversation.id)
         .filter(Conversation.is_active.is_(True))
     )
 
@@ -133,68 +154,21 @@ def list_inbox_conversations(
         ]
         if not agent_ids:
             return []
-        assigned_subq = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.agent_id.in_(agent_ids))
-            .distinct()
-        )
-        query = query.filter(Conversation.id.in_(assigned_subq))
+        query = query.filter(ConversationSummary.active_assignment_agent_id.in_(agent_ids))
     elif assignment_filter == "unassigned":
-        assigned_subq = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.is_active.is_(True))
-            .distinct()
-        )
-        query = query.filter(~Conversation.id.in_(assigned_subq)).filter(
-            _conversation_activity_ts() >= UNASSIGNED_ACTIVITY_START_UTC
+        query = query.filter(ConversationSummary.active_assignment_agent_id.is_(None)).filter(
+            ConversationSummary.active_assignment_team_id.is_(None)
+        ).filter(
+            func.coalesce(ConversationSummary.latest_message_at, Conversation.updated_at) >= UNASSIGNED_ACTIVITY_START_UTC
         )
     elif assignment_filter == "team_assigned":
-        team_assigned_subq = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.team_id.isnot(None))
-            .filter(ConversationAssignment.agent_id.is_(None))
-            .distinct()
+        query = query.filter(ConversationSummary.active_assignment_team_id.isnot(None)).filter(
+            ConversationSummary.active_assignment_agent_id.is_(None)
         )
-        query = query.filter(Conversation.id.in_(team_assigned_subq))
     elif assignment_filter == "unreplied":
-        inbound_exists = (
-            db.query(Message.id)
-            .filter(Message.conversation_id == Conversation.id)
-            .filter(Message.direction == MessageDirection.inbound)
-            .exists()
-        )
-        outbound_exists = (
-            db.query(Message.id)
-            .filter(Message.conversation_id == Conversation.id)
-            .filter(Message.direction == MessageDirection.outbound)
-            .exists()
-        )
-        query = (
-            query.filter(Conversation.status != ConversationStatus.resolved)
-            .filter(inbound_exists)
-            .filter(~outbound_exists)
-        )
+        query = query.filter(ConversationSummary.unreplied.is_(True))
     elif assignment_filter == "needs_attention":
-        latest_inbound_at = (
-            select(func.max(_message_activity_ts()))
-            .where(Message.conversation_id == Conversation.id)
-            .where(Message.direction == MessageDirection.inbound)
-            .scalar_subquery()
-        )
-        latest_outbound_at = (
-            select(func.max(_message_activity_ts()))
-            .where(Message.conversation_id == Conversation.id)
-            .where(Message.direction == MessageDirection.outbound)
-            .scalar_subquery()
-        )
-        query = (
-            query.filter(Conversation.status != ConversationStatus.resolved)
-            .filter(latest_inbound_at.isnot(None))
-            .filter(latest_outbound_at.isnot(None))
-            .filter(latest_inbound_at > latest_outbound_at)
-        )
+        query = query.filter(ConversationSummary.needs_attention.is_(True))
     elif assignment_filter == "my_team":
         if not assigned_person_id:
             return []
@@ -224,16 +198,19 @@ def list_inbox_conversations(
         if not filter_agent_id:
             return []
         agent_uuid = coerce_uuid(filter_agent_id)
-        agent_subq = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.agent_id == agent_uuid)
-        )
-        if assigned_from:
-            agent_subq = agent_subq.filter(ConversationAssignment.assigned_at >= assigned_from)
-        if assigned_to:
-            agent_subq = agent_subq.filter(ConversationAssignment.assigned_at <= assigned_to)
-        query = query.filter(Conversation.id.in_(agent_subq.distinct()))
+        if assigned_from or assigned_to:
+            agent_subq = (
+                db.query(ConversationAssignment.conversation_id)
+                .filter(ConversationAssignment.is_active.is_(True))
+                .filter(ConversationAssignment.agent_id == agent_uuid)
+            )
+            if assigned_from:
+                agent_subq = agent_subq.filter(ConversationAssignment.assigned_at >= assigned_from)
+            if assigned_to:
+                agent_subq = agent_subq.filter(ConversationAssignment.assigned_at <= assigned_to)
+            query = query.filter(Conversation.id.in_(agent_subq.distinct()))
+        else:
+            query = query.filter(ConversationSummary.active_assignment_agent_id == agent_uuid)
 
     if search:
         raw_search = search.strip()
@@ -322,13 +299,7 @@ def list_inbox_conversations(
     outbox_status_filter = (outbox_status or "").strip().lower() or None
     failed_outbox_subq = None
     if outbox_status_filter == outbox_service.STATUS_FAILED:
-        failed_exists = (
-            db.query(OutboxMessage.id)
-            .filter(OutboxMessage.conversation_id == Conversation.id)
-            .filter(OutboxMessage.status == outbox_service.STATUS_FAILED)
-            .exists()
-        )
-        query = query.filter(failed_exists)
+        query = query.filter(ConversationSummary.has_failed_outbox.is_(True))
 
     # Priority sort expression: urgent=0, high=1, medium=2, low=3, none=4
     priority_sort_expr = case(
@@ -463,24 +434,9 @@ def list_inbox_conversations(
         .limit(1)
     ).alias("latest_message")
 
-    unread_subq = (
-        db.query(
-            Message.conversation_id.label("conv_id"),
-            func.count(Message.id).label("unread_count"),
-        )
-        .filter(Message.direction == MessageDirection.inbound)
-        .filter(Message.status == MessageStatus.received)
-        .filter(Message.read_at.is_(None))
-        .group_by(Message.conversation_id)
-        .subquery()
-    )
-
     query = query.outerjoin(
         latest_message_subq,
         true(),
-    ).outerjoin(
-        unread_subq,
-        unread_subq.c.conv_id == Conversation.id,
     )
 
     if outbox_status_filter == outbox_service.STATUS_FAILED:
@@ -531,7 +487,7 @@ def list_inbox_conversations(
         latest_message_subq.c.last_message_at,
         latest_message_subq.c.metadata,
         latest_message_subq.c.has_attachments,
-        unread_subq.c.unread_count,
+        ConversationSummary.unread_count,
     ]
     if failed_outbox_subq is not None:
         cols.extend(
@@ -588,14 +544,15 @@ def get_inbox_stats(db: Session) -> dict:
     Returns: {total, open, pending, snoozed, resolved, unread}
     Uses single GROUP BY query instead of loading all conversations.
     """
+    _ensure_summary_rows(db)
     # Single query with GROUP BY for status counts
     status_counts = (
         db.query(
-            Conversation.status,
-            func.count(Conversation.id).label("count"),
+            ConversationSummary.status,
+            func.count(ConversationSummary.conversation_id).label("count"),
         )
-        .filter(Conversation.is_active.is_(True))
-        .group_by(Conversation.status)
+        .filter(ConversationSummary.is_active.is_(True))
+        .group_by(ConversationSummary.status)
         .all()
     )
 
@@ -620,24 +577,10 @@ def get_inbox_stats(db: Session) -> dict:
         elif status == ConversationStatus.resolved:
             stats["resolved"] = count
 
-    latest_inbound_at = (
-        select(func.max(_message_activity_ts()))
-        .where(Message.conversation_id == Conversation.id)
-        .where(Message.direction == MessageDirection.inbound)
-        .scalar_subquery()
-    )
-    latest_outbound_at = (
-        select(func.max(_message_activity_ts()))
-        .where(Message.conversation_id == Conversation.id)
-        .where(Message.direction == MessageDirection.outbound)
-        .scalar_subquery()
-    )
     stats["unread"] = int(
-        db.query(func.count(Conversation.id))
-        .filter(Conversation.is_active.is_(True))
-        .filter(Conversation.status != ConversationStatus.resolved)
-        .filter(latest_inbound_at.isnot(None))
-        .filter(or_(latest_outbound_at.is_(None), latest_inbound_at > latest_outbound_at))
+        db.query(func.count(ConversationSummary.conversation_id))
+        .filter(ConversationSummary.is_active.is_(True))
+        .filter(or_(ConversationSummary.needs_attention.is_(True), ConversationSummary.unreplied.is_(True)))
         .scalar()
         or 0
     )
@@ -651,7 +594,8 @@ def _count_active_conversations_for_filter(
     assignment_filter: str,
     assigned_person_id: str | None = None,
 ) -> int:
-    query = db.query(Conversation.id).filter(Conversation.is_active.is_(True))
+    _ensure_summary_rows(db)
+    query = db.query(ConversationSummary.conversation_id).filter(ConversationSummary.is_active.is_(True))
     filter_key = (assignment_filter or "").strip().lower()
 
     if filter_key in ("assigned", "assigned_to_me", "mine"):
@@ -668,59 +612,17 @@ def _count_active_conversations_for_filter(
         ]
         if not agent_ids:
             return 0
-        assigned_subq = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.agent_id.in_(agent_ids))
-            .distinct()
-        )
-        query = query.filter(Conversation.id.in_(assigned_subq))
+        query = query.filter(ConversationSummary.active_assignment_agent_id.in_(agent_ids))
     elif filter_key == "unassigned":
-        assigned_subq = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.is_active.is_(True))
-            .distinct()
-        )
-        query = query.filter(~Conversation.id.in_(assigned_subq)).filter(
-            _conversation_activity_ts() >= UNASSIGNED_ACTIVITY_START_UTC
+        query = query.filter(ConversationSummary.active_assignment_agent_id.is_(None)).filter(
+            ConversationSummary.active_assignment_team_id.is_(None)
+        ).filter(
+            ConversationSummary.latest_message_at >= UNASSIGNED_ACTIVITY_START_UTC
         )
     elif filter_key == "unreplied":
-        inbound_exists = (
-            db.query(Message.id)
-            .filter(Message.conversation_id == Conversation.id)
-            .filter(Message.direction == MessageDirection.inbound)
-            .exists()
-        )
-        outbound_exists = (
-            db.query(Message.id)
-            .filter(Message.conversation_id == Conversation.id)
-            .filter(Message.direction == MessageDirection.outbound)
-            .exists()
-        )
-        query = (
-            query.filter(Conversation.status != ConversationStatus.resolved)
-            .filter(inbound_exists)
-            .filter(~outbound_exists)
-        )
+        query = query.filter(ConversationSummary.unreplied.is_(True))
     elif filter_key == "needs_attention":
-        latest_inbound_at = (
-            select(func.max(_message_activity_ts()))
-            .where(Message.conversation_id == Conversation.id)
-            .where(Message.direction == MessageDirection.inbound)
-            .scalar_subquery()
-        )
-        latest_outbound_at = (
-            select(func.max(_message_activity_ts()))
-            .where(Message.conversation_id == Conversation.id)
-            .where(Message.direction == MessageDirection.outbound)
-            .scalar_subquery()
-        )
-        query = (
-            query.filter(Conversation.status != ConversationStatus.resolved)
-            .filter(latest_inbound_at.isnot(None))
-            .filter(latest_outbound_at.isnot(None))
-            .filter(latest_inbound_at > latest_outbound_at)
-        )
+        query = query.filter(ConversationSummary.needs_attention.is_(True))
     elif filter_key == "my_team":
         if not assigned_person_id:
             return 0
@@ -742,7 +644,7 @@ def _count_active_conversations_for_filter(
             .filter(ConversationAssignment.team_id.in_(crm_team_ids_subq))
             .distinct()
         )
-        query = query.filter(Conversation.id.in_(team_conv_subq))
+        query = query.filter(ConversationSummary.conversation_id.in_(team_conv_subq))
 
     return int(query.count() or 0)
 

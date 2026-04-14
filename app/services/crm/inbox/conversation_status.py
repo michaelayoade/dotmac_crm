@@ -129,6 +129,11 @@ def update_conversation_status(
                 conversation.resolved_at = None
                 conversation.resolution_time_seconds = None
                 db.commit()
+        if db is not None:
+            from app.services.crm.inbox.summaries import recompute_conversation_summary
+
+            recompute_conversation_summary(db, conversation_id)
+            db.commit()
         inbox_cache.invalidate_inbox_list()
         log_conversation_action(
             db,
@@ -181,6 +186,9 @@ def update_conversation_priority(
         return UpdatePriorityResult(kind="not_found")
 
     conv.priority = priority_enum
+    from app.services.crm.inbox.summaries import recompute_conversation_summary
+
+    recompute_conversation_summary(db, conversation_id)
     db.commit()
     inbox_cache.invalidate_inbox_list()
     log_conversation_action(

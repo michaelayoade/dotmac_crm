@@ -97,6 +97,34 @@ def sync_subscribers_from_splynx() -> dict[str, Any]:
     return results
 
 
+@celery_app.task(name="app.tasks.subscribers.refresh_billing_risk_cache")
+def refresh_billing_risk_cache() -> dict[str, Any]:
+    """Refresh cached subscriber billing-risk report rows from live provider data."""
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("BILLING_RISK_CACHE_REFRESH_START")
+    try:
+        from app.services.billing_risk_cache import refresh_cache
+
+        result = refresh_cache(session, due_soon_days=30, limit=10000)
+        logger.info(
+            "BILLING_RISK_CACHE_REFRESH_COMPLETE rows=%d refreshed_at=%s",
+            result.get("rows", 0),
+            result.get("refreshed_at"),
+        )
+        return result
+    except Exception:
+        status = "error"
+        session.rollback()
+        logger.exception("BILLING_RISK_CACHE_REFRESH_ERROR")
+        raise
+    finally:
+        session.close()
+        observe_job("billing_risk_cache_refresh", status, time.monotonic() - start)
+
+
 @celery_app.task(name="app.tasks.subscribers.reconcile_subscriber_identity")
 def reconcile_subscriber_identity(
     external_system: str = "splynx",
