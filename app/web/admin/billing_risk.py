@@ -297,6 +297,76 @@ def _retention_customer_id(row: dict) -> str:
     return str(row.get("_external_id") or row.get("subscriber_id") or row.get("_subscriber_number") or "").strip()
 
 
+def _export_text(value: object, default: str = "-") -> str:
+    text = str(value or "").strip()
+    return text or default
+
+
+def _export_currency(value: object) -> str:
+    try:
+        amount = float(str(value or 0))
+    except (TypeError, ValueError):
+        amount = 0.0
+    return f"₦{amount:,.2f}"
+
+
+def _export_int(value: object) -> int:
+    try:
+        return int(float(str(value or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _blocked_for_export_label(row: dict) -> str:
+    blocked_for_days = row.get("blocked_for_days")
+    if blocked_for_days in (None, ""):
+        blocked_date_text = str(row.get("blocked_date") or "").strip()[:10]
+        try:
+            blocked_date = date.fromisoformat(blocked_date_text)
+        except ValueError:
+            return "-"
+        blocked_for_days = max(0, (datetime.now(UTC).date() - blocked_date).days)
+    try:
+        days = int(float(str(blocked_for_days)))
+    except (TypeError, ValueError):
+        return "-"
+    return f"Blocked for {days} days"
+
+
+def _billing_risk_visible_export_rows(
+    db: Session,
+    churn_rows: list[dict],
+) -> list[dict[str, object]]:
+    engagement_history = _retention_engagements_by_customer(db, [_retention_customer_id(row) for row in churn_rows])
+    export_rows: list[dict[str, object]] = []
+    for row in churn_rows:
+        customer_id = _retention_customer_id(row)
+        customer_engagements = engagement_history.get(customer_id) or []
+        latest_engagement = customer_engagements[0] if customer_engagements else None
+        export_rows.append(
+            {
+                "Name": _export_text(row.get("name")),
+                "Phone": _export_text(row.get("phone")),
+                "City": _export_text(row.get("city")),
+                "Street": _export_text(row.get("street")),
+                "Area": _export_text(row.get("area")),
+                "Plan": _export_text(row.get("plan")),
+                "MRR Total": _export_currency(row.get("mrr_total")),
+                "Status": _export_text(row.get("subscriber_status")),
+                "Risk Segment": _export_text(row.get("risk_segment")),
+                "Billing Start Date": _export_text(row.get("billing_start_date")),
+                "Blocked Date": _export_text(row.get("blocked_date")),
+                "Blocked For": _blocked_for_export_label(row),
+                "Tickets Open": _export_int(row.get("open_tickets")),
+                "Tickets Closed": _export_int(row.get("closed_tickets")),
+                "Tickets Total": _export_int(row.get("total_tickets")),
+                "Last Outcome": _export_text(latest_engagement.get("outcome") if latest_engagement else None),
+                "Follow-up": _export_text(latest_engagement.get("followUp") if latest_engagement else None),
+            }
+        )
+    return export_rows
+
+
 def _pipeline_stage_from_engagement(engagement: dict[str, str | None] | None) -> str:
     if not engagement:
         return "Contacted"
@@ -892,6 +962,8 @@ def subscriber_billing_risk_export(
     segment: str | None = Query(None),
     segments: list[str] = Query(default=[]),
     days_past_due: str | None = Query(None),
+    search: str | None = Query(None),
+    bucket: str | None = Query("all"),
 ):
     query_segments = request.query_params.getlist("segments")
     query_segment = request.query_params.get("segment")
@@ -908,31 +980,14 @@ def subscriber_billing_risk_export(
         segment=segment,
         segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
-        limit=2000,
+        search=search,
+        overdue_bucket=bucket,
+        limit=6000,
+        enrich_visible_rows=False,
     )
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
-    export_data = [
-        {
-            "Name": row["name"],
-            "Email": row["email"],
-            "Phone": row.get("phone", ""),
-            "Subscriber Status": row["subscriber_status"],
-            "Risk Segment": row["risk_segment"],
-            "Next Bill Date": row["next_bill_date"],
-            "Days To Due": row["days_to_due"],
-            "Days Past Due": row.get("days_past_due", ""),
-            "Balance": row["balance"],
-            "Billing Cycle": row["billing_cycle"],
-            "Last Transaction Date": row["last_transaction_date"],
-            "Expires In": row["expires_in"],
-            "Invoiced Until": row["invoiced_until"],
-            "Days Since Last Payment": row.get("days_since_last_payment", ""),
-            "Total Paid": row["total_paid"],
-            "High Balance Risk": "Yes" if row["is_high_balance_risk"] else "No",
-        }
-        for row in churn_rows
-    ]
+    export_data = _billing_risk_visible_export_rows(db, churn_rows)
     filename = f"subscriber_billing_risk_{datetime.now(UTC).strftime('%Y%m%d')}.csv"
     return _csv_response(export_data, filename)
