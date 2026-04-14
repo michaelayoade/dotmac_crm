@@ -274,7 +274,9 @@ def _retention_engagement_payload(row: CustomerRetentionEngagement) -> dict[str,
 
 
 def _retention_engagements_by_customer(db: Session, customer_ids: list[str]) -> dict[str, list[dict[str, str | None]]]:
-    normalized_ids = sorted({str(customer_id or "").strip() for customer_id in customer_ids if str(customer_id or "").strip()})
+    normalized_ids = sorted(
+        {str(customer_id or "").strip() for customer_id in customer_ids if str(customer_id or "").strip()}
+    )
     if not normalized_ids:
         return {}
     rows = db.scalars(
@@ -697,9 +699,12 @@ async def customer_retention_engagement_create(
     if rep_person_id is not None:
         rep = db.get(Person, rep_person_id)
         if rep is not None:
-            rep_label = str(
-                rep.display_name or f"{rep.first_name or ''} {rep.last_name or ''}".strip() or rep.email or ""
-            ).strip() or rep_label
+            rep_label = (
+                str(
+                    rep.display_name or f"{rep.first_name or ''} {rep.last_name or ''}".strip() or rep.email or ""
+                ).strip()
+                or rep_label
+            )
 
     engagement = CustomerRetentionEngagement(
         customer_external_id=customer_id,
@@ -733,11 +738,7 @@ def customer_retention_tracker_detail(
         enrich_visible_rows=False,
     )
     customer = next(
-        (
-            row
-            for row in churn_rows
-            if _retention_customer_id(row) == str(customer_id)
-        ),
+        (row for row in churn_rows if _retention_customer_id(row) == str(customer_id)),
         None,
     )
     if customer is not None:
