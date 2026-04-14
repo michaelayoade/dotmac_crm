@@ -469,6 +469,36 @@
                 exportLink.href = `/admin/reports/subscribers/billing-risk/export?${params.toString()}`;
             }
 
+            function csvCell(value) {
+                const text = String(value || '').replace(/\s+/g, ' ').trim();
+                return `"${text.replace(/"/g, '""')}"`;
+            }
+
+            function downloadVisibleRowsCsv() {
+                const tbody = document.getElementById('billing-risk-live-body');
+                const table = tbody?.closest('table');
+                if (!tbody || !table) return;
+                const headers = Array.from(table.querySelectorAll('thead th'))
+                    .map(cell => cell.textContent.trim())
+                    .filter(header => header && header !== 'Engagement');
+                const rows = Array.from(tbody.querySelectorAll('tr'))
+                    .filter(row => row.querySelector('td[data-billing-risk-row="1"]'))
+                    .map(row => Array.from(row.children)
+                        .slice(0, headers.length)
+                        .map(cell => cell.textContent.replace(/\s+/g, ' ').trim() || '-'));
+                const csv = [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\n');
+                const blob = new Blob([`${csv}\n`], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+                link.href = url;
+                link.download = `subscriber_billing_risk_visible_${today}.csv`;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(url);
+            }
+
             function parseBlockedDate(text) {
                 const value = (text || '').trim();
                 if (!value || value === '-' || value === 'N/A' || value === 'Loading...') return null;
@@ -589,7 +619,11 @@
                     loadResults(1, true);
                 });
             }
-            exportLink?.addEventListener('click', syncExportLink);
+            exportLink?.addEventListener('click', (event) => {
+                event.preventDefault();
+                syncExportLink();
+                downloadVisibleRowsCsv();
+            });
 
             panelOverlay?.addEventListener('click', closeEngagementPanel);
             panelClose?.addEventListener('click', closeEngagementPanel);
