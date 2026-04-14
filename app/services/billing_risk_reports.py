@@ -391,7 +391,9 @@ def get_billing_risk_table(
             return subscriber_sync_by_email[email_key]
         return {}
 
-    def _ticket_counts_for_subscribers(subscriber_rows_by_id: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, int]]:
+    def _ticket_counts_for_subscribers(
+        subscriber_rows_by_id: Mapping[str, Mapping[str, Any]],
+    ) -> dict[str, dict[str, int]]:
         subscriber_ids = [subscriber_id for subscriber_id in subscriber_rows_by_id if subscriber_id]
         if not subscriber_ids:
             return {}

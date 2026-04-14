@@ -107,23 +107,25 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
     monkeypatch.setattr(
         billing_risk_web,
         "_retention_engagements_by_customer",
-        lambda _db, customer_ids: {
-            "12345": [
-                {
-                    "id": "engagement-1",
-                    "customerId": "12345",
-                    "customerName": "Blocked Customer",
-                    "outcome": "Promised to Pay",
-                    "note": "Customer promised payment",
-                    "followUp": "2000-01-01",
-                    "rep": "Sales Rep",
-                    "repPersonId": "rep-1",
-                    "createdAt": "2026-04-14T10:00:00",
-                }
-            ]
-        }
-        if "12345" in customer_ids
-        else {},
+        lambda _db, customer_ids: (
+            {
+                "12345": [
+                    {
+                        "id": "engagement-1",
+                        "customerId": "12345",
+                        "customerName": "Blocked Customer",
+                        "outcome": "Promised to Pay",
+                        "note": "Customer promised payment",
+                        "followUp": "2000-01-01",
+                        "rep": "Sales Rep",
+                        "repPersonId": "rep-1",
+                        "createdAt": "2026-04-14T10:00:00",
+                    }
+                ]
+            }
+            if "12345" in customer_ids
+            else {}
+        ),
     )
     monkeypatch.setattr(
         billing_risk_service,
@@ -346,23 +348,25 @@ def test_customer_retention_tracker_renders_from_billing_risk_filters(monkeypatc
     monkeypatch.setattr(
         billing_risk_web,
         "_retention_engagements_by_customer",
-        lambda _db, customer_ids: {
-            "12345": [
-                {
-                    "id": "engagement-1",
-                    "customerId": "12345",
-                    "customerName": "Blocked Customer",
-                    "outcome": "Promised to Pay",
-                    "note": "Customer promised payment",
-                    "followUp": "2000-01-01",
-                    "rep": "Sales Rep",
-                    "repPersonId": "rep-1",
-                    "createdAt": "2026-04-14T10:00:00",
-                }
-            ]
-        }
-        if "12345" in customer_ids
-        else {},
+        lambda _db, customer_ids: (
+            {
+                "12345": [
+                    {
+                        "id": "engagement-1",
+                        "customerId": "12345",
+                        "customerName": "Blocked Customer",
+                        "outcome": "Promised to Pay",
+                        "note": "Customer promised payment",
+                        "followUp": "2000-01-01",
+                        "rep": "Sales Rep",
+                        "repPersonId": "rep-1",
+                        "createdAt": "2026-04-14T10:00:00",
+                    }
+                ]
+            }
+            if "12345" in customer_ids
+            else {}
+        ),
     )
     monkeypatch.setattr(
         billing_risk_service,
@@ -583,23 +587,25 @@ def test_customer_retention_tracker_detail_renders_customer_profile(monkeypatch)
     monkeypatch.setattr(
         billing_risk_web,
         "_retention_engagements_by_customer",
-        lambda _db, customer_ids: {
-            "12345": [
-                {
-                    "id": "engagement-1",
-                    "customerId": "12345",
-                    "customerName": "Tracker Customer",
-                    "outcome": "Promised to Pay",
-                    "note": "Customer said payment will come on Friday",
-                    "followUp": "2000-01-01",
-                    "rep": "Sales Rep - Enterprise sales",
-                    "repPersonId": "rep-1",
-                    "createdAt": "2026-04-14T10:00:00",
-                }
-            ]
-        }
-        if customer_ids == ["12345"]
-        else {},
+        lambda _db, customer_ids: (
+            {
+                "12345": [
+                    {
+                        "id": "engagement-1",
+                        "customerId": "12345",
+                        "customerName": "Tracker Customer",
+                        "outcome": "Promised to Pay",
+                        "note": "Customer said payment will come on Friday",
+                        "followUp": "2000-01-01",
+                        "rep": "Sales Rep - Enterprise sales",
+                        "repPersonId": "rep-1",
+                        "createdAt": "2026-04-14T10:00:00",
+                    }
+                ]
+            }
+            if customer_ids == ["12345"]
+            else {}
+        ),
     )
 
     request = Request(
@@ -642,23 +648,25 @@ def test_customer_retention_engagements_returns_saved_history(monkeypatch):
     monkeypatch.setattr(
         billing_risk_web,
         "_retention_engagements_by_customer",
-        lambda _db, customer_ids: {
-            "12345": [
-                {
-                    "id": "engagement-1",
-                    "customerId": "12345",
-                    "customerName": "Tracker Customer",
-                    "outcome": "Renewing",
-                    "note": "Payment received",
-                    "followUp": "",
-                    "rep": "Sales Rep",
-                    "repPersonId": "rep-1",
-                    "createdAt": "2026-04-14T10:00:00",
-                }
-            ]
-        }
-        if customer_ids == ["12345"]
-        else {},
+        lambda _db, customer_ids: (
+            {
+                "12345": [
+                    {
+                        "id": "engagement-1",
+                        "customerId": "12345",
+                        "customerName": "Tracker Customer",
+                        "outcome": "Renewing",
+                        "note": "Payment received",
+                        "followUp": "",
+                        "rep": "Sales Rep",
+                        "repPersonId": "rep-1",
+                        "createdAt": "2026-04-14T10:00:00",
+                    }
+                ]
+            }
+            if customer_ids == ["12345"]
+            else {}
+        ),
     )
 
     request = Request(
