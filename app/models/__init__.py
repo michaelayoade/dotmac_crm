@@ -29,6 +29,7 @@ from app.models.connector import (  # noqa: F401
     ConnectorType,
 )
 from app.models.contracts import ContractSignature  # noqa: F401
+from app.models.customer_retention import CustomerRetentionEngagement  # noqa: F401
 from app.models.crm import (  # noqa: F401
     AgentPresence,
     AgentPresenceEvent,

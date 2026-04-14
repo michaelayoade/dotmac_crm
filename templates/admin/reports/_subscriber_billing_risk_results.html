@@ -35,7 +35,8 @@
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
             <th class="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Phone</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">City</th>
-            <th class="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">AREA</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Street</th>
+            <th class="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Area</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
             <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">MRR Total</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
@@ -43,7 +44,7 @@
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Billing Start Date</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Blocked Date</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Blocked For</th>
-            <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Balance</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tickets</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Outcome</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Follow-up</th>
             <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Engagement</th>
@@ -53,6 +54,7 @@
         {% for row in churn_rows %}
         {% set blocked_for_days = row.blocked_for_days if row.blocked_for_days is defined and row.blocked_for_days is not none else none %}
         {% set engagement_customer_id = row.get('_external_id') or row.subscriber_id or row.get('_subscriber_number') or '' %}
+        {% set ticket_subscriber_id = row.ticket_subscriber_id or '' %}
         {% call table_row(color="rose") %}
             <td
                 class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white"
@@ -60,27 +62,41 @@
                 data-name="{{ row.name|lower }}"
                 data-phone="{{ (row.phone or '')|lower }}"
                 data-city="{{ (row.city or '')|lower }}"
+                data-street="{{ (row.street or '')|lower }}"
                 data-area="{{ (row.area or '')|lower }}"
                 data-plan="{{ (row.plan or '')|lower }}"
                 data-balance="{{ (row.balance or 0)|float }}"
                 data-blocked-for-days="{{ blocked_for_days if blocked_for_days is not none else '' }}"
                 data-customer-id="{{ engagement_customer_id }}"
-            >{{ row.name }}</td>
-            <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.phone or "N/A" }}</td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.city or "N/A" }}</td>
-            <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.area or "N/A" }}</td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan or "N/A" }}</td>
-            <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.mrr_total or 0)|float) }}</td>
-            <td class="px-6 py-3 text-sm">{{ status_badge(row.subscriber_status, "warning" if row.risk_segment in ["Suspended", "Due Soon", "Overdue"] else "danger", size="sm") }}</td>
-            <td class="px-6 py-3 text-sm text-slate-900 dark:text-white">{{ row.risk_segment }}</td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.billing_start_date or "N/A" }}</td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300" data-blocked-date-cell="1">{{ row.blocked_date or "N/A" }}</td>
+            >{{ row.name or "-" }}</td>
+            <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.phone or "-" }}</td>
+            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.city or "-" }}</td>
+            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.street or "-" }}</td>
+            <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.area or "-" }}</td>
+            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan or "-" }}</td>
+            <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">₦{{ "{:,.2f}".format((row.mrr_total or 0)|float) }}</td>
+            <td class="px-6 py-3 text-sm">{% if row.subscriber_status %}{{ status_badge(row.subscriber_status, "warning" if row.risk_segment in ["Suspended", "Due Soon", "Overdue"] else "danger", size="sm") }}{% else %}<span class="text-slate-500 dark:text-slate-400">-</span>{% endif %}</td>
+            <td class="px-6 py-3 text-sm text-slate-900 dark:text-white">{{ row.risk_segment or "-" }}</td>
+            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.billing_start_date or "-" }}</td>
+            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300" data-blocked-date-cell="1">{{ row.blocked_date or "-" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">
                 <span data-blocked-for-tag data-blocked-for-days="{{ blocked_for_days if blocked_for_days is not none else '' }}" class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    {% if blocked_for_days is not none %}Blocked for {{ blocked_for_days }}d{% else %}-{% endif %}
+                    {% if blocked_for_days is not none %}Blocked for {{ blocked_for_days }} days{% else %}-{% endif %}
                 </span>
             </td>
-            <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.balance or 0)|float) }}</td>
+            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">
+                <div class="flex flex-wrap gap-1.5">
+                    {% if ticket_subscriber_id %}
+                    <a href="/admin/support/tickets?subscriber={{ ticket_subscriber_id }}&status=not_closed" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50">Open {{ row.open_tickets|default(0) }}</a>
+                    <a href="/admin/support/tickets?subscriber={{ ticket_subscriber_id }}&status=closed" class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:hover:bg-emerald-900/50">Closed {{ row.closed_tickets|default(0) }}</a>
+                    <a href="/admin/support/tickets?subscriber={{ ticket_subscriber_id }}&status=" class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Total {{ row.total_tickets|default(0) }}</a>
+                    {% else %}
+                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-200">Open {{ row.open_tickets|default(0) }}</span>
+                    <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200">Closed {{ row.closed_tickets|default(0) }}</span>
+                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">Total {{ row.total_tickets|default(0) }}</span>
+                    {% endif %}
+                </div>
+            </td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300" data-engagement-outcome-cell="{{ engagement_customer_id }}">-</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300" data-engagement-follow-up-cell="{{ engagement_customer_id }}">-</td>
             <td class="px-6 py-3 text-right text-sm">
@@ -91,7 +107,7 @@
                         data-engagement-open="1"
                         data-customer-id="{{ engagement_customer_id }}"
                         data-customer-name="{{ row.name|e }}"
-                        data-customer-plan="{{ (row.plan or 'N/A')|e }}"
+                        data-customer-plan="{{ (row.plan or '-')|e }}"
                         data-customer-price="{{ '{:,.2f}'.format((row.mrr_total or 0)|float) }}"
                     >Update</button>
                     <a href="/admin/customer-retention/{{ engagement_customer_id }}" class="text-xs font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-300 dark:hover:text-rose-200">View tracker</a>
@@ -99,7 +115,7 @@
             </td>
         {% endcall %}
         {% else %}
-        {{ empty_state(title="No billing-risk rows", message="No subscribers matched the current computed billing-risk rules and filters.", color="rose", color2="red", colspan=15) }}
+        {{ empty_state(title="No billing-risk rows", message="No subscribers matched the current computed billing-risk rules and filters.", color="rose", color2="red", colspan=16) }}
         {% endfor %}
     </tbody>
 </table>

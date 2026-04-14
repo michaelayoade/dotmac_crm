@@ -28,38 +28,6 @@
         {{ stats_card("High Balance Risk", kpis.high_balance_risk_count|default(0), color="slate", color2="gray") }}
     {% endcall %}
 
-    <div class="grid grid-cols-1 gap-6">
-        {% call table_shell(table_id="billing-risk-segments", title="Computed Segment Breakdown", color="amber", count=segment_breakdown|length, bulk_selectable=False) %}
-        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-            <thead>
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Segment</th>
-                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Count</th>
-                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Share</th>
-                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Exposure</th>
-                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">High Balance</th>
-                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Billing Mix</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                {% for row in segment_breakdown %}
-                {% call table_row(color="amber") %}
-                    <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.segment }}</td>
-                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.count }}</td>
-                    <td class="px-6 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.share_pct }}%</td>
-                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.balance or 0)|float) }}</td>
-                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.high_balance_count }}</td>
-                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.billing_mix or "No billing cycle data" }}</td>
-                {% endcall %}
-                {% else %}
-                {{ empty_state(title="No computed segments", message="No subscribers matched the current billing-risk segment rules and filters.", color="amber", color2="orange", colspan=6) }}
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endcall %}
-
-    </div>
-
     {% call dashboard_filter_panel(color="rose", title="Computed Segment Filter") %}
     <div class="flex flex-wrap items-center gap-2">
         <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if days_past_due is not none %}&days_past_due={{ days_past_due }}{% endif %}{% if high_balance_only %}&high_balance_only=true{% endif %}"
@@ -84,12 +52,21 @@
         <div class="grid grid-cols-1 gap-3 lg:grid-cols-4">
             <div class="lg:col-span-2">
                 <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Blocked Customers</label>
-                <input
-                    id="billing-risk-search"
-                    type="search"
-                    placeholder="Search name, ID, or plan"
-                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
-                >
+                <div class="flex gap-2">
+                    <input
+                        id="billing-risk-search"
+                        type="search"
+                        placeholder="Search name, ID, or plan"
+                        class="block h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                    >
+                    <button
+                        id="billing-risk-search-button"
+                        type="button"
+                        class="inline-flex h-10 items-center rounded-lg bg-rose-600 px-4 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-wait disabled:opacity-70"
+                    >
+                        Search
+                    </button>
+                </div>
             </div>
             <div class="lg:col-span-2">
                 <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Blocked For Buckets</label>
@@ -169,10 +146,9 @@
                         <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400" for="engagement-rep">Rep</label>
                         <select id="engagement-rep" required class="block h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-white">
                             <option value="">Select rep</option>
-                            <option>Billing Desk</option>
-                            <option>Customer Success</option>
-                            <option>Retention Desk</option>
-                            <option>Field Ops</option>
+                            {% for rep in rep_options %}
+                            <option value="{{ rep.value }}" data-rep-person-id="{{ rep.person_id|default('') }}" data-rep-label="{{ rep.label }}{% if rep.team %} - {{ rep.team }}{% endif %}">{{ rep.label }}{% if rep.team %} - {{ rep.team }}{% endif %}</option>
+                            {% endfor %}
                         </select>
                     </div>
                 </div>
@@ -198,10 +174,10 @@
             liveControls.dataset.bound = '1';
 
             const searchInput = document.getElementById('billing-risk-search');
+            const searchButton = document.getElementById('billing-risk-search-button');
             const bucketButtons = Array.from(document.querySelectorAll('.billing-risk-bucket'));
             let activeBucket = results.dataset.bucket || 'all';
             let currentPage = Number(results.dataset.page || '1');
-            let debounceHandle = null;
             let activeRequestId = 0;
             let selectedEngagementCustomer = null;
 
@@ -248,6 +224,14 @@
 
             if (engagementFollowUp) {
                 engagementFollowUp.min = tomorrowDateValue();
+            }
+
+            function csrfToken() {
+                if (typeof getCsrfToken === 'function') {
+                    return getCsrfToken() || '';
+                }
+                const meta = document.querySelector('meta[name="csrf-token"]');
+                return meta?.getAttribute('content') || '';
             }
 
             const noteSuggestions = {
@@ -446,15 +430,15 @@
                     return { label: '-', className: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' };
                 }
                 if (days <= 7) {
-                    return { label: `${days}d`, className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200' };
+                    return { label: `${days} days`, className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200' };
                 }
                 if (days <= 30) {
-                    return { label: `${days}d`, className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200' };
+                    return { label: `${days} days`, className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200' };
                 }
                 if (days <= 60) {
-                    return { label: `${days}d`, className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-200' };
+                    return { label: `${days} days`, className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-200' };
                 }
-                return { label: `${days}d`, className: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200' };
+                return { label: `${days} days`, className: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200' };
             }
 
             function applyBucketButtonState() {
@@ -477,7 +461,7 @@
 
             function parseBlockedDate(text) {
                 const value = (text || '').trim();
-                if (!value || value === 'N/A' || value === 'Loading...') return null;
+                if (!value || value === '-' || value === 'N/A' || value === 'Loading...') return null;
                 const parsed = new Date(`${value}T00:00:00Z`);
                 return Number.isNaN(parsed.getTime()) ? null : parsed;
             }
@@ -516,6 +500,24 @@
                 });
                 for (const row of rows) tbody.appendChild(row);
                 renderEngagementCells();
+                loadEngagementsForVisibleRows();
+            }
+
+            async function loadEngagementsForVisibleRows() {
+                const customerIds = Array.from(document.querySelectorAll('td[data-customer-id]'))
+                    .map(cell => cell.getAttribute('data-customer-id') || '')
+                    .filter(Boolean);
+                if (!customerIds.length) return;
+                const params = new URLSearchParams();
+                for (const customerId of [...new Set(customerIds)]) {
+                    params.append('customer_id', customerId);
+                }
+                const response = await fetch(`/admin/customer-retention/engagements?${params.toString()}`, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                if (!response.ok) return;
+                const payload = await response.json();
+                engagements.setValue(payload.engagements || {});
             }
 
             async function loadResults(page, resetSearchPage = false) {
@@ -536,11 +538,19 @@
                     params.append('segments', segment);
                 }
                 results.classList.add('opacity-60');
+                if (searchButton) {
+                    searchButton.disabled = true;
+                    searchButton.textContent = 'Searching...';
+                }
                 const response = await fetch(`${results.dataset.endpoint}?${params.toString()}`, {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' },
                 });
                 if (requestId !== activeRequestId) return;
                 results.classList.remove('opacity-60');
+                if (searchButton) {
+                    searchButton.disabled = false;
+                    searchButton.textContent = 'Search';
+                }
                 if (!response.ok) return;
                 results.innerHTML = await response.text();
                 results.dataset.page = String(currentPage);
@@ -551,11 +561,14 @@
             hydrateResults();
             applyBucketButtonState();
 
-            searchInput?.addEventListener('input', () => {
-                window.clearTimeout(debounceHandle);
-                debounceHandle = window.setTimeout(() => {
+            searchButton?.addEventListener('click', () => {
+                loadResults(1, true);
+            });
+            searchInput?.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
                     loadResults(1, true);
-                }, 300);
+                }
             });
             for (const button of bucketButtons) {
                 button.addEventListener('click', () => {
@@ -575,15 +588,30 @@
                 engagementSubmit.disabled = true;
                 engagementSubmit.textContent = 'Saving...';
                 engagementSaveMessage.textContent = '';
-                window.setTimeout(() => {
-                    const entry = {
-                        id: `${customerId}-${Date.now()}`,
+                const selectedRep = engagementRep.selectedOptions?.[0];
+                fetch('/admin/customer-retention/engagements', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-Token': csrfToken(),
+                    },
+                    body: JSON.stringify({
+                        customerId,
+                        customerName: panelName.textContent || '',
                         outcome: engagementOutcome.value,
                         note: engagementNote.value.trim(),
                         followUp: engagementFollowUp.value,
-                        rep: engagementRep.value,
-                        createdAt: new Date().toISOString(),
-                    };
+                        repPersonId: selectedRep?.dataset.repPersonId || '',
+                        rep: selectedRep?.dataset.repLabel || selectedRep?.textContent?.trim() || '',
+                    }),
+                }).then(async (response) => {
+                    if (!response.ok) {
+                        throw new Error('Save failed');
+                    }
+                    return response.json();
+                }).then((payload) => {
+                    const entry = payload.engagement;
                     engagements.setValue((current) => ({
                         ...current,
                         [customerId]: [entry, ...(current[customerId] || [])],
@@ -597,7 +625,11 @@
                     window.setTimeout(() => {
                         engagementSaveMessage.textContent = '';
                     }, 1500);
-                }, 350);
+                }).catch(() => {
+                    engagementSaveMessage.textContent = 'Could not save. Try again.';
+                    engagementSubmit.disabled = false;
+                    engagementSubmit.textContent = 'Save Engagement';
+                });
             });
 
             engagementOutcome?.addEventListener('change', () => {

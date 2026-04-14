@@ -19,6 +19,7 @@ from app.models.person import ChannelType as PersonChannelType
 from app.models.person import Person, PersonChannel
 from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus
 from app.models.subscriber import Subscriber, SubscriberStatus
+from app.models.tickets import Ticket, TicketStatus
 from app.services import subscriber_reports as subscriber_reports_service
 
 _clean_report_name = subscriber_reports_service._clean_report_name
@@ -38,6 +39,16 @@ _SPYLNX_LIVE_CACHE_TTLS = {
 _SPYLNX_LIVE_CACHE: dict[tuple[str, tuple[object, ...]], tuple[float, Any]] = {}
 _SPYLNX_LIVE_CACHE_LOCK = Lock()
 _BILLING_RISK_SEGMENT_ORDER = ["Due Soon", "Suspended", "Churned", "Pending"]
+_OPEN_TICKET_STATUSES = (
+    TicketStatus.new,
+    TicketStatus.open,
+    TicketStatus.pending,
+    TicketStatus.waiting_on_customer,
+    TicketStatus.lastmile_rerun,
+    TicketStatus.site_under_construction,
+    TicketStatus.on_hold,
+)
+_FINAL_TICKET_STATUSES = (TicketStatus.closed, TicketStatus.canceled, TicketStatus.merged)
 
 
 def clear_live_splynx_cache() -> None:
@@ -215,6 +226,7 @@ def get_billing_risk_table(
                 str(row.get("_subscriber_number") or ""),
                 str(row.get("phone") or ""),
                 str(row.get("city") or ""),
+                str(row.get("street") or ""),
                 str(row.get("area") or ""),
                 str(row.get("plan") or ""),
             ]
@@ -265,6 +277,7 @@ def get_billing_risk_table(
     }
     people_by_email: dict[str, tuple[str, str]] = {}
     channels_by_person: dict[str, list[PersonChannel]] = {}
+    subscriber_sync_by_id: dict[str, dict[str, Any]] = {}
     subscriber_sync_by_external_id: dict[str, dict[str, Any]] = {}
     subscriber_sync_by_email: dict[str, dict[str, Any]] = {}
     subscriber_sync_by_login: dict[str, dict[str, Any]] = {}
@@ -294,6 +307,8 @@ def get_billing_risk_table(
     if customer_external_ids or customer_emails or customer_logins:
         subscriber_rows = db.execute(
             select(
+                Subscriber.id,
+                Subscriber.person_id,
                 Subscriber.external_id,
                 Subscriber.subscriber_number,
                 Subscriber.sync_metadata,
@@ -319,6 +334,8 @@ def get_billing_risk_table(
             )
         ).all()
         for (
+            subscriber_id,
+            person_id,
             external_id,
             subscriber_number,
             sync_metadata,
@@ -334,6 +351,8 @@ def get_billing_risk_table(
             person_email,
         ) in subscriber_rows:
             cached_row = {
+                "id": str(subscriber_id) if subscriber_id else "",
+                "person_id": str(person_id) if person_id else "",
                 "sync_metadata": sync_metadata if isinstance(sync_metadata, Mapping) else {},
                 "suspended_at": _coerce_datetime_utc(suspended_at),
                 "next_bill_date": _coerce_datetime_utc(next_bill_date),
@@ -345,6 +364,9 @@ def get_billing_risk_table(
                 "service_address_line1": str(service_address_line1 or "").strip(),
                 "activated_at": _coerce_datetime_utc(activated_at),
             }
+            subscriber_key = str(subscriber_id or "").strip()
+            if subscriber_key:
+                subscriber_sync_by_id[subscriber_key] = cached_row
             external_key = str(external_id or "").strip()
             if external_key:
                 subscriber_sync_by_external_id[external_key] = cached_row
@@ -368,6 +390,46 @@ def get_billing_risk_table(
         if email_key and email_key in subscriber_sync_by_email:
             return subscriber_sync_by_email[email_key]
         return {}
+
+    def _ticket_counts_for_subscribers(subscriber_rows_by_id: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, int]]:
+        subscriber_ids = [subscriber_id for subscriber_id in subscriber_rows_by_id if subscriber_id]
+        if not subscriber_ids:
+            return {}
+        rows = db.execute(
+            select(
+                Ticket.subscriber_id,
+                func.count(Ticket.id).label("total_count"),
+                func.count(Ticket.id).filter(Ticket.status.in_(_OPEN_TICKET_STATUSES)).label("open_count"),
+                func.count(Ticket.id).filter(Ticket.status == TicketStatus.closed).label("closed_count"),
+                func.count(Ticket.id).filter(Ticket.status.in_(_FINAL_TICKET_STATUSES)).label("final_count"),
+            )
+            .where(
+                Ticket.is_active.is_(True),
+                Ticket.subscriber_id.in_(subscriber_ids),
+            )
+            .group_by(Ticket.subscriber_id)
+        ).all()
+        counts_by_subscriber: dict[str, dict[str, int]] = {}
+        for subscriber_id, total_count, open_count, closed_count, final_count in rows:
+            subscriber_key = str(subscriber_id or "").strip()
+            if not subscriber_key:
+                continue
+            bucket = counts_by_subscriber.setdefault(
+                subscriber_key,
+                {
+                    "open_tickets": 0,
+                    "closed_tickets": 0,
+                    "final_tickets": 0,
+                    "total_tickets": 0,
+                },
+            )
+            bucket["open_tickets"] += int(open_count or 0)
+            bucket["closed_tickets"] += int(closed_count or 0)
+            bucket["final_tickets"] += int(final_count or 0)
+            bucket["total_tickets"] += int(total_count or 0)
+        return counts_by_subscriber
+
+    ticket_counts_by_subscriber = _ticket_counts_for_subscribers(subscriber_sync_by_id)
 
     def _contact_phone(email_value: str, default_phone: str) -> str:
         formatted_default = _format_phone_display(default_phone)
@@ -513,6 +575,28 @@ def get_billing_risk_table(
                 return label
         return ""
 
+    def _live_street_address(customer_payload: Mapping[str, Any], cached_subscriber: Mapping[str, Any]) -> str:
+        ignored_values = {"", "-", "n/a", "na", "none", "null", "unknown"}
+        street_parts: list[str] = []
+        seen_parts: set[str] = set()
+        for candidate in (
+            customer_payload.get("street_1"),
+            customer_payload.get("street_2"),
+            cached_subscriber.get("service_address_line1"),
+        ):
+            part = " ".join(str(candidate or "").replace("\r", " ").replace("\n", " ").split())
+            if part.casefold() in ignored_values:
+                continue
+            dedupe_key = part.casefold().strip(" ,")
+            if not dedupe_key or dedupe_key in seen_parts:
+                continue
+            seen_parts.add(dedupe_key)
+            street_parts.append(part.strip(" ,"))
+        street = ", ".join(street_parts)
+        if street:
+            return street
+        return ""
+
     def _live_blocked_date(customer_payload: Mapping[str, Any], mapped_payload: Mapping[str, Any]) -> str:
         direct_suspended = _coerce_datetime_utc(mapped_payload.get("suspended_at"))
         if direct_suspended is not None:
@@ -654,6 +738,8 @@ def get_billing_risk_table(
                 customer.get("street_2"),
             )
         )
+        street_value = _live_street_address(customer, cached_subscriber)
+        ticket_counts = ticket_counts_by_subscriber.get(str(cached_subscriber.get("id") or ""), {})
         mrr_total_value = _parse_balance_amount(customer.get("mrr_total"))
         live_results.append(
             {
@@ -662,6 +748,7 @@ def get_billing_risk_table(
                 "email": email_value,
                 "phone": _contact_phone(email_value, phone_value),
                 "city": city_value,
+                "street": street_value,
                 "mrr_total": mrr_total_value,
                 "subscriber_status": status_value.replace("_", " ").title(),
                 "area": area_value,
@@ -681,7 +768,13 @@ def get_billing_risk_table(
                 "total_paid": _parse_balance_amount(_metadata_text(sync_metadata, "total_paid")),
                 "days_to_due": due_days,
                 "risk_segment": live_segment_value,
-                "_person_id": "",
+                "open_tickets": int(ticket_counts.get("open_tickets") or 0),
+                "closed_tickets": int(ticket_counts.get("closed_tickets") or 0),
+                "final_tickets": int(ticket_counts.get("final_tickets") or 0),
+                "total_tickets": int(ticket_counts.get("total_tickets") or 0),
+                "_person_id": str(cached_subscriber.get("person_id") or ""),
+                "ticket_subscriber_id": str(cached_subscriber.get("id") or ""),
+                "_subscriber_uuid": str(cached_subscriber.get("id") or ""),
                 "_external_id": str(customer.get("id") or ""),
                 "_subscriber_number": str(mapped.get("subscriber_number") or ""),
                 "_last_synced_at": "",
