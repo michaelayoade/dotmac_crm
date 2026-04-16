@@ -336,16 +336,16 @@ def _extract_meta_whatsapp_messages(payload: dict, trace_id: str | None = None) 
                 if not isinstance(call, dict):
                     continue
                 contact_address = call.get("from")
-                call_payload_dict: dict[str, object] = call
+                call_event_payload: dict[str, object] = call
 
-                call_status = _coerce_text(call_payload_dict.get("event"))
-                call_type = _coerce_text(call_payload_dict.get("type"))
-                call_direction = _coerce_text(call_payload_dict.get("call_direction"))
+                call_status = _coerce_text(call_event_payload.get("event"))
+                call_type = _coerce_text(call_event_payload.get("type"))
+                call_direction = _coerce_text(call_event_payload.get("call_direction"))
                 if not call_direction:
-                    call_direction = _coerce_text(call_payload_dict.get("direction"))
-                call_id = _coerce_text(call_payload_dict.get("call_id"))
+                    call_direction = _coerce_text(call_event_payload.get("direction"))
+                call_id = _coerce_text(call_event_payload.get("call_id"))
                 if not call_id:
-                    call_id = _coerce_text(call_payload_dict.get("id"))
+                    call_id = _coerce_text(call_event_payload.get("id"))
 
                 if call_status:
                     status_label = call_status.replace("_", " ").replace("-", " ")
@@ -371,7 +371,7 @@ def _extract_meta_whatsapp_messages(payload: dict, trace_id: str | None = None) 
                     "display_phone_number": display_phone_number,
                     "raw": value,
                     "type": "call",
-                    "call": call_payload_dict,
+                    "call": call_event_payload,
                 }
                 if call_status:
                     metadata_payload["call_status"] = call_status
@@ -382,9 +382,9 @@ def _extract_meta_whatsapp_messages(payload: dict, trace_id: str | None = None) 
                 if call_id:
                     metadata_payload["call_id"] = call_id
 
-                message_payload: WhatsAppWebhookPayload | None = None
+                call_message_payload: WhatsAppWebhookPayload | None = None
                 try:
-                    message_payload = WhatsAppWebhookPayload(
+                    call_message_payload = WhatsAppWebhookPayload(
                         contact_address=contact_address or "",
                         contact_name=contact_name,
                         message_id=call_id,
@@ -406,8 +406,8 @@ def _extract_meta_whatsapp_messages(payload: dict, trace_id: str | None = None) 
                         trace_id=trace_id,
                         message_id=call_id,
                     )
-                if message_payload:
-                    messages.append(message_payload)
+                if call_message_payload:
+                    messages.append(call_message_payload)
 
     return messages
 

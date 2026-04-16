@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -33,7 +34,7 @@ BOOTSTRAP_ADMIN_EMAIL = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "codexadmin@local.inv
 BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
 
 
-def _load_json_setting(env_key: str, default: object) -> list | dict:
+def _load_json_setting(env_key: str, default: list[Any] | dict[str, Any]) -> list[Any] | dict[str, Any]:
     raw = os.getenv(env_key)
     if not raw:
         return default
@@ -45,7 +46,7 @@ def _load_json_setting(env_key: str, default: object) -> list | dict:
         return default
     if isinstance(default, dict) and not isinstance(parsed, dict):
         return default
-    return parsed
+    return cast(list[Any] | dict[str, Any], parsed)
 
 
 def seed_bootstrap_admin_user(db: Session) -> None:
