@@ -208,8 +208,9 @@ def _normalize_embedded_session(value: object) -> dict[str, str] | None:
 
 
 def _extract_call_context_from_message(message: Message, call_id: str) -> dict[str, Any] | None:
-    metadata = message.metadata_ if isinstance(message.metadata_, dict) else {}
-    raw_call = metadata.get("call") if isinstance(metadata.get("call"), dict) else {}
+    metadata: dict[str, Any] = message.metadata_ if isinstance(message.metadata_, dict) else {}
+    raw_call_value = metadata.get("call")
+    raw_call: dict[str, Any] = raw_call_value if isinstance(raw_call_value, dict) else {}
 
     meta_call_id = metadata.get("call_id")
     raw_call_id = raw_call.get("call_id") or raw_call.get("id")
@@ -275,9 +276,10 @@ def get_whatsapp_call_context(db: Session, call_id: str) -> dict[str, Any]:
             .all()
         )
         for candidate in candidates:
-            metadata = candidate.metadata_ if isinstance(candidate.metadata_, dict) else {}
+            metadata: dict[str, Any] = candidate.metadata_ if isinstance(candidate.metadata_, dict) else {}
             candidate_call_id = metadata.get("call_id")
-            raw_call = metadata.get("call") if isinstance(metadata.get("call"), dict) else {}
+            raw_call_value = metadata.get("call")
+            raw_call: dict[str, Any] = raw_call_value if isinstance(raw_call_value, dict) else {}
             nested_call_id = raw_call.get("call_id") or raw_call.get("id")
             if candidate_call_id == normalized_call_id or nested_call_id == normalized_call_id:
                 message = candidate
@@ -321,7 +323,9 @@ def perform_whatsapp_call_action(
     """Send a WhatsApp call control action."""
 
     action = _normalize_action(payload.action)
-    target = _resolve_webrtc_action_target(db, payload.target_id, payload.phone_number_id)
+    target = _resolve_webrtc_action_target(
+        db, str(payload.target_id) if payload.target_id else None, payload.phone_number_id
+    )
     config = _resolve_target_config(target)
 
     phone_number_id = _normalize_phone_number_id(payload.phone_number_id)
@@ -386,8 +390,9 @@ def perform_whatsapp_call_action(
         else:
             response_status, response_json = _post_whatsapp_call_action(endpoint, headers, base_payload, timeout)
     except httpx.HTTPError as exc:
-        status_code = getattr(exc.response, "status_code", None)
-        body = getattr(exc.response, "text", None) if getattr(exc, "response", None) else None
+        response = exc.response if isinstance(exc, httpx.HTTPStatusError) else None
+        status_code = response.status_code if response is not None else None
+        body = response.text if response is not None else None
         logger.warning(
             "whatsapp_call_action_failed action=%s call_id=%s status=%s body=%s",
             action,
