@@ -469,6 +469,39 @@ def format_conversation_for_template(
                 preview = f"Reaction {reaction_emoji.strip()}"
             else:
                 preview = "Reaction received"
+        elif message_type_value == "call":
+            call_status = None
+            call_direction = None
+            call_type = None
+            if isinstance(metadata, dict):
+                call_status = metadata.get("call_status")
+                call_direction = metadata.get("call_direction")
+                call_type = metadata.get("call_type")
+                if not call_status:
+                    call = metadata.get("call")
+                    if isinstance(call, dict):
+                        call_status = call.get("call_status") or call.get("status")
+            if call_status and not isinstance(call_status, str):
+                call_status = None
+            if call_direction and not isinstance(call_direction, str):
+                call_direction = None
+            if call_type and not isinstance(call_type, str):
+                call_type = None
+
+            if call_status and isinstance(call_status, str):
+                status_label = call_status.replace("_", " ").replace("-", " ")
+            else:
+                status_label = None
+            direction_label = call_direction.strip().title() if isinstance(call_direction, str) else None
+            type_label = call_type.strip().title() if isinstance(call_type, str) else "Call"
+            if direction_label and status_label:
+                preview = f"☎️ {direction_label} {type_label} ({status_label})"
+            elif status_label:
+                preview = f"☎️ {type_label} ({status_label})"
+            elif direction_label:
+                preview = f"☎️ {direction_label} {type_label}"
+            else:
+                preview = f"☎️ {type_label} event"
         elif is_document_placeholder:
             preview = f"Document: {attachment_name}" if attachment_name else "Document attached"
         elif has_attachments:
@@ -703,6 +736,71 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
     if content.strip() in {"[reaction message]", "[location message]", "[document message]"}:
         content = ""
 
+    call_metadata = metadata if isinstance(metadata, dict) else {}
+    call_payload = call_metadata.get("call") if isinstance(call_metadata.get("call"), dict) else {}
+    if isinstance(call_payload, dict):
+        call_payload = call_payload
+    meta_type = call_metadata.get("type")
+    meta_type_value = None
+    is_call = False
+    call_id = None
+    call_status = None
+    call_type = None
+    call_direction = None
+    call_to = None
+    call_from = None
+    phone_number_id = call_metadata.get("phone_number_id")
+    display_phone_number = call_metadata.get("display_phone_number")
+
+    if isinstance(meta_type, str):
+        meta_type_value = meta_type.lower()
+    if meta_type_value == "call":
+        is_call = True
+
+    if not isinstance(phone_number_id, str):
+        phone_number_id = None
+    if not isinstance(display_phone_number, str):
+        display_phone_number = None
+
+    if isinstance(call_payload, dict):
+        if call_status is None:
+            call_status = call_payload.get("call_status")
+        if call_type is None:
+            call_type = call_payload.get("type")
+        if call_direction is None:
+            call_direction = call_payload.get("call_direction") or call_payload.get("direction")
+        if call_to is None:
+            call_to = call_payload.get("to")
+        if call_from is None:
+            call_from = call_payload.get("from")
+
+    if isinstance(call_metadata, dict):
+        if call_id is None:
+            call_id = call_metadata.get("call_id")
+        if call_status is None:
+            call_status = call_metadata.get("call_status")
+        if call_type is None:
+            call_type = call_metadata.get("call_type")
+        if call_direction is None:
+            call_direction = call_metadata.get("call_direction")
+        if call_to is None:
+            call_to = call_metadata.get("to")
+        if call_from is None:
+            call_from = call_metadata.get("from")
+
+    if isinstance(call_id, str):
+        call_id = call_id.strip() or None
+    if isinstance(call_status, str):
+        call_status = call_status.strip() or None
+    if isinstance(call_type, str):
+        call_type = call_type.strip() or None
+    if isinstance(call_direction, str):
+        call_direction = call_direction.strip() or None
+    if isinstance(call_to, str):
+        call_to = call_to.strip() or None
+    if isinstance(call_from, str):
+        call_from = call_from.strip() or None
+
     if not content.strip() and content_is_document_placeholder and not (attachments or meta_attachments):
         content = f"Document: {attachment_name}" if attachment_name else "Document attached"
 
@@ -719,6 +817,31 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
                 content = f"Reaction {emoji.strip()}"
             else:
                 content = "Reaction received"
+        elif meta_type_value == "call":
+            call_status = metadata.get("call_status")
+            call_direction = metadata.get("call_direction")
+            call_type = metadata.get("call_type")
+            if call_status and not isinstance(call_status, str):
+                call_status = None
+            if call_direction and not isinstance(call_direction, str):
+                call_direction = None
+            if call_type and not isinstance(call_type, str):
+                call_type = None
+
+            if call_status and isinstance(call_status, str):
+                status_label = call_status.replace("_", " ").replace("-", " ").strip()
+            else:
+                status_label = None
+            direction_label = call_direction.strip().title() if isinstance(call_direction, str) else None
+            type_label = call_type.strip().title() if isinstance(call_type, str) else "Call"
+            if direction_label and status_label:
+                content = f"☎️ {direction_label} {type_label} ({status_label})"
+            elif status_label:
+                content = f"☎️ {type_label} ({status_label})"
+            elif direction_label:
+                content = f"☎️ {direction_label} {type_label}"
+            else:
+                content = "☎️ Call event"
         elif meta_type_value == "location":
             loc_label = metadata.get("label") or metadata.get("name") or metadata.get("address")
             if not loc_label:
@@ -822,6 +945,8 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         "id": str(msg.id),
         "conversation_id": str(msg.conversation_id),
         "direction": msg.direction.value,
+        "meta_type": meta_type_value,
+        "is_call": is_call,
         "content": content,
         "content_html": content_html,
         "html_body": html_body,
@@ -842,6 +967,14 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         "author_id": str(msg.author_id) if msg.author_id else None,
         "reply_to": reply_to,
         "reply_to_message_id": str(msg.reply_to_message_id) if msg.reply_to_message_id else None,
+        "call_id": call_id,
+        "call_status": call_status,
+        "call_type": call_type,
+        "call_direction": call_direction,
+        "call_to": call_to,
+        "call_from": call_from,
+        "phone_number_id": phone_number_id,
+        "display_phone_number": display_phone_number,
     }
 
 

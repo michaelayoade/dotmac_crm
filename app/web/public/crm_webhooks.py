@@ -53,6 +53,13 @@ def _should_sample() -> bool:
     return random.random() < _WEBHOOK_SAMPLE_RATE  # nosec B311 — sampling, not security
 
 
+def _coerce_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
 def _record_channel_stat(channel: str, ok: bool, events: int | None = None) -> None:
     stats = _CHANNEL_STATS.get(channel)
     if not stats:
@@ -157,6 +164,7 @@ def _extract_meta_whatsapp_messages(payload: dict, trace_id: str | None = None) 
         for change in entry.get("changes") or []:
             value = change.get("value") or {}
             raw_messages = value.get("messages") or []
+            raw_calls = value.get("calls") or []
             contacts = value.get("contacts") or []
             contact = contacts[0] if contacts else {}
             profile = contact.get("profile") or {}
@@ -171,6 +179,33 @@ def _extract_meta_whatsapp_messages(payload: dict, trace_id: str | None = None) 
                 body = None
                 if msg_type == "text":
                     body = (msg.get("text") or {}).get("body")
+
+                call_payload = msg.get("call")
+                call_payload_dict: dict[str, object] = (
+                    call_payload if isinstance(call_payload, dict) else {}
+                )
+                call_status = _coerce_text(call_payload_dict.get("call_status"))
+                if not call_status:
+                    call_status = _coerce_text(call_payload_dict.get("status"))
+                call_type = _coerce_text(call_payload_dict.get("type"))
+                call_direction = _coerce_text(call_payload_dict.get("call_direction"))
+                if not call_direction:
+                    call_direction = _coerce_text(call_payload_dict.get("direction"))
+                call_id = _coerce_text(call_payload_dict.get("call_id"))
+                if not call_id:
+                    call_id = _coerce_text(call_payload_dict.get("id"))
+
+                if msg_type == "call":
+                    if call_status:
+                        status_label = call_status.replace("_", " ").replace("-", " ")
+                        if call_direction:
+                            body = f"📞 {call_direction.title()} call ({status_label})"
+                        else:
+                            body = f"📞 Call ({status_label})"
+                    elif call_type:
+                        body = f"📞 {call_type.title()} call"
+                    elif not body:
+                        body = "📞 WhatsApp call"
                 if not body:
                     body = f"[{msg_type} message]" if msg_type else "[whatsapp message]"
 
@@ -259,6 +294,18 @@ def _extract_meta_whatsapp_messages(payload: dict, trace_id: str | None = None) 
                     metadata_payload.update(location_payload)
                 if reaction_payload:
                     metadata_payload.update(reaction_payload)
+                if msg_type == "call":
+                    metadata_payload["type"] = "call"
+                    if call_payload_dict:
+                        metadata_payload["call"] = call_payload_dict
+                    if call_status:
+                        metadata_payload["call_status"] = call_status
+                    if call_type:
+                        metadata_payload["call_type"] = call_type
+                    if call_direction:
+                        metadata_payload["call_direction"] = call_direction
+                    if call_id:
+                        metadata_payload["call_id"] = call_id
 
                 message_payload: WhatsAppWebhookPayload | None = None
                 try:
@@ -283,6 +330,83 @@ def _extract_meta_whatsapp_messages(payload: dict, trace_id: str | None = None) 
                         error=parse_exc,
                         trace_id=trace_id,
                         message_id=msg.get("id"),
+                    )
+                if message_payload:
+                    messages.append(message_payload)
+
+            for call in raw_calls:
+                if not isinstance(call, dict):
+                    continue
+                contact_address = call.get("from")
+                call_payload_dict: dict[str, object] = call
+
+                call_status = _coerce_text(call_payload_dict.get("event"))
+                call_type = _coerce_text(call_payload_dict.get("type"))
+                call_direction = _coerce_text(call_payload_dict.get("call_direction"))
+                if not call_direction:
+                    call_direction = _coerce_text(call_payload_dict.get("direction"))
+                call_id = _coerce_text(call_payload_dict.get("call_id"))
+                if not call_id:
+                    call_id = _coerce_text(call_payload_dict.get("id"))
+
+                if call_status:
+                    status_label = call_status.replace("_", " ").replace("-", " ")
+                    if call_direction:
+                        body = f"📞 {call_direction.title()} call ({status_label})"
+                    else:
+                        body = f"📞 Call ({status_label})"
+                elif call_type:
+                    body = f"📞 {call_type.title()} call"
+                else:
+                    body = "📞 WhatsApp call event"
+
+                received_at = None
+                timestamp = call.get("timestamp")
+                if timestamp:
+                    try:
+                        received_at = datetime.fromtimestamp(int(timestamp), tz=UTC)
+                    except Exception:
+                        received_at = None
+
+                metadata_payload = {
+                    "phone_number_id": phone_number_id,
+                    "display_phone_number": display_phone_number,
+                    "raw": value,
+                    "type": "call",
+                    "call": call_payload_dict,
+                }
+                if call_status:
+                    metadata_payload["call_status"] = call_status
+                if call_type:
+                    metadata_payload["call_type"] = call_type
+                if call_direction:
+                    metadata_payload["call_direction"] = call_direction
+                if call_id:
+                    metadata_payload["call_id"] = call_id
+
+                message_payload: WhatsAppWebhookPayload | None = None
+                try:
+                    message_payload = WhatsAppWebhookPayload(
+                        contact_address=contact_address or "",
+                        contact_name=contact_name,
+                        message_id=call_id,
+                        body=body,
+                        received_at=received_at,
+                        metadata=metadata_payload,
+                    )
+                except Exception as parse_exc:
+                    logger.warning(
+                        "whatsapp_webhook_message_parse_failed trace_id=%s msg_id=%s",
+                        trace_id,
+                        call_id or "unknown",
+                        exc_info=True,
+                    )
+                    write_dead_letter(
+                        channel="whatsapp",
+                        raw_payload=call,
+                        error=parse_exc,
+                        trace_id=trace_id,
+                        message_id=call_id,
                     )
                 if message_payload:
                     messages.append(message_payload)

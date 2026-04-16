@@ -59,6 +59,65 @@ class WhatsAppWebhookPayload(BaseModel):
     metadata: dict | None = None
 
 
+class WhatsAppCallActionRequest(BaseModel):
+    action: str = Field(min_length=1, max_length=20)
+    to: str | None = Field(default=None, max_length=255)
+    target_id: UUID | None = None
+    phone_number_id: str | None = Field(default=None, max_length=80)
+    sdp: str | None = Field(default=None, min_length=1)
+    sdp_type: str | None = Field(default=None, min_length=1, max_length=20)
+    session: dict | None = None
+
+    @model_validator(mode="after")
+    def _fallback_to_legacy_top_level_session(self):
+        if self.session is None and (self.sdp is not None or self.sdp_type is not None):
+            if self.sdp is None or self.sdp_type is None:
+                raise ValueError("Both sdp and sdp_type are required when session is not provided.")
+            self.session = {"sdp_type": self.sdp_type.strip(), "sdp": self.sdp}
+        if self.session is not None:
+            if not isinstance(self.session, dict):
+                raise ValueError("session must be an object.")
+            session_sdp_type = self.session.get("sdp_type")
+            session_sdp = self.session.get("sdp")
+            if session_sdp_type is not None or session_sdp is not None:
+                if not isinstance(session_sdp_type, str) or not session_sdp_type.strip():
+                    raise ValueError("session.sdp_type must be a non-empty string when session is provided.")
+                if not isinstance(session_sdp, str) or not session_sdp.strip():
+                    raise ValueError("session.sdp must be a non-empty string when session is provided.")
+                self.session["sdp_type"] = session_sdp_type.strip()
+                self.session["sdp"] = session_sdp
+                if self.sdp is not None:
+                    self.sdp = session_sdp
+                if self.sdp_type is not None:
+                    self.sdp_type = session_sdp_type.strip()
+        return self
+
+
+class WhatsAppCallActionResponse(BaseModel):
+    call_id: str
+    action: str
+    phone_number_id: str
+    status_code: int | None = None
+    provider_response: dict | list | str | None = None
+
+
+class WhatsAppCallContextResponse(BaseModel):
+    call_id: str
+    phone_number_id: str | None = None
+    display_phone_number: str | None = None
+    call_status: str | None = None
+    call_direction: str | None = None
+    to: str | None = None
+    from_: str | None = Field(default=None, alias="from")
+    session: dict | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class WhatsAppWebrtcConfigResponse(BaseModel):
+    ice_servers: list[dict] = Field(default_factory=list)
+
+
 class EmailWebhookPayload(BaseModel):
     contact_address: str = Field(min_length=1, max_length=255)
     contact_name: str | None = Field(default=None, max_length=160)
@@ -127,7 +186,10 @@ class WhatsAppStatusUpdate(BaseModel):
     """A single status update from the WhatsApp Business API."""
 
     id: str  # wamid of the original outbound message
-    status: Literal["sent", "delivered", "read", "failed"]
+    # Keep status as a plain string for forward-compatible status payloads
+    # from WhatsApp (e.g. call/experimental statuses). Unknown values are
+    # ignored by the message-status processor.
+    status: str
     timestamp: str
     recipient_id: str
     errors: list[dict] | None = None

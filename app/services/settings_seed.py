@@ -1,3 +1,4 @@
+import json
 import os
 
 from sqlalchemy import select
@@ -30,6 +31,21 @@ from app.services.secrets import is_openbao_ref
 BOOTSTRAP_ADMIN_USERNAME = os.getenv("BOOTSTRAP_ADMIN_USERNAME", "codexadmin")
 BOOTSTRAP_ADMIN_EMAIL = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "codexadmin@local.invalid")
 BOOTSTRAP_ADMIN_PASSWORD = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "")
+
+
+def _load_json_setting(env_key: str, default: object) -> list | dict:
+    raw = os.getenv(env_key)
+    if not raw:
+        return default
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return default
+    if isinstance(default, list) and not isinstance(parsed, list):
+        return default
+    if isinstance(default, dict) and not isinstance(parsed, dict):
+        return default
+    return parsed
 
 
 def seed_bootstrap_admin_user(db: Session) -> None:
@@ -810,6 +826,21 @@ def seed_comms_settings(db: Session) -> None:
         value_type=SettingValueType.string,
         value_text=os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", ""),
         is_secret=True,
+    )
+    comms_settings.ensure_by_key(
+        db,
+        key="whatsapp_stun_servers",
+        value_type=SettingValueType.json,
+        value_json=_load_json_setting(
+            "WHATSAPP_STUN_SERVERS",
+            [{"urls": ["stun:stun.l.google.com:19302"]}],
+        ),
+    )
+    comms_settings.ensure_by_key(
+        db,
+        key="whatsapp_turn_servers",
+        value_type=SettingValueType.json,
+        value_json=_load_json_setting("WHATSAPP_TURN_SERVERS", []),
     )
     comms_settings.ensure_by_key(
         db,

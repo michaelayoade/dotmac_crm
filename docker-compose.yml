@@ -74,6 +74,35 @@ services:
       retries: 3
 
   # =============================================================================
+  # TURN Server for WhatsApp WebRTC
+  # =============================================================================
+  coturn:
+    image: coturn/coturn:4.6.3
+    container_name: dotmac_omni_coturn
+    restart: unless-stopped
+    ports:
+      - "${TURN_PORT:-3478}:${TURN_PORT:-3478}/tcp"
+      - "${TURN_PORT:-3478}:${TURN_PORT:-3478}/udp"
+      - "${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}:${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49200}/udp"
+    env_file:
+      - .env
+    command:
+      - -n
+      - --fingerprint
+      - --lt-cred-mech
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --stale-nonce
+      - --listening-ip=0.0.0.0
+      - --external-ip=${TURN_PUBLIC_IP}
+      - --realm=crm.dotmac.io
+      - --listening-port=${TURN_PORT:-3478}
+      - --min-port=${TURN_MIN_PORT:-49160}
+      - --max-port=${TURN_MAX_PORT:-49200}
+      - --user=${TURN_USERNAME}:${TURN_PASSWORD}
+
+  # =============================================================================
   # Main Application
   # =============================================================================
   app:
