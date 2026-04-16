@@ -1053,6 +1053,14 @@ function inboxController() {
         presenceCleanupTimer: null,
         presenceHeartbeatTimer: null,
         currentPersonId: {{ (current_user.person_id if current_user and current_user.person_id else "") | tojson }},
+        webrtcConfig: null,
+        webrtcConfigLoading: false,
+        _webrtcConfigPromise: null,
+        _callPeerConnections: {},
+        _callLocalStreams: {},
+        _callAudioElements: {},
+        _callNotifications: {},
+        _callActionHandlersInitialized: false,
         localPresenceState: 'viewing',
         // Ticket form in the right-side panel is loaded via HTMX; don't allow submits until it's present.
         ticketFormLoaded: false,
@@ -1155,6 +1163,7 @@ function inboxController() {
             this.normalizeInboxTarget();
             this.resizeEmailFrames();
             this.initQuoteHandlers();
+            this.initWhatsappCallActionHandlers();
 
             // Keep HTML email iframes in sync with theme toggles (the iframe can't inherit `.dark`).
             if (!this._emailThemeObserver) {
@@ -1585,6 +1594,413 @@ function inboxController() {
                     this.clearQuote();
                 });
             }
+        },
+        initWhatsappCallActionHandlers() {
+            if (this._callActionHandlersInitialized) {
+                return;
+            }
+            this._callActionHandlersInitialized = true;
+            document.body.addEventListener('click', (event) => {
+                const button = event.target?.closest?.('[data-action="whatsapp-call-action"]');
+                if (!button) {
+                    return;
+                }
+                event.preventDefault();
+                void this.handleWhatsappCallAction(button);
+            });
+        },
+        async handleWhatsappCallAction(button) {
+            const callId = button?.dataset?.callId;
+            const action = button?.dataset?.callAction;
+            if (!callId || !action) {
+                return;
+            }
+            const originalText = button.textContent || '';
+            const targetPhoneNumberId = (button.dataset.phoneNumberId || '').trim();
+            const callTo = (button.dataset.callTo || '').trim();
+            const requiresSession = action === 'accept' || action === 'connect' || action === 'pre_accept';
+
+            button.disabled = true;
+            button.textContent = action === 'accept' ? 'Accepting...' : `${action[0].toUpperCase()}${action.slice(1)}...`;
+
+            try {
+                const payload = {
+                    action,
+                };
+                if (callTo) {
+                    payload.to = callTo;
+                }
+                if (targetPhoneNumberId) {
+                    payload.phone_number_id = targetPhoneNumberId;
+                }
+                if (requiresSession) {
+                    const callContext = await this.getWhatsappCallContext(callId);
+                    payload.phone_number_id = payload.phone_number_id || callContext.phone_number_id || undefined;
+                    const session = await this.createWhatsappCallSession(callId, callContext);
+                    payload.session = session;
+                }
+
+                const resp = await fetch(`/crm/inbox/whatsapp/calls/${encodeURIComponent(callId)}/action`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+                if (window.DotMacAuth && window.DotMacAuth.handleAuthResponse(resp, '/auth/login')) {
+                    return;
+                }
+                if (!resp.ok) {
+                    let detail = `Call action '${action}' failed (${resp.status})`;
+                    try {
+                        const payload = await resp.json();
+                        detail = payload.detail || payload.message || detail;
+                    } catch (_err) {}
+                    throw new Error(detail);
+                }
+
+                if (action === 'accept') {
+                    this.showCallNotification(callId, 'Call accepted', 'Waiting for audio connection...', 'reply');
+                } else if (action === 'reject') {
+                    this.showCallNotification(callId, 'Call rejected', 'The WhatsApp call was rejected.', 'reply');
+                } else if (action === 'terminate') {
+                    this.showCallNotification(callId, 'Call ended', 'The WhatsApp call was terminated.', 'reply');
+                }
+
+                if (action === 'terminate') {
+                    this.closeCallPeerConnection(callId);
+                }
+            } catch (err) {
+                const message = err instanceof Error ? err.message : 'Call action failed';
+                alert(message);
+            } finally {
+                button.disabled = false;
+                button.textContent = originalText;
+            }
+        },
+        showCallNotification(callId, title, preview, kind = 'reply') {
+            const notificationId = `call-${callId}`;
+            const existing = this._callNotifications[callId];
+            if (existing) {
+                this.dismissNotification(existing);
+            }
+            const autoDismissMs = 12000;
+            const notification = {
+                id: notificationId,
+                kind,
+                title,
+                subtitle: 'WhatsApp call',
+                preview,
+                conversationId: this.selectedConversation || null,
+                contactId: this.selectedContact?.id || null,
+                channel: 'whatsapp',
+                ticketId: null,
+                ticketNumber: null,
+                targetUrl: null,
+                timeLabel: this.formatTimeLabel(new Date()),
+                autoDismissMs,
+                timeoutId: null,
+            };
+            this.notifications = [notification, ...this.notifications.filter((note) => note.id !== notificationId)].slice(0, 4);
+            this._callNotifications[callId] = notificationId;
+            notification.timeoutId = setTimeout(() => {
+                this.dismissNotification(notificationId);
+                if (this._callNotifications[callId] === notificationId) {
+                    delete this._callNotifications[callId];
+                }
+            }, autoDismissMs);
+        },
+        async getWhatsappWebrtcConfig() {
+            if (this.webrtcConfig) {
+                return this.webrtcConfig;
+            }
+            if (this._webrtcConfigPromise) {
+                return this._webrtcConfigPromise;
+            }
+            this.webrtcConfigLoading = true;
+            this._webrtcConfigPromise = (async () => {
+                try {
+                    const resp = await fetch('/crm/inbox/whatsapp/webrtc-config', {
+                        headers: {
+                            Accept: 'application/json',
+                        },
+                    });
+                    if (window.DotMacAuth && window.DotMacAuth.handleAuthResponse(resp, '/auth/login')) {
+                        return { ice_servers: [] };
+                    }
+                    if (!resp.ok) {
+                        throw new Error(`Unable to load WebRTC config (${resp.status})`);
+                    }
+                    const payload = await resp.json();
+                    this.webrtcConfig = {
+                        ice_servers: Array.isArray(payload?.ice_servers) ? payload.ice_servers : [],
+                    };
+                    return this.webrtcConfig;
+                } finally {
+                    this.webrtcConfigLoading = false;
+                }
+            })();
+
+            try {
+                return await this._webrtcConfigPromise;
+            } finally {
+                this._webrtcConfigPromise = null;
+            }
+        },
+        async getWhatsappCallContext(callId) {
+            const resp = await fetch(`/crm/inbox/whatsapp/calls/${encodeURIComponent(callId)}`, {
+                headers: {
+                    Accept: 'application/json',
+                },
+            });
+            if (window.DotMacAuth && window.DotMacAuth.handleAuthResponse(resp, '/auth/login')) {
+                throw new Error('Authentication required.');
+            }
+            if (!resp.ok) {
+                let detail = `Unable to load WhatsApp call context (${resp.status})`;
+                try {
+                    const payload = await resp.json();
+                    detail = payload.detail || payload.message || detail;
+                } catch (_err) {}
+                throw new Error(detail);
+            }
+            return await resp.json();
+        },
+        buildWhatsappRtcConfig(rawIceServers) {
+            const rawServers = Array.isArray(rawIceServers) ? rawIceServers : [];
+            const iceServers = [];
+            rawServers.forEach((entry) => {
+                if (!entry || typeof entry !== 'object') {
+                    return;
+                }
+                const urls = entry.urls;
+                let normalizedUrls = [];
+                if (typeof urls === 'string') {
+                    normalizedUrls = [urls];
+                } else if (Array.isArray(urls)) {
+                    normalizedUrls = urls.filter((value) => typeof value === 'string' && value.trim());
+                }
+                if (!normalizedUrls.length) {
+                    return;
+                }
+                const config = {
+                    urls: normalizedUrls.map((value) => value.trim()),
+                };
+                if (entry.username) {
+                    config.username = String(entry.username);
+                }
+                if (entry.credential) {
+                    config.credential = String(entry.credential);
+                }
+                iceServers.push(config);
+            });
+            if (!iceServers.length) {
+                iceServers.push({ urls: ['stun:stun.l.google.com:19302'] });
+            }
+            return { iceServers };
+        },
+        ensureCallAudioElement(callId) {
+            let audio = this._callAudioElements[callId];
+            if (audio) {
+                return audio;
+            }
+            audio = document.createElement('audio');
+            audio.autoplay = true;
+            audio.playsInline = true;
+            audio.dataset.callAudioId = callId;
+            audio.className = 'hidden';
+            document.body.appendChild(audio);
+            this._callAudioElements[callId] = audio;
+            return audio;
+        },
+        summarizeIceCandidateTypes(sdp) {
+            const summary = {
+                host: 0,
+                srflx: 0,
+                relay: 0,
+                prflx: 0,
+                unknown: 0,
+            };
+            if (typeof sdp !== 'string' || !sdp.trim()) {
+                return summary;
+            }
+            const lines = sdp.split(/\r?\n/);
+            lines.forEach((line) => {
+                if (!line.startsWith('a=candidate:')) {
+                    return;
+                }
+                const match = line.match(/\styp\s([a-z]+)/i);
+                const candidateType = match?.[1]?.toLowerCase() || 'unknown';
+                if (Object.prototype.hasOwnProperty.call(summary, candidateType)) {
+                    summary[candidateType] += 1;
+                } else {
+                    summary.unknown += 1;
+                }
+            });
+            return summary;
+        },
+        async createAnswerForIncomingCall(callId, callContext) {
+            const config = await this.getWhatsappWebrtcConfig();
+            if (!window.RTCPeerConnection) {
+                throw new Error('WebRTC is not supported in this browser.');
+            }
+            const remoteSession = callContext?.session;
+            if (!remoteSession || typeof remoteSession !== 'object' || !remoteSession.sdp || !remoteSession.sdp_type) {
+                throw new Error('WhatsApp did not provide a usable SDP offer for this call.');
+            }
+            if (String(remoteSession.sdp_type).toLowerCase() !== 'offer') {
+                throw new Error(`Unexpected WhatsApp SDP type '${remoteSession.sdp_type}'.`);
+            }
+            this.closeCallPeerConnection(callId);
+            const peerConnection = new RTCPeerConnection(this.buildWhatsappRtcConfig(config.ice_servers));
+            this._callPeerConnections[callId] = peerConnection;
+            peerConnection.ontrack = (event) => {
+                const stream = event.streams?.[0] || (event.track ? new MediaStream([event.track]) : null);
+                if (!stream) {
+                    return;
+                }
+                const audio = this.ensureCallAudioElement(callId);
+                audio.srcObject = stream;
+                void audio.play().catch((error) => {
+                    console.warn('[Inbox] WhatsApp call audio playback failed', error);
+                });
+                this.showCallNotification(callId, 'Call connected', 'Remote audio stream is active.', 'reply');
+            };
+            peerConnection.onconnectionstatechange = () => {
+                const state = peerConnection.connectionState;
+                if (state === 'connecting') {
+                    this.showCallNotification(callId, 'Connecting call', 'Negotiating media with WhatsApp...', 'reply');
+                } else if (state === 'connected') {
+                    this.showCallNotification(callId, 'Call connected', 'Media connection established.', 'reply');
+                }
+                if (state === 'failed' || state === 'closed' || state === 'disconnected') {
+                    this.showCallNotification(callId, 'Call ended', `Connection state: ${state}.`, 'reply');
+                    this.closeCallPeerConnection(callId);
+                }
+            };
+            peerConnection.oniceconnectionstatechange = () => {
+                const state = peerConnection.iceConnectionState;
+                if (state === 'checking') {
+                    this.showCallNotification(callId, 'Checking network', 'Trying ICE candidates...', 'reply');
+                } else if (state === 'connected' || state === 'completed') {
+                    this.showCallNotification(callId, 'Call connected', 'ICE connectivity established.', 'reply');
+                } else if (state === 'failed') {
+                    this.showCallNotification(callId, 'Call failed', 'ICE connectivity failed.', 'reply');
+                }
+            };
+
+            const localStream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: false,
+            });
+            this._callLocalStreams[callId] = localStream;
+            localStream.getTracks().forEach((track) => {
+                peerConnection.addTrack(track, localStream);
+            });
+
+            await peerConnection.setRemoteDescription(
+                new RTCSessionDescription({
+                    type: String(remoteSession.sdp_type).toLowerCase(),
+                    sdp: String(remoteSession.sdp),
+                }),
+            );
+
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+
+            await this.waitForCallIceGathering(peerConnection, 8000);
+            const localDescription = peerConnection.localDescription;
+            if (!localDescription || !localDescription.sdp) {
+                throw new Error('Unable to generate SDP answer.');
+            }
+            const candidateSummary = this.summarizeIceCandidateTypes(localDescription.sdp);
+            if (candidateSummary.relay > 0) {
+                this.showCallNotification(
+                    callId,
+                    'Relay candidate ready',
+                    `ICE candidates: relay=${candidateSummary.relay}, srflx=${candidateSummary.srflx}, host=${candidateSummary.host}`,
+                    'reply',
+                );
+            } else {
+                this.showCallNotification(
+                    callId,
+                    'No relay candidate',
+                    `ICE candidates: relay=0, srflx=${candidateSummary.srflx}, host=${candidateSummary.host}`,
+                    'reply',
+                );
+                console.warn('[Inbox] WhatsApp call answer has no relay candidates', {
+                    callId,
+                    candidateSummary,
+                });
+            }
+            return {
+                sdp_type: localDescription.type || 'answer',
+                sdp: localDescription.sdp,
+            };
+        },
+        async createWhatsappCallSession(callId, callContext = null) {
+            try {
+                if (callContext?.session) {
+                    return await this.createAnswerForIncomingCall(callId, callContext);
+                }
+                throw new Error('WhatsApp call session is unavailable.');
+            } catch (error) {
+                this.closeCallPeerConnection(callId);
+                throw error;
+            }
+        },
+        closeCallPeerConnection(callId) {
+            const existing = this._callPeerConnections[callId];
+            if (existing) {
+                try {
+                    existing.close();
+                } catch (_err) {}
+                delete this._callPeerConnections[callId];
+            }
+            const localStream = this._callLocalStreams[callId];
+            if (localStream) {
+                try {
+                    localStream.getTracks().forEach((track) => track.stop());
+                } catch (_err) {}
+                delete this._callLocalStreams[callId];
+            }
+            const audio = this._callAudioElements[callId];
+            if (audio) {
+                try {
+                    audio.pause();
+                    audio.srcObject = null;
+                    audio.remove();
+                } catch (_err) {}
+                delete this._callAudioElements[callId];
+            }
+            const notificationId = this._callNotifications[callId];
+            if (notificationId) {
+                delete this._callNotifications[callId];
+            }
+        },
+        waitForCallIceGathering(peerConnection, timeoutMs = 3000) {
+            return new Promise((resolve) => {
+                let timeoutHandle = null;
+                const cleanup = () => {
+                    if (timeoutHandle) {
+                        clearTimeout(timeoutHandle);
+                    }
+                    peerConnection.removeEventListener('icegatheringstatechange', onGatheringChange);
+                };
+                const onGatheringChange = () => {
+                    if (peerConnection.iceGatheringState === 'complete') {
+                        cleanup();
+                        resolve();
+                    }
+                };
+                timeoutHandle = setTimeout(() => {
+                    cleanup();
+                    resolve();
+                }, timeoutMs);
+                peerConnection.addEventListener('icegatheringstatechange', onGatheringChange);
+                onGatheringChange();
+            });
         },
         setQuoteFromButton(btn) {
             if (!btn) return;

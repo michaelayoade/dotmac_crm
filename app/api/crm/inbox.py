@@ -12,7 +12,11 @@ from app.schemas.crm.inbox import (
     EmailWebhookPayload,
     InboxSendRequest,
     InboxSendResponse,
+    WhatsAppCallActionRequest,
+    WhatsAppCallActionResponse,
+    WhatsAppCallContextResponse,
     WhatsAppWebhookPayload,
+    WhatsAppWebrtcConfigResponse,
 )
 from app.schemas.crm.message_template import (
     MessageTemplateCreate,
@@ -64,6 +68,55 @@ def send_message_async(
         dispatch=True,
     )
     return InboxSendAsyncResponse(outbox_id=str(outbox.id), status=outbox.status)
+
+
+@router.post(
+    "/whatsapp/calls/{call_id}/action",
+    response_model=WhatsAppCallActionResponse,
+    status_code=status.HTTP_200_OK,
+)
+def whatsapp_call_action(
+    call_id: str,
+    payload: WhatsAppCallActionRequest,
+    db: Session = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    try:
+        return crm_service.inbox.perform_whatsapp_call_action(
+            db,
+            call_id,
+            payload,
+        )
+    except InboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.get(
+    "/whatsapp/calls/{call_id}",
+    response_model=WhatsAppCallContextResponse,
+    status_code=status.HTTP_200_OK,
+)
+def whatsapp_call_context(
+    call_id: str,
+    db: Session = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    try:
+        return crm_service.inbox.get_whatsapp_call_context(db, call_id)
+    except InboxError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.get(
+    "/whatsapp/webrtc-config",
+    response_model=WhatsAppWebrtcConfigResponse,
+    status_code=status.HTTP_200_OK,
+)
+def whatsapp_webrtc_config(
+    db: Session = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    return crm_service.inbox.get_whatsapp_webrtc_config(db)
 
 
 @router.get("/templates", response_model=ListResponse[MessageTemplateRead])

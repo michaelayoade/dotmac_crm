@@ -67,41 +67,42 @@ from app.services.crm.inbox.queries import (
 
 # SMTP server
 from app.services.crm.inbox.smtp_inbound import start_smtp_server, stop_smtp_server
+from app.services.crm.whatsapp_calls import (
+    get_whatsapp_call_context,
+    get_whatsapp_webrtc_config,
+    perform_whatsapp_call_action,
+)
 
 __all__ = [
     "EmailPoller",
-    # Orchestrator
     "InboxOperations",
-    # Queries
     "InboxQueries",
     "_render_personalization",
     "_resolve_connector_config",
     "_resolve_integration_target",
     "_resolve_person_for_contact",
     "_smtp_config_from_connector",
-    # Connectors
     "create_email_connector_target",
     "create_whatsapp_connector_target",
     "enqueue_outbound_message",
     "ensure_email_polling_job",
     "get_channel_stats",
     "get_inbox_stats",
+    "get_whatsapp_call_context",
+    "get_whatsapp_webrtc_config",
     "inbox_operations",
     "inbox_queries",
     "list_inbox_conversations",
-    # Email polling
+    "perform_whatsapp_call_action",
     "poll_email_inbox",
     "poll_email_targets",
     "receive_chat_message",
-    # Inbound
     "receive_email_message",
     "receive_whatsapp_message",
-    # Outbound
     "send_message",
     "send_message_with_retry",
     "send_outbound_message",
     "send_reply",
-    # SMTP
     "start_smtp_server",
     "stop_smtp_server",
 ]

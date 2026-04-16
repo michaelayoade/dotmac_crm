@@ -506,6 +506,86 @@
                 </div>
             </div>
         </div>
+        {% elif msg.is_call %}
+        {% set call_status = (msg.call_status or '') | string | lower %}
+        {% set call_direction = (msg.call_direction or '') | string | lower %}
+        {% set call_to = msg.call_to or '' %}
+        {% set call_from = msg.call_from or '' %}
+        {% set call_target = call_to %}
+        {% if call_direction == 'inbound' and call_from %}
+        {% set call_target = call_from %}
+        {% elif call_direction == 'outbound' and call_to %}
+        {% set call_target = call_to %}
+        {% elif not call_target %}
+        {% set call_target = call_from %}
+        {% endif %}
+        {% set call_terminal = call_status in ['completed', 'ended', 'terminated', 'rejected', 'failed', 'missed', 'busy', 'no_answer', 'canceled', 'cancelled', 'timeout'] %}
+        {% set call_connect_stage = call_status in ['connect', 'ringing', 'ring', 'incoming', 'invited', 'calling'] %}
+        <div class="msg-slide-up {% if msg.direction == 'outbound' %}flex justify-end{% endif %}" style="animation-delay: {{ loop.index0 * 50 }}ms;">
+            <div class="w-full {% if msg.direction == 'outbound' %}pl-[18%]{% else %}pr-[18%]{% endif %}">
+                <div class="{% if msg.direction == 'outbound' %}message-outbound inline-flex w-fit max-w-[72%] flex-col gap-2 rounded-2xl rounded-tr-md px-3 py-2 border border-primary-500/20 bg-primary-500/10 dark:bg-transparent dark:border-primary-500/20{% else %}message-inbound inline-flex w-fit max-w-[72%] flex-col gap-2 rounded-2xl rounded-tl-md px-3 py-2 border border-slate-200 bg-slate-100 dark:bg-transparent dark:border-slate-700/40{% endif %}">
+                    <p class="text-sm text-slate-800 dark:text-slate-200">
+                        {{ msg.content_html | safe if msg.content_html else msg.content | trim }}
+                    </p>
+                    {% if msg.call_id %}
+                    <div class="flex flex-wrap gap-2 pt-1">
+                        {% if call_connect_stage and not call_terminal %}
+                        <button type="button"
+                                data-action="whatsapp-call-action"
+                                data-call-id="{{ msg.call_id }}"
+                                data-call-action="accept"
+                                data-call-to="{{ call_target }}"
+                                data-phone-number-id="{{ msg.phone_number_id or '' }}"
+                                class="inline-flex items-center rounded-md bg-emerald-500 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-600">
+                            Accept
+                        </button>
+                        <button type="button"
+                                data-action="whatsapp-call-action"
+                                data-call-id="{{ msg.call_id }}"
+                                data-call-action="reject"
+                                data-call-to="{{ call_target }}"
+                                data-phone-number-id="{{ msg.phone_number_id or '' }}"
+                                class="inline-flex items-center rounded-md border border-rose-300 bg-rose-500/10 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-500 hover:text-white dark:border-rose-500/40 dark:text-rose-300">
+                            Reject
+                        </button>
+                        {% endif %}
+                        {% if not call_terminal and call_status %}
+                        <button type="button"
+                                data-action="whatsapp-call-action"
+                                data-call-id="{{ msg.call_id }}"
+                                data-call-action="terminate"
+                                data-call-to="{{ call_target }}"
+                                data-phone-number-id="{{ msg.phone_number_id or '' }}"
+                                class="inline-flex items-center rounded-md border border-amber-300 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-600 hover:bg-amber-500 hover:text-white dark:border-amber-500/40 dark:text-amber-300">
+                            Terminate
+                        </button>
+                        {% endif %}
+                        {% if call_direction %}
+                        <span class="inline-flex items-center rounded-full border border-slate-200/70 bg-white/70 px-2 py-1 text-[10px] font-semibold text-slate-600 dark:border-slate-700/70 dark:bg-slate-900/50 dark:text-slate-300">
+                            {{ call_direction | title }} {{ msg.call_type or 'Call' }}{% if msg.call_status %} ({{ call_status | replace('_', ' ') }}){% endif %}
+                        </span>
+                        {% elif msg.call_status %}
+                        <span class="inline-flex items-center rounded-full border border-slate-200/70 bg-white/70 px-2 py-1 text-[10px] font-semibold text-slate-600 dark:border-slate-700/70 dark:bg-slate-900/50 dark:text-slate-300">
+                            {{ msg.call_status | replace('_', ' ') | title }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="flex items-center gap-2 mt-1.5 px-1 {% if msg.direction == 'outbound' %}justify-end{% endif %}">
+                    <span class="text-[10px] text-slate-500 font-mono-tight dark:text-slate-400">{{ msg.timestamp_label or msg.timestamp.strftime('%b %d, %Y %H:%M') }}</span>
+                    <button type="button"
+                            data-quote-button
+                            data-quote-id="{{ msg.id }}"
+                            data-quote-author="{{ msg.sender.name }}"
+                            data-quote-content="{{ msg.content }}"
+                            data-quote-sent-at="{{ msg.timestamp.isoformat() if msg.timestamp else '' }}"
+                            class="text-[10px] font-semibold text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200">
+                        Quote
+                    </button>
+                </div>
+            </div>
+        </div>
         {% elif msg.is_private_note %}
         {% include "admin/crm/_private_note_item.html" %}
         {% else %}
