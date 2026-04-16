@@ -105,7 +105,9 @@ def _resolve_webrtc_action_target(
 def _resolve_target_config(target: IntegrationTarget) -> ConnectorConfig:
     config = target.connector_config
     if not isinstance(config, ConnectorConfig):
-        raise InboxConfigError("whatsapp_call_target_invalid", "WhatsApp integration target is missing connector config")
+        raise InboxConfigError(
+            "whatsapp_call_target_invalid", "WhatsApp integration target is missing connector config"
+        )
     return config
 
 
@@ -223,14 +225,18 @@ def _extract_call_context_from_message(message: Message, call_id: str) -> dict[s
 
     phone_number_id = metadata.get("phone_number_id")
     display_phone_number = metadata.get("display_phone_number")
-    call_status = metadata.get("call_status") or raw_call.get("call_status") or raw_call.get("event") or raw_call.get("status")
+    call_status = (
+        metadata.get("call_status") or raw_call.get("call_status") or raw_call.get("event") or raw_call.get("status")
+    )
     call_direction = metadata.get("call_direction") or raw_call.get("call_direction") or raw_call.get("direction")
     call_to = metadata.get("to") or raw_call.get("to")
     call_from = metadata.get("from") or raw_call.get("from")
 
     return {
         "call_id": resolved_call_id,
-        "phone_number_id": str(phone_number_id).strip() if isinstance(phone_number_id, str) and phone_number_id.strip() else None,
+        "phone_number_id": str(phone_number_id).strip()
+        if isinstance(phone_number_id, str) and phone_number_id.strip()
+        else None,
         "display_phone_number": (
             str(display_phone_number).strip()
             if isinstance(display_phone_number, str) and display_phone_number.strip()

@@ -181,9 +181,7 @@ def _extract_meta_whatsapp_messages(payload: dict, trace_id: str | None = None) 
                     body = (msg.get("text") or {}).get("body")
 
                 call_payload = msg.get("call")
-                call_payload_dict: dict[str, object] = (
-                    call_payload if isinstance(call_payload, dict) else {}
-                )
+                call_payload_dict: dict[str, object] = call_payload if isinstance(call_payload, dict) else {}
                 call_status = _coerce_text(call_payload_dict.get("call_status"))
                 if not call_status:
                     call_status = _coerce_text(call_payload_dict.get("status"))
