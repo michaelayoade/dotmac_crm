@@ -21,9 +21,9 @@ from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services import operations_sla_reports as operations_sla_reports_service
 from app.services.crm import reports as crm_reports_service
 from app.services.crm import team as crm_team_service
+from app.services.auth_dependencies import require_any_permission
 from app.tasks.subscribers import sync_subscribers_from_splynx
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
-from app.web.auth.rbac import require_web_role
 from app.web.templates import Jinja2Templates
 
 logger = logging.getLogger(__name__)
@@ -634,7 +634,11 @@ def churned_subscribers_export(
 # =============================================================================
 
 
-@router.get("/subscribers/billing-risk", response_class=HTMLResponse)
+@router.get(
+    "/subscribers/billing-risk",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+)
 def subscriber_billing_risk(
     request: Request,
     db: Session = Depends(get_db),
@@ -746,7 +750,7 @@ def subscriber_billing_risk(
 def subscriber_billing_risk_refresh(
     request: Request,
     next_url: str = Form("/admin/reports/subscribers/billing-risk"),
-    _admin: dict = Depends(require_web_role("admin")),
+    _permission: dict = Depends(require_any_permission("reports:billing", "reports:subscribers", "reports")),
 ):
     if not next_url.startswith("/admin/reports/subscribers/billing-risk"):
         next_url = "/admin/reports/subscribers/billing-risk"
@@ -759,7 +763,10 @@ def subscriber_billing_risk_refresh(
         return RedirectResponse(url=_append_query_flag(next_url, "refresh_error", "queue_unavailable"), status_code=303)
 
 
-@router.get("/subscribers/billing-risk/export")
+@router.get(
+    "/subscribers/billing-risk/export",
+    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+)
 def subscriber_billing_risk_export(
     request: Request,
     db: Session = Depends(get_db),
