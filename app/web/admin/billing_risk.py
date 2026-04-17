@@ -208,6 +208,7 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
             all(fragment in normalized_spaced for fragment in fragments)
             for fragments in RETENTION_TARGET_REP_NAME_FRAGMENTS
         )
+
     options_by_person_id: dict[str, dict[str, str]] = {}
     fixed_options_by_label: dict[str, dict[str, str]] = {}
 
