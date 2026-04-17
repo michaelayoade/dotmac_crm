@@ -35,7 +35,7 @@
         View subscriber
     </a>
     {% endif %}
-    <a href="/admin/support/tickets" class="inline-flex items-center gap-1 font-medium text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200 transition-colors">
+    <a href="/admin/support/tickets?clear_filters=1" data-clear-filters="tickets" class="inline-flex items-center gap-1 font-medium text-blue-700 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200 transition-colors">
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
         Clear filter
     </a>
@@ -55,9 +55,9 @@
     {% set assigned_param = '&assigned=' ~ assigned if assigned else '' %}
     {% set region_param = '&region=' ~ region|urlencode if region else '' %}
     {% set group_param = '&group=' ~ group|urlencode if group else '' %}
-    <div class="grid gap-3 sm:grid-cols-3 lg:grid-cols-6 animate-fade-in-up" style="animation-delay: 100ms;">
-        {{ status_filter_card("Not Closed", stats.not_closed, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6M7 4h10a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>', base_url ~ '?status=not_closed' ~ type_param ~ sub_param ~ assigned_param ~ region_param ~ group_param, "amber", "orange", effective_status == 'not_closed') }}
-        {{ status_filter_card("New", stats.new, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>', base_url ~ '?status=new' ~ type_param ~ sub_param ~ assigned_param ~ region_param ~ group_param, "blue", "indigo", effective_status == 'new') }}
+    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 animate-fade-in-up" style="animation-delay: 100ms;">
+        {# status_filter_card("Not Closed", stats.not_closed, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6M7 4h10a2 2 0 012 2v12a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>', base_url ~ '?status=not_closed' ~ type_param ~ sub_param ~ assigned_param ~ region_param ~ group_param, "amber", "orange", effective_status == 'not_closed') #}
+        {# status_filter_card("New", stats.new, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>', base_url ~ '?status=new' ~ type_param ~ sub_param ~ assigned_param ~ region_param ~ group_param, "blue", "indigo", effective_status == 'new') #}
         {{ status_filter_card("Open", stats.open, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>', base_url ~ '?status=open' ~ type_param ~ sub_param ~ assigned_param ~ region_param ~ group_param, "emerald", "green", effective_status == 'open') }}
         {{ status_filter_card("Pending", stats.pending, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=pending' ~ type_param ~ sub_param ~ assigned_param ~ region_param ~ group_param, "amber", "yellow", effective_status == 'pending') }}
         {{ status_filter_card("On Hold", stats.on_hold, '<svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>', base_url ~ '?status=on_hold' ~ type_param ~ sub_param ~ assigned_param ~ region_param ~ group_param, "orange", "red", effective_status == 'on_hold') }}
