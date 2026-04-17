@@ -279,11 +279,13 @@
             </div>
 
             <div>
-                <label for="ticket_type" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Ticket Type</label>
+                <label for="ticket_type" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Ticket Type <span class="text-red-500">*</span></label>
                 <select name="ticket_type" id="ticket_type"
                     data-priority-map='{{ ticket_type_priority_map | tojson }}'
                     data-subscriber-required-types='{{ subscriber_required_ticket_types | tojson }}'
                     data-base-station-required-types='{{ base_station_required_ticket_types | tojson }}'
+                    required
+                    aria-required="true"
                     class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     <option value="">Select a type</option>
                     {% for ttype in ticket_types or [] %}
