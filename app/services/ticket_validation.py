@@ -80,7 +80,9 @@ def base_station_required_ticket_types() -> list[str]:
 
 def validate_ticket_creation(db: Session, payload: TicketCreate) -> None:
     """Evaluate pre-creation rules and reject if a matching rule fires reject_creation."""
-    if not str(payload.ticket_type or "").strip():
+    # Enforce required ticket type for user-initiated ticket creation flows.
+    # System/background flows may still create typed-later records.
+    if payload.created_by_person_id and not str(payload.ticket_type or "").strip():
         raise HTTPException(status_code=400, detail="Ticket type is required.")
     if ticket_type_requires_subscriber(payload.ticket_type) and not payload.subscriber_id:
         raise HTTPException(status_code=400, detail="Subscriber is required for the selected ticket type.")
