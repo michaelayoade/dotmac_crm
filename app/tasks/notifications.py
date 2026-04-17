@@ -213,10 +213,13 @@ def _deliver_notification_queue(db, batch_size: int = 50) -> int:
             notification.last_error = str(exc)
         db.commit()
 
+    # Claim push notifications before forwarding to avoid duplicate Talk sends when
+    # periodic queue tasks overlap across Celery workers.
     push_notifications = (
         db.query(Notification)
         .filter(Notification.is_active.is_(True))
         .filter(Notification.channel == NotificationChannel.push)
+        .filter(Notification.status == NotificationStatus.queued)
         .filter((Notification.send_at.is_(None)) | (Notification.send_at <= now))
         .filter(
             ~exists().where(
@@ -227,9 +230,15 @@ def _deliver_notification_queue(db, batch_size: int = 50) -> int:
             )
         )
         .order_by(Notification.created_at.asc())
+        .with_for_update(skip_locked=True)
         .limit(batch_size)
         .all()
     )
+    for notification in push_notifications:
+        notification.status = NotificationStatus.sending
+    if push_notifications:
+        db.commit()
+
     for notification in push_notifications:
         success = talk_notifications_service.forward_stored_notification(db, notification=notification)
         delivery = NotificationDelivery(
