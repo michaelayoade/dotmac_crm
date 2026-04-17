@@ -28,6 +28,9 @@ class BillingRiskPage:
     rows: list[dict[str, Any]]
     page_metrics: dict[str, int | float]
     has_next: bool
+    total_count: int = 0
+    total_pages: int = 1
+    page: int = 1
 
 
 def _parse_date(value: object) -> date | None:
@@ -242,6 +245,9 @@ def list_cached_rows(
         search=search,
         overdue_bucket=overdue_bucket,
     )
+    total_count = int(query.count())
+    total_pages = max(1, (total_count + page_size - 1) // page_size)
+    page = min(page, total_pages)
     rows = (
         query.order_by(
             SubscriberBillingRiskSnapshot.is_high_balance_risk.desc(),
@@ -258,6 +264,9 @@ def list_cached_rows(
         rows=visible_rows,
         page_metrics=page_metrics(visible_rows),
         has_next=len(rows) > page_size,
+        total_count=total_count,
+        total_pages=total_pages,
+        page=page,
     )
 
 
