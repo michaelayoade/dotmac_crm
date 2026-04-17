@@ -20,12 +20,12 @@ from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.person import Person
 from app.models.service_team import ServiceTeam, ServiceTeamMember
 from app.models.subscriber import Subscriber, SubscriberStatus
+from app.services.auth_dependencies import require_any_permission
 from app.services import billing_risk_cache as billing_risk_cache_service
 from app.services import billing_risk_reports as billing_risk_service
 from app.services.common import coerce_uuid
 from app.tasks.subscribers import refresh_billing_risk_cache
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
-from app.web.auth.rbac import require_web_role
 from app.web.templates import Jinja2Templates
 
 logger = logging.getLogger(__name__)
@@ -35,13 +35,30 @@ customer_retention_router = APIRouter(tags=["admin-customer-retention"])
 templates = Jinja2Templates(directory="templates")
 
 RETENTION_PIPELINE_STEPS = ("Contacted", "Follow-up Pending", "Promised to Pay", "Resolved", "Lost")
-RETENTION_FIXED_REP_NAMES = (
+RETENTION_REP_LABEL_ONLY_NAMES = {"ejiro onovwiona"}
+RETENTION_TARGET_REP_TEAM_NAMES = {
+    "customer support",
+    "customer-support",
+    "customer_support",
+    "customer support team",
+    "enterprise sales",
+    "enterprise-sales",
+    "enterprise_sales",
+    "sales call center",
+    "sales-call-center",
+    "sales_call_center",
+}
+RETENTION_TARGET_REP_DEPARTMENT_NAMES = {
+    "customer support",
+    "customer_support",
+}
+RETENTION_TARGET_REP_NAME_FRAGMENTS = (("customer", "support"), ("sales", "call", "center"), ("help", "desk"))
+RETENTION_FIXED_REP_LABELS = (
+    "Abigail Tongov",
     "Chizaram Ogbonna",
     "Grace Moses",
-    "Abigail Tongov",
     "Stephanie Mojekwu",
 )
-RETENTION_REP_LABEL_ONLY_NAMES = {"ejiro onovwiona"}
 
 
 def _normalize_segment_filters(segments: list[str] | str | None, segment: str | None) -> list[str]:
@@ -174,21 +191,36 @@ def _billing_risk_initial_rows(
 
 
 def _retention_rep_options(db: Session) -> list[dict[str, str]]:
-    target_team_names = {"helpdesk", "help desk", "enterprise sales"}
-    target_departments = {"helpdesk", "help_desk", "enterprise_sales"}
+    def _team_is_target(team_name: str | None) -> bool:
+        normalized = str(team_name or "").strip().lower()
+        if not normalized:
+            return False
+        normalized_spaced = normalized.replace("_", " ").replace("-", " ").strip()
+        normalized_spaced = " ".join(normalized_spaced.split())
+        if normalized_spaced in RETENTION_TARGET_REP_TEAM_NAMES:
+            return True
+
+        normalized_underscored = normalized_spaced.replace(" ", "_")
+        if normalized_underscored in RETENTION_TARGET_REP_DEPARTMENT_NAMES:
+            return True
+
+        return any(
+            all(fragment in normalized_spaced for fragment in fragments)
+            for fragments in RETENTION_TARGET_REP_NAME_FRAGMENTS
+        )
     options_by_person_id: dict[str, dict[str, str]] = {}
-    fixed_options_by_label = {
-        rep_name.casefold(): {
-            "value": f"manual:{rep_name.casefold().replace(' ', '-')}",
-            "label": rep_name,
-            "team": "",
-            "person_id": "",
-        }
-        for rep_name in RETENTION_FIXED_REP_NAMES
-    }
+    fixed_options_by_label: dict[str, dict[str, str]] = {}
 
     service_team_rows = db.execute(
-        select(Person.id, Person.display_name, Person.first_name, Person.last_name, Person.email, ServiceTeam.name)
+        select(
+            Person.id,
+            Person.display_name,
+            Person.first_name,
+            Person.last_name,
+            Person.email,
+            ServiceTeam.name,
+            ServiceTeam.erp_department,
+        )
         .select_from(ServiceTeamMember)
         .join(ServiceTeam, ServiceTeam.id == ServiceTeamMember.team_id)
         .join(Person, Person.id == ServiceTeamMember.person_id)
@@ -198,10 +230,18 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
             Person.is_active.is_(True),
         )
     ).all()
-    for person_id, display_name, first_name, last_name, email, team_name in service_team_rows:
-        team_key = str(team_name or "").strip().lower()
-        team_department_key = team_key.replace(" ", "_")
-        if team_key not in target_team_names and team_department_key not in target_departments:
+    for row in service_team_rows:
+        (
+            person_id,
+            display_name,
+            first_name,
+            last_name,
+            email,
+            team_name,
+            *service_team_tail,
+        ) = row
+        team_department = service_team_tail[0] if service_team_tail else None
+        if not (_team_is_target(team_name) or _team_is_target(team_department)):
             continue
         label = str(display_name or f"{first_name or ''} {last_name or ''}".strip() or email or "Unnamed rep").strip()
         team_label = "" if label.casefold() in RETENTION_REP_LABEL_ONLY_NAMES else str(team_name or "").strip()
@@ -213,9 +253,19 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
         }
 
     crm_team_rows = db.execute(
-        select(Person.id, Person.display_name, Person.first_name, Person.last_name, Person.email, CrmTeam.name)
+        select(
+            Person.id,
+            Person.display_name,
+            Person.first_name,
+            Person.last_name,
+            Person.email,
+            CrmTeam.name,
+            ServiceTeam.name,
+            ServiceTeam.erp_department,
+        )
         .select_from(CrmAgentTeam)
         .join(CrmTeam, CrmTeam.id == CrmAgentTeam.team_id)
+        .outerjoin(ServiceTeam, ServiceTeam.id == CrmTeam.service_team_id)
         .join(CrmAgent, CrmAgent.id == CrmAgentTeam.agent_id)
         .join(Person, Person.id == CrmAgent.person_id)
         .where(
@@ -225,9 +275,23 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
             Person.is_active.is_(True),
         )
     ).all()
-    for person_id, display_name, first_name, last_name, email, team_name in crm_team_rows:
-        team_key = str(team_name or "").strip().lower()
-        if team_key not in target_team_names:
+    for row in crm_team_rows:
+        (
+            person_id,
+            display_name,
+            first_name,
+            last_name,
+            email,
+            team_name,
+            *crm_team_tail,
+        ) = row
+        crm_service_team_name = crm_team_tail[0] if len(crm_team_tail) >= 1 else None
+        crm_service_department = crm_team_tail[1] if len(crm_team_tail) >= 2 else None
+        if not (
+            _team_is_target(team_name)
+            or _team_is_target(crm_service_team_name)
+            or _team_is_target(crm_service_department)
+        ):
             continue
         label = str(display_name or f"{first_name or ''} {last_name or ''}".strip() or email or "Unnamed rep").strip()
         team_label = "" if label.casefold() in RETENTION_REP_LABEL_ONLY_NAMES else str(team_name or "").strip()
@@ -243,6 +307,16 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
 
     for option in options_by_person_id.values():
         fixed_options_by_label[option["label"].casefold()] = option
+    for label in RETENTION_FIXED_REP_LABELS:
+        fixed_options_by_label.setdefault(
+            label.casefold(),
+            {
+                "value": label,
+                "label": label,
+                "team": "",
+                "person_id": "",
+            },
+        )
 
     return sorted(
         fixed_options_by_label.values(),
@@ -568,7 +642,11 @@ def _retention_tracker_kpis(db: Session, churn_rows: list[dict]) -> dict[str, in
     }
 
 
-@router.get("/subscribers/billing-risk", response_class=HTMLResponse)
+@router.get(
+    "/subscribers/billing-risk",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+)
 def subscriber_billing_risk(
     request: Request,
     db: Session = Depends(get_db),
@@ -578,6 +656,7 @@ def subscriber_billing_risk(
     segment: str | None = Query(None),
     segments: list[str] = Query(default=[]),
     days_past_due: str | None = Query(None),
+    page_size: int = Query(50, ge=1, le=100),
 ):
     user = get_current_user(request)
     query_segments = request.query_params.getlist("segments")
@@ -602,7 +681,7 @@ def subscriber_billing_risk(
         selected_segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
         page=1,
-        page_size=50,
+        page_size=page_size,
     )
     overdue_invoices = billing_risk_service.get_overdue_invoices_table(
         db,
@@ -673,12 +752,15 @@ def subscriber_billing_risk(
             "refresh_started": request.query_params.get("refresh_started") == "1",
             "refresh_error": request.query_params.get("refresh_error"),
             "live_page": 1,
-            "live_page_size": 50,
+            "live_page_size": page_size,
             "live_has_next": page.has_next,
             "live_search": "",
             "live_bucket": "all",
             "page_metrics": page.page_metrics,
-            "page": 1,
+            "page": page.page,
+            "page_size": page_size,
+            "total_pages": page.total_pages,
+            "total_count": page.total_count,
             "has_prev": False,
             "has_next": page.has_next,
             "rep_options": _retention_rep_options(db),
@@ -686,7 +768,11 @@ def subscriber_billing_risk(
     )
 
 
-@customer_retention_router.get("/customer-retention", response_class=HTMLResponse)
+@customer_retention_router.get(
+    "/customer-retention",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+)
 def customer_retention_tracker(
     request: Request,
     db: Session = Depends(get_db),
@@ -757,7 +843,10 @@ def customer_retention_tracker(
     )
 
 
-@customer_retention_router.get("/customer-retention/engagements")
+@customer_retention_router.get(
+    "/customer-retention/engagements",
+    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+)
 def customer_retention_engagements(
     request: Request,
     db: Session = Depends(get_db),
@@ -767,7 +856,10 @@ def customer_retention_engagements(
     return JSONResponse({"engagements": _retention_engagements_by_customer(db, customer_id)})
 
 
-@customer_retention_router.post("/customer-retention/engagements")
+@customer_retention_router.post(
+    "/customer-retention/engagements",
+    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+)
 async def customer_retention_engagement_create(
     request: Request,
     db: Session = Depends(get_db),
@@ -809,7 +901,11 @@ async def customer_retention_engagement_create(
     return JSONResponse({"engagement": _retention_engagement_payload(engagement)})
 
 
-@customer_retention_router.get("/customer-retention/{customer_id}", response_class=HTMLResponse)
+@customer_retention_router.get(
+    "/customer-retention/{customer_id}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+)
 def customer_retention_tracker_detail(
     customer_id: str,
     request: Request,
@@ -881,7 +977,7 @@ def customer_retention_tracker_detail(
 def subscriber_billing_risk_refresh(
     request: Request,
     next_url: str = Form("/admin/reports/subscribers/billing-risk"),
-    _admin: dict = Depends(require_web_role("admin")),
+    _permission: dict = Depends(require_any_permission("reports:billing", "reports:subscribers", "reports")),
 ):
     if not next_url.startswith("/admin/reports/subscribers/billing-risk"):
         next_url = "/admin/reports/subscribers/billing-risk"
@@ -894,7 +990,10 @@ def subscriber_billing_risk_refresh(
         return RedirectResponse(url=_append_query_flag(next_url, "refresh_error", "queue_unavailable"), status_code=303)
 
 
-@router.get("/subscribers/billing-risk/blocked-dates")
+@router.get(
+    "/subscribers/billing-risk/blocked-dates",
+    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+)
 def subscriber_billing_risk_blocked_dates(
     request: Request,
     external_id: list[str] = Query(default=[]),
@@ -904,7 +1003,11 @@ def subscriber_billing_risk_blocked_dates(
     return JSONResponse({"blocked_dates": blocked_dates})
 
 
-@router.get("/subscribers/billing-risk/rows", response_class=HTMLResponse)
+@router.get(
+    "/subscribers/billing-risk/rows",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+)
 def subscriber_billing_risk_rows(
     request: Request,
     db: Session = Depends(get_db),
@@ -944,14 +1047,21 @@ def subscriber_billing_risk_rows(
             "request": request,
             "churn_rows": page_result.rows,
             "page_metrics": page_result.page_metrics,
-            "page": page,
-            "has_prev": page > 1,
+            "page": page_result.page,
+            "page_size": page_size,
+            "total_pages": page_result.total_pages,
+            "total_count": page_result.total_count,
+            "has_prev": page_result.page > 1,
             "has_next": page_result.has_next,
         },
     )
 
 
-@router.get("/subscribers/billing-risk/blocked-date-cell", response_class=HTMLResponse)
+@router.get(
+    "/subscribers/billing-risk/blocked-date-cell",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+)
 def subscriber_billing_risk_blocked_date_cell(
     request: Request,
     external_id: str = Query(...),
@@ -961,7 +1071,10 @@ def subscriber_billing_risk_blocked_date_cell(
     return HTMLResponse(blocked_dates.get(external_id, "N/A"))
 
 
-@router.get("/subscribers/billing-risk/export")
+@router.get(
+    "/subscribers/billing-risk/export",
+    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+)
 def subscriber_billing_risk_export(
     request: Request,
     db: Session = Depends(get_db),
