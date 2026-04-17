@@ -779,7 +779,6 @@ def assign_conversation(
                 # Keep team assignment, but drop the agent assignment.
                 agent_uuid = None
         if assigned_by_id is not None and conversation.status == ConversationStatus.snoozed:
-            from app.services.crm.inbox import cache as inbox_cache
             from app.services.crm.inbox.conversation_status import _clear_snooze_metadata
 
             conversation.status = ConversationStatus.open
