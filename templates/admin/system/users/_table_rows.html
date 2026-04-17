@@ -11,7 +11,10 @@
                 {% endif %}
             </div>
             <div>
-                <p class="text-sm font-medium text-slate-900 dark:text-white">{{ user.name }}</p>
+                <a href="/admin/system/users/{{ user.id }}"
+                   class="text-sm font-medium text-slate-900 transition-colors hover:text-indigo-600 dark:text-white dark:hover:text-indigo-400">
+                    {{ user.name }}
+                </a>
                 <p class="text-sm text-slate-500 dark:text-slate-400">{{ user.email }}</p>
             </div>
         </div>
