@@ -144,6 +144,9 @@ def _invalidate_unavailable_existing_assignment(
 
     existing.is_active = False
     existing.updated_at = datetime.now(UTC)
+    from app.services.crm.inbox.summaries import recompute_conversation_summary_and_invalidate_cache
+
+    recompute_conversation_summary_and_invalidate_cache(db, str(conversation.id))
     db.commit()
     return False
 

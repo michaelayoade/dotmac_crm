@@ -105,6 +105,18 @@ def recompute_conversation_summary(db: Session, conversation_id: str) -> Convers
     return summary
 
 
+def recompute_conversation_summary_and_invalidate_cache(
+    db: Session,
+    conversation_id: str,
+) -> ConversationSummary | None:
+    """Recompute summary and clear inbox cache for immediate read-after-write consistency."""
+    summary = recompute_conversation_summary(db, conversation_id)
+    from app.services.crm.inbox import cache as inbox_cache
+
+    inbox_cache.invalidate_inbox_list()
+    return summary
+
+
 def recompute_conversation_summaries(db: Session, conversation_ids: Iterable[str]) -> int:
     updated = 0
     for conversation_id in {str(value) for value in conversation_ids if value}:
