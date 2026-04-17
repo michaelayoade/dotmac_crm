@@ -239,9 +239,9 @@ class ConversationAssignments(ListResponseMixin):
                     existing.assigned_by_id = payload.assigned_by_id
                 if payload.assigned_at is not None:
                     existing.assigned_at = assigned_at_value
-                from app.services.crm.inbox.summaries import recompute_conversation_summary
+                from app.services.crm.inbox.summaries import recompute_conversation_summary_and_invalidate_cache
 
-                recompute_conversation_summary(db, str(payload.conversation_id))
+                recompute_conversation_summary_and_invalidate_cache(db, str(payload.conversation_id))
                 db.commit()
                 db.refresh(existing)
                 return existing
@@ -258,9 +258,9 @@ class ConversationAssignments(ListResponseMixin):
                 existing.is_active = True
                 existing.assigned_at = assigned_at_value
                 existing.assigned_by_id = payload.assigned_by_id
-                from app.services.crm.inbox.summaries import recompute_conversation_summary
+                from app.services.crm.inbox.summaries import recompute_conversation_summary_and_invalidate_cache
 
-                recompute_conversation_summary(db, str(payload.conversation_id))
+                recompute_conversation_summary_and_invalidate_cache(db, str(payload.conversation_id))
                 db.commit()
                 db.refresh(existing)
                 return existing
@@ -269,9 +269,9 @@ class ConversationAssignments(ListResponseMixin):
             if assignment.assigned_at is None:
                 assignment.assigned_at = assigned_at_value
             db.add(assignment)
-            from app.services.crm.inbox.summaries import recompute_conversation_summary
+            from app.services.crm.inbox.summaries import recompute_conversation_summary_and_invalidate_cache
 
-            recompute_conversation_summary(db, str(payload.conversation_id))
+            recompute_conversation_summary_and_invalidate_cache(db, str(payload.conversation_id))
             db.commit()
             db.refresh(assignment)
             return assignment
@@ -801,20 +801,15 @@ def assign_conversation(
             ).update({"owner_agent_id": agent_uuid}, synchronize_session=False)
             db.commit()
 
-        if assigned_by_id is not None:
-            from app.services.crm.inbox import cache as inbox_cache
-
-            inbox_cache.invalidate_inbox_list()
-
         return assignment
     else:
         db.query(ConversationAssignment).filter(
             ConversationAssignment.conversation_id == conversation.id,
             ConversationAssignment.is_active.is_(True),
         ).update({"is_active": False, "updated_at": _now()})
-        from app.services.crm.inbox.summaries import recompute_conversation_summary
+        from app.services.crm.inbox.summaries import recompute_conversation_summary_and_invalidate_cache
 
-        recompute_conversation_summary(db, str(conversation.id))
+        recompute_conversation_summary_and_invalidate_cache(db, str(conversation.id))
         db.commit()
         return None
 
@@ -852,9 +847,9 @@ def unassign_conversation(
         ConversationAssignment.conversation_id == coerce_uuid(conversation_id),
         ConversationAssignment.is_active.is_(True),
     ).update({"is_active": False, "updated_at": _now()})
-    from app.services.crm.inbox.summaries import recompute_conversation_summary
+    from app.services.crm.inbox.summaries import recompute_conversation_summary_and_invalidate_cache
 
-    recompute_conversation_summary(db, conversation_id)
+    recompute_conversation_summary_and_invalidate_cache(db, conversation_id)
     db.commit()
 
 

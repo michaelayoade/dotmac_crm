@@ -552,6 +552,9 @@ class ChatwootImporter:
                     )
                     db.add(assignment)
                     db.flush()
+                    from app.services.crm.inbox.summaries import recompute_conversation_summary_and_invalidate_cache
+
+                    recompute_conversation_summary_and_invalidate_cache(db, str(conversation.id))
 
             except Exception as e:
                 db.rollback()  # Rollback failed transaction to continue
