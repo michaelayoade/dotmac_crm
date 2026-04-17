@@ -231,7 +231,7 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
             Person.is_active.is_(True),
         )
     ).all()
-    for row in service_team_rows:
+    for service_row in service_team_rows:
         (
             person_id,
             display_name,
@@ -240,7 +240,7 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
             email,
             team_name,
             *service_team_tail,
-        ) = row
+        ) = service_row
         team_department = service_team_tail[0] if service_team_tail else None
         if not (_team_is_target(team_name) or _team_is_target(team_department)):
             continue
@@ -276,7 +276,7 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
             Person.is_active.is_(True),
         )
     ).all()
-    for row in crm_team_rows:
+    for crm_row in crm_team_rows:
         (
             person_id,
             display_name,
@@ -285,7 +285,7 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
             email,
             team_name,
             *crm_team_tail,
-        ) = row
+        ) = crm_row
         crm_service_team_name = crm_team_tail[0] if len(crm_team_tail) >= 1 else None
         crm_service_department = crm_team_tail[1] if len(crm_team_tail) >= 2 else None
         if not (
