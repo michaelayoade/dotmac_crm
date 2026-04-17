@@ -609,7 +609,11 @@
                     searchButton.textContent = 'Search';
                 }
                 if (!response.ok) return;
-                results.innerHTML = await response.text();
+                const html = await response.text();
+                const parser = new DOMParser();
+                const nextDocument = parser.parseFromString(html, 'text/html');
+                if (!nextDocument.getElementById('billing-risk-live-body')) return;
+                results.innerHTML = html;
                 results.dataset.page = String(currentPage);
                 results.dataset.bucket = activeBucket;
                 syncExportLink();
@@ -713,6 +717,15 @@
                 if (!results.contains(pageButton)) return;
                 const nextPage = Number(pageButton.getAttribute('data-billing-risk-page') || currentPage);
                 loadResults(nextPage);
+            });
+
+            document.body.addEventListener('change', (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLSelectElement)) return;
+                if (target.id !== 'billing-risk-page-size' || !results.contains(target)) return;
+                const url = new URL(window.location.href);
+                url.searchParams.set('page_size', target.value || '50');
+                window.location.assign(url.toString());
             });
         })();
     </script>
