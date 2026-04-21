@@ -178,8 +178,8 @@ def get_billing_risk_table(
             if normalized is not None:
                 selected_segments.add(normalized)
 
-    normalized_days_past_due = (days_past_due if isinstance(days_past_due, str) else "").strip().lower().replace(
-        "_", "-"
+    normalized_days_past_due = (
+        (days_past_due if isinstance(days_past_due, str) else "").strip().lower().replace("_", "-")
     )
     if normalized_days_past_due in {"current", "0"}:
         selected_days_past_due_category = "0"
@@ -510,8 +510,8 @@ def get_billing_risk_table(
                 subscriber_key = str(subscriber_id or "").strip()
                 if not subscriber_key or subscriber_key in latest_status_by_subscriber:
                     continue
-                latest_status_by_subscriber[subscriber_key] = (
-                    str(status.value if isinstance(status, TicketStatus) else status or "")
+                latest_status_by_subscriber[subscriber_key] = str(
+                    status.value if isinstance(status, TicketStatus) else status or ""
                 )
 
         latest_status_by_person: dict[str, str] = {}
@@ -528,7 +528,9 @@ def get_billing_risk_table(
                 person_key = str(person_id or "").strip()
                 if not person_key or person_key in latest_status_by_person:
                     continue
-                latest_status_by_person[person_key] = str(status.value if isinstance(status, TicketStatus) else status or "")
+                latest_status_by_person[person_key] = str(
+                    status.value if isinstance(status, TicketStatus) else status or ""
+                )
 
         latest_ticket_id_by_subscriber: dict[str, str] = {}
         latest_ticket_ref_by_subscriber: dict[str, str] = {}
@@ -580,7 +582,9 @@ def get_billing_risk_table(
             }
             latest_status = latest_status_by_person.get(person_key) or ""
             context_with_status = dict(context)
-            context_with_status["latest_ticket_status"] = latest_status.replace("_", " ").title() if latest_status else ""
+            context_with_status["latest_ticket_status"] = (
+                latest_status.replace("_", " ").title() if latest_status else ""
+            )
             context_with_status["latest_ticket_id"] = latest_ticket_id_by_person.get(person_key, "")
             context_with_status["latest_ticket_ref"] = latest_ticket_ref_by_person.get(person_key, "")
             ticket_context_by_person[person_key] = context_with_status
@@ -595,9 +599,13 @@ def get_billing_risk_table(
                 or ticket_context_by_person.get(person_key)
                 or {"open_tickets": 0, "closed_tickets": 0, "final_tickets": 0, "total_tickets": 0}
             )
-            latest_status = latest_status_by_subscriber.get(subscriber_key) or str(context.get("latest_ticket_status") or "")
+            latest_status = latest_status_by_subscriber.get(subscriber_key) or str(
+                context.get("latest_ticket_status") or ""
+            )
             context_with_status = dict(context)
-            context_with_status["latest_ticket_status"] = latest_status.replace("_", " ").title() if latest_status else ""
+            context_with_status["latest_ticket_status"] = (
+                latest_status.replace("_", " ").title() if latest_status else ""
+            )
             context_with_status["latest_ticket_id"] = latest_ticket_id_by_subscriber.get(subscriber_key) or str(
                 context.get("latest_ticket_id") or ""
             )
@@ -948,9 +956,7 @@ def get_billing_risk_table(
         if not person_id_key and email_value:
             person_id_key = str(people_by_email.get(email_value.lower(), ("", ""))[0] or "").strip()
         ticket_counts = (
-            ticket_counts_by_subscriber.get(subscriber_id_key)
-            or ticket_counts_by_person.get(person_id_key)
-            or {}
+            ticket_counts_by_subscriber.get(subscriber_id_key) or ticket_counts_by_person.get(person_id_key) or {}
         )
         mrr_total_value = _parse_balance_amount(customer.get("mrr_total"))
         live_results.append(
@@ -1086,13 +1092,13 @@ def get_billing_risk_table(
                 inferred_blocked_days = max(0, days_past_due - live_blocking_period)
                 updates["blocked_for_days"] = inferred_blocked_days
                 if inferred_blocked_days > 0:
-                    updates["blocked_date"] = (datetime.now(UTC).date() - timedelta(days=inferred_blocked_days)).strftime(
-                        "%Y-%m-%d"
-                    )
+                    updates["blocked_date"] = (
+                        datetime.now(UTC).date() - timedelta(days=inferred_blocked_days)
+                    ).strftime("%Y-%m-%d")
             else:
-                parsed_last_update = _parse_iso_date_text(str(entry.get("_customer_last_update") or "")) or _parse_iso_date_text(
-                    str(entry.get("_customer_last_online") or "")
-                )
+                parsed_last_update = _parse_iso_date_text(
+                    str(entry.get("_customer_last_update") or "")
+                ) or _parse_iso_date_text(str(entry.get("_customer_last_online") or ""))
                 if parsed_last_update is not None:
                     updates["blocked_date"] = parsed_last_update.strftime("%Y-%m-%d")
                     updates["blocked_for_days"] = max(0, (datetime.now(UTC).date() - parsed_last_update).days)
@@ -1315,9 +1321,9 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
                 inferred_blocked_days = max(0, days_past_due - live_blocking_period)
                 updates["blocked_for_days"] = inferred_blocked_days
                 if inferred_blocked_days > 0:
-                    updates["blocked_date"] = (datetime.now(UTC).date() - timedelta(days=inferred_blocked_days)).strftime(
-                        "%Y-%m-%d"
-                    )
+                    updates["blocked_date"] = (
+                        datetime.now(UTC).date() - timedelta(days=inferred_blocked_days)
+                    ).strftime("%Y-%m-%d")
         return updates
 
     if rows:
@@ -1355,6 +1361,7 @@ def get_live_blocked_dates(
     blocking_only_set = {str(external_id).strip() for external_id in (blocking_only_external_ids or [])}
 
     preloaded_customers: dict[str, Mapping[str, Any]] = {}
+
     def _customers_loader():
         splynx_db = SessionLocal()
         try:
@@ -1427,6 +1434,7 @@ def get_live_blocked_dates(
 
         blocked_date = _parse_iso_date_text(billing_text)
         if blocked_date is None:
+
             def _services_loader(bound_external_id: str = external_id):
                 splynx_db = SessionLocal()
                 try:
@@ -1446,7 +1454,9 @@ def get_live_blocked_dates(
             )
             services = [service for service in (services_payload or []) if isinstance(service, Mapping)]
             primary_service = _select_primary_service(services)
-            service_blocking_text = str(primary_service.get("blocking_date") or "") if isinstance(primary_service, Mapping) else ""
+            service_blocking_text = (
+                str(primary_service.get("blocking_date") or "") if isinstance(primary_service, Mapping) else ""
+            )
             if not service_blocking_text:
                 for service in services:
                     candidate = str(service.get("blocking_date") or "")
@@ -1458,6 +1468,7 @@ def get_live_blocked_dates(
         if blocked_date is None:
             customer_payload = preloaded_customers.get(external_id)
             if customer_payload is None:
+
                 def _customer_loader(bound_external_id: str = external_id):
                     splynx_db = SessionLocal()
                     try:

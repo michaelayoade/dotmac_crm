@@ -289,8 +289,7 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
     manual_names = set(RETENTION_REP_TEAM_OVERRIDES.keys())
     first_name_candidates = {name.split()[0] for name in manual_names if name.split()}
     possible_people = db.execute(
-        select(Person.id, Person.display_name, Person.first_name, Person.last_name, Person.email)
-        .where(
+        select(Person.id, Person.display_name, Person.first_name, Person.last_name, Person.email).where(
             Person.is_active.is_(True),
             func.lower(func.coalesce(Person.first_name, "")).in_(first_name_candidates),
         )
