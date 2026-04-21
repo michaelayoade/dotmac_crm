@@ -47,6 +47,151 @@ def _overview_ticket_scope(subscriber_ids: list | None):
     return [Ticket.subscriber_id.in_(subscriber_ids)]
 
 
+def online_customers_last_24h_rows(
+    db: Session,
+    subscriber_ids: list | None = None,
+    search: str | None = None,
+    ticket_status: str | None = None,
+    limit: int | None = 200,
+) -> list[dict]:
+    """Subscribers with online/session/usage events in the last 24 hours."""
+    now = datetime.now(UTC)
+    start = now - timedelta(hours=24)
+
+    event_clauses = [
+        EventStore.is_active.is_(True),
+        EventStore.subscriber_id.isnot(None),
+        EventStore.created_at >= start,
+        EventStore.created_at <= now,
+        EventStore.event_type.in_(["session.started", "device.online", "usage.recorded", "session.ended"]),
+    ]
+    if subscriber_ids is not None:
+        event_clauses.append(EventStore.subscriber_id.in_(subscriber_ids))
+
+    latest_by_subscriber = (
+        select(
+            EventStore.subscriber_id.label("subscriber_id"),
+            func.max(EventStore.created_at).label("last_seen_at"),
+            func.max(EventStore.event_type).label("last_activity"),
+        )
+        .where(*event_clauses)
+        .group_by(EventStore.subscriber_id)
+        .subquery()
+    )
+
+    ticket_ranked = (
+        select(
+            Ticket.subscriber_id.label("subscriber_id"),
+            Ticket.id.label("ticket_id"),
+            Ticket.status.label("ticket_status"),
+            func.row_number().over(partition_by=Ticket.subscriber_id, order_by=Ticket.created_at.desc()).label("rn"),
+        )
+        .where(Ticket.is_active.is_(True), Ticket.subscriber_id.isnot(None))
+        .subquery()
+    )
+    latest_ticket = (
+        select(ticket_ranked.c.subscriber_id, ticket_ranked.c.ticket_id, ticket_ranked.c.ticket_status)
+        .where(ticket_ranked.c.rn == 1)
+        .subquery()
+    )
+
+    query = (
+        select(
+            Subscriber.id,
+            Subscriber.subscriber_number,
+            Subscriber.status,
+            Subscriber.service_plan,
+            Subscriber.service_city,
+            Subscriber.service_region,
+            Person.display_name,
+            Person.first_name,
+            Person.last_name,
+            Person.email,
+            Person.phone,
+            latest_by_subscriber.c.last_seen_at,
+            latest_by_subscriber.c.last_activity,
+            latest_ticket.c.ticket_id,
+            latest_ticket.c.ticket_status,
+        )
+        .join(latest_by_subscriber, latest_by_subscriber.c.subscriber_id == Subscriber.id)
+        .join(Person, Person.id == Subscriber.person_id, isouter=True)
+        .join(latest_ticket, latest_ticket.c.subscriber_id == Subscriber.id, isouter=True)
+    )
+    if subscriber_ids is not None:
+        query = query.where(Subscriber.id.in_(subscriber_ids))
+
+    rows = db.execute(query.order_by(latest_by_subscriber.c.last_seen_at.desc())).all()
+    search_text = (search or "").strip().lower()
+    ticket_filter = (ticket_status or "all").strip().lower()
+
+    def _format_dt(value: object) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, datetime):
+            normalized = value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+            return normalized.strftime("%Y-%m-%d %H:%M:%S UTC")
+        return str(value)
+
+    output: list[dict] = []
+    for row in rows:
+        name = (
+            str(row.display_name or "").strip()
+            or f"{str(row.first_name or '').strip()} {str(row.last_name or '').strip()}".strip()
+            or str(row.subscriber_number or "").strip()
+            or "Unknown Subscriber"
+        )
+        status_text = str(row.status.value if isinstance(row.status, SubscriberStatus) else row.status or "").strip()
+        ticket_status_text = str(
+            row.ticket_status.value if isinstance(row.ticket_status, TicketStatus) else row.ticket_status or ""
+        ).strip()
+        status_normalized = status_text.lower()
+        ticket_status_normalized = ticket_status_text.lower()
+
+        if ticket_filter == "with_ticket" and not row.ticket_id:
+            continue
+        if ticket_filter == "no_ticket" and row.ticket_id:
+            continue
+        if ticket_filter == "open" and ticket_status_normalized not in {"open", "pending", "new", "on_hold"}:
+            continue
+        if ticket_filter == "closed" and ticket_status_normalized != "closed":
+            continue
+
+        haystack = " ".join(
+            [
+                name,
+                str(row.subscriber_number or ""),
+                str(row.email or ""),
+                str(row.phone or ""),
+                str(row.service_region or ""),
+                str(row.service_city or ""),
+            ]
+        ).lower()
+        if search_text and search_text not in haystack:
+            continue
+
+        output.append(
+            {
+                "subscriber_id": str(row.id),
+                "id": str(row.subscriber_number or ""),
+                "name": name,
+                "subscriber_number": str(row.subscriber_number or ""),
+                "status": status_normalized.title() if status_normalized else "",
+                "plan": str(row.service_plan or ""),
+                "region": _normalize_city_name(row.service_region) or _normalize_city_name(row.service_city),
+                "email": str(row.email or ""),
+                "phone": str(row.phone or ""),
+                "last_seen_at": _format_dt(row.last_seen_at),
+                "last_activity": str(row.last_activity or ""),
+                "ticket_id": str(row.ticket_id or ""),
+                "ticket_status": ticket_status_normalized.replace("_", " ").title() if ticket_status_normalized else "",
+            }
+        )
+
+    if limit is not None and int(limit) >= 0:
+        return output[: int(limit)]
+    return output
+
+
 def overview_filtered_subscriber_ids(
     db: Session,
     status: SubscriberStatus | None = None,
