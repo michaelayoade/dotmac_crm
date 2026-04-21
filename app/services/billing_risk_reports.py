@@ -611,12 +611,12 @@ def get_billing_risk_table(
             subscriber_context_with_status["latest_ticket_status"] = (
                 latest_status.replace("_", " ").title() if latest_status else ""
             )
-            subscriber_context_with_status["latest_ticket_id"] = latest_ticket_id_by_subscriber.get(subscriber_key) or str(
-                context.get("latest_ticket_id") or ""
-            )
-            subscriber_context_with_status["latest_ticket_ref"] = latest_ticket_ref_by_subscriber.get(subscriber_key) or str(
-                context.get("latest_ticket_ref") or ""
-            )
+            subscriber_context_with_status["latest_ticket_id"] = latest_ticket_id_by_subscriber.get(
+                subscriber_key
+            ) or str(context.get("latest_ticket_id") or "")
+            subscriber_context_with_status["latest_ticket_ref"] = latest_ticket_ref_by_subscriber.get(
+                subscriber_key
+            ) or str(context.get("latest_ticket_ref") or "")
             ticket_context_by_subscriber[subscriber_key] = subscriber_context_with_status
         return ticket_context_by_subscriber, ticket_context_by_person
 
