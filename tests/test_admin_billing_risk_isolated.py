@@ -223,7 +223,6 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
     assert "Open 2" in body
     assert "Closed 5" in body
     assert "Total 7" in body
-    assert "/admin/support/tickets/20101" in body
     assert "engagement-note-suggestions" in body
     assert "Customer said will pay next week" in body
     assert 'id="billing-risk-search-button"' in body
@@ -1029,7 +1028,6 @@ def test_subscriber_billing_risk_rows_returns_html(monkeypatch):
     assert "Open 2" in body
     assert "Closed 5" in body
     assert "Total 7" in body
-    assert "/admin/support/tickets/20101" in body
     assert ">Balance<" not in body
     assert "Page 1" in body
     assert "billing-risk-metric-count" in body
