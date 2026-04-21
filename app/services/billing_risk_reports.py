@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
@@ -434,7 +434,7 @@ def get_billing_risk_table(
             return {}, {}
 
         counts_by_subscriber: dict[str, dict[str, int]] = {}
-        rows = []
+        rows: Sequence[Any] = []
         if subscriber_ids:
             rows = db.execute(
                 select(
@@ -469,7 +469,7 @@ def get_billing_risk_table(
             bucket["total_tickets"] += int(total_count or 0)
 
         counts_by_person: dict[str, dict[str, int]] = {}
-        person_rows = []
+        person_rows: Sequence[Any] = []
         if person_ids:
             person_rows = db.execute(
                 select(
@@ -574,14 +574,14 @@ def get_billing_risk_table(
 
         ticket_context_by_person: dict[str, dict[str, int | str]] = {}
         for person_key in person_ids:
-            context = counts_by_person.get(person_key) or {
+            base_context = counts_by_person.get(person_key) or {
                 "open_tickets": 0,
                 "closed_tickets": 0,
                 "final_tickets": 0,
                 "total_tickets": 0,
             }
             latest_status = latest_status_by_person.get(person_key) or ""
-            context_with_status = dict(context)
+            context_with_status: dict[str, int | str] = dict(base_context)
             context_with_status["latest_ticket_status"] = (
                 latest_status.replace("_", " ").title() if latest_status else ""
             )
@@ -594,15 +594,20 @@ def get_billing_risk_table(
             if not subscriber_key:
                 continue
             person_key = str(row.get("person_id") or "").strip()
-            context = (
-                counts_by_subscriber.get(subscriber_key)
-                or ticket_context_by_person.get(person_key)
-                or {"open_tickets": 0, "closed_tickets": 0, "final_tickets": 0, "total_tickets": 0}
-            )
+            base_subscriber_context = counts_by_subscriber.get(subscriber_key)
+            if base_subscriber_context is not None:
+                context: dict[str, int | str] = dict(base_subscriber_context)
+            else:
+                context = ticket_context_by_person.get(person_key) or {
+                    "open_tickets": 0,
+                    "closed_tickets": 0,
+                    "final_tickets": 0,
+                    "total_tickets": 0,
+                }
             latest_status = latest_status_by_subscriber.get(subscriber_key) or str(
                 context.get("latest_ticket_status") or ""
             )
-            context_with_status = dict(context)
+            context_with_status: dict[str, int | str] = dict(context)
             context_with_status["latest_ticket_status"] = (
                 latest_status.replace("_", " ").title() if latest_status else ""
             )
@@ -1452,7 +1457,7 @@ def get_live_blocked_dates(
                     cache_scope=fetch_customer_internet_services,
                 )
             )
-            services = [service for service in (services_payload or []) if isinstance(service, Mapping)]
+            services = [dict(service) for service in (services_payload or []) if isinstance(service, Mapping)]
             primary_service = _select_primary_service(services)
             service_blocking_text = (
                 str(primary_service.get("blocking_date") or "") if isinstance(primary_service, Mapping) else ""
