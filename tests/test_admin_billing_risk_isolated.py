@@ -1042,7 +1042,7 @@ def test_customer_retention_tracker_renders_from_billing_risk_filters(monkeypatc
     assert "Customer promised payment" in body
     assert "Recovered Customer" in body
     assert "Lost Customer" in body
-    assert "No Update Customer" in body
+    assert "No Update Customer" not in body
     assert "Test" not in body
     assert "Test Account" not in body
     assert "Test-Account" not in body

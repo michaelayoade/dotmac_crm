@@ -31,6 +31,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
 templates = Jinja2Templates(directory="templates")
 
+_ONLINE_LAST_24H_TICKET_STATUS_OPTIONS = [
+    {"value": "all", "label": "All ticket states"},
+    {"value": "with_ticket", "label": "With ticket"},
+    {"value": "no_ticket", "label": "No ticket"},
+    {"value": "open", "label": "Open / Pending"},
+    {"value": "closed", "label": "Closed"},
+]
+
 
 def _normalize_segment_filters(segments: list[str] | str | None, segment: str | None) -> list[str]:
     """Normalize repeated/comma-separated segment query values."""
@@ -415,6 +423,117 @@ def subscriber_overview_export(
     ]
     filename = f"subscriber_overview_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
     return _csv_response(export_data, filename)
+
+
+# =============================================================================
+# Online Last 24h Report
+# =============================================================================
+
+
+@router.get("/subscribers/online-last-24h", response_class=HTMLResponse)
+def subscriber_online_last_24h(
+    request: Request,
+    db: Session = Depends(get_db),
+    status: str | None = Query(None),
+    region: str | None = Query(None),
+    search: str | None = Query(None),
+    ticket_status: str | None = Query("all"),
+):
+    """Subscribers with online/session activity in the last 24 hours."""
+    from app.services import subscriber_reports as sr
+
+    user = get_current_user(request)
+    filter_opts = sr.overview_filter_options(db)
+    region_options = filter_opts.get("regions", [])
+    status_value = (status or "").strip().lower()
+    selected_region = region if isinstance(region, str) and region in region_options else None
+    selected_status = next((item for item in SubscriberStatus if item.value == status_value), None)
+    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=selected_region)
+
+    selected_ticket_status = (ticket_status or "all").strip().lower()
+    valid_ticket_values = {item["value"] for item in _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS}
+    if selected_ticket_status not in valid_ticket_values:
+        selected_ticket_status = "all"
+    search_value = (search or "").strip()
+
+    online_customers = sr.online_customers_last_24h_rows(
+        db,
+        subscriber_ids=subscriber_ids,
+        search=search_value,
+        ticket_status=selected_ticket_status,
+        limit=None,
+    )
+
+    return templates.TemplateResponse(
+        "admin/reports/subscriber_online_last_24h.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "subscriber-online-last-24h",
+            "active_menu": "reports",
+            "online_customers": online_customers,
+            "summary_total": len(online_customers),
+            "summary_no_ticket": sum(1 for row in online_customers if not row.get("ticket_id")),
+            "summary_with_ticket": sum(1 for row in online_customers if row.get("ticket_id")),
+            "summary_closed_ticket": sum(1 for row in online_customers if row.get("ticket_status") == "Closed"),
+            "filter_opts": filter_opts,
+            "selected_status": selected_status.value if selected_status else "",
+            "selected_region": selected_region or "",
+            "search": search_value,
+            "selected_ticket_status": selected_ticket_status,
+            "ticket_status_options": _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS,
+        },
+    )
+
+
+@router.get("/subscribers/online-last-24h/export")
+def subscriber_online_last_24h_export(
+    db: Session = Depends(get_db),
+    status: str | None = Query(None),
+    region: str | None = Query(None),
+    search: str | None = Query(None),
+    ticket_status: str | None = Query("all"),
+):
+    """Export last-24h online subscribers report."""
+    from app.services import subscriber_reports as sr
+
+    filter_opts = sr.overview_filter_options(db)
+    region_options = filter_opts.get("regions", [])
+    status_value = (status or "").strip().lower()
+    selected_region = region if isinstance(region, str) and region in region_options else None
+    selected_status = next((item for item in SubscriberStatus if item.value == status_value), None)
+    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=selected_region)
+    selected_ticket_status = (ticket_status or "all").strip().lower()
+    valid_ticket_values = {item["value"] for item in _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS}
+    if selected_ticket_status not in valid_ticket_values:
+        selected_ticket_status = "all"
+
+    online_customers = sr.online_customers_last_24h_rows(
+        db,
+        subscriber_ids=subscriber_ids,
+        search=(search or "").strip(),
+        ticket_status=selected_ticket_status,
+        limit=None,
+    )
+
+    export_rows = [
+        {
+            "Name": row.get("name", ""),
+            "Subscriber Number": row.get("subscriber_number", ""),
+            "Status": row.get("status", ""),
+            "Region": row.get("region", ""),
+            "Email": row.get("email", ""),
+            "Phone": row.get("phone", ""),
+            "Last Seen At": row.get("last_seen_at", ""),
+            "Last Activity": row.get("last_activity", ""),
+            "Ticket Status": row.get("ticket_status", ""),
+        }
+        for row in online_customers
+    ]
+    filename = f"online_customers_last_24h_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
+    return _csv_response(export_rows, filename)
 
 
 # =============================================================================

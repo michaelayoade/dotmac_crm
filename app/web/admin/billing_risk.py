@@ -1066,6 +1066,7 @@ def customer_retention_tracker(
     tracker_rows = _retention_tracker_rows(churn_rows, limit=6000)
     tracker_customer_ids = [_retention_customer_id(row) for row in tracker_rows]
     engagement_history = _retention_engagements_by_customer(db, tracker_customer_ids)
+    tracker_rows = [row for row in tracker_rows if engagement_history.get(_retention_customer_id(row))]
     tracker_rows = _retention_rows_with_pipeline(tracker_rows, engagement_history)
     tracker_rows = _filter_excluded_retention_rows(tracker_rows)
     follow_up_reminders = _retention_follow_up_reminders(tracker_rows, engagement_history)
