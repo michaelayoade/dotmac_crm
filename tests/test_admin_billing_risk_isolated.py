@@ -840,8 +840,9 @@ def test_customer_retention_tracker_renders_from_billing_risk_filters(monkeypatc
     monkeypatch.setattr(
         billing_risk_web,
         "_retention_engagements_by_customer",
-        lambda _db, customer_ids: (
-            {
+        lambda _db, customer_ids: {
+            customer_id: payload
+            for customer_id, payload in {
                 "12345": [
                     {
                         "id": "engagement-1",
@@ -854,11 +855,36 @@ def test_customer_retention_tracker_renders_from_billing_risk_filters(monkeypatc
                         "repPersonId": "rep-1",
                         "createdAt": "2026-04-14T10:00:00",
                     }
-                ]
-            }
-            if "12345" in customer_ids
-            else {}
-        ),
+                ],
+                "88888": [
+                    {
+                        "id": "engagement-2",
+                        "customerId": "88888",
+                        "customerName": "Recovered Customer",
+                        "outcome": "Renewing",
+                        "note": "Account renewed",
+                        "followUp": "",
+                        "rep": "Sales Rep",
+                        "repPersonId": "rep-1",
+                        "createdAt": "2026-04-14T11:00:00",
+                    }
+                ],
+                "99999": [
+                    {
+                        "id": "engagement-3",
+                        "customerId": "99999",
+                        "customerName": "Lost Customer",
+                        "outcome": "Churning",
+                        "note": "Confirmed cancellation",
+                        "followUp": "",
+                        "rep": "Sales Rep",
+                        "repPersonId": "rep-1",
+                        "createdAt": "2026-04-14T12:00:00",
+                    }
+                ],
+            }.items()
+            if customer_id in customer_ids
+        },
     )
     monkeypatch.setattr(
         billing_risk_service,
@@ -896,6 +922,86 @@ def test_customer_retention_tracker_renders_from_billing_risk_filters(monkeypatc
                 "days_past_due": 12,
                 "is_high_balance_risk": False,
             },
+            {
+                "name": "Recovered Customer",
+                "_external_id": "88888",
+                "subscriber_id": "88888",
+                "email": "recovered@example.com",
+                "phone": "+2348099993333",
+                "city": "Lagos",
+                "street": "Recovery street",
+                "area": "Ikeja",
+                "plan": "Home Fiber 20Mbps",
+                "subscriber_status": "Suspended",
+                "risk_segment": "Due Soon",
+                "balance": 1000.0,
+                "days_past_due": 5,
+                "is_high_balance_risk": False,
+            },
+            {
+                "name": "Lost Customer",
+                "_external_id": "99999",
+                "subscriber_id": "99999",
+                "email": "lost@example.com",
+                "phone": "+2348099994444",
+                "city": "Lagos",
+                "street": "Churn street",
+                "area": "Ikeja",
+                "plan": "Home Fiber 20Mbps",
+                "subscriber_status": "Suspended",
+                "risk_segment": "Churned",
+                "balance": 500.0,
+                "days_past_due": 20,
+                "is_high_balance_risk": False,
+            },
+            {
+                "name": "Test",
+                "_external_id": "11111",
+                "subscriber_id": "11111",
+                "email": "test@example.com",
+                "phone": "+2348099995555",
+                "city": "Abuja",
+                "street": "Test street",
+                "area": "Wuse",
+                "plan": "Home Fiber 20Mbps",
+                "subscriber_status": "Suspended",
+                "risk_segment": "Suspended",
+                "balance": 10.0,
+                "days_past_due": 1,
+                "is_high_balance_risk": False,
+            },
+            {
+                "name": "Test Account",
+                "_external_id": "22222",
+                "subscriber_id": "22222",
+                "email": "test-account@example.com",
+                "phone": "+2348099996666",
+                "city": "Abuja",
+                "street": "Test account street",
+                "area": "Wuse",
+                "plan": "Home Fiber 20Mbps",
+                "subscriber_status": "Suspended",
+                "risk_segment": "Suspended",
+                "balance": 10.0,
+                "days_past_due": 1,
+                "is_high_balance_risk": False,
+            },
+            {
+                "name": "  Test-Account  ",
+                "_external_id": "33333",
+                "subscriber_id": "33333",
+                "email": "test-account-variant@example.com",
+                "phone": "+2348099997777",
+                "city": "Abuja",
+                "street": "Test variant street",
+                "area": "Wuse",
+                "plan": "Home Fiber 20Mbps",
+                "subscriber_status": "Suspended",
+                "risk_segment": "Suspended",
+                "balance": 10.0,
+                "days_past_due": 1,
+                "is_high_balance_risk": False,
+            },
         ],
     )
     monkeypatch.setattr(
@@ -924,19 +1030,22 @@ def test_customer_retention_tracker_renders_from_billing_risk_filters(monkeypatc
             "scheme": "http",
         }
     )
-    response = billing_risk_web.customer_retention_tracker(
-        request=request,
-        db=SimpleNamespace(scalar=lambda _stmt: 1),
-        segment="suspended",
-    )
+    response = billing_risk_web.customer_retention_tracker(request=request, db=SimpleNamespace(), segment="suspended")
 
     assert response.status_code == 200
     body = response.body.decode()
     assert "Customer Retention Tracker" in body
     assert "Win-back Rate" in body
+    assert "Recovered Customers (this period)" in body
+    assert "Churn Rate" in body
     assert "Blocked Customer" in body
     assert "Customer promised payment" in body
-    assert "No Update Customer" not in body
+    assert "Recovered Customer" in body
+    assert "Lost Customer" in body
+    assert "No Update Customer" in body
+    assert "Test" not in body
+    assert "Test Account" not in body
+    assert "Test-Account" not in body
     assert "Pipeline Stage" in body
     assert "Promised to Pay" in body
     assert "Follow-ups Due" in body
