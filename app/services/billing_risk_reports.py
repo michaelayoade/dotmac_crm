@@ -49,6 +49,7 @@ _OPEN_TICKET_STATUSES = (
     TicketStatus.on_hold,
 )
 _FINAL_TICKET_STATUSES = (TicketStatus.closed, TicketStatus.canceled, TicketStatus.merged)
+_EXCLUDED_REPORT_CUSTOMER_NAMES = {"test", "test account"}
 
 
 def clear_live_splynx_cache() -> None:
@@ -68,6 +69,16 @@ def _coerce_nonnegative_int(value: object) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed >= 0 else None
+
+
+def _normalize_customer_name_for_exclusion(name: object) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(name or "").strip().casefold())
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _is_excluded_report_customer(name: object) -> bool:
+    normalized = _normalize_customer_name_for_exclusion(name)
+    return bool(normalized) and (normalized in _EXCLUDED_REPORT_CUSTOMER_NAMES or normalized.startswith("test account"))
 
 
 def _cached_live_splynx_read(cache_name: str, loader, *args, cache_scope: object | None = None):
@@ -964,10 +975,14 @@ def get_billing_risk_table(
             ticket_counts_by_subscriber.get(subscriber_id_key) or ticket_counts_by_person.get(person_id_key) or {}
         )
         mrr_total_value = _parse_balance_amount(customer.get("mrr_total"))
+        cleaned_display_name = _clean_report_name(display_name or "Unknown")
+        if _is_excluded_report_customer(cleaned_display_name):
+            continue
+
         live_results.append(
             {
                 "subscriber_id": str(customer.get("id") or ""),
-                "name": _clean_report_name(display_name or "Unknown"),
+                "name": cleaned_display_name,
                 "email": email_value,
                 "phone": _contact_phone(email_value, phone_value),
                 "city": city_value,

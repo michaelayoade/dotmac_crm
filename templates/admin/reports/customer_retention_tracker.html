@@ -15,9 +15,11 @@
         ) }}
     {% endcall %}
 
-    {% call dashboard_kpi_grid(cols="3") %}
+    {% call dashboard_kpi_grid(cols="5") %}
         {{ stats_card("Tracked Accounts", kpis.tracked_count|default(0), color="rose", color2="pink") }}
         {{ stats_card("Win-back Rate", (kpis.winback_rate|default(0)) ~ "%", color="violet", color2="purple") }}
+        {{ stats_card("Recovered Customers (this period)", kpis.recovered_count|default(0), color="emerald", color2="green") }}
+        {{ stats_card("Churn Rate", (kpis.churn_rate|default(0)) ~ "%", color="amber", color2="orange") }}
         {{ stats_card("Revenue At Risk", "₦" ~ "{:,.2f}".format(kpis.revenue_at_risk|default(0)), color="slate", color2="gray") }}
     {% endcall %}
 

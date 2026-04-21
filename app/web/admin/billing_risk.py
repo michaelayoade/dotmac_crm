@@ -20,7 +20,7 @@ from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
 from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.person import Person
 from app.models.service_team import ServiceTeam, ServiceTeamMember
-from app.models.subscriber import Subscriber, SubscriberStatus
+from app.models.subscriber import Subscriber
 from app.services import billing_risk_reports as billing_risk_service
 from app.services.common import coerce_uuid
 from app.tasks.subscribers import sync_subscribers_from_splynx
@@ -58,6 +58,19 @@ RETENTION_REP_TEAM_OVERRIDES = {
     "ruth ogbedebi": "Sales Call Center",
 }
 RETENTION_REP_LABEL_ONLY_NAMES = {"ejiro onovwiona"}
+RETENTION_EXCLUDED_CUSTOMER_NAMES = {"test", "test account"}
+
+
+def _normalize_customer_name_for_exclusion(name: object) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(name or "").strip().casefold())
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _is_excluded_retention_customer(name: object) -> bool:
+    normalized = _normalize_customer_name_for_exclusion(name)
+    return bool(normalized) and (
+        normalized in RETENTION_EXCLUDED_CUSTOMER_NAMES or normalized.startswith("test account")
+    )
 
 
 def _normalize_segment_filters(segments: list[str] | str | None, segment: str | None) -> list[str]:
@@ -696,8 +709,11 @@ def _billing_risk_visible_export_rows(
     return export_rows
 
 
-def _pipeline_stage_from_engagement(engagement: dict[str, str | None] | None) -> str:
+def _pipeline_stage_from_engagement(engagement: dict[str, str | None] | None, row: dict | None = None) -> str:
     if not engagement:
+        risk_segment = str((row or {}).get("risk_segment") or "").strip()
+        if risk_segment == "Churned":
+            return "Lost"
         return "Contacted"
     outcome = str(engagement.get("outcome") or "").strip()
     follow_up = str(engagement.get("followUp") or "").strip()
@@ -730,7 +746,7 @@ def _retention_rows_with_pipeline(
         customer_engagements = engagement_history.get(customer_id) or []
         latest_engagement = customer_engagements[0] if customer_engagements else None
         candidate = dict(row)
-        candidate["pipeline_stage"] = _pipeline_stage_from_engagement(latest_engagement)
+        candidate["pipeline_stage"] = _pipeline_stage_from_engagement(latest_engagement, candidate)
         if latest_engagement:
             candidate["latest_follow_up"] = latest_engagement.get("followUp") or ""
             candidate["latest_rep"] = latest_engagement.get("rep") or ""
@@ -750,6 +766,10 @@ def _retention_rows_with_pipeline(
     return enriched_rows
 
 
+def _filter_excluded_retention_rows(rows: list[dict]) -> list[dict]:
+    return [row for row in rows if not _is_excluded_retention_customer(row.get("name"))]
+
+
 def _retention_follow_up_reminders(
     tracker_rows: list[dict],
     engagement_history: dict[str, list[dict[str, str | None]]],
@@ -761,7 +781,7 @@ def _retention_follow_up_reminders(
         latest_engagement = customer_engagements[0] if customer_engagements else None
         if not latest_engagement:
             continue
-        stage = _pipeline_stage_from_engagement(latest_engagement)
+        stage = _pipeline_stage_from_engagement(latest_engagement, row)
         if stage in {"Resolved", "Lost"}:
             continue
         follow_up = str(latest_engagement.get("followUp") or "").strip()
@@ -846,6 +866,8 @@ def _retention_tracker_rows(churn_rows: list[dict], *, limit: int = 100) -> list
 
     tracker_rows = []
     for row in churn_rows:
+        if _is_excluded_retention_customer(row.get("name")):
+            continue
         candidate = dict(row)
         candidate["retention_stage"] = _stage_for(candidate)
         candidate["recommended_action"] = _action_for(candidate)
@@ -863,25 +885,16 @@ def _retention_tracker_rows(churn_rows: list[dict], *, limit: int = 100) -> list
     return tracker_rows[:limit]
 
 
-def _retention_tracker_kpis(db: Session, churn_rows: list[dict]) -> dict[str, int | float]:
+def _retention_tracker_kpis(churn_rows: list[dict]) -> dict[str, int | float]:
     recovery_segments = {"Suspended", "Due Soon"}
     tracked_count = len(churn_rows)
     recovery_priority_count = sum(1 for row in churn_rows if str(row.get("risk_segment") or "") in recovery_segments)
     due_soon_count = sum(1 for row in churn_rows if str(row.get("risk_segment") or "") in {"Due Soon", "Pending"})
-    churned_count = sum(1 for row in churn_rows if str(row.get("risk_segment") or "") == "Churned")
-    won_back_count = (
-        db.scalar(
-            select(func.count(Subscriber.id)).where(
-                Subscriber.external_system == "splynx",
-                Subscriber.status == SubscriberStatus.active,
-                Subscriber.terminated_at.isnot(None),
-                Subscriber.is_active.is_(True),
-            )
-        )
-        or 0
-    )
-    winback_pool_count = int(churned_count) + int(won_back_count)
-    winback_rate = round((int(won_back_count) / winback_pool_count) * 100, 1) if winback_pool_count else 0.0
+    recovered_count = sum(1 for row in churn_rows if str(row.get("pipeline_stage") or "") == "Resolved")
+    lost_count = sum(1 for row in churn_rows if str(row.get("pipeline_stage") or "") == "Lost")
+    winback_pool_count = int(recovered_count) + int(lost_count)
+    winback_rate = round((int(recovered_count) / winback_pool_count) * 100, 1) if winback_pool_count else 0.0
+    churn_rate = round((int(lost_count) / tracked_count) * 100, 1) if tracked_count else 0.0
     revenue_at_risk = round(sum(float(row.get("balance") or 0) for row in churn_rows), 2)
     high_balance_count = sum(1 for row in churn_rows if bool(row.get("is_high_balance_risk")))
     return {
@@ -889,8 +902,9 @@ def _retention_tracker_kpis(db: Session, churn_rows: list[dict]) -> dict[str, in
         "recovery_priority_count": recovery_priority_count,
         "due_soon_count": due_soon_count,
         "winback_rate": winback_rate,
-        "won_back_count": int(won_back_count),
-        "churned_count": churned_count,
+        "recovered_count": recovered_count,
+        "lost_count": lost_count,
+        "churn_rate": churn_rate,
         "revenue_at_risk": revenue_at_risk,
         "high_balance_count": high_balance_count,
     }
@@ -1052,8 +1066,8 @@ def customer_retention_tracker(
     tracker_rows = _retention_tracker_rows(churn_rows, limit=6000)
     tracker_customer_ids = [_retention_customer_id(row) for row in tracker_rows]
     engagement_history = _retention_engagements_by_customer(db, tracker_customer_ids)
-    tracker_rows = [row for row in tracker_rows if engagement_history.get(_retention_customer_id(row))]
     tracker_rows = _retention_rows_with_pipeline(tracker_rows, engagement_history)
+    tracker_rows = _filter_excluded_retention_rows(tracker_rows)
     follow_up_reminders = _retention_follow_up_reminders(tracker_rows, engagement_history)
     segment_breakdown = billing_risk_service.get_billing_risk_segment_breakdown(tracker_rows)
     filter_query = urlencode(
@@ -1075,7 +1089,7 @@ def customer_retention_tracker(
             "sidebar_stats": get_sidebar_stats(db),
             "active_page": "customer-retention",
             "active_menu": "reports",
-            "kpis": _retention_tracker_kpis(db, tracker_rows),
+            "kpis": _retention_tracker_kpis(tracker_rows),
             "rep_options": _retention_rep_options(db),
             "tracker_rows": tracker_rows,
             "engagement_history": engagement_history,
