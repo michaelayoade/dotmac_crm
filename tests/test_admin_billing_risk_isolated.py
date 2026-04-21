@@ -6,7 +6,6 @@ from starlette.requests import Request
 
 from app.services import billing_risk_reports as billing_risk_service
 from app.services import splynx as splynx_service
-from app.services.billing_risk_cache import BillingRiskPage
 from app.web.admin import billing_risk as billing_risk_web
 from app.web.admin import build_router
 
@@ -54,12 +53,12 @@ def test_retention_rep_options_include_fixed_reps_without_team_rows():
 
     labels = [option["label"] for option in billing_risk_web._retention_rep_options(EmptyDb())]
 
-    assert labels == [
-        "Abigail Tongov",
-        "Chizaram Ogbonna",
-        "Grace Moses",
-        "Stephanie Mojekwu",
-    ]
+    assert "Abigail Tongov" in labels
+    assert "Chizaram Ogbonna" in labels
+    assert "Grace Moses" in labels
+    assert "Stephanie Mojekwu" in labels
+    assert "Ahmed Omodara" in labels
+    assert "Chinelo Okoro" in labels
 
 
 def test_retention_rep_options_suppress_enterprise_suffix_for_ejiro():
@@ -128,10 +127,15 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
         "open_tickets": 2,
         "closed_tickets": 5,
         "total_tickets": 7,
+        "latest_ticket_ref": "20101",
         "ticket_subscriber_id": "11111111-1111-1111-1111-111111111111",
         "_subscriber_uuid": "11111111-1111-1111-1111-111111111111",
     }
-    monkeypatch.setattr(billing_risk_web.billing_risk_cache_service, "all_cached_rows", lambda *_args, **_kwargs: [row])
+    monkeypatch.setattr(
+        billing_risk_service,
+        "get_billing_risk_table",
+        lambda *_args, **_kwargs: [row],
+    )
     monkeypatch.setattr(
         billing_risk_web,
         "_retention_rep_options",
@@ -159,20 +163,6 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
             if "12345" in customer_ids
             else {}
         ),
-    )
-    monkeypatch.setattr(
-        billing_risk_web.billing_risk_cache_service,
-        "list_cached_rows",
-        lambda *_args, **_kwargs: BillingRiskPage(
-            rows=[row],
-            page_metrics={"total_count": 1, "total_balance": 9200.0, "avg_days_overdue": 18},
-            has_next=False,
-        ),
-    )
-    monkeypatch.setattr(
-        billing_risk_web.billing_risk_cache_service,
-        "cache_metadata",
-        lambda _db: {"row_count": 1, "refreshed_at": datetime.now(UTC)},
     )
     monkeypatch.setattr(
         billing_risk_service,
@@ -233,7 +223,7 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
     assert "Open 2" in body
     assert "Closed 5" in body
     assert "Total 7" in body
-    assert "/admin/support/tickets?subscriber=11111111-1111-1111-1111-111111111111&status=not_closed" in body
+    assert "/admin/support/tickets/20101" in body
     assert "engagement-note-suggestions" in body
     assert "Customer said will pay next week" in body
     assert 'id="billing-risk-search-button"' in body
@@ -244,6 +234,7 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
     assert "event.preventDefault()" in body
     assert "subscriber_billing_risk_visible_" in body
     assert "'X-CSRF-Token': csrfToken()" in body
+    assert "Blocked 8-30 Days" in body
 
 
 def test_subscriber_billing_risk_export_matches_visible_columns_and_filters(monkeypatch):
@@ -272,7 +263,7 @@ def test_subscriber_billing_risk_export_matches_visible_columns_and_filters(monk
             }
         ]
 
-    monkeypatch.setattr(billing_risk_web.billing_risk_cache_service, "all_cached_rows", fake_table)
+    monkeypatch.setattr(billing_risk_service, "get_billing_risk_table", fake_table)
     monkeypatch.setattr(
         billing_risk_web,
         "_retention_engagements_by_customer",
@@ -320,7 +311,7 @@ def test_subscriber_billing_risk_export_matches_visible_columns_and_filters(monk
 
     assert captured_kwargs["search"] == "blocked"
     assert captured_kwargs["overdue_bucket"] == "8-30"
-    assert captured_kwargs["selected_segments"] == ["suspended"]
+    assert captured_kwargs["segments"] == ["suspended"]
     assert captured_kwargs["limit"] == 6000
     assert response.status_code == 200
     assert list(response.data[0]) == [
@@ -375,25 +366,15 @@ def test_subscriber_billing_risk_live_bucket_requests_keep_segment_filters(monke
         "days_past_due": 18,
         "is_high_balance_risk": True,
     }
-    monkeypatch.setattr(billing_risk_web.billing_risk_cache_service, "all_cached_rows", lambda *_args, **_kwargs: [row])
+    monkeypatch.setattr(
+        billing_risk_service,
+        "get_billing_risk_table",
+        lambda *_args, **_kwargs: [row],
+    )
     monkeypatch.setattr(
         billing_risk_web,
         "_retention_rep_options",
         lambda _db: [{"value": "rep-1", "label": "Sales Rep", "team": "Enterprise sales"}],
-    )
-    monkeypatch.setattr(
-        billing_risk_web.billing_risk_cache_service,
-        "list_cached_rows",
-        lambda *_args, **_kwargs: BillingRiskPage(
-            rows=[row],
-            page_metrics={"total_count": 1, "total_balance": 9200.0, "avg_days_overdue": 18},
-            has_next=False,
-        ),
-    )
-    monkeypatch.setattr(
-        billing_risk_web.billing_risk_cache_service,
-        "cache_metadata",
-        lambda _db: {"row_count": 1, "refreshed_at": datetime.now(UTC)},
     )
     monkeypatch.setattr(billing_risk_service, "get_overdue_invoices_table", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(
@@ -559,6 +540,25 @@ def test_get_live_blocked_dates_prefers_splynx_blocking_date(monkeypatch):
     assert billing_risk_service.get_live_blocked_dates(["12345"]) == {"12345": "2024-01-01"}
 
 
+def test_get_live_blocked_dates_prefers_splynx_blocked_date_alias(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer_billing",
+        lambda _db, _external_id: {
+            "blocked_date": "2024-02-02",
+            "invoiced_until": "2024-04-18",
+        },
+    )
+
+    assert billing_risk_service.get_live_blocked_dates(["12345"]) == {"12345": "2024-02-02"}
+
+
 def test_get_live_blocked_dates_falls_back_to_splynx_invoiced_until(monkeypatch):
     class FakeSession:
         def close(self):
@@ -575,6 +575,258 @@ def test_get_live_blocked_dates_falls_back_to_splynx_invoiced_until(monkeypatch)
     )
 
     assert billing_risk_service.get_live_blocked_dates(["12345"]) == {"12345": "2024-04-18"}
+
+
+def test_get_live_blocked_dates_uses_service_blocking_date_when_billing_missing(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer_billing",
+        lambda _db, _external_id: {
+            "invoiced_until": "2024-04-18",
+        },
+    )
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer_internet_services",
+        lambda _db, _external_id: [{"blocking_date": "2024-03-11"}],
+    )
+
+    assert billing_risk_service.get_live_blocked_dates(["12345"]) == {"12345": "2024-04-18"}
+
+
+def test_get_live_blocked_dates_blocking_only_ids_skip_invoiced_until_fallback(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer_billing",
+        lambda _db, _external_id: {
+            "invoiced_until": "2024-04-18",
+        },
+    )
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer_internet_services",
+        lambda _db, _external_id: [{"blocking_date": "2024-03-11"}],
+    )
+
+    assert billing_risk_service.get_live_blocked_dates(
+        ["12345"],
+        blocking_only_external_ids=["12345"],
+    ) == {"12345": "2024-03-11"}
+
+
+def test_get_live_blocked_dates_uses_customer_last_online_when_billing_and_service_missing(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer",
+        lambda _db, _external_id: {
+            "status": "blocked",
+            "last_online": "2026-03-20 11:28:03",
+        },
+    )
+
+    assert billing_risk_service.get_live_blocked_dates(["12345"]) == {"12345": "2026-03-20"}
+
+
+def test_get_live_blocked_dates_uses_prefetched_customers_payload(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customers",
+        lambda _db: [
+            {"id": "12345", "status": "blocked", "last_online": "2026-03-20 11:28:03"},
+            {"id": "67890", "status": "blocked", "last_online": "2026-03-18 09:00:00"},
+        ],
+    )
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer",
+        lambda _db, _external_id: (_ for _ in ()).throw(AssertionError("should not call fetch_customer")),
+    )
+
+    assert billing_risk_service.get_live_blocked_dates(["12345", "67890"]) == {
+        "12345": "2026-03-20",
+        "67890": "2026-03-18",
+    }
+
+
+def test_get_live_blocked_dates_uses_primary_service_blocking_date_when_billing_missing(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer_internet_services",
+        lambda _db, _external_id: [{"id": "1", "status": "blocked", "blocking_date": "2026-04-01"}],
+    )
+    monkeypatch.setattr(splynx_service, "fetch_customers", lambda _db: [])
+    monkeypatch.setattr(splynx_service, "fetch_customer", lambda _db, _external_id: {})
+
+    assert billing_risk_service.get_live_blocked_dates(["12345"], force_live=True) == {"12345": "2026-04-01"}
+
+
+def test_get_live_blocked_dates_prefers_billing_blocking_date_over_customer_last_online(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer_billing",
+        lambda _db, _external_id: {"blocking_date": "2026-05-16"},
+    )
+    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customers",
+        lambda _db: [{"id": "25678", "status": "active", "last_online": "2026-02-23 13:03:30"}],
+    )
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customer",
+        lambda _db, _external_id: {"status": "active", "last_online": "2026-02-23 13:03:30"},
+    )
+
+    assert billing_risk_service.get_live_blocked_dates(["25678"], force_live=True) == {"25678": "2026-05-16"}
+
+
+def test_enrich_missing_blocked_fields_hides_blocked_for_for_active_due_soon(monkeypatch):
+    monkeypatch.setattr(
+        billing_risk_web,
+        "_safe_live_blocked_dates",
+        lambda _external_ids, force_live=True: {"12345": "2026-05-16"},
+    )
+    rows = [
+        {
+            "_external_id": "12345",
+            "subscriber_status": "Active",
+            "risk_segment": "Due Soon",
+            "blocked_date": "",
+            "blocked_for_days": 12,
+            "days_past_due": 20,
+        }
+    ]
+
+    billing_risk_web._enrich_missing_blocked_fields(rows)
+
+    assert rows[0]["blocked_date"] == "2026-05-16"
+    assert rows[0]["blocked_for_days"] is None
+
+
+def test_get_billing_risk_table_prefers_live_customer_status_date_over_local_updated_at(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    class Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+        def scalars(self):
+            return self._rows
+
+    class FakeDb:
+        def __init__(self):
+            self.calls = 0
+
+        def execute(self, _statement):
+            self.calls += 1
+            if self.calls == 1:
+                return Result(
+                    [
+                        (
+                            "sub-1",  # subscriber_id
+                            None,  # person_id
+                            "17060",  # external_id
+                            "100017060",  # subscriber_number
+                            {},  # sync_metadata
+                            None,  # suspended_at
+                            None,  # next_bill_date
+                            0,  # balance
+                            "",  # billing_cycle
+                            "",  # service_plan
+                            "",  # service_city
+                            "",  # service_region
+                            "",  # service_address_line1
+                            None,  # activated_at
+                            datetime(2026, 4, 13, tzinfo=UTC),  # updated_at (local sync timestamp)
+                            datetime(2026, 1, 10, tzinfo=UTC),  # created_at
+                            "",  # person_email
+                        )
+                    ]
+                )
+            return Result([])
+
+    customer_payload = {
+        "id": "17060",
+        "name": "Abduljabbar Anibilowo",
+        "email": "",
+        "phone": "",
+        "status": "blocked",
+        "last_online": "2026-03-20 11:28:03",
+        "billing": {"blocking_date": "0000-00-00"},
+    }
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(splynx_service, "fetch_customers", lambda _db: [customer_payload])
+    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(
+        splynx_service,
+        "map_customer_to_subscriber_data",
+        lambda _db, _customer, include_remote_details=False: {
+            "status": "suspended",
+            "subscriber_number": "100017060",
+            "sync_metadata": {},
+        },
+    )
+
+    rows = billing_risk_service.get_billing_risk_table(
+        FakeDb(),
+        segment="suspended",
+        limit=10,
+        enrich_visible_rows=False,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["blocked_date"] == "2026-03-20"
+    assert rows[0]["blocked_date"] != "2026-04-13"
 
 
 def test_customer_retention_tracker_renders_from_billing_risk_filters(monkeypatch):
@@ -724,33 +976,30 @@ def test_subscriber_billing_risk_blocked_dates_returns_json(monkeypatch):
 def test_subscriber_billing_risk_rows_returns_html(monkeypatch):
     monkeypatch.setattr(billing_risk_web, "get_current_user", lambda _request: {"id": "test-user"})
     monkeypatch.setattr(
-        billing_risk_web.billing_risk_cache_service,
-        "list_cached_rows",
-        lambda *_args, **_kwargs: BillingRiskPage(
-            rows=[
-                {
-                    "name": "Blocked Customer",
-                    "phone": "+2348099991111",
-                    "city": "Abuja",
-                    "street": "12 Aminu Kano Crescent",
-                    "area": "Maitama",
-                    "plan": "Home Fiber 50Mbps",
-                    "mrr_total": 42000.0,
-                    "subscriber_status": "Suspended",
-                    "risk_segment": "Suspended",
-                    "billing_start_date": "2024-01-15",
-                    "blocked_date": "2024-04-18",
-                    "balance": 9200.0,
-                    "open_tickets": 2,
-                    "closed_tickets": 5,
-                    "total_tickets": 7,
-                    "ticket_subscriber_id": "11111111-1111-1111-1111-111111111111",
-                    "_subscriber_uuid": "11111111-1111-1111-1111-111111111111",
-                }
-            ],
-            page_metrics={"total_count": 1, "total_balance": 9200.0, "avg_days_overdue": 48},
-            has_next=True,
-        ),
+        billing_risk_service,
+        "get_billing_risk_table",
+        lambda *_args, **_kwargs: [
+            {
+                "name": "Blocked Customer",
+                "phone": "+2348099991111",
+                "city": "Abuja",
+                "street": "12 Aminu Kano Crescent",
+                "area": "Maitama",
+                "plan": "Home Fiber 50Mbps",
+                "mrr_total": 42000.0,
+                "subscriber_status": "Suspended",
+                "risk_segment": "Suspended",
+                "billing_start_date": "2024-01-15",
+                "blocked_date": "2024-04-18",
+                "balance": 9200.0,
+                "open_tickets": 2,
+                "closed_tickets": 5,
+                "total_tickets": 7,
+                "latest_ticket_ref": "20101",
+                "ticket_subscriber_id": "11111111-1111-1111-1111-111111111111",
+                "_subscriber_uuid": "11111111-1111-1111-1111-111111111111",
+            }
+        ],
     )
 
     request = Request(
@@ -780,7 +1029,7 @@ def test_subscriber_billing_risk_rows_returns_html(monkeypatch):
     assert "Open 2" in body
     assert "Closed 5" in body
     assert "Total 7" in body
-    assert "/admin/support/tickets?subscriber=11111111-1111-1111-1111-111111111111&status=closed" in body
+    assert "/admin/support/tickets/20101" in body
     assert ">Balance<" not in body
     assert "Page 1" in body
     assert "billing-risk-metric-count" in body

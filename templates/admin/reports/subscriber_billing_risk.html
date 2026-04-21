@@ -24,18 +24,18 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="next_url" value="/admin/reports/subscribers/billing-risk?{{ refresh_query }}">
             <button type="submit" class="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
-                Refresh Cache
+                Sync Subscribers
             </button>
         </form>
     {% endcall %}
 
     <div class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
         {% if refresh_started %}
-            Billing-risk refresh has been queued. The report will update when the background job finishes.
+            Subscriber sync has been queued. This billing-risk page reads live Splynx data.
         {% elif billing_risk_cache.row_count|default(0) == 0 %}
-            Billing-risk cache is empty. Run a refresh to build the report without slowing page loads.
+            Live Splynx query returned no billing-risk rows for the selected filters.
         {% else %}
-            Billing-risk cache: {{ billing_risk_cache.row_count }} rows{% if last_synced_at %}, refreshed {{ last_synced_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}.
+            Live Splynx rows: {{ billing_risk_cache.row_count }}{% if last_synced_at %}. Local subscriber mirror synced {{ last_synced_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}.
         {% endif %}
     </div>
 
@@ -43,6 +43,27 @@
         {{ stats_card("At-Risk Subscribers", kpis.total_at_risk|default(0), color="amber", color2="orange") }}
         {{ stats_card("Overdue Invoices", "₦" ~ "{:,.2f}".format(kpis.total_balance_exposure|default(0)), color="rose", color2="red") }}
         {{ stats_card("High Balance Risk", kpis.high_balance_risk_count|default(0), color="slate", color2="gray") }}
+    {% endcall %}
+
+    {% set blocked_bucket_counts = namespace(d0_7=0, d8_30=0, d31_60=0, d61_plus=0) %}
+    {% for bucket in aging_buckets|default([]) %}
+        {% set label = bucket.label|default('') %}
+        {% if label == "Blocked 0-7 Days" %}
+            {% set blocked_bucket_counts.d0_7 = bucket.count|default(0) %}
+        {% elif label == "Blocked 8-30 Days" %}
+            {% set blocked_bucket_counts.d8_30 = bucket.count|default(0) %}
+        {% elif label == "Blocked 31-60 Days" %}
+            {% set blocked_bucket_counts.d31_60 = bucket.count|default(0) %}
+        {% elif label == "Blocked 61+ Days" %}
+            {% set blocked_bucket_counts.d61_plus = bucket.count|default(0) %}
+        {% endif %}
+    {% endfor %}
+
+    {% call dashboard_kpi_grid(cols="4") %}
+        {{ stats_card("Blocked 0-7 Days", blocked_bucket_counts.d0_7, color="amber", color2="orange") }}
+        {{ stats_card("Blocked 8-30 Days", blocked_bucket_counts.d8_30, color="rose", color2="red") }}
+        {{ stats_card("Blocked 31-60 Days", blocked_bucket_counts.d31_60, color="slate", color2="gray") }}
+        {{ stats_card("Blocked 61+ Days", blocked_bucket_counts.d61_plus, color="emerald", color2="teal") }}
     {% endcall %}
 
     {% call dashboard_filter_panel(color="rose", title="Computed Segment Filter") %}
@@ -528,16 +549,85 @@
                 const blockedCell = row.querySelector('[data-blocked-date-cell]');
                 const blockedTag = row.querySelector('[data-blocked-for-tag]');
                 if (!meta || !blockedCell || !blockedTag) return;
+                const subscriberStatus = (meta.dataset.subscriberStatus || '').trim().toLowerCase();
+                const shouldHideBlockedFor = subscriberStatus === 'active';
+
+                if (shouldHideBlockedFor) {
+                    const neutralConfig = blockedTagConfig(null);
+                    meta.dataset.blockedForDays = '';
+                    blockedTag.textContent = '-';
+                    blockedTag.className = `inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${neutralConfig.className}`;
+                    return;
+                }
+
                 const blockedDate = parseBlockedDate(blockedCell.textContent);
                 const serverBlockedDays = blockedTag.dataset.blockedForDays || meta.dataset.blockedForDays || '';
                 const parsedServerBlockedDays = serverBlockedDays === '' ? null : Number(serverBlockedDays);
-                const blockedDays = parsedServerBlockedDays !== null && !Number.isNaN(parsedServerBlockedDays)
-                    ? parsedServerBlockedDays
-                    : (blockedDate ? Math.max(0, Math.floor((Date.now() - blockedDate.getTime()) / 86400000)) : null);
+                const blockedDays = blockedDate
+                    ? Math.max(0, Math.floor((Date.now() - blockedDate.getTime()) / 86400000))
+                    : (parsedServerBlockedDays !== null && !Number.isNaN(parsedServerBlockedDays) ? parsedServerBlockedDays : null);
                 meta.dataset.blockedForDays = blockedDays === null ? '' : String(blockedDays);
                 const config = blockedTagConfig(blockedDays);
                 blockedTag.textContent = blockedDays === null ? config.label : `Blocked for ${config.label}`;
                 blockedTag.className = `inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${config.className}`;
+            }
+
+            async function refreshBlockedDatesForVisibleRows() {
+                const rows = Array.from(document.querySelectorAll('td[data-billing-risk-row="1"]')).map((cell) => ({
+                    meta: cell,
+                    row: cell.closest('tr'),
+                    externalId: (cell.getAttribute('data-external-id') || '').trim(),
+                })).filter(({ row, externalId }) => row && externalId);
+                if (!rows.length) return;
+
+                const params = new URLSearchParams();
+                const uniqueExternalIds = [...new Set(rows.map((entry) => entry.externalId))];
+                const blockedLikeExternalIds = [...new Set(rows
+                    .filter(({ meta }) => {
+                        const subscriberStatus = ((meta?.dataset.subscriberStatus) || '').trim().toLowerCase();
+                        const riskSegment = ((meta?.dataset.riskSegment) || '').trim();
+                        return subscriberStatus === 'blocked'
+                            || subscriberStatus === 'suspended'
+                            || riskSegment === 'Suspended'
+                            || riskSegment === 'Churned';
+                    })
+                    .map((entry) => entry.externalId))];
+                for (const externalId of uniqueExternalIds) {
+                    params.append('external_id', externalId);
+                }
+                for (const externalId of blockedLikeExternalIds) {
+                    params.append('blocked_like_external_id', externalId);
+                }
+
+                let payload;
+                try {
+                    const response = await fetch(`/admin/reports/subscribers/billing-risk/blocked-dates?${params.toString()}`, {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    });
+                    if (!response.ok) return;
+                    payload = await response.json();
+                } catch (_error) {
+                    return;
+                }
+                const blockedDates = payload?.blocked_dates || {};
+
+                for (const { row, externalId } of rows) {
+                    const blockedCell = row.querySelector('[data-blocked-date-cell]');
+                    if (!blockedCell) continue;
+                    const meta = row.querySelector('td[data-billing-risk-row="1"]');
+                    const subscriberStatus = ((meta?.dataset.subscriberStatus) || '').trim().toLowerCase();
+                    const liveDate = String(blockedDates[externalId] || '').trim();
+                    const currentValue = (blockedCell.textContent || '').trim();
+                    blockedCell.textContent = liveDate || currentValue || '-';
+                    const blockedTag = row.querySelector('[data-blocked-for-tag]');
+                    if (blockedTag) {
+                        blockedTag.dataset.blockedForDays = '';
+                    }
+                    if (meta) {
+                        meta.dataset.blockedForDays = '';
+                    }
+                    updateRowDerivedState(row);
+                }
             }
 
             function hydrateResults() {
@@ -558,6 +648,7 @@
                 for (const row of rows) tbody.appendChild(row);
                 renderEngagementCells();
                 loadEngagementsForVisibleRows();
+                refreshBlockedDatesForVisibleRows();
             }
 
             async function loadEngagementsForVisibleRows() {
@@ -609,11 +700,7 @@
                     searchButton.textContent = 'Search';
                 }
                 if (!response.ok) return;
-                const html = await response.text();
-                const parser = new DOMParser();
-                const nextDocument = parser.parseFromString(html, 'text/html');
-                if (!nextDocument.getElementById('billing-risk-live-body')) return;
-                results.innerHTML = html;
+                results.innerHTML = await response.text();
                 results.dataset.page = String(currentPage);
                 results.dataset.bucket = activeBucket;
                 syncExportLink();
@@ -717,15 +804,6 @@
                 if (!results.contains(pageButton)) return;
                 const nextPage = Number(pageButton.getAttribute('data-billing-risk-page') || currentPage);
                 loadResults(nextPage);
-            });
-
-            document.body.addEventListener('change', (event) => {
-                const target = event.target;
-                if (!(target instanceof HTMLSelectElement)) return;
-                if (target.id !== 'billing-risk-page-size' || !results.contains(target)) return;
-                const url = new URL(window.location.href);
-                url.searchParams.set('page_size', target.value || '50');
-                window.location.assign(url.toString());
             });
         })();
     </script>
