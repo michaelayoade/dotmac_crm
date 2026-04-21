@@ -6,7 +6,7 @@ import re
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from threading import Lock
 from time import monotonic
 from typing import Any
@@ -54,6 +54,20 @@ _FINAL_TICKET_STATUSES = (TicketStatus.closed, TicketStatus.canceled, TicketStat
 def clear_live_splynx_cache() -> None:
     with _SPYLNX_LIVE_CACHE_LOCK:
         _SPYLNX_LIVE_CACHE.clear()
+
+
+def _coerce_nonnegative_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    try:
+        parsed = int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
 
 
 def _cached_live_splynx_read(cache_name: str, loader, *args, cache_scope: object | None = None):
@@ -139,7 +153,11 @@ def get_billing_risk_table(
     today = datetime.now(UTC).date()
 
     def _normalize_segment(value: str | None) -> str | None:
-        normalized_segment = (value or "").strip().lower()
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return None
+        normalized_segment = value.strip().lower()
         if normalized_segment in {"due_soon", "due soon", "overdue"}:
             return "Due Soon"
         if normalized_segment == "suspended":
@@ -160,7 +178,9 @@ def get_billing_risk_table(
             if normalized is not None:
                 selected_segments.add(normalized)
 
-    normalized_days_past_due = (days_past_due or "").strip().lower().replace("_", "-")
+    normalized_days_past_due = (days_past_due if isinstance(days_past_due, str) else "").strip().lower().replace(
+        "_", "-"
+    )
     if normalized_days_past_due in {"current", "0"}:
         selected_days_past_due_category = "0"
     elif normalized_days_past_due in {"1-7", "1-to-7", "1 to 7", "within-7", "within7"}:
@@ -188,8 +208,8 @@ def get_billing_risk_table(
             return True
         return _days_past_due_bucket(value) == selected_days_past_due_category
 
-    normalized_search = (search or "").strip().lower()
-    normalized_overdue_bucket = (overdue_bucket or "").strip().lower()
+    normalized_search = (search if isinstance(search, str) else "").strip().lower()
+    normalized_overdue_bucket = (overdue_bucket if isinstance(overdue_bucket, str) else "").strip().lower()
 
     def _blocked_days_from_text(value: object) -> int | None:
         parsed = _parse_iso_date_text(str(value or ""))
@@ -321,6 +341,8 @@ def get_billing_risk_table(
                 Subscriber.service_region,
                 Subscriber.service_address_line1,
                 Subscriber.activated_at,
+                Subscriber.updated_at,
+                Subscriber.created_at,
                 Person.email,
             )
             .select_from(Subscriber)
@@ -348,6 +370,8 @@ def get_billing_risk_table(
             service_region,
             service_address_line1,
             activated_at,
+            updated_at,
+            created_at,
             person_email,
         ) in subscriber_rows:
             cached_row = {
@@ -363,6 +387,8 @@ def get_billing_risk_table(
                 "service_region": str(service_region or "").strip(),
                 "service_address_line1": str(service_address_line1 or "").strip(),
                 "activated_at": _coerce_datetime_utc(activated_at),
+                "updated_at": _coerce_datetime_utc(updated_at),
+                "created_at": _coerce_datetime_utc(created_at),
             }
             subscriber_key = str(subscriber_id or "").strip()
             if subscriber_key:
@@ -393,25 +419,37 @@ def get_billing_risk_table(
 
     def _ticket_counts_for_subscribers(
         subscriber_rows_by_id: Mapping[str, Mapping[str, Any]],
-    ) -> dict[str, dict[str, int]]:
+        fallback_person_ids: set[str] | None = None,
+    ) -> tuple[dict[str, dict[str, int | str]], dict[str, dict[str, int | str]]]:
         subscriber_ids = [subscriber_id for subscriber_id in subscriber_rows_by_id if subscriber_id]
-        if not subscriber_ids:
-            return {}
-        rows = db.execute(
-            select(
-                Ticket.subscriber_id,
-                func.count(Ticket.id).label("total_count"),
-                func.count(Ticket.id).filter(Ticket.status.in_(_OPEN_TICKET_STATUSES)).label("open_count"),
-                func.count(Ticket.id).filter(Ticket.status == TicketStatus.closed).label("closed_count"),
-                func.count(Ticket.id).filter(Ticket.status.in_(_FINAL_TICKET_STATUSES)).label("final_count"),
-            )
-            .where(
-                Ticket.is_active.is_(True),
-                Ticket.subscriber_id.in_(subscriber_ids),
-            )
-            .group_by(Ticket.subscriber_id)
-        ).all()
+        person_ids = sorted(
+            {
+                str(row.get("person_id") or "").strip()
+                for row in subscriber_rows_by_id.values()
+                if str(row.get("person_id") or "").strip()
+            }
+            | {person_id for person_id in (fallback_person_ids or set()) if person_id}
+        )
+        if not subscriber_ids and not person_ids:
+            return {}, {}
+
         counts_by_subscriber: dict[str, dict[str, int]] = {}
+        rows = []
+        if subscriber_ids:
+            rows = db.execute(
+                select(
+                    Ticket.subscriber_id,
+                    func.count(Ticket.id).label("total_count"),
+                    func.count(Ticket.id).filter(Ticket.status.in_(_OPEN_TICKET_STATUSES)).label("open_count"),
+                    func.count(Ticket.id).filter(Ticket.status == TicketStatus.closed).label("closed_count"),
+                    func.count(Ticket.id).filter(Ticket.status.in_(_FINAL_TICKET_STATUSES)).label("final_count"),
+                )
+                .where(
+                    Ticket.is_active.is_(True),
+                    Ticket.subscriber_id.in_(subscriber_ids),
+                )
+                .group_by(Ticket.subscriber_id)
+            ).all()
         for subscriber_id, total_count, open_count, closed_count, final_count in rows:
             subscriber_key = str(subscriber_id or "").strip()
             if not subscriber_key:
@@ -429,9 +467,151 @@ def get_billing_risk_table(
             bucket["closed_tickets"] += int(closed_count or 0)
             bucket["final_tickets"] += int(final_count or 0)
             bucket["total_tickets"] += int(total_count or 0)
-        return counts_by_subscriber
 
-    ticket_counts_by_subscriber = _ticket_counts_for_subscribers(subscriber_sync_by_id)
+        counts_by_person: dict[str, dict[str, int]] = {}
+        person_rows = []
+        if person_ids:
+            person_rows = db.execute(
+                select(
+                    Ticket.customer_person_id,
+                    func.count(Ticket.id).label("total_count"),
+                    func.count(Ticket.id).filter(Ticket.status.in_(_OPEN_TICKET_STATUSES)).label("open_count"),
+                    func.count(Ticket.id).filter(Ticket.status == TicketStatus.closed).label("closed_count"),
+                    func.count(Ticket.id).filter(Ticket.status.in_(_FINAL_TICKET_STATUSES)).label("final_count"),
+                )
+                .where(
+                    Ticket.is_active.is_(True),
+                    Ticket.customer_person_id.in_(person_ids),
+                )
+                .group_by(Ticket.customer_person_id)
+            ).all()
+        for person_id, total_count, open_count, closed_count, final_count in person_rows:
+            person_key = str(person_id or "").strip()
+            if not person_key:
+                continue
+            counts_by_person[person_key] = {
+                "open_tickets": int(open_count or 0),
+                "closed_tickets": int(closed_count or 0),
+                "final_tickets": int(final_count or 0),
+                "total_tickets": int(total_count or 0),
+            }
+
+        latest_status_by_subscriber: dict[str, str] = {}
+        if subscriber_ids:
+            latest_subscriber_status_rows = db.execute(
+                select(Ticket.subscriber_id, Ticket.status)
+                .where(
+                    Ticket.is_active.is_(True),
+                    Ticket.subscriber_id.in_(subscriber_ids),
+                )
+                .order_by(Ticket.subscriber_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
+            ).all()
+            for subscriber_id, status in latest_subscriber_status_rows:
+                subscriber_key = str(subscriber_id or "").strip()
+                if not subscriber_key or subscriber_key in latest_status_by_subscriber:
+                    continue
+                latest_status_by_subscriber[subscriber_key] = (
+                    str(status.value if isinstance(status, TicketStatus) else status or "")
+                )
+
+        latest_status_by_person: dict[str, str] = {}
+        if person_ids:
+            latest_person_status_rows = db.execute(
+                select(Ticket.customer_person_id, Ticket.status)
+                .where(
+                    Ticket.is_active.is_(True),
+                    Ticket.customer_person_id.in_(person_ids),
+                )
+                .order_by(Ticket.customer_person_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
+            ).all()
+            for person_id, status in latest_person_status_rows:
+                person_key = str(person_id or "").strip()
+                if not person_key or person_key in latest_status_by_person:
+                    continue
+                latest_status_by_person[person_key] = str(status.value if isinstance(status, TicketStatus) else status or "")
+
+        latest_ticket_id_by_subscriber: dict[str, str] = {}
+        latest_ticket_ref_by_subscriber: dict[str, str] = {}
+        if subscriber_ids:
+            latest_subscriber_ticket_rows = db.execute(
+                select(Ticket.subscriber_id, Ticket.id, Ticket.number)
+                .where(
+                    Ticket.is_active.is_(True),
+                    Ticket.subscriber_id.in_(subscriber_ids),
+                )
+                .order_by(Ticket.subscriber_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
+            ).all()
+            for subscriber_id, ticket_id, ticket_number in latest_subscriber_ticket_rows:
+                subscriber_key = str(subscriber_id or "").strip()
+                if not subscriber_key or subscriber_key in latest_ticket_id_by_subscriber:
+                    continue
+                ticket_id_text = str(ticket_id or "").strip()
+                ticket_number_text = str(ticket_number or "").strip()
+                latest_ticket_id_by_subscriber[subscriber_key] = ticket_id_text
+                latest_ticket_ref_by_subscriber[subscriber_key] = ticket_number_text or ticket_id_text
+
+        latest_ticket_id_by_person: dict[str, str] = {}
+        latest_ticket_ref_by_person: dict[str, str] = {}
+        if person_ids:
+            latest_person_ticket_rows = db.execute(
+                select(Ticket.customer_person_id, Ticket.id, Ticket.number)
+                .where(
+                    Ticket.is_active.is_(True),
+                    Ticket.customer_person_id.in_(person_ids),
+                )
+                .order_by(Ticket.customer_person_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
+            ).all()
+            for person_id, ticket_id, ticket_number in latest_person_ticket_rows:
+                person_key = str(person_id or "").strip()
+                if not person_key or person_key in latest_ticket_id_by_person:
+                    continue
+                ticket_id_text = str(ticket_id or "").strip()
+                ticket_number_text = str(ticket_number or "").strip()
+                latest_ticket_id_by_person[person_key] = ticket_id_text
+                latest_ticket_ref_by_person[person_key] = ticket_number_text or ticket_id_text
+
+        ticket_context_by_person: dict[str, dict[str, int | str]] = {}
+        for person_key in person_ids:
+            context = counts_by_person.get(person_key) or {
+                "open_tickets": 0,
+                "closed_tickets": 0,
+                "final_tickets": 0,
+                "total_tickets": 0,
+            }
+            latest_status = latest_status_by_person.get(person_key) or ""
+            context_with_status = dict(context)
+            context_with_status["latest_ticket_status"] = latest_status.replace("_", " ").title() if latest_status else ""
+            context_with_status["latest_ticket_id"] = latest_ticket_id_by_person.get(person_key, "")
+            context_with_status["latest_ticket_ref"] = latest_ticket_ref_by_person.get(person_key, "")
+            ticket_context_by_person[person_key] = context_with_status
+
+        ticket_context_by_subscriber: dict[str, dict[str, int | str]] = {}
+        for subscriber_key, row in subscriber_rows_by_id.items():
+            if not subscriber_key:
+                continue
+            person_key = str(row.get("person_id") or "").strip()
+            context = (
+                counts_by_subscriber.get(subscriber_key)
+                or ticket_context_by_person.get(person_key)
+                or {"open_tickets": 0, "closed_tickets": 0, "final_tickets": 0, "total_tickets": 0}
+            )
+            latest_status = latest_status_by_subscriber.get(subscriber_key) or str(context.get("latest_ticket_status") or "")
+            context_with_status = dict(context)
+            context_with_status["latest_ticket_status"] = latest_status.replace("_", " ").title() if latest_status else ""
+            context_with_status["latest_ticket_id"] = latest_ticket_id_by_subscriber.get(subscriber_key) or str(
+                context.get("latest_ticket_id") or ""
+            )
+            context_with_status["latest_ticket_ref"] = latest_ticket_ref_by_subscriber.get(subscriber_key) or str(
+                context.get("latest_ticket_ref") or ""
+            )
+            ticket_context_by_subscriber[subscriber_key] = context_with_status
+        return ticket_context_by_subscriber, ticket_context_by_person
+
+    fallback_person_ids = {person_id for person_id, _phone in people_by_email.values() if person_id}
+    ticket_counts_by_subscriber, ticket_counts_by_person = _ticket_counts_for_subscribers(
+        subscriber_sync_by_id,
+        fallback_person_ids=fallback_person_ids,
+    )
 
     def _contact_phone(email_value: str, default_phone: str) -> str:
         formatted_default = _format_phone_display(default_phone)
@@ -642,7 +822,12 @@ def get_billing_risk_table(
         )
 
     def _live_blocked_date_from_billing(billing_payload: Mapping[str, Any] | None) -> str:
-        blocking_date = _live_billing_text(billing_payload, "blocking_date", "request_auto_next", "blocked_date")
+        blocking_date = _live_billing_text(
+            billing_payload,
+            "blocking_date",
+            "request_auto_next",
+            "blocked_date",
+        )
         return blocking_date or _live_invoiced_until_date(billing_payload)
 
     def _live_service_plan(services_payload: object) -> str:
@@ -674,7 +859,9 @@ def get_billing_risk_table(
             if isinstance(cached_subscriber.get("sync_metadata"), Mapping)
             else {}
         )
-        status_value = str(mapped.get("status") or "unknown")
+        cached_suspended_at = _coerce_datetime_utc(cached_subscriber.get("suspended_at"))
+        status_raw = str(mapped.get("status") or "unknown").strip().lower()
+        status_value = status_raw.removeprefix("subscriberstatus.")
         plan_value = str(mapped.get("service_plan") or "").strip() or str(cached_subscriber.get("service_plan") or "")
         embedded_billing = customer.get("billing") if isinstance(customer.get("billing"), Mapping) else None
         billing_start_date = _live_billing_start_date(customer, mapped, embedded_billing)
@@ -698,10 +885,15 @@ def get_billing_risk_table(
         days_since_last_payment = max(0, (today - invoiced_until_date).days) if invoiced_until_date else None
         row_days_past_due = days_since_last_payment
         customer_last_update = _live_billing_text(customer, "last_update")
+        customer_last_online = _live_billing_text(customer, "last_online")
         embedded_blocking_date = _live_blocked_date_from_billing(embedded_billing)
+        blocking_period_days = (
+            _coerce_nonnegative_int(embedded_billing.get("blocking_period"))
+            if isinstance(embedded_billing, Mapping)
+            else None
+        )
         blocked_date_text = embedded_blocking_date or invoiced_until_text
         blocked_for_days = _blocked_days_from_text(blocked_date_text)
-
         live_segment_value: str | None = None
         if status_value == SubscriberStatus.terminated.value:
             live_segment_value = "Churned"
@@ -716,6 +908,21 @@ def get_billing_risk_table(
         if status_value == SubscriberStatus.active.value and live_segment_value == "Due Soon":
             blocked_date_text = ""
             blocked_for_days = None
+        elif status_value == SubscriberStatus.suspended.value and not blocked_date_text:
+            if blocking_period_days is not None and row_days_past_due is not None:
+                inferred_blocked_days = max(0, int(row_days_past_due) - blocking_period_days)
+                blocked_for_days = inferred_blocked_days
+                if inferred_blocked_days > 0:
+                    blocked_date_text = (today - timedelta(days=inferred_blocked_days)).strftime("%Y-%m-%d")
+            else:
+                # Splynx often leaves billing.blocking_date unset (0000-00-00).
+                # Use customer last_update as best available blocked timestamp.
+                parsed_last_update = _parse_iso_date_text(customer_last_update) or _parse_iso_date_text(
+                    customer_last_online
+                )
+                if parsed_last_update is not None:
+                    blocked_date_text = parsed_last_update.strftime("%Y-%m-%d")
+                    blocked_for_days = max(0, (today - parsed_last_update).days)
         if selected_segments and live_segment_value not in selected_segments:
             continue
         if not _matches_days_past_due_bucket(row_days_past_due):
@@ -736,7 +943,15 @@ def get_billing_risk_table(
             )
         )
         street_value = _live_street_address(customer, cached_subscriber)
-        ticket_counts = ticket_counts_by_subscriber.get(str(cached_subscriber.get("id") or ""), {})
+        subscriber_id_key = str(cached_subscriber.get("id") or "").strip()
+        person_id_key = str(cached_subscriber.get("person_id") or "").strip()
+        if not person_id_key and email_value:
+            person_id_key = str(people_by_email.get(email_value.lower(), ("", ""))[0] or "").strip()
+        ticket_counts = (
+            ticket_counts_by_subscriber.get(subscriber_id_key)
+            or ticket_counts_by_person.get(person_id_key)
+            or {}
+        )
         mrr_total_value = _parse_balance_amount(customer.get("mrr_total"))
         live_results.append(
             {
@@ -757,6 +972,8 @@ def get_billing_risk_table(
                 "billing_cycle": str(mapped.get("billing_cycle") or cached_subscriber.get("billing_cycle") or ""),
                 "blocked_date": blocked_date_text,
                 "blocked_for_days": blocked_for_days,
+                "blocking_period": blocking_period_days,
+                "suspended_at": cached_suspended_at.strftime("%Y-%m-%d") if cached_suspended_at is not None else "",
                 "last_transaction_date": _metadata_text(sync_metadata, "last_transaction_date"),
                 "expires_in": _metadata_text(sync_metadata, "expires_in"),
                 "invoiced_until": invoiced_until_text,
@@ -769,13 +986,17 @@ def get_billing_risk_table(
                 "closed_tickets": int(ticket_counts.get("closed_tickets") or 0),
                 "final_tickets": int(ticket_counts.get("final_tickets") or 0),
                 "total_tickets": int(ticket_counts.get("total_tickets") or 0),
-                "_person_id": str(cached_subscriber.get("person_id") or ""),
-                "ticket_subscriber_id": str(cached_subscriber.get("id") or ""),
-                "_subscriber_uuid": str(cached_subscriber.get("id") or ""),
+                "latest_ticket_status": str(ticket_counts.get("latest_ticket_status") or ""),
+                "latest_ticket_id": str(ticket_counts.get("latest_ticket_id") or ""),
+                "latest_ticket_ref": str(ticket_counts.get("latest_ticket_ref") or ""),
+                "_person_id": person_id_key,
+                "ticket_subscriber_id": subscriber_id_key,
+                "_subscriber_uuid": subscriber_id_key,
                 "_external_id": str(customer.get("id") or ""),
                 "_subscriber_number": str(mapped.get("subscriber_number") or ""),
                 "_last_synced_at": "",
                 "_customer_last_update": customer_last_update,
+                "_customer_last_online": customer_last_online,
             }
         )
 
@@ -853,9 +1074,28 @@ def get_billing_risk_table(
         if live_invoiced_until:
             updates["invoiced_until"] = live_invoiced_until
         live_blocked_date = _live_blocked_date_from_billing(billing_payload)
+        live_blocking_period = _coerce_nonnegative_int(billing_payload.get("blocking_period"))
+        if live_blocking_period is not None:
+            updates["blocking_period"] = live_blocking_period
         if live_blocked_date:
             updates["blocked_date"] = live_blocked_date
             updates["blocked_for_days"] = _blocked_days_from_text(live_blocked_date)
+        elif str(entry.get("subscriber_status") or "").strip().lower() in {"suspended", "blocked"}:
+            days_past_due = _coerce_nonnegative_int(entry.get("days_past_due"))
+            if live_blocking_period is not None and days_past_due is not None:
+                inferred_blocked_days = max(0, days_past_due - live_blocking_period)
+                updates["blocked_for_days"] = inferred_blocked_days
+                if inferred_blocked_days > 0:
+                    updates["blocked_date"] = (datetime.now(UTC).date() - timedelta(days=inferred_blocked_days)).strftime(
+                        "%Y-%m-%d"
+                    )
+            else:
+                parsed_last_update = _parse_iso_date_text(str(entry.get("_customer_last_update") or "")) or _parse_iso_date_text(
+                    str(entry.get("_customer_last_online") or "")
+                )
+                if parsed_last_update is not None:
+                    updates["blocked_date"] = parsed_last_update.strftime("%Y-%m-%d")
+                    updates["blocked_for_days"] = max(0, (datetime.now(UTC).date() - parsed_last_update).days)
         return updates
 
     if enrich_visible_rows and visible_results:
@@ -976,7 +1216,11 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
         )
 
     def _blocked_date_from_billing(billing_payload: Mapping[str, Any] | None) -> str:
-        blocking_date = _live_billing_text(billing_payload, "blocking_date", "request_auto_next", "blocked_date")
+        blocking_date = _live_billing_text(
+            billing_payload,
+            "blocking_date",
+            "blocked_date",
+        )
         return blocking_date or _invoiced_until_date(billing_payload)
 
     def _enrich_live_entry(entry: dict[str, Any]) -> dict[str, Any]:
@@ -1059,9 +1303,21 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
         if live_invoiced_until:
             updates["invoiced_until"] = live_invoiced_until
         live_blocked_date = _blocked_date_from_billing(billing_payload)
+        live_blocking_period = _coerce_nonnegative_int(billing_payload.get("blocking_period"))
+        if live_blocking_period is not None:
+            updates["blocking_period"] = live_blocking_period
         if live_blocked_date:
             updates["blocked_date"] = live_blocked_date
             updates["blocked_for_days"] = _blocked_days_from_text(live_blocked_date)
+        elif str(entry.get("subscriber_status") or "").strip().lower() in {"suspended", "blocked"}:
+            days_past_due = _coerce_nonnegative_int(entry.get("days_past_due"))
+            if live_blocking_period is not None and days_past_due is not None:
+                inferred_blocked_days = max(0, days_past_due - live_blocking_period)
+                updates["blocked_for_days"] = inferred_blocked_days
+                if inferred_blocked_days > 0:
+                    updates["blocked_date"] = (datetime.now(UTC).date() - timedelta(days=inferred_blocked_days)).strftime(
+                        "%Y-%m-%d"
+                    )
         return updates
 
     if rows:
@@ -1079,46 +1335,162 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
     return rows
 
 
-def get_live_blocked_dates(external_ids: list[str]) -> dict[str, str]:
+def get_live_blocked_dates(
+    external_ids: list[str],
+    *,
+    force_live: bool = False,
+    blocking_only_external_ids: list[str] | set[str] | None = None,
+) -> dict[str, str]:
     """Fetch live blocked dates for the currently visible rows."""
-    from app.services.splynx import fetch_customer_billing
+    from app.services.splynx import (
+        _select_primary_service,
+        fetch_customer,
+        fetch_customer_billing,
+        fetch_customer_internet_services,
+        fetch_customers,
+    )
 
     blocked_dates: dict[str, str] = {}
     seen_ids: set[str] = set()
+    blocking_only_set = {str(external_id).strip() for external_id in (blocking_only_external_ids or [])}
+
+    preloaded_customers: dict[str, Mapping[str, Any]] = {}
+    def _customers_loader():
+        splynx_db = SessionLocal()
+        try:
+            return fetch_customers(splynx_db)
+        finally:
+            splynx_db.close()
+
+    try:
+        customers_payload = (
+            _customers_loader()
+            if force_live
+            else _cached_live_splynx_read(
+                "fetch_customers",
+                _customers_loader,
+                cache_scope=fetch_customers,
+            )
+        )
+    except Exception:
+        customers_payload = []
+    if isinstance(customers_payload, list):
+        for item in customers_payload:
+            if not isinstance(item, Mapping):
+                continue
+            customer_id = str(item.get("id") or "").strip()
+            if customer_id:
+                preloaded_customers[customer_id] = item
+
     for raw_external_id in external_ids:
         external_id = str(raw_external_id or "").strip()
         if not external_id or external_id in seen_ids:
             continue
         seen_ids.add(external_id)
 
-        def _loader(bound_external_id: str = external_id):
+        def _billing_loader(bound_external_id: str = external_id):
             splynx_db = SessionLocal()
             try:
                 return fetch_customer_billing(splynx_db, bound_external_id)
             finally:
                 splynx_db.close()
 
-        billing_payload = _cached_live_splynx_read(
-            "fetch_customer_billing",
-            _loader,
-            external_id,
-            cache_scope=fetch_customer_billing,
+        billing_payload = (
+            _billing_loader()
+            if force_live
+            else _cached_live_splynx_read(
+                "fetch_customer_billing",
+                _billing_loader,
+                external_id,
+                cache_scope=fetch_customer_billing,
+            )
         )
-        if not isinstance(billing_payload, Mapping):
-            continue
-        blocked_date = _parse_iso_date_text(
-            str(
+
+        if isinstance(billing_payload, Mapping):
+            billing_text = str(
                 billing_payload.get("blocking_date")
                 or billing_payload.get("request_auto_next")
                 or billing_payload.get("blocked_date")
-                or billing_payload.get("invoiced_until")
-                or billing_payload.get("invoiced_to")
-                or billing_payload.get("paid_until")
-                or billing_payload.get("invoice_until")
-                or billing_payload.get("paid_to")
                 or ""
             )
-        )
+            if external_id not in blocking_only_set and not billing_text.strip():
+                billing_text = str(
+                    billing_payload.get("invoiced_until")
+                    or billing_payload.get("invoiced_to")
+                    or billing_payload.get("paid_until")
+                    or billing_payload.get("invoice_until")
+                    or billing_payload.get("paid_to")
+                    or ""
+                )
+        else:
+            billing_text = ""
+
+        blocked_date = _parse_iso_date_text(billing_text)
+        if blocked_date is None:
+            def _services_loader(bound_external_id: str = external_id):
+                splynx_db = SessionLocal()
+                try:
+                    return fetch_customer_internet_services(splynx_db, bound_external_id)
+                finally:
+                    splynx_db.close()
+
+            services_payload = (
+                _services_loader()
+                if force_live
+                else _cached_live_splynx_read(
+                    "fetch_customer_internet_services",
+                    _services_loader,
+                    external_id,
+                    cache_scope=fetch_customer_internet_services,
+                )
+            )
+            services = [service for service in (services_payload or []) if isinstance(service, Mapping)]
+            primary_service = _select_primary_service(services)
+            service_blocking_text = str(primary_service.get("blocking_date") or "") if isinstance(primary_service, Mapping) else ""
+            if not service_blocking_text:
+                for service in services:
+                    candidate = str(service.get("blocking_date") or "")
+                    if candidate:
+                        service_blocking_text = candidate
+                        break
+            blocked_date = _parse_iso_date_text(service_blocking_text)
+
+        if blocked_date is None:
+            customer_payload = preloaded_customers.get(external_id)
+            if customer_payload is None:
+                def _customer_loader(bound_external_id: str = external_id):
+                    splynx_db = SessionLocal()
+                    try:
+                        return fetch_customer(splynx_db, bound_external_id)
+                    finally:
+                        splynx_db.close()
+
+                customer_payload = (
+                    _customer_loader()
+                    if force_live
+                    else _cached_live_splynx_read(
+                        "fetch_customer",
+                        _customer_loader,
+                        external_id,
+                        cache_scope=fetch_customer,
+                    )
+                )
+            if isinstance(customer_payload, Mapping):
+                customer_status = str(customer_payload.get("status") or "").strip().lower()
+                customer_text = str(
+                    customer_payload.get("blocking_date")
+                    or customer_payload.get("blocked_date")
+                    or customer_payload.get("suspended_at")
+                    or customer_payload.get("last_update")
+                    or (
+                        customer_payload.get("last_online")
+                        if customer_status in {"blocked", "suspended", SubscriberStatus.suspended.value}
+                        else ""
+                    )
+                    or ""
+                )
+                blocked_date = _parse_iso_date_text(customer_text)
+
         if blocked_date is not None:
             blocked_dates[external_id] = blocked_date.strftime("%Y-%m-%d")
     return blocked_dates

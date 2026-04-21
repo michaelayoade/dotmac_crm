@@ -5,7 +5,8 @@ from __future__ import annotations
 import csv
 import io
 import logging
-from datetime import UTC, date, datetime
+import re
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -20,12 +21,11 @@ from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.person import Person
 from app.models.service_team import ServiceTeam, ServiceTeamMember
 from app.models.subscriber import Subscriber, SubscriberStatus
-from app.services import billing_risk_cache as billing_risk_cache_service
 from app.services import billing_risk_reports as billing_risk_service
-from app.services.auth_dependencies import require_any_permission
 from app.services.common import coerce_uuid
-from app.tasks.subscribers import refresh_billing_risk_cache
+from app.tasks.subscribers import sync_subscribers_from_splynx
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+from app.web.auth.rbac import require_web_role
 from app.web.templates import Jinja2Templates
 
 logger = logging.getLogger(__name__)
@@ -35,30 +35,29 @@ customer_retention_router = APIRouter(tags=["admin-customer-retention"])
 templates = Jinja2Templates(directory="templates")
 
 RETENTION_PIPELINE_STEPS = ("Contacted", "Follow-up Pending", "Promised to Pay", "Resolved", "Lost")
-RETENTION_REP_LABEL_ONLY_NAMES = {"ejiro onovwiona"}
-RETENTION_TARGET_REP_TEAM_NAMES = {
-    "customer support",
-    "customer-support",
-    "customer_support",
-    "customer support team",
-    "enterprise sales",
-    "enterprise-sales",
-    "enterprise_sales",
-    "sales call center",
-    "sales-call-center",
-    "sales_call_center",
-}
-RETENTION_TARGET_REP_DEPARTMENT_NAMES = {
-    "customer support",
-    "customer_support",
-}
-RETENTION_TARGET_REP_NAME_FRAGMENTS = (("customer", "support"), ("sales", "call", "center"), ("help", "desk"))
-RETENTION_FIXED_REP_LABELS = (
-    "Abigail Tongov",
+RETENTION_FIXED_REP_NAMES = (
     "Chizaram Ogbonna",
     "Grace Moses",
+    "Abigail Tongov",
     "Stephanie Mojekwu",
 )
+RETENTION_REP_TEAM_OVERRIDES = {
+    "ahmed omodara": "Customer Support",
+    "chinenye onyeagba": "Customer Support",
+    "chris mbah": "Customer Support",
+    "david dikko": "Customer Support",
+    "david ekechukwu": "Customer Support",
+    "divine madu": "Customer Support",
+    "james akah": "Customer Support",
+    "monica eyire edako": "Customer Support",
+    "seun ayoade": "Customer Support",
+    "shallom chukwueke": "Customer Support",
+    "chinelo okoro": "Sales Call Center",
+    "martin nwaogu": "Sales Call Center",
+    "ochanya abah": "Sales Call Center",
+    "ruth ogbedebi": "Sales Call Center",
+}
+RETENTION_REP_LABEL_ONLY_NAMES = {"ejiro onovwiona"}
 
 
 def _normalize_segment_filters(segments: list[str] | str | None, segment: str | None) -> list[str]:
@@ -176,6 +175,7 @@ def _billing_risk_page_rows(
     visible_rows = churn_rows[:page_size]
     if not str(search or "").strip():
         billing_risk_service.enrich_billing_risk_rows(visible_rows)
+    _enrich_missing_blocked_fields(visible_rows)
     return visible_rows, _billing_risk_page_metrics(visible_rows), has_next
 
 
@@ -187,41 +187,50 @@ def _billing_risk_initial_rows(
     has_next = len(churn_rows) > page_size
     visible_rows = [dict(row) for row in churn_rows[:page_size]]
     billing_risk_service.enrich_billing_risk_rows(visible_rows)
+    _enrich_missing_blocked_fields(visible_rows)
     return visible_rows, _billing_risk_page_metrics(visible_rows), has_next
 
 
 def _retention_rep_options(db: Session) -> list[dict[str, str]]:
-    def _team_is_target(team_name: str | None) -> bool:
-        normalized = str(team_name or "").strip().lower()
-        if not normalized:
-            return False
-        normalized_spaced = normalized.replace("_", " ").replace("-", " ").strip()
-        normalized_spaced = " ".join(normalized_spaced.split())
-        if normalized_spaced in RETENTION_TARGET_REP_TEAM_NAMES:
-            return True
-
-        normalized_underscored = normalized_spaced.replace(" ", "_")
-        if normalized_underscored in RETENTION_TARGET_REP_DEPARTMENT_NAMES:
-            return True
-
-        return any(
-            all(fragment in normalized_spaced for fragment in fragments)
-            for fragments in RETENTION_TARGET_REP_NAME_FRAGMENTS
-        )
-
+    target_team_names = {
+        "helpdesk",
+        "help desk",
+        "enterprise sales",
+        "customer support",
+        "sales (call center)",
+        "sales call center",
+    }
+    target_departments = {
+        "helpdesk",
+        "help_desk",
+        "enterprise_sales",
+        "customer_support",
+        "sales_call_center",
+    }
     options_by_person_id: dict[str, dict[str, str]] = {}
-    fixed_options_by_label: dict[str, dict[str, str]] = {}
+    fixed_options_by_label: dict[str, dict[str, str]] = {
+        rep_name.casefold(): {
+            "value": f"manual:{rep_name.casefold().replace(' ', '-')}",
+            "label": rep_name,
+            "team": "",
+            "person_id": "",
+        }
+        for rep_name in RETENTION_FIXED_REP_NAMES
+    }
+    for rep_label, team_label in RETENTION_REP_TEAM_OVERRIDES.items():
+        formatted_label = " ".join(part.capitalize() for part in rep_label.split())
+        fixed_options_by_label.setdefault(
+            rep_label,
+            {
+                "value": f"manual:{rep_label.replace(' ', '-')}",
+                "label": formatted_label,
+                "team": team_label,
+                "person_id": "",
+            },
+        )
 
     service_team_rows = db.execute(
-        select(
-            Person.id,
-            Person.display_name,
-            Person.first_name,
-            Person.last_name,
-            Person.email,
-            ServiceTeam.name,
-            ServiceTeam.erp_department,
-        )
+        select(Person.id, Person.display_name, Person.first_name, Person.last_name, Person.email, ServiceTeam.name)
         .select_from(ServiceTeamMember)
         .join(ServiceTeam, ServiceTeam.id == ServiceTeamMember.team_id)
         .join(Person, Person.id == ServiceTeamMember.person_id)
@@ -231,21 +240,14 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
             Person.is_active.is_(True),
         )
     ).all()
-    for service_row in service_team_rows:
-        (
-            person_id,
-            display_name,
-            first_name,
-            last_name,
-            email,
-            team_name,
-            *service_team_tail,
-        ) = service_row
-        team_department = service_team_tail[0] if service_team_tail else None
-        if not (_team_is_target(team_name) or _team_is_target(team_department)):
+    for person_id, display_name, first_name, last_name, email, team_name in service_team_rows:
+        team_key = str(team_name or "").strip().lower()
+        team_department_key = team_key.replace(" ", "_")
+        if team_key not in target_team_names and team_department_key not in target_departments:
             continue
         label = str(display_name or f"{first_name or ''} {last_name or ''}".strip() or email or "Unnamed rep").strip()
         team_label = "" if label.casefold() in RETENTION_REP_LABEL_ONLY_NAMES else str(team_name or "").strip()
+        team_label = RETENTION_REP_TEAM_OVERRIDES.get(label.casefold(), team_label)
         options_by_person_id[str(person_id)] = {
             "value": str(person_id),
             "label": label,
@@ -254,19 +256,9 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
         }
 
     crm_team_rows = db.execute(
-        select(
-            Person.id,
-            Person.display_name,
-            Person.first_name,
-            Person.last_name,
-            Person.email,
-            CrmTeam.name,
-            ServiceTeam.name,
-            ServiceTeam.erp_department,
-        )
+        select(Person.id, Person.display_name, Person.first_name, Person.last_name, Person.email, CrmTeam.name)
         .select_from(CrmAgentTeam)
         .join(CrmTeam, CrmTeam.id == CrmAgentTeam.team_id)
-        .outerjoin(ServiceTeam, ServiceTeam.id == CrmTeam.service_team_id)
         .join(CrmAgent, CrmAgent.id == CrmAgentTeam.agent_id)
         .join(Person, Person.id == CrmAgent.person_id)
         .where(
@@ -276,26 +268,13 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
             Person.is_active.is_(True),
         )
     ).all()
-    for crm_row in crm_team_rows:
-        (
-            person_id,
-            display_name,
-            first_name,
-            last_name,
-            email,
-            team_name,
-            *crm_team_tail,
-        ) = crm_row
-        crm_service_team_name = crm_team_tail[0] if len(crm_team_tail) >= 1 else None
-        crm_service_department = crm_team_tail[1] if len(crm_team_tail) >= 2 else None
-        if not (
-            _team_is_target(team_name)
-            or _team_is_target(crm_service_team_name)
-            or _team_is_target(crm_service_department)
-        ):
+    for person_id, display_name, first_name, last_name, email, team_name in crm_team_rows:
+        team_key = str(team_name or "").strip().lower()
+        if team_key not in target_team_names:
             continue
         label = str(display_name or f"{first_name or ''} {last_name or ''}".strip() or email or "Unnamed rep").strip()
         team_label = "" if label.casefold() in RETENTION_REP_LABEL_ONLY_NAMES else str(team_name or "").strip()
+        team_label = RETENTION_REP_TEAM_OVERRIDES.get(label.casefold(), team_label)
         options_by_person_id.setdefault(
             str(person_id),
             {
@@ -306,18 +285,34 @@ def _retention_rep_options(db: Session) -> list[dict[str, str]]:
             },
         )
 
+    # Resolve manual rep cards to real people where possible so engagements can persist person IDs.
+    manual_names = set(RETENTION_REP_TEAM_OVERRIDES.keys())
+    first_name_candidates = {name.split()[0] for name in manual_names if name.split()}
+    possible_people = db.execute(
+        select(Person.id, Person.display_name, Person.first_name, Person.last_name, Person.email)
+        .where(
+            Person.is_active.is_(True),
+            func.lower(func.coalesce(Person.first_name, "")).in_(first_name_candidates),
+        )
+    ).all()
+    for row in possible_people:
+        if len(row) < 5:
+            continue
+        person_id, display_name, first_name, last_name, email = row[:5]
+        label = str(display_name or f"{first_name or ''} {last_name or ''}".strip() or email or "").strip()
+        normalized_label = label.casefold()
+        if normalized_label not in manual_names:
+            continue
+        team_label = RETENTION_REP_TEAM_OVERRIDES[normalized_label]
+        fixed_options_by_label[normalized_label] = {
+            "value": str(person_id),
+            "label": label,
+            "team": team_label,
+            "person_id": str(person_id),
+        }
+
     for option in options_by_person_id.values():
         fixed_options_by_label[option["label"].casefold()] = option
-    for label in RETENTION_FIXED_REP_LABELS:
-        fixed_options_by_label.setdefault(
-            label.casefold(),
-            {
-                "value": label,
-                "label": label,
-                "team": "",
-                "person_id": "",
-            },
-        )
 
     return sorted(
         fixed_options_by_label.values(),
@@ -407,6 +402,265 @@ def _blocked_for_export_label(row: dict) -> str:
     except (TypeError, ValueError):
         return "-"
     return f"Blocked for {days} days"
+
+
+def _coerce_blocked_days_value(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    if not normalized:
+        return None
+    try:
+        return int(float(normalized))
+    except (TypeError, ValueError):
+        pass
+    match = re.search(r"-?\d+\.?\d*", normalized)
+    if match is None:
+        return None
+    try:
+        return int(float(match.group(0)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_blocked_date_text(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    if lowered in {"n/a", "na", "-", "none", "null", "0000-00-00"}:
+        return ""
+    return text
+
+
+def _blocked_days_buckets(churn_rows: list[dict]) -> list[dict[str, int | str]]:
+    blocked_counts = {
+        "Blocked 0-7 Days": 0,
+        "Blocked 8-30 Days": 0,
+        "Blocked 31-60 Days": 0,
+        "Blocked 61+ Days": 0,
+    }
+    today = datetime.now(UTC).date()
+
+    def _coerce_row_blocked_days(row: dict) -> int | None:
+        blocked_days_value = _coerce_blocked_days_value(row.get("blocked_for_days"))
+        if blocked_days_value is not None:
+            return blocked_days_value
+        blocked_date_text = str(row.get("blocked_date") or "").strip()
+        parsed_blocked_date = billing_risk_service._parse_iso_date_text(blocked_date_text)
+        if parsed_blocked_date is not None:
+            return max(0, (today - parsed_blocked_date).days)
+        days_past_due = _coerce_blocked_days_value(row.get("days_past_due"))
+        if days_past_due is not None and days_past_due >= 0:
+            return days_past_due
+        return None
+
+    for row in churn_rows:
+        blocked_days = _coerce_row_blocked_days(row)
+        if blocked_days is None:
+            continue
+
+        segment_value = str(row.get("risk_segment") or "").strip()
+        if segment_value not in {"Suspended", "Churned"}:
+            continue
+
+        if blocked_days <= 7:
+            blocked_counts["Blocked 0-7 Days"] += 1
+        elif blocked_days <= 30:
+            blocked_counts["Blocked 8-30 Days"] += 1
+        elif blocked_days <= 60:
+            blocked_counts["Blocked 31-60 Days"] += 1
+        else:
+            blocked_counts["Blocked 61+ Days"] += 1
+
+    return [{"label": label, "count": count} for label, count in blocked_counts.items()]
+
+
+def _safe_live_blocked_dates(
+    external_ids: list[str],
+    *,
+    force_live: bool = True,
+    blocking_only_external_ids: list[str] | None = None,
+) -> dict[str, str]:
+    if not external_ids:
+        return {}
+    try:
+        return billing_risk_service.get_live_blocked_dates(
+            external_ids,
+            force_live=force_live,
+            blocking_only_external_ids=blocking_only_external_ids,
+        )
+    except TypeError as exc:
+        # Keep compatibility with monkeypatched/test doubles that don't accept force_live kwarg.
+        if "force_live" in str(exc) or "blocking_only_external_ids" in str(exc):
+            try:
+                return billing_risk_service.get_live_blocked_dates(external_ids)
+            except Exception:
+                return {}
+        return {}
+    except Exception:
+        return {}
+
+
+def _enrich_missing_blocked_fields(churn_rows: list[dict]) -> None:
+    if not churn_rows:
+        return
+
+    today = datetime.now(UTC).date()
+
+    def _status_and_segment_rules(row: dict) -> tuple[bool, bool]:
+        subscriber_status = str(row.get("subscriber_status") or "").strip().lower()
+        risk_segment = str(row.get("risk_segment") or "").strip()
+        should_hide_blocked_for = subscriber_status == "active"
+        is_blocked_like = subscriber_status in {"blocked", "suspended"} or risk_segment in {"Suspended", "Churned"}
+        return should_hide_blocked_for, is_blocked_like
+
+    def _infer_from_blocking_period(row: dict) -> int | None:
+        blocking_period = _coerce_blocked_days_value(row.get("blocking_period"))
+        days_past_due = _coerce_blocked_days_value(row.get("days_past_due"))
+        if blocking_period is None or days_past_due is None:
+            return None
+        return max(0, days_past_due - blocking_period)
+
+    def _infer_from_customer_last_update(row: dict) -> tuple[int, str] | None:
+        parsed = billing_risk_service._parse_iso_date_text(str(row.get("_customer_last_update") or ""))
+        if parsed is None:
+            return None
+        return max(0, (today - parsed).days), parsed.strftime("%Y-%m-%d")
+
+    def _is_invalid_blocked_date_fallback(row: dict, blocked_date_text: str) -> bool:
+        if not blocked_date_text:
+            return False
+        billing_start_text = _normalize_blocked_date_text(row.get("billing_start_date"))
+        return bool(billing_start_text and blocked_date_text == billing_start_text)
+
+    external_ids = sorted(
+        {str(row.get("_external_id") or "").strip() for row in churn_rows if str(row.get("_external_id") or "").strip()}
+    )
+    # Always prefer live Splynx blocking_date for the UI Blocked Date cell.
+    live_blocked_dates = _safe_live_blocked_dates(
+        external_ids,
+        force_live=True,
+    )
+    target_rows: list[tuple[dict, str]] = []
+    missing_external_ids: set[str] = set()
+    for row in churn_rows:
+        external_id = str(row.get("_external_id") or "").strip()
+        if external_id and external_id in live_blocked_dates:
+            live_blocked_date = live_blocked_dates.get(external_id, "")
+            if live_blocked_date:
+                row["blocked_date"] = live_blocked_date
+                should_hide_blocked_for, is_blocked_like = _status_and_segment_rules(row)
+                if should_hide_blocked_for:
+                    row["blocked_for_days"] = None
+                else:
+                    parsed_live_blocked_date = billing_risk_service._parse_iso_date_text(live_blocked_date)
+                    if parsed_live_blocked_date is not None and is_blocked_like:
+                        row["blocked_for_days"] = max(0, (today - parsed_live_blocked_date).days)
+                    else:
+                        row["blocked_for_days"] = None
+                # Live Splynx blocked date is authoritative for this row.
+                continue
+
+        should_hide_blocked_for, is_blocked_like = _status_and_segment_rules(row)
+        if should_hide_blocked_for:
+            row["blocked_for_days"] = None
+            continue
+
+        blocked_date_text = _normalize_blocked_date_text(row.get("blocked_date"))
+        if _is_invalid_blocked_date_fallback(row, blocked_date_text):
+            row["blocked_date"] = ""
+            blocked_date_text = ""
+        blocked_for_days = _coerce_blocked_days_value(row.get("blocked_for_days"))
+        if blocked_for_days is not None:
+            row["blocked_for_days"] = blocked_for_days
+        else:
+            parsed_blocked_date = billing_risk_service._parse_iso_date_text(blocked_date_text)
+            if parsed_blocked_date is not None:
+                blocked_for_days = max(0, (today - parsed_blocked_date).days)
+                row["blocked_for_days"] = blocked_for_days
+
+        if not is_blocked_like and not blocked_date_text:
+            continue
+        if blocked_date_text and blocked_for_days is not None:
+            continue
+        if blocked_for_days is None:
+            inferred_blocked_days = _infer_from_blocking_period(row)
+            if inferred_blocked_days is not None and is_blocked_like:
+                row["blocked_for_days"] = inferred_blocked_days
+                blocked_for_days = inferred_blocked_days
+                if not blocked_date_text and inferred_blocked_days > 0:
+                    row["blocked_date"] = (today - timedelta(days=inferred_blocked_days)).strftime("%Y-%m-%d")
+                    blocked_date_text = row["blocked_date"]
+            else:
+                days_past_due = _coerce_blocked_days_value(row.get("days_past_due"))
+                if days_past_due is not None and days_past_due >= 0 and is_blocked_like:
+                    row["blocked_for_days"] = days_past_due
+                    blocked_for_days = days_past_due
+                else:
+                    inferred_from_update = _infer_from_customer_last_update(row)
+                    if inferred_from_update is not None and is_blocked_like:
+                        inferred_days, inferred_date_text = inferred_from_update
+                        row["blocked_for_days"] = inferred_days
+                        blocked_for_days = inferred_days
+                        if not blocked_date_text:
+                            row["blocked_date"] = inferred_date_text
+                            blocked_date_text = inferred_date_text
+
+        if blocked_for_days is not None:
+            continue
+
+        if not external_id:
+            continue
+        target_rows.append((row, external_id))
+        missing_external_ids.add(external_id)
+
+    blocked_dates = {
+        external_id: live_blocked_dates.get(external_id, "") for external_id in sorted(missing_external_ids)
+    }
+    for row, external_id in target_rows:
+        should_hide_blocked_for, is_blocked_like = _status_and_segment_rules(row)
+        if should_hide_blocked_for:
+            row["blocked_for_days"] = None
+            continue
+
+        row_blocked_date_text = _normalize_blocked_date_text(row.get("blocked_date"))
+        if _is_invalid_blocked_date_fallback(row, row_blocked_date_text):
+            row["blocked_date"] = ""
+            row_blocked_date_text = ""
+        blocked_date_text = row_blocked_date_text
+        if not row_blocked_date_text:
+            live_blocked_date = blocked_dates.get(external_id, "")
+            if live_blocked_date:
+                row["blocked_date"] = live_blocked_date
+                row_blocked_date_text = live_blocked_date
+            blocked_date_text = row_blocked_date_text
+        blocked_for_days = _coerce_blocked_days_value(row.get("blocked_for_days"))
+        if blocked_for_days in (None, ""):
+            parsed_blocked_date = billing_risk_service._parse_iso_date_text(blocked_date_text)
+            if parsed_blocked_date is not None:
+                row["blocked_for_days"] = max(0, (today - parsed_blocked_date).days)
+                continue
+            inferred_blocked_days = _infer_from_blocking_period(row)
+            if inferred_blocked_days is not None and is_blocked_like:
+                row["blocked_for_days"] = inferred_blocked_days
+                if not blocked_date_text and inferred_blocked_days > 0:
+                    row["blocked_date"] = (today - timedelta(days=inferred_blocked_days)).strftime("%Y-%m-%d")
+                continue
+            days_past_due = _coerce_blocked_days_value(row.get("days_past_due"))
+            if days_past_due is not None and days_past_due >= 0 and is_blocked_like:
+                row["blocked_for_days"] = days_past_due
+                continue
+            inferred_from_update = _infer_from_customer_last_update(row)
+            if inferred_from_update is not None and is_blocked_like:
+                inferred_days, inferred_date_text = inferred_from_update
+                row["blocked_for_days"] = inferred_days
+                if not blocked_date_text:
+                    row["blocked_date"] = inferred_date_text
 
 
 def _billing_risk_visible_export_rows(
@@ -643,11 +897,7 @@ def _retention_tracker_kpis(db: Session, churn_rows: list[dict]) -> dict[str, in
     }
 
 
-@router.get(
-    "/subscribers/billing-risk",
-    response_class=HTMLResponse,
-    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
-)
+@router.get("/subscribers/billing-risk", response_class=HTMLResponse)
 def subscriber_billing_risk(
     request: Request,
     db: Session = Depends(get_db),
@@ -657,7 +907,6 @@ def subscriber_billing_risk(
     segment: str | None = Query(None),
     segments: list[str] = Query(default=[]),
     days_past_due: str | None = Query(None),
-    page_size: int = Query(50, ge=1, le=100),
 ):
     user = get_current_user(request)
     query_segments = request.query_params.getlist("segments")
@@ -667,32 +916,39 @@ def subscriber_billing_risk(
         query_segments if query_segments else segments,
         query_segment or segment,
     )
-    global_churn_rows = billing_risk_cache_service.all_cached_rows(
+    global_churn_rows = billing_risk_service.get_billing_risk_table(
         db,
         due_soon_days=due_soon_days,
         high_balance_only=high_balance_only,
-        selected_segments=selected_segments,
+        segment=segment,
+        segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
         limit=10000,
+        enrich_visible_rows=False,
     )
-    page = billing_risk_cache_service.list_cached_rows(
+    selected_labels = _segment_labels(selected_segments)
+    if selected_labels:
+        global_churn_rows = [row for row in global_churn_rows if str(row.get("risk_segment") or "") in selected_labels]
+    page_rows, page_metrics, has_next = _billing_risk_page_rows(
         db,
         due_soon_days=due_soon_days,
         high_balance_only=high_balance_only,
+        segment=segment,
         selected_segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
         page=1,
-        page_size=page_size,
+        page_size=50,
+        search=None,
+        overdue_bucket="all",
     )
     overdue_invoices = billing_risk_service.get_overdue_invoices_table(
         db,
         min_days_past_due=overdue_invoice_days,
         limit=250,
     )
-    kpis = billing_risk_cache_service.summary(global_churn_rows, overdue_invoices)
-    segment_breakdown = billing_risk_cache_service.segment_breakdown(global_churn_rows)
-    aging_buckets = billing_risk_cache_service.aging_buckets(global_churn_rows)
-    cache_meta = billing_risk_cache_service.cache_metadata(db)
+    kpis = billing_risk_service.get_billing_risk_summary(global_churn_rows, overdue_invoices)
+    segment_breakdown = billing_risk_service.get_billing_risk_segment_breakdown(global_churn_rows)
+    aging_buckets = billing_risk_service.get_billing_risk_aging_buckets(global_churn_rows)
 
     export_query = urlencode(
         {
@@ -737,7 +993,7 @@ def subscriber_billing_risk(
             "kpis": kpis,
             "segment_breakdown": segment_breakdown,
             "aging_buckets": aging_buckets,
-            "churn_rows": page.rows,
+            "churn_rows": page_rows,
             "overdue_invoices": overdue_invoices,
             "due_soon_days": due_soon_days,
             "overdue_invoice_days": overdue_invoice_days,
@@ -747,33 +1003,26 @@ def subscriber_billing_risk(
             "export_query": export_query,
             "retention_tracker_query": retention_tracker_query,
             "refresh_query": refresh_query,
-            "last_synced_at": cache_meta.get("refreshed_at") or _latest_subscriber_sync_at(db),
-            "billing_risk_cache": cache_meta,
+            "last_synced_at": _latest_subscriber_sync_at(db),
+            "billing_risk_cache": {"row_count": len(global_churn_rows)},
             "csrf_token": get_csrf_token(request),
             "refresh_started": request.query_params.get("refresh_started") == "1",
             "refresh_error": request.query_params.get("refresh_error"),
             "live_page": 1,
-            "live_page_size": page_size,
-            "live_has_next": page.has_next,
+            "live_page_size": 50,
+            "live_has_next": has_next,
             "live_search": "",
             "live_bucket": "all",
-            "page_metrics": page.page_metrics,
-            "page": page.page,
-            "page_size": page_size,
-            "total_pages": page.total_pages,
-            "total_count": page.total_count,
+            "page_metrics": page_metrics,
+            "page": 1,
             "has_prev": False,
-            "has_next": page.has_next,
+            "has_next": has_next,
             "rep_options": _retention_rep_options(db),
         },
     )
 
 
-@customer_retention_router.get(
-    "/customer-retention",
-    response_class=HTMLResponse,
-    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
-)
+@customer_retention_router.get("/customer-retention", response_class=HTMLResponse)
 def customer_retention_tracker(
     request: Request,
     db: Session = Depends(get_db),
@@ -844,10 +1093,7 @@ def customer_retention_tracker(
     )
 
 
-@customer_retention_router.get(
-    "/customer-retention/engagements",
-    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
-)
+@customer_retention_router.get("/customer-retention/engagements")
 def customer_retention_engagements(
     request: Request,
     db: Session = Depends(get_db),
@@ -857,10 +1103,7 @@ def customer_retention_engagements(
     return JSONResponse({"engagements": _retention_engagements_by_customer(db, customer_id)})
 
 
-@customer_retention_router.post(
-    "/customer-retention/engagements",
-    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
-)
+@customer_retention_router.post("/customer-retention/engagements")
 async def customer_retention_engagement_create(
     request: Request,
     db: Session = Depends(get_db),
@@ -902,11 +1145,7 @@ async def customer_retention_engagement_create(
     return JSONResponse({"engagement": _retention_engagement_payload(engagement)})
 
 
-@customer_retention_router.get(
-    "/customer-retention/{customer_id}",
-    response_class=HTMLResponse,
-    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
-)
+@customer_retention_router.get("/customer-retention/{customer_id}", response_class=HTMLResponse)
 def customer_retention_tracker_detail(
     customer_id: str,
     request: Request,
@@ -978,37 +1217,34 @@ def customer_retention_tracker_detail(
 def subscriber_billing_risk_refresh(
     request: Request,
     next_url: str = Form("/admin/reports/subscribers/billing-risk"),
-    _permission: dict = Depends(require_any_permission("reports:billing", "reports:subscribers", "reports")),
+    _admin: dict = Depends(require_web_role("admin")),
 ):
     if not next_url.startswith("/admin/reports/subscribers/billing-risk"):
         next_url = "/admin/reports/subscribers/billing-risk"
 
     try:
-        refresh_billing_risk_cache.delay()
+        sync_subscribers_from_splynx.delay()
         return RedirectResponse(url=_append_query_flag(next_url, "refresh_started", "1"), status_code=303)
     except Exception:
-        logger.exception("Failed to enqueue billing risk cache refresh")
+        logger.exception("Failed to enqueue Splynx subscriber sync")
         return RedirectResponse(url=_append_query_flag(next_url, "refresh_error", "queue_unavailable"), status_code=303)
 
 
-@router.get(
-    "/subscribers/billing-risk/blocked-dates",
-    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
-)
+@router.get("/subscribers/billing-risk/blocked-dates")
 def subscriber_billing_risk_blocked_dates(
     request: Request,
     external_id: list[str] = Query(default=[]),
+    blocked_like_external_id: list[str] = Query(default=[]),
 ):
     get_current_user(request)
-    blocked_dates = billing_risk_service.get_live_blocked_dates(external_id)
+    blocked_dates = _safe_live_blocked_dates(
+        external_id,
+        force_live=True,
+    )
     return JSONResponse({"blocked_dates": blocked_dates})
 
 
-@router.get(
-    "/subscribers/billing-risk/rows",
-    response_class=HTMLResponse,
-    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
-)
+@router.get("/subscribers/billing-risk/rows", response_class=HTMLResponse)
 def subscriber_billing_risk_rows(
     request: Request,
     db: Session = Depends(get_db),
@@ -1031,51 +1267,42 @@ def subscriber_billing_risk_rows(
         query_segments if query_segments else segments,
         query_segment or segment,
     )
-    page_result = billing_risk_cache_service.list_cached_rows(
+    page_rows, page_metrics, has_next = _billing_risk_page_rows(
         db,
         due_soon_days=due_soon_days,
         high_balance_only=high_balance_only,
+        segment=segment,
         selected_segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
         page=page,
         page_size=page_size,
         search=search,
-        overdue_bucket=bucket,
+        overdue_bucket=bucket or "all",
     )
     return templates.TemplateResponse(
         "admin/reports/_subscriber_billing_risk_results.html",
         {
             "request": request,
-            "churn_rows": page_result.rows,
-            "page_metrics": page_result.page_metrics,
-            "page": page_result.page,
-            "page_size": page_size,
-            "total_pages": page_result.total_pages,
-            "total_count": page_result.total_count,
-            "has_prev": page_result.page > 1,
-            "has_next": page_result.has_next,
+            "churn_rows": page_rows,
+            "page_metrics": page_metrics,
+            "page": page,
+            "has_prev": page > 1,
+            "has_next": has_next,
         },
     )
 
 
-@router.get(
-    "/subscribers/billing-risk/blocked-date-cell",
-    response_class=HTMLResponse,
-    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
-)
+@router.get("/subscribers/billing-risk/blocked-date-cell", response_class=HTMLResponse)
 def subscriber_billing_risk_blocked_date_cell(
     request: Request,
     external_id: str = Query(...),
 ):
     get_current_user(request)
-    blocked_dates = billing_risk_service.get_live_blocked_dates([external_id])
+    blocked_dates = _safe_live_blocked_dates([external_id], force_live=True)
     return HTMLResponse(blocked_dates.get(external_id, "N/A"))
 
 
-@router.get(
-    "/subscribers/billing-risk/export",
-    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
-)
+@router.get("/subscribers/billing-risk/export")
 def subscriber_billing_risk_export(
     request: Request,
     db: Session = Depends(get_db),
@@ -1095,19 +1322,22 @@ def subscriber_billing_risk_export(
         query_segment or segment,
     )
 
-    churn_rows = billing_risk_cache_service.all_cached_rows(
+    churn_rows = billing_risk_service.get_billing_risk_table(
         db,
         due_soon_days=due_soon_days,
         high_balance_only=high_balance_only,
-        selected_segments=selected_segments,
+        segment=segment,
+        segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
-        search=search,
-        overdue_bucket=bucket,
         limit=6000,
+        search=search,
+        overdue_bucket=bucket or "all",
+        enrich_visible_rows=False,
     )
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
+    _enrich_missing_blocked_fields(churn_rows)
     export_data = _billing_risk_visible_export_rows(db, churn_rows)
     filename = f"subscriber_billing_risk_{datetime.now(UTC).strftime('%Y%m%d')}.csv"
     return _csv_response(export_data, filename)
