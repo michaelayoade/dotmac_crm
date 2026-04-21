@@ -581,13 +581,13 @@ def get_billing_risk_table(
                 "total_tickets": 0,
             }
             latest_status = latest_status_by_person.get(person_key) or ""
-            context_with_status: dict[str, int | str] = dict(base_context)
-            context_with_status["latest_ticket_status"] = (
+            person_context_with_status: dict[str, int | str] = dict(base_context)
+            person_context_with_status["latest_ticket_status"] = (
                 latest_status.replace("_", " ").title() if latest_status else ""
             )
-            context_with_status["latest_ticket_id"] = latest_ticket_id_by_person.get(person_key, "")
-            context_with_status["latest_ticket_ref"] = latest_ticket_ref_by_person.get(person_key, "")
-            ticket_context_by_person[person_key] = context_with_status
+            person_context_with_status["latest_ticket_id"] = latest_ticket_id_by_person.get(person_key, "")
+            person_context_with_status["latest_ticket_ref"] = latest_ticket_ref_by_person.get(person_key, "")
+            ticket_context_by_person[person_key] = person_context_with_status
 
         ticket_context_by_subscriber: dict[str, dict[str, int | str]] = {}
         for subscriber_key, row in subscriber_rows_by_id.items():
@@ -607,17 +607,17 @@ def get_billing_risk_table(
             latest_status = latest_status_by_subscriber.get(subscriber_key) or str(
                 context.get("latest_ticket_status") or ""
             )
-            context_with_status: dict[str, int | str] = dict(context)
-            context_with_status["latest_ticket_status"] = (
+            subscriber_context_with_status: dict[str, int | str] = dict(context)
+            subscriber_context_with_status["latest_ticket_status"] = (
                 latest_status.replace("_", " ").title() if latest_status else ""
             )
-            context_with_status["latest_ticket_id"] = latest_ticket_id_by_subscriber.get(subscriber_key) or str(
+            subscriber_context_with_status["latest_ticket_id"] = latest_ticket_id_by_subscriber.get(subscriber_key) or str(
                 context.get("latest_ticket_id") or ""
             )
-            context_with_status["latest_ticket_ref"] = latest_ticket_ref_by_subscriber.get(subscriber_key) or str(
+            subscriber_context_with_status["latest_ticket_ref"] = latest_ticket_ref_by_subscriber.get(subscriber_key) or str(
                 context.get("latest_ticket_ref") or ""
             )
-            ticket_context_by_subscriber[subscriber_key] = context_with_status
+            ticket_context_by_subscriber[subscriber_key] = subscriber_context_with_status
         return ticket_context_by_subscriber, ticket_context_by_person
 
     fallback_person_ids = {person_id for person_id, _phone in people_by_email.values() if person_id}
