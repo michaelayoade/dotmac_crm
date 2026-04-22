@@ -34,8 +34,8 @@
                 <input name="last_name" required class="block w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-stone-600 dark:bg-stone-700 dark:text-white" />
             </div>
             <div class="sm:col-span-2">
-                <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-stone-500 dark:text-stone-400">Email</label>
-                <input name="email" type="email" required class="block w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-stone-600 dark:bg-stone-700 dark:text-white" placeholder="contact@example.com" />
+                <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-stone-500 dark:text-stone-400">Email (optional)</label>
+                <input name="email" type="email" class="block w-full rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm text-stone-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-stone-600 dark:bg-stone-700 dark:text-white" placeholder="contact@example.com" />
             </div>
             <div class="sm:col-span-2">
                 <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-stone-500 dark:text-stone-400">Phone (optional)</label>
@@ -47,7 +47,7 @@
                 </button>
             </div>
         </form>
-        <p class="mt-2 text-xs text-stone-500 dark:text-stone-400">If the email already exists in the platform, the existing Person record is reused and linked to the selected organization.</p>
+        <p class="mt-2 text-xs text-stone-500 dark:text-stone-400">Reseller contact: communication is routed through the reseller organization endpoint.</p>
     </div>
 
     <div class="overflow-hidden rounded-2xl border border-stone-200/60 bg-white shadow-sm dark:border-stone-700/60 dark:bg-stone-800">
@@ -83,4 +83,3 @@
     </div>
 </div>
 {% endblock %}
-
