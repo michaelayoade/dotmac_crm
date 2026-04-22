@@ -149,7 +149,7 @@ def reseller_contacts_create(
     organization_id: str = Form(...),
     first_name: str = Form(...),
     last_name: str = Form(...),
-    email: str = Form(...),
+    email: str | None = Form(None),
     phone: str | None = Form(None),
     ctx: dict = Depends(require_reseller_portal_context),
     db: Session = Depends(get_db),

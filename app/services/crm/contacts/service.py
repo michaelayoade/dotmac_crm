@@ -14,6 +14,11 @@ from app.models.crm.sales import Lead
 from app.models.person import ChannelType as PersonChannelType
 from app.models.person import PartyStatus, Person, PersonChannel
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+from app.services.reseller_contact_policy import (
+    resolve_reseller_owner_org_id,
+    resolve_reseller_placeholder_email,
+    with_reseller_contact_metadata,
+)
 from app.services.response import ListResponseMixin
 
 
@@ -331,6 +336,14 @@ class Contacts(ListResponseMixin):
         # `Person.splynx_id` is a read-only hybrid property backed by metadata_.
         # Always remove it from constructor data to avoid AttributeError.
         data.pop("splynx_id", None)
+        reseller_owner_org_id = resolve_reseller_owner_org_id(db, data.get("organization_id"))
+        if reseller_owner_org_id and data.get("organization_id"):
+            data["email"] = resolve_reseller_placeholder_email(None, data["organization_id"])
+            data["phone"] = None
+        data["metadata_"] = with_reseller_contact_metadata(
+            data.get("metadata_") if isinstance(data.get("metadata_"), dict) else None,
+            reseller_owner_org_id=reseller_owner_org_id,
+        )
         if data.get("email"):
             data["email"] = _normalize_email(data["email"]) or data["email"]
             existing = db.query(Person).filter(func.lower(Person.email) == data["email"]).first()
@@ -524,6 +537,20 @@ class Contacts(ListResponseMixin):
                 if person.metadata_ and isinstance(person.metadata_, dict):
                     person.metadata_.pop("splynx_id", None)
             data.pop("splynx_id", None)
+        effective_org_id = data.get("organization_id", person.organization_id)
+        reseller_owner_org_id = resolve_reseller_owner_org_id(db, effective_org_id)
+        if reseller_owner_org_id and effective_org_id:
+            data["email"] = resolve_reseller_placeholder_email(person.email, effective_org_id)
+            data["phone"] = None
+        metadata_seed: dict | None = None
+        if "metadata_" in data and isinstance(data.get("metadata_"), dict):
+            metadata_seed = data["metadata_"]
+        elif isinstance(person.metadata_, dict):
+            metadata_seed = person.metadata_
+        data["metadata_"] = with_reseller_contact_metadata(
+            metadata_seed,
+            reseller_owner_org_id=reseller_owner_org_id,
+        )
         for key, value in data.items():
             setattr(person, key, value)
         db.commit()

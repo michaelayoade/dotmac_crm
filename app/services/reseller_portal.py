@@ -11,6 +11,11 @@ from app.models.person import PartyStatus, Person
 from app.models.rbac import PersonRole, Role
 from app.models.subscriber import AccountType, Organization, Subscriber, SubscriberStatus
 from app.services.common import coerce_uuid
+from app.services.reseller_contact_policy import (
+    resolve_reseller_owner_org_id,
+    resolve_reseller_placeholder_email,
+    with_reseller_contact_metadata,
+)
 
 RESELLER_ROLE_ADMIN = "reseller_admin"
 RESELLER_ROLE_MEMBER = "reseller_member"
@@ -187,7 +192,7 @@ def create_contact(
     organization_id: uuid.UUID | str,
     first_name: str,
     last_name: str,
-    email: str,
+    email: str | None = None,
     phone: str | None = None,
 ) -> Person:
     """Create (or link) a Person contact within reseller scope.
@@ -198,8 +203,13 @@ def create_contact(
     org_id = coerce_uuid(organization_id)
     ensure_org_in_reseller_scope(db, actor_person_id=actor_person_id, target_org_id=org_id)
 
+    reseller_owner_org_id = resolve_reseller_owner_org_id(db, org_id)
+    is_reseller_linked = reseller_owner_org_id is not None
+
     email_norm = (email or "").strip().lower()
-    if not email_norm or "@" not in email_norm:
+    if is_reseller_linked:
+        email_norm = resolve_reseller_placeholder_email(None, org_id)
+    elif not email_norm or "@" not in email_norm:
         raise HTTPException(status_code=400, detail="Invalid email")
 
     existing = db.query(Person).filter(Person.email == email_norm).first()
@@ -222,14 +232,19 @@ def create_contact(
             db.commit()
         return existing
 
+    metadata = with_reseller_contact_metadata(
+        {"created_by": "reseller_portal", "created_by_person_id": str(actor_person_id)},
+        reseller_owner_org_id=reseller_owner_org_id,
+    )
+
     person = Person(
         first_name=(first_name or "").strip() or "Contact",
         last_name=(last_name or "").strip() or "User",
         email=email_norm,
-        phone=(phone or "").strip() or None,
+        phone=None if is_reseller_linked else ((phone or "").strip() or None),
         organization_id=org_id,
         party_status=PartyStatus.contact,
-        metadata_={"created_by": "reseller_portal", "created_by_person_id": str(actor_person_id)},
+        metadata_=metadata,
     )
     db.add(person)
     db.commit()

@@ -54,6 +54,9 @@ class TestIsPlaceholderEmail:
     def test_placeholder_local(self):
         assert is_placeholder_email("chatwoot-1@placeholder.local") is True
 
+    def test_reseller_placeholder_domain(self):
+        assert is_placeholder_email("org-123@reseller.dotmac.ng") is True
+
     def test_real_email(self):
         assert is_placeholder_email("alice@company.com") is False
 

@@ -123,6 +123,11 @@
                         <span x-show="phones.length === 0" class="text-xs text-slate-500 dark:text-slate-400">Add a phone number first.</span>
                     </div>
                 </div>
+                {% if reseller_contact_hint %}
+                <div class="sm:col-span-3">
+                    <p class="text-xs font-medium text-amber-700 dark:text-amber-300">Reseller contact: communication is routed via reseller.</p>
+                </div>
+                {% endif %}
                 <div>
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Address Line 1</label>
                     <input type="text" name="address_line1" value="{{ contact.address_line1 }}"
