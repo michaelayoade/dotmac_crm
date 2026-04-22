@@ -108,6 +108,7 @@ def online_customers_last_24h_rows(
             except ValueError:
                 continue
         return None
+
     clauses = [
         EventStore.is_active.is_(True),
         EventStore.subscriber_id.isnot(None),
@@ -134,9 +135,7 @@ def online_customers_last_24h_rows(
             Ticket.title.label("ticket_title"),
             Ticket.status.label("ticket_status"),
             Ticket.created_at.label("ticket_created_at"),
-            func.row_number()
-            .over(partition_by=Ticket.subscriber_id, order_by=Ticket.created_at.desc())
-            .label("rn"),
+            func.row_number().over(partition_by=Ticket.subscriber_id, order_by=Ticket.created_at.desc()).label("rn"),
         )
         .where(
             Ticket.is_active.is_(True),
@@ -268,10 +267,13 @@ def online_customers_last_24h_rows(
         query = query.limit(limit)
 
     rows = db.execute(query).all()
+
     def _serialize_rows(raw_rows: Any) -> list[dict[str, Any]]:
         serialized: list[dict[str, Any]] = []
         for row in raw_rows:
-            raw_name = row.display_name or f"{row.first_name or ''} {row.last_name or ''}".strip() or row.subscriber_number
+            raw_name = (
+                row.display_name or f"{row.first_name or ''} {row.last_name or ''}".strip() or row.subscriber_number
+            )
             ticket_status_value = row.ticket_status.value if row.ticket_status else ""
             notification_status_value = row.notification_status.value if row.notification_status else ""
             notification_channel = row.notification_channel or ""
@@ -319,7 +321,9 @@ def online_customers_last_24h_rows(
     for customer in customers:
         if not isinstance(customer, Mapping):
             continue
-        last_online = _parse_online_dt(customer.get("last_online") or customer.get("last_seen") or customer.get("updated_at"))
+        last_online = _parse_online_dt(
+            customer.get("last_online") or customer.get("last_seen") or customer.get("updated_at")
+        )
         if last_online is None or last_online < start or last_online > now:
             continue
         external_id = str(customer.get("id") or "").strip()
@@ -398,9 +402,7 @@ def online_customers_last_24h_rows(
 
     email_to_person_id: dict[str, str] = {}
     if emails:
-        person_rows = db.execute(
-            select(Person.id, Person.email).where(func.lower(Person.email).in_(emails))
-        ).all()
+        person_rows = db.execute(select(Person.id, Person.email).where(func.lower(Person.email).in_(emails))).all()
         for person_id, person_email in person_rows:
             person_key = str(person_id or "").strip()
             email_key = str(person_email or "").strip().lower()
