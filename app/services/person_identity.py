@@ -49,6 +49,7 @@ _PLACEHOLDER_DOMAINS = frozenset(
         "example.invalid",
         "widget.local",
         "placeholder.local",
+        "reseller.dotmac.ng",
     }
 )
 
