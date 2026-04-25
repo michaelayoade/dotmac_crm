@@ -28,7 +28,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 _sync_redis = None
 
 
-def _extract_call_event_payload(message: "Message") -> dict[str, str] | None:
+def _extract_call_event_payload(message: Message) -> dict[str, str] | None:
     """Expose WhatsApp call metadata on websocket message events when present."""
     try:
         channel_type = getattr(getattr(message, "channel_type", None), "value", None)
