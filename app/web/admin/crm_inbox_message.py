@@ -57,6 +57,7 @@ async def send_message(
         db=db,
         conversation_id=conversation_id,
         message_text=message,
+        subject=None,
         attachments_json=attachments,
         idempotency_key=idempotency_key,
         reply_to_message_id=reply_to_message_id,

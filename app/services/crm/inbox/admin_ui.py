@@ -147,6 +147,7 @@ def send_conversation_message(
     db: Session,
     conversation_id: str,
     message_text: str | None,
+    subject: str | None,
     attachments_json: str | None,
     idempotency_key: str | None,
     reply_to_message_id: str | None,
@@ -216,6 +217,7 @@ def send_conversation_message(
             conversation_id=conversation.id,
             channel_type=channel_type,
             channel_target_id=channel_target_uuid,
+            subject=(subject or "").strip() or None,
             body=body_text,
             attachments=attachments_payload or None,
             reply_to_message_id=reply_to_uuid,
@@ -442,25 +444,32 @@ def start_new_conversation(
     contact = None
     selected_person_channel = None
     if channel_enum == ChannelType.whatsapp:
+        address = (contact_address or "").strip()
         contact_id_value = (contact_id or "").strip()
-        if not contact_id_value:
+        if contact_id_value:
+            contact = crm_service.contacts.get(db, contact_id_value)
+            contact_name = contact.display_name or contact_name
+            if not address:
+                channels = [
+                    ch
+                    for ch in (contact.channels or [])
+                    if ch.channel_type in {PersonChannelType.whatsapp, PersonChannelType.phone, PersonChannelType.sms}
+                    and ch.address
+                ]
+                primary = next((ch for ch in channels if ch.is_primary), None)
+                fallback = primary or (channels[0] if channels else None)
+                address = (fallback.address if fallback else "") or (contact.phone or "")
+        if not address:
             return StartConversationResult(
                 kind="missing_recipient",
-                error_detail="Contact is required for WhatsApp conversations",
+                error_detail="WhatsApp number is required",
             )
-        contact = crm_service.contacts.get(db, contact_id_value)
-        channels = [
-            ch for ch in (contact.channels or []) if ch.channel_type == PersonChannelType.whatsapp and ch.address
-        ]
-        if not channels:
-            return StartConversationResult(
-                kind="missing_recipient",
-                error_detail="Selected contact has no WhatsApp number",
-            )
-        primary = next((ch for ch in channels if ch.is_primary), None)
-        selected_person_channel = primary or channels[0]
-        address = selected_person_channel.address
-        contact_name = contact.display_name or contact_name
+        contact, selected_person_channel = get_or_create_contact_by_channel(
+            db,
+            channel_enum,
+            address,
+            contact_name.strip() if contact_name else None,
+        )
     else:
         address = contact_address.strip()
         if not address:

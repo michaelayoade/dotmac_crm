@@ -33,6 +33,7 @@ from app.services.surveys import survey_invitations
 logger = logging.getLogger(__name__)
 
 CSAT_ENABLED_BY_TARGET_KEY = "crm_inbox_csat_enabled_by_target"
+CSAT_AUTO_CHANNELS: set[ChannelType] = {ChannelType.chat_widget}
 
 
 @dataclass(frozen=True)
@@ -196,6 +197,10 @@ def _resolve_latest_inbound_message(db: Session, conversation_id: str) -> Messag
     )
 
 
+def _is_csat_auto_channel(channel_type: ChannelType | None) -> bool:
+    return channel_type in CSAT_AUTO_CHANNELS
+
+
 def queue_for_resolved_conversation(
     db: Session,
     *,
@@ -219,6 +224,8 @@ def queue_for_resolved_conversation(
         channel_type = last_inbound.channel_type if last_inbound and last_inbound.channel_type else None
         if channel_type is None:
             channel_type = _resolve_latest_channel_type(db, conversation_id)
+        if not _is_csat_auto_channel(channel_type):
+            return CsatQueueResult(kind="not_enabled")
         if channel_type is None:
             return CsatQueueResult(kind="no_target")
         if not target_id:
@@ -237,9 +244,11 @@ def queue_for_resolved_conversation(
         if not survey:
             return CsatQueueResult(kind="no_active_survey")
 
+        conversation_uuid = coerce_uuid(conversation_id)
         invitation = (
             db.query(SurveyInvitation)
-            .filter(SurveyInvitation.survey_id == survey.id, SurveyInvitation.person_id == person.id)
+            .filter(SurveyInvitation.conversation_id == conversation_uuid)
+            .order_by(SurveyInvitation.created_at.desc())
             .first()
         )
         if invitation and invitation.status in (
@@ -340,6 +349,10 @@ def retry_pending_invitation(
     channel_type = last_inbound.channel_type if last_inbound and last_inbound.channel_type else None
     if channel_type is None:
         channel_type = _resolve_latest_channel_type(db, conversation_id)
+    if not _is_csat_auto_channel(channel_type):
+        invitation.status = SurveyInvitationStatus.expired
+        db.commit()
+        return CsatQueueResult(kind="not_enabled")
     if channel_type is None or not target_id:
         return CsatQueueResult(kind="no_target")
 

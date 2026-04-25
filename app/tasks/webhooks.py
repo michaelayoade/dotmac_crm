@@ -10,6 +10,7 @@ import logging
 from datetime import UTC, datetime
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 
 from app.celery_app import celery_app
 from app.db import SessionLocal
@@ -29,6 +30,13 @@ RETRY_DELAYS = [60, 120, 240, 480, 960, 1920, 3600, 7200, 14400, 28800]
 # Retry configuration — inbound webhook processing
 INBOUND_MAX_RETRIES = 5
 INBOUND_RETRY_BASE_DELAY = 60  # seconds
+
+
+def _is_duplicate_whatsapp_external_id_error(exc: Exception) -> bool:
+    if not isinstance(exc, IntegrityError):
+        return False
+    raw = str(exc.orig or exc)
+    return "uq_crm_messages_external" in raw
 
 
 def _compute_signature(payload: str, secret: str) -> str:
@@ -225,6 +233,16 @@ def process_whatsapp_webhook(self, payload: dict, trace_id: str | None = None):
             parsed.message_id or "unknown",
         )
     except Exception as exc:
+        if _is_duplicate_whatsapp_external_id_error(exc):
+            session.rollback()
+            logger.warning(
+                "whatsapp_webhook_duplicate_ignored trace_id=%s attempt=%s/%s message_id=%s",
+                trace_id,
+                self.request.retries,
+                INBOUND_MAX_RETRIES,
+                payload.get("message_id"),
+            )
+            return
         logger.exception(
             "whatsapp_webhook_processing_failed trace_id=%s attempt=%s/%s error=%s",
             trace_id,

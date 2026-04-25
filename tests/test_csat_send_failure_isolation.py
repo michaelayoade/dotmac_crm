@@ -44,11 +44,11 @@ def _make_survey(db_session):
 def _stub_csat_lookups(monkeypatch):
     monkeypatch.setattr(csat, "_resolve_latest_inbound_message", lambda db, cid: None)
     monkeypatch.setattr(csat, "_resolve_target_id", lambda db, cid: "00000000-0000-0000-0000-000000000001")
-    monkeypatch.setattr(csat, "_resolve_latest_channel_type", lambda db, cid: ChannelType.whatsapp)
+    monkeypatch.setattr(csat, "_resolve_latest_channel_type", lambda db, cid: ChannelType.chat_widget)
     monkeypatch.setattr(
         csat,
         "get_enabled_map",
-        lambda db: {"00000000-0000-0000-0000-000000000001": True, "channel:whatsapp": True},
+        lambda db: {"00000000-0000-0000-0000-000000000001": True, "channel:chat_widget": True},
     )
 
 
@@ -111,10 +111,9 @@ def test_successful_send_marks_invitation_sent(monkeypatch, db_session, crm_cont
     assert invitation.conversation_id == convo.id
 
 
-def test_already_sent_invitation_short_circuits(monkeypatch, db_session, crm_contact):
-    """A pre-existing sent/opened/completed invitation must not be re-sent or
-    have its status rewritten back to `sent`. Guards data corruption flagged
-    in code review."""
+def test_already_sent_invitation_same_conversation_short_circuits(monkeypatch, db_session, crm_contact):
+    """A pre-existing sent/opened/completed invitation for the same conversation
+    must not be re-sent or have its status rewritten back to `sent`."""
     from datetime import UTC, datetime
 
     convo = _make_conversation(db_session, crm_contact)
@@ -129,6 +128,7 @@ def test_already_sent_invitation_short_circuits(monkeypatch, db_session, crm_con
         email=crm_contact.email,
         status=SurveyInvitationStatus.completed,
         sent_at=pre_existing_sent_at,
+        conversation_id=convo.id,
     )
     db_session.add(invitation)
     db_session.commit()
@@ -152,6 +152,51 @@ def test_already_sent_invitation_short_circuits(monkeypatch, db_session, crm_con
     assert invitation.status == SurveyInvitationStatus.completed
     # SQLite drops tzinfo on roundtrip; compare naive
     assert invitation.sent_at.replace(tzinfo=None) == pre_existing_sent_at.replace(tzinfo=None)
+
+
+def test_prior_invitation_other_conversation_does_not_block(monkeypatch, db_session, crm_contact):
+    first_convo = _make_conversation(db_session, crm_contact)
+    second_convo = _make_conversation(db_session, crm_contact)
+    survey = _make_survey(db_session)
+    _stub_csat_lookups(monkeypatch)
+
+    prior = SurveyInvitation(
+        survey_id=survey.id,
+        person_id=crm_contact.id,
+        token="prior-token",
+        email=crm_contact.email,
+        status=SurveyInvitationStatus.completed,
+        conversation_id=first_convo.id,
+    )
+    db_session.add(prior)
+    db_session.commit()
+
+    send_calls = []
+
+    class _RecordingInbox:
+        def send_message_with_retry(self, *args, **kwargs):
+            send_calls.append((args, kwargs))
+            return None
+
+    class _StubCrmService:
+        inbox = _RecordingInbox()
+
+    monkeypatch.setattr(csat, "crm_service", _StubCrmService)
+
+    result = csat.queue_for_resolved_conversation(db_session, conversation_id=str(second_convo.id))
+
+    assert result.kind == "queued"
+    assert len(send_calls) == 1
+    invitations = (
+        db_session.query(SurveyInvitation)
+        .filter(SurveyInvitation.survey_id == survey.id)
+        .filter(SurveyInvitation.person_id == crm_contact.id)
+        .order_by(SurveyInvitation.created_at.asc())
+        .all()
+    )
+    assert len(invitations) == 2
+    assert str(invitations[0].conversation_id) == str(first_convo.id)
+    assert str(invitations[1].conversation_id) == str(second_convo.id)
 
 
 def test_retry_pending_invitation_succeeds(monkeypatch, db_session, crm_contact):
