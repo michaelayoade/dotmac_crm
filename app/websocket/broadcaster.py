@@ -38,7 +38,12 @@ def _extract_call_event_payload(message: Message) -> dict[str, str] | None:
         raw_call_value = metadata.get("call")
         raw_call = raw_call_value if isinstance(raw_call_value, dict) else {}
         call_id = metadata.get("call_id") or raw_call.get("call_id") or raw_call.get("id")
-        call_status = metadata.get("call_status") or raw_call.get("call_status") or raw_call.get("event") or raw_call.get("status")
+        call_status = (
+            metadata.get("call_status")
+            or raw_call.get("call_status")
+            or raw_call.get("event")
+            or raw_call.get("status")
+        )
         if not isinstance(call_id, str) or not call_id.strip():
             return None
         if not isinstance(call_status, str) or not call_status.strip():
@@ -163,9 +168,7 @@ def broadcast_new_message(message: Message, conversation: Conversation):
             "channel_type": message.channel_type.value if message.channel_type else None,
             "direction": message.direction.value if message.direction else None,
             "status": message.status.value if message.status else None,
-            "body_preview": (message.body[:100] + "...")
-            if message.body and len(message.body) > 100
-            else message.body,
+            "body_preview": (message.body[:100] + "...") if message.body and len(message.body) > 100 else message.body,
             "subject": message.subject,
             "person_id": str(conversation.person_id) if conversation.person_id else None,
         }

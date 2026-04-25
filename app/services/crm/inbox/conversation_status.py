@@ -149,10 +149,7 @@ def _claim_resolved_closing_message_send(
     locked_conversation: Conversation | None = None
     try:
         locked_conversation = (
-            db.query(Conversation)
-            .filter(Conversation.id == conversation.id)
-            .with_for_update()
-            .one_or_none()
+            db.query(Conversation).filter(Conversation.id == conversation.id).with_for_update().one_or_none()
         )
     except Exception:
         # Fallback for environments where FOR UPDATE is unavailable.
