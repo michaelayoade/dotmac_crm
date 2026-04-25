@@ -290,10 +290,10 @@ def _send_resolved_closing_message(
 
     message_id = str(result.message.id) if getattr(result.message, "id", None) else None
     channel_type_raw = getattr(result.message, "channel_type", None)
-    channel_type = getattr(channel_type_raw, "value", None) or (
+    message_channel_type = getattr(channel_type_raw, "value", None) or (
         str(channel_type_raw) if channel_type_raw is not None else None
     )
-    return True, message_id, channel_type, None
+    return True, message_id, message_channel_type, None
 
 
 def _should_queue_csat_for_channel(channel_type: ChannelType | None) -> bool:

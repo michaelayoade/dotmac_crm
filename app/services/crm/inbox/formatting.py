@@ -126,7 +126,8 @@ def _resolve_call_accepting_agent(
     )
     for related in related_messages:
         metadata = _safe_message_metadata(related)
-        related_call = metadata.get("call") if isinstance(metadata.get("call"), dict) else {}
+        raw_related_call = metadata.get("call")
+        related_call: dict[str, object] = raw_related_call if isinstance(raw_related_call, dict) else {}
         accepted_by_name = metadata.get("accepted_by_name") or related_call.get("accepted_by_name")
         accepted_by_person_id = metadata.get("accepted_by_person_id") or related_call.get("accepted_by_person_id")
         if isinstance(accepted_by_name, str):
