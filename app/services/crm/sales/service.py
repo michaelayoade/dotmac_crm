@@ -599,18 +599,15 @@ class Leads(ListResponseMixin):
             pattern = f"%{search.strip()}%"
             if pattern != "%%":
                 full_name = func.trim(func.coalesce(Person.first_name, "") + " " + func.coalesce(Person.last_name, ""))
-                query = (
-                    query.outerjoin(Person, Person.id == Lead.person_id)
-                    .filter(
-                        or_(
-                            Lead.title.ilike(pattern),
-                            Person.display_name.ilike(pattern),
-                            full_name.ilike(pattern),
-                            Person.first_name.ilike(pattern),
-                            Person.last_name.ilike(pattern),
-                            Person.email.ilike(pattern),
-                            Person.phone.ilike(pattern),
-                        )
+                query = query.outerjoin(Person, Person.id == Lead.person_id).filter(
+                    or_(
+                        Lead.title.ilike(pattern),
+                        Person.display_name.ilike(pattern),
+                        full_name.ilike(pattern),
+                        Person.first_name.ilike(pattern),
+                        Person.last_name.ilike(pattern),
+                        Person.email.ilike(pattern),
+                        Person.phone.ilike(pattern),
                     )
                 )
         if is_active is None:
