@@ -119,9 +119,7 @@ def _resolve_call_accepting_agent(
         db.query(Message)
         .filter(Message.conversation_id == msg.conversation_id)
         .filter(Message.channel_type == ChannelType.whatsapp)
-        .filter(
-            (Message.external_id == normalized_call_id) | (Message.external_id.like(f"{normalized_call_id}::%"))
-        )
+        .filter((Message.external_id == normalized_call_id) | (Message.external_id.like(f"{normalized_call_id}::%")))
         .order_by(Message.created_at.desc())
         .limit(10)
         .all()

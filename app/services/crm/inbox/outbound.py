@@ -366,9 +366,9 @@ def _text_to_email_html(text: str) -> str:
     for idx, paragraph in enumerate(paragraphs):
         safe = html.escape(paragraph).replace("\n", "<br>")
         margin_bottom = "0" if idx == len(paragraphs) - 1 else "14px"
-        html_parts.append(f"<p style=\"margin:0 0 {margin_bottom} 0; line-height:1.6;\">{safe}</p>")
+        html_parts.append(f'<p style="margin:0 0 {margin_bottom} 0; line-height:1.6;">{safe}</p>')
     return (
-        "<div style=\"font-family:Arial,Helvetica,sans-serif; font-size:14px; color:#0f172a;\">"
+        '<div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:#0f172a;">'
         + "".join(html_parts)
         + "</div>"
     )

@@ -56,12 +56,16 @@ def _extract_call_event_metadata(message: Message) -> dict[str, str] | None:
     raw_call: dict[str, Any] = raw_call_value if isinstance(raw_call_value, dict) else {}
 
     call_id = metadata.get("call_id") or raw_call.get("call_id") or raw_call.get("id")
-    call_status = metadata.get("call_status") or raw_call.get("call_status") or raw_call.get("event") or raw_call.get("status")
+    call_status = (
+        metadata.get("call_status") or raw_call.get("call_status") or raw_call.get("event") or raw_call.get("status")
+    )
     phone_number_id = metadata.get("phone_number_id")
     call_to = metadata.get("to") or raw_call.get("to")
 
     normalized_call_id = str(call_id).strip() if isinstance(call_id, str) and call_id.strip() else None
-    normalized_status = str(call_status).strip().lower() if isinstance(call_status, str) and call_status.strip() else None
+    normalized_status = (
+        str(call_status).strip().lower() if isinstance(call_status, str) and call_status.strip() else None
+    )
     normalized_phone_number_id = (
         str(phone_number_id).strip() if isinstance(phone_number_id, str) and phone_number_id.strip() else None
     )
