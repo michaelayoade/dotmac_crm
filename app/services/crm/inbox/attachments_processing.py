@@ -8,17 +8,20 @@ from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Message, MessageAttachment
 from app.schemas.crm.conversation import MessageAttachmentCreate
-from app.services.crm.conversations import message_attachments as message_attachments_service
 from app.services.crm.conversations import service as conversation_service
+from app.services.crm.conversations.message_attachments import (
+    prepare_message_attachments,
+    save_message_attachments,
+)
 from app.services.crm.inbox.errors import InboxValidationError
 
 
 async def prepare_uploads_async(files) -> list[dict]:
-    return await message_attachments_service.prepare(files)
+    return await prepare_message_attachments(files)
 
 
 def save_uploads(prepared: list[dict]) -> list[dict]:
-    return message_attachments_service.save_message_attachments(prepared)
+    return save_message_attachments(prepared)
 
 
 def _validate_attachment_payload(item: dict) -> None:
