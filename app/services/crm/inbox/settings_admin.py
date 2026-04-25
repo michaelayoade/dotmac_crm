@@ -72,6 +72,7 @@ def update_notification_settings(
     ai_assignment_retry_interval_seconds: str,
     auto_resolve_enabled: str | None = None,
     auto_resolve_days: str | None = None,
+    resolved_social_outro_message: str | None = None,
     roles: list[str] | None = None,
     scopes: list[str] | None = None,
 ) -> NotificationSettingsResult:
@@ -196,6 +197,23 @@ def update_notification_settings(
                     "crm_inbox_auto_resolve_days",
                     DomainSettingUpdate(
                         value_type=SettingValueType.integer,
+                        value_text=value_text,
+                        value_json=_coerce_value_json(value_json),
+                    ),
+                )
+
+        if resolved_social_outro_message is not None:
+            social_outro_text = str(resolved_social_outro_message).strip()
+            spec = settings_spec.get_spec(SettingDomain.notification, "crm_inbox_resolved_social_outro_message")
+            if spec:
+                if not social_outro_text and isinstance(spec.default, str):
+                    social_outro_text = spec.default
+                value_text, value_json = settings_spec.normalize_for_db(spec, social_outro_text)
+                settings_service.upsert_by_key(
+                    db,
+                    "crm_inbox_resolved_social_outro_message",
+                    DomainSettingUpdate(
+                        value_type=SettingValueType.string,
                         value_text=value_text,
                         value_json=_coerce_value_json(value_json),
                     ),

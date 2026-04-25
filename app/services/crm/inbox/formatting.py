@@ -97,6 +97,54 @@ def get_initials(name: str | None) -> str:
     return name[0:2].upper() if len(name) >= 2 else name[0].upper()
 
 
+def _safe_message_metadata(message: Message) -> dict:
+    return message.metadata_ if isinstance(message.metadata_, dict) else {}
+
+
+def _resolve_call_accepting_agent(
+    db: Session,
+    msg: Message,
+    call_id: str | None,
+    current_name: str | None,
+    current_person_id: str | None,
+) -> tuple[str | None, str | None]:
+    if current_name or current_person_id:
+        return current_name, current_person_id
+
+    normalized_call_id = (call_id or "").strip()
+    if not normalized_call_id:
+        return current_name, current_person_id
+
+    related_messages = (
+        db.query(Message)
+        .filter(Message.conversation_id == msg.conversation_id)
+        .filter(Message.channel_type == ChannelType.whatsapp)
+        .filter(
+            (Message.external_id == normalized_call_id) | (Message.external_id.like(f"{normalized_call_id}::%"))
+        )
+        .order_by(Message.created_at.desc())
+        .limit(10)
+        .all()
+    )
+    for related in related_messages:
+        metadata = _safe_message_metadata(related)
+        related_call = metadata.get("call") if isinstance(metadata.get("call"), dict) else {}
+        accepted_by_name = metadata.get("accepted_by_name") or related_call.get("accepted_by_name")
+        accepted_by_person_id = metadata.get("accepted_by_person_id") or related_call.get("accepted_by_person_id")
+        if isinstance(accepted_by_name, str):
+            accepted_by_name = accepted_by_name.strip() or None
+        else:
+            accepted_by_name = None
+        if isinstance(accepted_by_person_id, str):
+            accepted_by_person_id = accepted_by_person_id.strip() or None
+        else:
+            accepted_by_person_id = None
+        if accepted_by_name or accepted_by_person_id:
+            return accepted_by_name, accepted_by_person_id
+
+    return current_name, current_person_id
+
+
 class _MessageHTMLSanitizer(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -749,6 +797,8 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
     call_direction = None
     call_to = None
     call_from = None
+    call_accepted_by_name = None
+    call_accepted_by_person_id = None
     phone_number_id = call_metadata.get("phone_number_id")
     display_phone_number = call_metadata.get("display_phone_number")
 
@@ -773,6 +823,10 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
             call_to = call_payload.get("to")
         if call_from is None:
             call_from = call_payload.get("from")
+        if call_accepted_by_name is None:
+            call_accepted_by_name = call_payload.get("accepted_by_name")
+        if call_accepted_by_person_id is None:
+            call_accepted_by_person_id = call_payload.get("accepted_by_person_id")
 
     if isinstance(call_metadata, dict):
         if call_id is None:
@@ -787,6 +841,10 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
             call_to = call_metadata.get("to")
         if call_from is None:
             call_from = call_metadata.get("from")
+        if call_accepted_by_name is None:
+            call_accepted_by_name = call_metadata.get("accepted_by_name")
+        if call_accepted_by_person_id is None:
+            call_accepted_by_person_id = call_metadata.get("accepted_by_person_id")
 
     if isinstance(call_id, str):
         call_id = call_id.strip() or None
@@ -800,6 +858,17 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         call_to = call_to.strip() or None
     if isinstance(call_from, str):
         call_from = call_from.strip() or None
+    if isinstance(call_accepted_by_name, str):
+        call_accepted_by_name = call_accepted_by_name.strip() or None
+    if isinstance(call_accepted_by_person_id, str):
+        call_accepted_by_person_id = call_accepted_by_person_id.strip() or None
+    call_accepted_by_name, call_accepted_by_person_id = _resolve_call_accepting_agent(
+        db,
+        msg,
+        call_id,
+        call_accepted_by_name,
+        call_accepted_by_person_id,
+    )
 
     if not content.strip() and content_is_document_placeholder and not (attachments or meta_attachments):
         content = f"Document: {attachment_name}" if attachment_name else "Document attached"
@@ -973,6 +1042,8 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
         "call_direction": call_direction,
         "call_to": call_to,
         "call_from": call_from,
+        "call_accepted_by_name": call_accepted_by_name,
+        "call_accepted_by_person_id": call_accepted_by_person_id,
         "phone_number_id": phone_number_id,
         "display_phone_number": display_phone_number,
     }

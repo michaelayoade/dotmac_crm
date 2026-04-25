@@ -2106,7 +2106,7 @@ def ticket_detail(
         ticket_id=str(ticket.id),
         is_internal=None,  # Show both internal and external comments
         order_by="created_at",
-        order_dir="asc",
+        order_dir="desc",
         limit=100,
         offset=0,
     )
