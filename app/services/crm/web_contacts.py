@@ -364,6 +364,7 @@ def create_contact(db: Session, form: ContactUpsertInput) -> None:
 
     email_values, phone_values, whatsapp_values, primary_email_index, primary_phone_index = _extract_channels(form)
     if is_reseller_linked:
+        assert organization_uuid is not None
         email_values = []
         phone_values = []
         whatsapp_values = []
@@ -463,6 +464,7 @@ def update_contact(db: Session, contact_id: str, form: ContactUpsertInput) -> No
 
     email_values, phone_values, whatsapp_values, primary_email_index, primary_phone_index = _extract_channels(form)
     if is_reseller_linked:
+        assert effective_org_uuid is not None
         email_values = []
         phone_values = []
         whatsapp_values = []

@@ -14,11 +14,11 @@ from app.services.crm.inbox.errors import InboxValidationError
 
 
 async def prepare_uploads_async(files) -> list[dict]:
-    return await message_attachments_service.prepare(files)
+    return await message_attachments_service.prepare_message_attachments(files)
 
 
 def save_uploads(prepared: list[dict]) -> list[dict]:
-    return message_attachments_service.save(prepared)
+    return message_attachments_service.save_message_attachments(prepared)
 
 
 def _validate_attachment_payload(item: dict) -> None:
