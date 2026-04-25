@@ -1252,6 +1252,7 @@ function inboxController() {
         minSummaryFlushIntervalMs: 200,
         pendingMessageAttachments: [],
         pendingPrivateAttachments: [],
+        selectedMessageAttachmentNames: [],
         notifications: [],
         notificationAutoDismissSeconds: {{ (notification_auto_dismiss_seconds or 12) | tojson }},
         notificationSoundEnabled: true,
@@ -3351,41 +3352,99 @@ function inboxController() {
         uploadAttachments(event, kind = 'message') {
             if (!this.selectedConversation) {
                 console.warn('[Inbox] No conversation selected for attachments');
+                const errorEl = document.querySelector('#message-thread [x-ref="messageError"]');
+                if (kind === 'message' && errorEl) {
+                    errorEl.textContent = 'Select a conversation before attaching files.';
+                }
                 return;
             }
             const files = event.target.files;
             if (!files || !files.length) return;
             const token = this.getCsrfToken();
             const formData = new FormData();
-            Array.from(files).forEach((file) => formData.append('files', file));
+            const selectedFiles = Array.from(files);
+            if (kind === 'message') {
+                this.selectedMessageAttachmentNames = selectedFiles.map((file) => file && file.name).filter(Boolean);
+                const errorEl = document.querySelector('#message-thread [x-ref="messageError"]');
+                if (errorEl) {
+                    errorEl.textContent = '';
+                }
+            } else {
+                const errorEl = document.querySelector('#message-thread [data-private-note-error]');
+                if (errorEl) {
+                    errorEl.textContent = '';
+                }
+            }
+            selectedFiles.forEach((file) => {
+                formData.append('files', file);
+                formData.append('attachments', file);
+            });
 
             fetch(`/admin/crm/inbox/conversation/${this.selectedConversation}/attachments`, {
                 method: 'POST',
-                headers: { 'X-CSRF-Token': token || '' },
+                headers: {
+                    'X-CSRF-Token': token || '',
+                    'Accept': 'application/json'
+                },
                 body: formData
             })
             .then(async (response) => {
+                let data = {};
+                try {
+                    data = await response.json();
+                } catch (err) {
+                    data = {};
+                }
                 if (!response.ok) {
                     let detail = 'Upload failed';
-                    try {
-                        const data = await response.json();
-                        detail = data.detail || detail;
-                    } catch (err) {}
+                    if (data && typeof data === 'object') {
+                        if (typeof data.detail === 'string' && data.detail.trim()) {
+                            detail = data.detail;
+                        } else if (typeof data.message === 'string' && data.message.trim()) {
+                            detail = data.message;
+                        } else if (Array.isArray(data.details) && data.details.length) {
+                            const first = data.details[0];
+                            if (first && typeof first === 'object' && typeof first.msg === 'string' && first.msg.trim()) {
+                                detail = first.msg;
+                            }
+                        }
+                    }
                     throw new Error(detail);
                 }
-                return response.json();
+                return data;
             })
             .then((data) => {
-                const attachments = data.attachments || [];
+                const rawAttachments = data?.attachments ?? data?.files ?? data?.uploads ?? [];
+                const attachments = Array.isArray(rawAttachments)
+                    ? rawAttachments
+                    : rawAttachments
+                        ? [rawAttachments]
+                        : [];
+                if (!attachments.length) {
+                    throw new Error('Upload failed');
+                }
                 if (kind === 'private') {
                     this.pendingPrivateAttachments = [...this.pendingPrivateAttachments, ...attachments];
                     return;
                 }
                 this.pendingMessageAttachments = [...this.pendingMessageAttachments, ...attachments];
+                this.selectedMessageAttachmentNames = [];
                 this.syncMessageAttachmentField();
             })
             .catch((err) => {
                 console.error('[Inbox] attachment upload failed', err);
+                const detail = (err && err.message) ? err.message : 'Upload failed';
+                if (kind === 'private') {
+                    const errorEl = document.querySelector('#message-thread [data-private-note-error]');
+                    if (errorEl) {
+                        errorEl.textContent = detail;
+                    }
+                    return;
+                }
+                const errorEl = document.querySelector('#message-thread [x-ref="messageError"]');
+                if (errorEl) {
+                    errorEl.textContent = detail;
+                }
             })
             .finally(() => {
                 event.target.value = '';
@@ -3613,6 +3672,7 @@ function inboxController() {
             this.localPresenceState = 'viewing';
             this.pendingMessageAttachments = [];
             this.pendingPrivateAttachments = [];
+            this.selectedMessageAttachmentNames = [];
             this.syncMessageAttachmentField();
 
             // Subscribe to new conversation
