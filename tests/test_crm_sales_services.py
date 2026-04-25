@@ -518,6 +518,166 @@ def test_list_leads_filter_by_owner_agent(db_session, person, crm_agent):
     assert any(item.id == lead.id for item in leads)
 
 
+def test_list_leads_filter_by_search_matches_lead_and_contact_fields(db_session, person):
+    """Test lead list search matches lead details and linked contact fields."""
+    from app.models.person import Person
+
+    person.display_name = "Alice Search"
+    person.phone = "08001234567"
+    person.email = f"alice-search-{uuid.uuid4().hex}@example.com"
+    db_session.commit()
+    db_session.refresh(person)
+
+    matched = sales_service.Leads.create(
+        db_session,
+        LeadCreate(
+            title="Fiber Upgrade Opportunity",
+            person_id=person.id,
+            lead_source="Website",
+            notes="Needs urgent deployment",
+        ),
+    )
+
+    other_person = Person(
+        first_name="Bob",
+        last_name="Other",
+        email=f"bob-other-{uuid.uuid4().hex}@example.com",
+    )
+    db_session.add(other_person)
+    db_session.commit()
+    db_session.refresh(other_person)
+
+    not_matched = sales_service.Leads.create(
+        db_session,
+        LeadCreate(title="Unrelated Lead", person_id=other_person.id, lead_source="Referrer"),
+    )
+
+    by_name = sales_service.Leads.list(
+        db_session,
+        pipeline_id=None,
+        stage_id=None,
+        owner_agent_id=None,
+        status=None,
+        is_active=None,
+        order_by="created_at",
+        order_dir="asc",
+        limit=10,
+        offset=0,
+        search="alice search",
+    )
+    assert any(item.id == matched.id for item in by_name)
+    assert all(item.id != not_matched.id for item in by_name)
+
+    by_phone = sales_service.Leads.list(
+        db_session,
+        pipeline_id=None,
+        stage_id=None,
+        owner_agent_id=None,
+        status=None,
+        is_active=None,
+        order_by="created_at",
+        order_dir="asc",
+        limit=10,
+        offset=0,
+        search="08001234567",
+    )
+    assert any(item.id == matched.id for item in by_phone)
+
+    by_title = sales_service.Leads.list(
+        db_session,
+        pipeline_id=None,
+        stage_id=None,
+        owner_agent_id=None,
+        status=None,
+        is_active=None,
+        order_by="created_at",
+        order_dir="asc",
+        limit=10,
+        offset=0,
+        search="upgrade",
+    )
+    assert any(item.id == matched.id for item in by_title)
+
+    by_email = sales_service.Leads.list(
+        db_session,
+        pipeline_id=None,
+        stage_id=None,
+        owner_agent_id=None,
+        status=None,
+        is_active=None,
+        order_by="created_at",
+        order_dir="asc",
+        limit=10,
+        offset=0,
+        search=person.email,
+    )
+    assert any(item.id == matched.id for item in by_email)
+
+
+def test_list_leads_filter_by_search_does_not_match_non_allowed_fields(db_session, person):
+    """Test lead list search ignores source, pipeline, and stage text."""
+    pipeline = sales_service.Pipelines.create(db_session, PipelineCreate(name="Enterprise Sales East"))
+    stage = sales_service.PipelineStages.create(
+        db_session,
+        PipelineStageCreate(pipeline_id=pipeline.id, name="Discovery Call"),
+    )
+    matched = sales_service.Leads.create(
+        db_session,
+        LeadCreate(
+            title="Allowed Fields Lead",
+            person_id=person.id,
+            pipeline_id=pipeline.id,
+            stage_id=stage.id,
+            lead_source="Website",
+        ),
+    )
+
+    by_pipeline_name = sales_service.Leads.list(
+        db_session,
+        pipeline_id=None,
+        stage_id=None,
+        owner_agent_id=None,
+        status=None,
+        is_active=None,
+        order_by="created_at",
+        order_dir="asc",
+        limit=10,
+        offset=0,
+        search="sales east",
+    )
+    assert all(item.id != matched.id for item in by_pipeline_name)
+
+    by_stage_name = sales_service.Leads.list(
+        db_session,
+        pipeline_id=None,
+        stage_id=None,
+        owner_agent_id=None,
+        status=None,
+        is_active=None,
+        order_by="created_at",
+        order_dir="asc",
+        limit=10,
+        offset=0,
+        search="discovery",
+    )
+    assert all(item.id != matched.id for item in by_stage_name)
+
+    by_source = sales_service.Leads.list(
+        db_session,
+        pipeline_id=None,
+        stage_id=None,
+        owner_agent_id=None,
+        status=None,
+        is_active=None,
+        order_by="created_at",
+        order_dir="asc",
+        limit=10,
+        offset=0,
+        search="website",
+    )
+    assert all(item.id != matched.id for item in by_source)
+
+
 def test_list_leads_invalid_status(db_session):
     """Test listing leads with invalid status raises 400."""
     with pytest.raises(HTTPException) as exc_info:

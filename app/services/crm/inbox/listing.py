@@ -6,9 +6,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
+from app.models.crm.conversation import Conversation
 from app.models.crm.enums import ChannelType, ConversationPriority, ConversationStatus
+from app.models.person import Person
+from app.services.common import coerce_uuid
 from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.comments_context import (
     build_comment_list_items,
@@ -17,6 +20,8 @@ from app.services.crm.inbox.comments_context import (
 from app.services.crm.inbox.conversation_status import reopen_due_snoozed_conversations
 from app.services.crm.inbox.queries import list_inbox_conversations
 from app.services.crm.inbox.search import normalize_search
+
+INBOX_LIST_CACHE_SCHEMA = 2
 
 
 @dataclass(frozen=True)
@@ -31,6 +36,65 @@ class InboxListResult:
     limit: int
     has_more: bool
     next_offset: int | None
+
+
+def _serialize_conversations_raw(conversations_raw: list[tuple[Any, Any, int, dict | None]]) -> list[dict]:
+    serialized: list[dict] = []
+    for conv, latest_message, unread_count, failed_outbox in conversations_raw:
+        conv_id = getattr(conv, "id", None)
+        if conv_id is None:
+            continue
+        serialized.append(
+            {
+                "conversation_id": str(conv_id),
+                "latest_message": latest_message,
+                "unread_count": int(unread_count or 0),
+                "failed_outbox": failed_outbox,
+            }
+        )
+    return serialized
+
+
+def _hydrate_conversations_raw(db: Session, payload: list[dict]) -> list[tuple[Any, Any, int, dict | None]]:
+    if not payload:
+        return []
+    ordered_ids = [str(item.get("conversation_id") or "").strip() for item in payload]
+    valid_ids = []
+    for raw_id in ordered_ids:
+        if not raw_id:
+            continue
+        try:
+            valid_ids.append(coerce_uuid(raw_id))
+        except Exception:
+            continue
+    if not valid_ids:
+        return []
+    rows = (
+        db.query(Conversation)
+        .options(
+            selectinload(Conversation.contact).selectinload(Person.channels),
+            selectinload(Conversation.assignments),
+            selectinload(Conversation.tags),
+        )
+        .filter(Conversation.id.in_(valid_ids))
+        .all()
+    )
+    by_id = {str(conv.id): conv for conv in rows}
+    hydrated: list[tuple[Any, Any, int, dict | None]] = []
+    for item in payload:
+        conv_id = str(item.get("conversation_id") or "").strip()
+        conv = by_id.get(conv_id)
+        if conv is None:
+            continue
+        hydrated.append(
+            (
+                conv,
+                item.get("latest_message"),
+                int(item.get("unread_count") or 0),
+                item.get("failed_outbox") if isinstance(item.get("failed_outbox"), dict) else None,
+            )
+        )
+    return hydrated
 
 
 async def load_inbox_list(
@@ -60,6 +124,7 @@ async def load_inbox_list(
     safe_offset = max(int(offset or 0), 0)
     safe_limit = max(int(limit or 0), 1)
     cache_params = {
+        "cache_schema": INBOX_LIST_CACHE_SCHEMA,
         "channel": channel,
         "status": status,
         "priority": priority,
@@ -80,8 +145,38 @@ async def load_inbox_list(
     }
     cache_key = inbox_cache.build_inbox_list_key(cache_params)
     cached = inbox_cache.get(cache_key)
-    if cached is not None:
-        return cached
+    if isinstance(cached, dict) and cached.get("schema") == INBOX_LIST_CACHE_SCHEMA:
+        conversations_payload = cached.get("conversations_raw")
+        comment_items_payload = cached.get("comment_items")
+        cached_channel_enum = None
+        cached_channel_raw = cached.get("channel_enum")
+        if isinstance(cached_channel_raw, str) and cached_channel_raw:
+            try:
+                cached_channel_enum = ChannelType(cached_channel_raw)
+            except ValueError:
+                cached_channel_enum = None
+        cached_status_enum = None
+        cached_status_raw = cached.get("status_enum")
+        if isinstance(cached_status_raw, str) and cached_status_raw:
+            try:
+                cached_status_enum = ConversationStatus(cached_status_raw)
+            except ValueError:
+                cached_status_enum = None
+        return InboxListResult(
+            conversations_raw=_hydrate_conversations_raw(
+                db,
+                conversations_payload if isinstance(conversations_payload, list) else [],
+            ),
+            comment_items=comment_items_payload if isinstance(comment_items_payload, list) else [],
+            channel_enum=cached_channel_enum,
+            status_enum=cached_status_enum,
+            include_comments=bool(cached.get("include_comments")),
+            target_is_comment=bool(cached.get("target_is_comment")),
+            offset=int(cached.get("offset") or safe_offset),
+            limit=int(cached.get("limit") or safe_limit),
+            has_more=bool(cached.get("has_more")),
+            next_offset=(int(cached["next_offset"]) if isinstance(cached.get("next_offset"), int) else None),
+        )
 
     channel_enum = None
     status_enum = None
@@ -183,5 +278,18 @@ async def load_inbox_list(
         has_more=has_more,
         next_offset=next_offset,
     )
-    inbox_cache.set(cache_key, result, inbox_cache.INBOX_LIST_TTL_SECONDS)
+    cache_payload = {
+        "schema": INBOX_LIST_CACHE_SCHEMA,
+        "conversations_raw": _serialize_conversations_raw(conversations_raw),
+        "comment_items": comment_items,
+        "channel_enum": channel_enum.value if channel_enum else None,
+        "status_enum": status_enum.value if status_enum else None,
+        "include_comments": include_comments,
+        "target_is_comment": target_is_comment,
+        "offset": safe_offset,
+        "limit": safe_limit,
+        "has_more": has_more,
+        "next_offset": next_offset,
+    }
+    inbox_cache.set(cache_key, cache_payload, inbox_cache.INBOX_LIST_TTL_SECONDS)
     return result
