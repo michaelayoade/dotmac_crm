@@ -84,4 +84,5 @@ def build_comments_list_key(params: dict[str, Any]) -> str:
 
 
 def build_comment_thread_key(comment_id: str) -> str:
-    return f"comment_thread:{comment_id}"
+    # Versioned to avoid reusing legacy cache entries that may contain ORM objects.
+    return f"comment_thread:v2:{comment_id}"

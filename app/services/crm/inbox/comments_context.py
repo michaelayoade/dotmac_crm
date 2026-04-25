@@ -6,20 +6,55 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import quote
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.logging import get_logger
-from app.models.crm.comments import SocialCommentPlatform
+from app.models.crm.comments import SocialComment, SocialCommentPlatform, SocialCommentReply
 from app.models.domain_settings import SettingDomain, SettingValueType
 from app.schemas.settings import DomainSettingUpdate
 from app.services import domain_settings as domain_settings_service
 from app.services import meta_pages as meta_pages_service
 from app.services import settings_spec
+from app.services.common import coerce_uuid
 from app.services.crm import comments as comments_service
 from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.search import normalize_search
 
 logger = get_logger(__name__)
+COMMENTS_CACHE_SCHEMA = 2
+
+
+def _hydrate_comments_by_ids(db: Session, comment_ids: list[str]) -> list[SocialComment]:
+    if not comment_ids:
+        return []
+    parsed_ids = []
+    for raw_id in comment_ids:
+        try:
+            parsed_ids.append(coerce_uuid(raw_id))
+        except Exception:
+            continue
+    if not parsed_ids:
+        return []
+    rows = db.execute(select(SocialComment).where(SocialComment.id.in_(parsed_ids))).scalars().all()
+    by_id = {str(comment.id): comment for comment in rows}
+    return [by_id[raw_id] for raw_id in comment_ids if raw_id in by_id]
+
+
+def _hydrate_comment_replies_by_ids(db: Session, reply_ids: list[str]) -> list[SocialCommentReply]:
+    if not reply_ids:
+        return []
+    parsed_ids = []
+    for raw_id in reply_ids:
+        try:
+            parsed_ids.append(coerce_uuid(raw_id))
+        except Exception:
+            continue
+    if not parsed_ids:
+        return []
+    rows = db.execute(select(SocialCommentReply).where(SocialCommentReply.id.in_(parsed_ids))).scalars().all()
+    by_id = {str(reply.id): reply for reply in rows}
+    return [by_id[raw_id] for raw_id in reply_ids if raw_id in by_id]
 
 
 def _group_comment_authors(comments: list) -> list[dict]:
@@ -213,6 +248,7 @@ async def load_comments_context(
 
     list_cache_key = inbox_cache.build_comments_list_key(
         {
+            "cache_schema": COMMENTS_CACHE_SCHEMA,
             "search": normalized_search,
             "offset": safe_offset,
             "limit": safe_limit,
@@ -220,8 +256,8 @@ async def load_comments_context(
         }
     )
     cached_comments = inbox_cache.get(list_cache_key)
-    if cached_comments is not None:
-        comments = cached_comments
+    if isinstance(cached_comments, list):
+        comments = _hydrate_comments_by_ids(db, [str(item) for item in cached_comments])
     else:
         platform: SocialCommentPlatform | None = None
         account_id = None
@@ -239,7 +275,11 @@ async def load_comments_context(
             limit=safe_limit + 1,
             offset=safe_offset,
         )
-        inbox_cache.set(list_cache_key, comments, inbox_cache.COMMENTS_LIST_TTL_SECONDS)
+        inbox_cache.set(
+            list_cache_key,
+            [str(comment.id) for comment in comments],
+            inbox_cache.COMMENTS_LIST_TTL_SECONDS,
+        )
 
     has_more = False
     next_offset: int | None = None
@@ -270,13 +310,13 @@ async def load_comments_context(
     if selected_comment and include_thread:
         thread_cache_key = inbox_cache.build_comment_thread_key(str(selected_comment.id))
         cached_replies = None if force_refresh_thread else inbox_cache.get(thread_cache_key)
-        if cached_replies is not None:
-            comment_replies = cached_replies
+        if isinstance(cached_replies, list):
+            comment_replies = _hydrate_comment_replies_by_ids(db, [str(item) for item in cached_replies])
         else:
             comment_replies = comments_service.list_social_comment_replies(db, str(selected_comment.id))
             inbox_cache.set(
                 thread_cache_key,
-                comment_replies,
+                [str(reply.id) for reply in comment_replies],
                 inbox_cache.COMMENTS_THREAD_TTL_SECONDS,
             )
 
