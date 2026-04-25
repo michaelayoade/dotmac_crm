@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -136,9 +136,9 @@ class SurveyResponse(Base):
 class SurveyInvitation(Base):
     __tablename__ = "survey_invitations"
     __table_args__ = (
-        UniqueConstraint("survey_id", "person_id", name="uq_survey_invitation_person"),
         Index("ix_survey_invitations_token", "token", unique=True),
         Index("ix_survey_invitations_survey_id", "survey_id"),
+        Index("ix_survey_invitations_survey_person_conversation", "survey_id", "person_id", "conversation_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

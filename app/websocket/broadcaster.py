@@ -28,6 +28,31 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 _sync_redis = None
 
 
+def _extract_call_event_payload(message: "Message") -> dict[str, str] | None:
+    """Expose WhatsApp call metadata on websocket message events when present."""
+    try:
+        channel_type = getattr(getattr(message, "channel_type", None), "value", None)
+        if channel_type != "whatsapp":
+            return None
+        metadata = message.metadata_ if isinstance(message.metadata_, dict) else {}
+        raw_call_value = metadata.get("call")
+        raw_call = raw_call_value if isinstance(raw_call_value, dict) else {}
+        call_id = metadata.get("call_id") or raw_call.get("call_id") or raw_call.get("id")
+        call_status = metadata.get("call_status") or raw_call.get("call_status") or raw_call.get("event") or raw_call.get("status")
+        if not isinstance(call_id, str) or not call_id.strip():
+            return None
+        if not isinstance(call_status, str) or not call_status.strip():
+            return None
+        return {
+            "kind": "whatsapp_call",
+            "call_id": call_id.strip(),
+            "call_status": call_status.strip().lower(),
+        }
+    except Exception as exc:
+        logger.warning("extract_call_event_payload_error message_id=%s error=%s", getattr(message, "id", None), exc)
+        return None
+
+
 def _get_sync_redis():
     """Lazy-initialise a synchronous Redis client (one per process)."""
     global _sync_redis
@@ -132,20 +157,24 @@ def broadcast_new_message(message: Message, conversation: Conversation):
     Called from inbox.py after creating a new message.
     """
     try:
+        event_data = {
+            "message_id": str(message.id),
+            "conversation_id": str(conversation.id),
+            "channel_type": message.channel_type.value if message.channel_type else None,
+            "direction": message.direction.value if message.direction else None,
+            "status": message.status.value if message.status else None,
+            "body_preview": (message.body[:100] + "...")
+            if message.body and len(message.body) > 100
+            else message.body,
+            "subject": message.subject,
+            "person_id": str(conversation.person_id) if conversation.person_id else None,
+        }
+        call_event_payload = _extract_call_event_payload(message)
+        if call_event_payload:
+            event_data.update(call_event_payload)
         event = WebSocketEvent(
             event=EventType.MESSAGE_NEW,
-            data={
-                "message_id": str(message.id),
-                "conversation_id": str(conversation.id),
-                "channel_type": message.channel_type.value if message.channel_type else None,
-                "direction": message.direction.value if message.direction else None,
-                "status": message.status.value if message.status else None,
-                "body_preview": (message.body[:100] + "...")
-                if message.body and len(message.body) > 100
-                else message.body,
-                "subject": message.subject,
-                "person_id": str(conversation.person_id) if conversation.person_id else None,
-            },
+            data=event_data,
         )
         _broadcast_event_to_conversation(str(conversation.id), event)
         logger.debug(

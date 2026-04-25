@@ -467,7 +467,7 @@ class Contacts(ListResponseMixin):
         query = (
             db.query(Person)
             .join(PersonChannel, PersonChannel.person_id == Person.id)
-            .filter(PersonChannel.channel_type == PersonChannelType.whatsapp)
+            .filter(PersonChannel.channel_type.in_(PHONE_CHANNEL_TYPES))
             .filter(Person.is_active.is_(True))
             .options(selectinload(Person.channels))
             .distinct()
@@ -483,6 +483,7 @@ class Contacts(ListResponseMixin):
                         Person.first_name.ilike(like),
                         Person.last_name.ilike(like),
                         Person.email.ilike(like),
+                        Person.phone.ilike(like),
                         PersonChannel.address.ilike(like),
                     )
                 )
@@ -499,12 +500,17 @@ class Contacts(ListResponseMixin):
         persons = apply_pagination(query, limit, offset).all()
         results: list[dict] = []
         for person in persons:
-            channels = [
-                ch for ch in (person.channels or []) if ch.channel_type == PersonChannelType.whatsapp and ch.address
-            ]
+            channels = [ch for ch in (person.channels or []) if ch.channel_type in PHONE_CHANNEL_TYPES and ch.address]
             if not channels:
                 continue
-            primary = next((ch for ch in channels if ch.is_primary), None)
+            primary = next(
+                (ch for ch in channels if ch.channel_type == PersonChannelType.whatsapp and ch.is_primary),
+                None,
+            )
+            if not primary:
+                primary = next((ch for ch in channels if ch.channel_type == PersonChannelType.whatsapp), None)
+            if not primary:
+                primary = next((ch for ch in channels if ch.is_primary), None)
             channel = primary or channels[0]
             name = (
                 person.display_name

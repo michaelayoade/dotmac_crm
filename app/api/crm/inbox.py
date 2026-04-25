@@ -86,6 +86,7 @@ def whatsapp_call_action(
             db,
             call_id,
             payload,
+            actor_person_id=str(_user.get("person_id")) if isinstance(_user, dict) and _user.get("person_id") else None,
         )
     except InboxError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc

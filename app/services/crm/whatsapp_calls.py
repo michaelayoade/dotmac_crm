@@ -15,6 +15,7 @@ from app.models.crm.conversation import Message
 from app.models.crm.enums import ChannelType
 from app.models.domain_settings import SettingDomain
 from app.models.integration import IntegrationTarget, IntegrationTargetType
+from app.models.person import Person
 from app.schemas.crm.inbox import WhatsAppCallActionRequest
 from app.services.common import coerce_uuid
 from app.services.crm.inbox.errors import InboxAuthError, InboxConfigError, InboxExternalError, InboxNotFoundError
@@ -170,6 +171,7 @@ def _normalize_sdp_for_whatsapp(session_payload: dict[str, str] | None) -> dict[
     for line in lines:
         if not line:
             continue
+        lowered = line.lower()
         fingerprint_match = re.match(r"^a=fingerprint:([A-Za-z0-9-]+)\s+(.+)$", line)
         if fingerprint_match:
             algo = fingerprint_match.group(1).upper()
@@ -177,6 +179,16 @@ def _normalize_sdp_for_whatsapp(session_payload: dict[str, str] | None) -> dict[
             if algo != "SHA-256":
                 continue
             normalized_lines.append(f"a=fingerprint:{algo} {value}")
+            continue
+        # Keep TURN relay TCP candidates for fallback paths, but drop non-relay TCP
+        # candidates that are commonly useless/noisy in provider-side validation.
+        if lowered.startswith("a=candidate:") and " tcp " in lowered:
+            candidate_type_match = re.search(r"\styp\s([a-z0-9_]+)", lowered)
+            candidate_type = candidate_type_match.group(1) if candidate_type_match else ""
+            if candidate_type != "relay":
+                continue
+        # Trickle is not required for posted SDP answers and can trip provider validation.
+        if sdp_type == "answer" and lowered == "a=ice-options:trickle":
             continue
         if sdp_type == "answer" and line == "a=setup:actpass":
             normalized_lines.append("a=setup:active")
@@ -258,32 +270,37 @@ def get_whatsapp_call_context(db: Session, call_id: str) -> dict[str, Any]:
     if not normalized_call_id:
         raise InboxConfigError("whatsapp_call_id_missing", "Call id is required.")
 
-    message = (
+    # Prefer metadata-linked call events and select the newest lifecycle state.
+    # This avoids stale contexts where an older "connect" row is returned after
+    # a newer "terminate" event for the same call id.
+    message = None
+    candidates = (
         db.query(Message)
         .filter(Message.channel_type == ChannelType.whatsapp)
-        .filter(Message.external_id == normalized_call_id)
+        .filter(Message.metadata_.isnot(None))
         .order_by(Message.received_at.desc().nullslast(), Message.created_at.desc())
-        .first()
+        .limit(250)
+        .all()
     )
+    for candidate in candidates:
+        metadata: dict[str, Any] = candidate.metadata_ if isinstance(candidate.metadata_, dict) else {}
+        candidate_call_id = metadata.get("call_id")
+        raw_call_value = metadata.get("call")
+        raw_call: dict[str, Any] = raw_call_value if isinstance(raw_call_value, dict) else {}
+        nested_call_id = raw_call.get("call_id") or raw_call.get("id")
+        if candidate_call_id == normalized_call_id or nested_call_id == normalized_call_id:
+            message = candidate
+            break
 
+    # Fallback to external id lookup for older rows lacking normalized metadata.
     if not message:
-        candidates = (
+        message = (
             db.query(Message)
             .filter(Message.channel_type == ChannelType.whatsapp)
-            .filter(Message.metadata_.isnot(None))
+            .filter(Message.external_id == normalized_call_id)
             .order_by(Message.received_at.desc().nullslast(), Message.created_at.desc())
-            .limit(250)
-            .all()
+            .first()
         )
-        for candidate in candidates:
-            metadata: dict[str, Any] = candidate.metadata_ if isinstance(candidate.metadata_, dict) else {}
-            candidate_call_id = metadata.get("call_id")
-            raw_call_value = metadata.get("call")
-            raw_call: dict[str, Any] = raw_call_value if isinstance(raw_call_value, dict) else {}
-            nested_call_id = raw_call.get("call_id") or raw_call.get("id")
-            if candidate_call_id == normalized_call_id or nested_call_id == normalized_call_id:
-                message = candidate
-                break
 
     if not message:
         raise InboxNotFoundError("whatsapp_call_not_found", "WhatsApp call context not found.")
@@ -315,10 +332,106 @@ def _post_whatsapp_call_action(
         return response.status_code, {"raw": response.text}
 
 
+def _extract_http_error_payload(exc: httpx.HTTPError) -> tuple[int | None, dict[str, Any] | None, str | None]:
+    response = exc.response if isinstance(exc, httpx.HTTPStatusError) else None
+    if response is None:
+        return None, None, None
+    parsed: dict[str, Any] | None = None
+    try:
+        raw = response.json()
+        parsed = raw if isinstance(raw, dict) else None
+    except Exception:
+        parsed = None
+    return response.status_code, parsed, response.text
+
+
+def _is_sdp_validation_error(payload: dict[str, Any] | None, body_text: str | None) -> bool:
+    error_obj = payload.get("error") if isinstance(payload, dict) else None
+    if isinstance(error_obj, dict):
+        code = error_obj.get("code")
+        if code == 138008:
+            return True
+        message = str(error_obj.get("message") or "").lower()
+        user_msg = str(error_obj.get("error_user_msg") or "").lower()
+        if "sdp" in message or "sdp" in user_msg:
+            return True
+    body = (body_text or "").lower()
+    return "sdp" in body and ("validation" in body or "invalid" in body)
+
+
+def _resolve_actor_name(db: Session, actor_person_id: str | None) -> str | None:
+    normalized_id = (actor_person_id or "").strip()
+    if not normalized_id:
+        return None
+    try:
+        person = db.get(Person, coerce_uuid(normalized_id))
+    except Exception:
+        return None
+    if not isinstance(person, Person):
+        return None
+    if isinstance(person.display_name, str) and person.display_name.strip():
+        return person.display_name.strip()
+    full_name = f"{person.first_name or ''} {person.last_name or ''}".strip()
+    if full_name:
+        return full_name
+    if isinstance(person.email, str) and person.email.strip():
+        return person.email.strip()
+    return None
+
+
+def _stamp_call_accept_metadata(
+    db: Session,
+    call_id: str,
+    actor_person_id: str | None,
+) -> None:
+    normalized_call_id = (call_id or "").strip()
+    normalized_actor_id = (actor_person_id or "").strip()
+    if not normalized_call_id or not normalized_actor_id:
+        return
+
+    actor_name = _resolve_actor_name(db, normalized_actor_id)
+    candidates = (
+        db.query(Message)
+        .filter(Message.channel_type == ChannelType.whatsapp)
+        .filter(Message.metadata_.isnot(None))
+        .order_by(Message.received_at.desc().nullslast(), Message.created_at.desc())
+        .limit(250)
+        .all()
+    )
+    updated_any = False
+    for candidate in candidates:
+        metadata: dict[str, Any] = candidate.metadata_ if isinstance(candidate.metadata_, dict) else {}
+        raw_call_value = metadata.get("call")
+        raw_call = raw_call_value if isinstance(raw_call_value, dict) else {}
+        candidate_call_id = metadata.get("call_id")
+        nested_call_id = raw_call.get("call_id") or raw_call.get("id")
+        if candidate_call_id != normalized_call_id and nested_call_id != normalized_call_id:
+            continue
+
+        updated_metadata = dict(metadata)
+        updated_metadata["accepted_by_person_id"] = normalized_actor_id
+        if actor_name:
+            updated_metadata["accepted_by_name"] = actor_name
+
+        updated_call = dict(raw_call)
+        updated_call["accepted_by_person_id"] = normalized_actor_id
+        if actor_name:
+            updated_call["accepted_by_name"] = actor_name
+        if updated_call:
+            updated_metadata["call"] = updated_call
+
+        candidate.metadata_ = updated_metadata
+        updated_any = True
+
+    if updated_any:
+        db.flush()
+
+
 def perform_whatsapp_call_action(
     db: Session,
     call_id: str,
     payload: WhatsAppCallActionRequest,
+    actor_person_id: str | None = None,
 ) -> dict[str, Any]:
     """Send a WhatsApp call control action."""
 
@@ -372,21 +485,69 @@ def perform_whatsapp_call_action(
         if action == "accept" and session_payload and session_payload.get("sdp_type") == "answer":
             pre_accept_payload = dict(base_payload)
             pre_accept_payload["action"] = "pre_accept"
-            pre_status, pre_json = _post_whatsapp_call_action(endpoint, headers, pre_accept_payload, timeout)
-
             accept_payload = dict(base_payload)
             accept_payload["action"] = "accept"
-            response_status, accept_json = _post_whatsapp_call_action(endpoint, headers, accept_payload, timeout)
-            response_json = {
-                "pre_accept": {
-                    "status_code": pre_status,
-                    "response": pre_json,
-                },
-                "accept": {
-                    "status_code": response_status,
-                    "response": accept_json,
-                },
-            }
+            try:
+                pre_status, pre_json = _post_whatsapp_call_action(endpoint, headers, pre_accept_payload, timeout)
+                response_status, accept_json = _post_whatsapp_call_action(endpoint, headers, accept_payload, timeout)
+                response_json = {
+                    "flow": "pre_accept_then_accept",
+                    "pre_accept": {
+                        "status_code": pre_status,
+                        "response": pre_json,
+                    },
+                    "accept": {
+                        "status_code": response_status,
+                        "response": accept_json,
+                    },
+                }
+            except httpx.HTTPError as primary_exc:
+                status_code, error_payload, body_text = _extract_http_error_payload(primary_exc)
+                if not _is_sdp_validation_error(error_payload, body_text):
+                    raise
+
+                logger.warning(
+                    "whatsapp_call_accept_fallback_start call_id=%s status=%s provider_error=%s",
+                    call_id,
+                    status_code,
+                    error_payload or body_text,
+                )
+
+                # Fallback 1: accept directly with the same answer session.
+                fallback_accept_payload = dict(base_payload)
+                fallback_accept_payload["action"] = "accept"
+                try:
+                    response_status, response_json = _post_whatsapp_call_action(
+                        endpoint, headers, fallback_accept_payload, timeout
+                    )
+                    response_json = {
+                        "flow": "accept_only_fallback",
+                        "accept": {
+                            "status_code": response_status,
+                            "response": response_json,
+                        },
+                    }
+                except httpx.HTTPError:
+                    # Fallback 2: same accept-only flow, forcing uppercase SDP type.
+                    fallback_upper_payload = dict(base_payload)
+                    fallback_upper_payload["action"] = "accept"
+                    session_obj = fallback_upper_payload.get("session")
+                    if isinstance(session_obj, dict):
+                        session_obj = dict(session_obj)
+                        sdp_type_value = session_obj.get("sdp_type")
+                        if isinstance(sdp_type_value, str):
+                            session_obj["sdp_type"] = sdp_type_value.upper()
+                        fallback_upper_payload["session"] = session_obj
+                    response_status, response_json = _post_whatsapp_call_action(
+                        endpoint, headers, fallback_upper_payload, timeout
+                    )
+                    response_json = {
+                        "flow": "accept_only_upper_sdp_type_fallback",
+                        "accept": {
+                            "status_code": response_status,
+                            "response": response_json,
+                        },
+                    }
         else:
             response_status, response_json = _post_whatsapp_call_action(endpoint, headers, base_payload, timeout)
     except httpx.HTTPError as exc:
@@ -414,6 +575,9 @@ def perform_whatsapp_call_action(
         response_status,
         response_json,
     )
+    if action == "accept":
+        _stamp_call_accept_metadata(db, call_id, actor_person_id)
+        db.commit()
     return {
         "call_id": call_id,
         "action": action,

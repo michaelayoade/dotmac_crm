@@ -5,6 +5,7 @@ from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.crm.sales import Lead
+from app.models.domain_settings import DomainSetting, SettingDomain, SettingValueType
 from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.models.oauth_token import OAuthToken
 from app.models.person import Person
@@ -236,6 +237,71 @@ def test_process_facebook_leadgen_change_is_idempotent(db_session):
     assert len(second) == 1
     assert first[0]["lead_id"] == second[0]["lead_id"]
     assert db_session.query(Lead).count() == 1
+
+
+def test_process_facebook_leadgen_uses_facebook_override_token(db_session):
+    config = ConnectorConfig(name="Meta Connector Override", connector_type=ConnectorType.facebook, is_active=True)
+    db_session.add(config)
+    db_session.flush()
+    db_session.add(
+        IntegrationTarget(
+            name="CRM",
+            target_type=IntegrationTargetType.crm,
+            connector_config_id=config.id,
+            is_active=True,
+        )
+    )
+    db_session.add(
+        DomainSetting(
+            domain=SettingDomain.comms,
+            key="meta_facebook_access_token_override",
+            value_type=SettingValueType.string,
+            value_text="override-page-token",
+            is_secret=True,
+            is_active=True,
+        )
+    )
+    db_session.commit()
+
+    payload = MetaWebhookPayload(
+        object="page",
+        entry=[
+            {
+                "id": "page_123",
+                "time": 1,
+                "changes": [{"field": "leadgen", "value": {"leadgen_id": "leadgen_override_1", "form_id": "form_1"}}],
+            }
+        ],
+    )
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "id": "leadgen_override_1",
+        "created_time": "2026-03-02T10:00:00+0000",
+        "form_id": "form_1",
+        "ad_id": "ad_1",
+        "campaign_id": "campaign_1",
+        "platform": "facebook",
+        "field_data": [
+            {"name": "full_name", "values": ["Override Lead"]},
+            {"name": "email", "values": ["override@example.com"]},
+        ],
+    }
+
+    with patch("app.services.meta_webhooks.httpx.Client") as mock_client:
+        mock_instance = MagicMock()
+        mock_instance.get.return_value = mock_response
+        mock_client.return_value.__enter__.return_value = mock_instance
+        mock_client.return_value.__exit__.return_value = None
+
+        results = meta_webhooks.process_messenger_webhook(db_session, payload)
+
+    assert len(results) == 1
+    assert results[0]["status"] == "stored"
+    assert db_session.query(Lead).count() == 1
+
+    called_params = mock_instance.get.call_args.kwargs["params"]
+    assert called_params["access_token"] == "override-page-token"
 
 
 def test_process_whatsapp_webhook_updates_only_whatsapp_outbound_message(db_session):
