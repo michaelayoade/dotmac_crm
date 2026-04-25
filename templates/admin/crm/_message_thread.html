@@ -1158,6 +1158,14 @@
         <input type="hidden" name="attachments" x-ref="messageAttachments">
         <p x-ref="messageError" class="mt-2 text-[11px] text-red-500 dark:text-red-400"></p>
 
+        <div x-show="selectedMessageAttachmentNames.length && !pendingMessageAttachments.length" class="mt-2 flex flex-wrap gap-2">
+            <template x-for="(name, idx) in selectedMessageAttachmentNames" :key="'selected-' + idx">
+                <span class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-[11px] text-slate-600 dark:border-slate-700/40 dark:bg-slate-900/40 dark:text-slate-300">
+                    <span x-text="name"></span>
+                </span>
+            </template>
+        </div>
+
         <div x-show="pendingMessageAttachments.length" class="mt-2 flex flex-wrap gap-2">
             <template x-for="(att, idx) in pendingMessageAttachments" :key="att.stored_name || idx">
                 <span class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-[11px] text-slate-600 dark:border-slate-700/40 dark:bg-slate-900/40 dark:text-slate-300">

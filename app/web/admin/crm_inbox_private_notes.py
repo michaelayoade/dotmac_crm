@@ -195,16 +195,20 @@ async def upload_conversation_attachments(
     request: Request,
     conversation_id: str,
     files: UploadFile | list[UploadFile] | tuple[UploadFile, ...] | None = File(None),
+    attachments: UploadFile | list[UploadFile] | tuple[UploadFile, ...] | None = File(None),
     db: Session = Depends(get_db),
 ):
     """Upload attachments for a conversation message/private note."""
+    from fastapi import HTTPException
+
     from app.services.crm.inbox.attachments_upload import save_conversation_attachments
 
     try:
+        upload_files = files if files is not None else attachments
         saved = await save_conversation_attachments(
             db,
             conversation_id=conversation_id,
-            files=files,
+            files=upload_files,
             roles=_get_current_roles(request),
             scopes=_get_current_scopes(request),
         )
@@ -214,4 +218,7 @@ async def upload_conversation_attachments(
         message = str(exc) or "No attachments provided"
         status_code = 404 if "Conversation not found" in message else 400
         return JSONResponse({"detail": message}, status_code=status_code)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else "Upload failed"
+        return JSONResponse({"detail": detail}, status_code=exc.status_code)
     return JSONResponse({"attachments": saved})

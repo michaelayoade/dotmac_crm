@@ -14,7 +14,7 @@ from app.services.crm.inbox.errors import InboxValidationError
 
 
 async def prepare_uploads_async(files) -> list[dict]:
-    return await message_attachments_service.prepare_message_attachments(files)
+    return await message_attachments_service.prepare(files)
 
 
 def save_uploads(prepared: list[dict]) -> list[dict]:
