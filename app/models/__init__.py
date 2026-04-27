@@ -259,6 +259,7 @@ from app.models.subscriber import (  # noqa: F401
     SubscriberBillingRiskSnapshot,
     SubscriberStatus,
 )
+from app.models.subscriber_notification import SubscriberNotificationLog  # noqa: F401
 from app.models.tickets import (  # noqa: F401
     Ticket,
     TicketAssignee,

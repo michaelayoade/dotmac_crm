@@ -2,12 +2,14 @@
 
 import csv
 import io
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 from urllib.parse import quote, urlencode
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi import APIRouter, Depends, Form, Query, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
@@ -126,6 +128,20 @@ def _csv_response(data: list[dict], filename: str) -> StreamingResponse:
 def _append_query_flag(url: str, key: str, value: str) -> str:
     separator = "&" if "?" in url else "?"
     return f"{url}{separator}{quote(key)}={quote(value)}"
+
+
+def _toast_redirect(url: str, *, message: str, toast_type: str = "success", status_code: int = 303) -> RedirectResponse:
+    headers = {
+        "HX-Trigger": json.dumps(
+            {
+                "showToast": {
+                    "type": toast_type,
+                    "message": message,
+                }
+            }
+        )
+    }
+    return RedirectResponse(url=url, status_code=status_code, headers=headers)
 
 
 def _latest_subscriber_sync_at(db: Session) -> datetime | None:
@@ -440,6 +456,7 @@ def subscriber_online_last_24h(
     ticket_status: str | None = Query("all"),
 ):
     """Subscribers with online/session activity in the last 24 hours."""
+    from app.services import subscriber_notifications as subscriber_notifications_service
     from app.services import subscriber_reports as sr
 
     user = get_current_user(request)
@@ -463,6 +480,7 @@ def subscriber_online_last_24h(
         ticket_status=selected_ticket_status,
         limit=None,
     )
+    online_customers = subscriber_notifications_service.enrich_notification_rows(online_customers, db)
 
     return templates.TemplateResponse(
         "admin/reports/subscriber_online_last_24h.html",
@@ -477,15 +495,66 @@ def subscriber_online_last_24h(
             "summary_total": len(online_customers),
             "summary_no_ticket": sum(1 for row in online_customers if not row.get("ticket_id")),
             "summary_with_ticket": sum(1 for row in online_customers if row.get("ticket_id")),
-            "summary_closed_ticket": sum(1 for row in online_customers if row.get("ticket_status") == "Closed"),
+            "summary_closed_ticket": sum(1 for row in online_customers if row.get("ticket_status") == "closed"),
             "filter_opts": filter_opts,
             "selected_status": selected_status.value if selected_status else "",
             "selected_region": selected_region or "",
             "search": search_value,
             "selected_ticket_status": selected_ticket_status,
             "ticket_status_options": _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS,
+            "current_query": request.url.path + (f"?{request.url.query}" if request.url.query else ""),
         },
     )
+
+
+@router.post("/subscribers/online-last-24h/notify")
+def subscriber_online_last_24h_notify(
+    request: Request,
+    subscriber_id: UUID = Form(...),
+    channel: str = Form(...),
+    email_subject: str | None = Form(None),
+    email_body: str | None = Form(None),
+    sms_body: str | None = Form(None),
+    scheduled_local_at: str | None = Form(None),
+    next_url: str = Form("/admin/reports/subscribers/online-last-24h"),
+    db: Session = Depends(get_db),
+):
+    from app.services import subscriber_notifications as subscriber_notifications_service
+
+    if not next_url.startswith("/admin/reports/subscribers/online-last-24h"):
+        next_url = "/admin/reports/subscribers/online-last-24h"
+
+    user = get_current_user(request)
+    raw_user_id = user.get("id")
+    raw_person_id = user.get("person_id")
+
+    try:
+        subscriber_notifications_service.queue_subscriber_notification(
+            db,
+            subscriber_id=subscriber_id,
+            channel_value=channel,
+            email_subject=email_subject,
+            email_body=email_body,
+            sms_body=sms_body,
+            scheduled_local_text=scheduled_local_at,
+            sent_by_user_id=UUID(str(raw_user_id)) if raw_user_id else None,
+            sent_by_person_id=UUID(str(raw_person_id)) if raw_person_id else None,
+        )
+    except Exception as exc:
+        db.rollback()
+        if isinstance(exc, Response):
+            return exc
+        detail = getattr(exc, "detail", None) or str(exc)
+        return _toast_redirect(next_url, message=str(detail), toast_type="error", status_code=303)
+
+    channel_label = channel.strip().lower()
+    if channel_label == "both":
+        message = "Email and SMS notifications saved in test queue. No customer message was sent."
+    elif channel_label == "sms":
+        message = "SMS notification saved in test queue. No customer message was sent."
+    else:
+        message = "Email notification saved in test queue. No customer message was sent."
+    return _toast_redirect(next_url, message=message)
 
 
 @router.get("/subscribers/online-last-24h/export")
