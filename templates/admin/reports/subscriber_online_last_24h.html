@@ -11,7 +11,7 @@
     {% call page_header("Online Last 24 Hours", "Subscribers with activity events in the last 24 hours.", color="emerald", color2="teal") %}
         {{ action_button(
             "Export CSV",
-            href="/admin/reports/subscribers/online-last-24h/export?status=" ~ (selected_status | default("")) ~ "&region=" ~ (selected_region | default("")) ~ "&search=" ~ (search | default("")) ~ "&ticket_status=" ~ (selected_ticket_status | default("all")),
+            href="/admin/reports/subscribers/online-last-24h/export?status=" ~ (selected_status | default("")) ~ "&region=" ~ (selected_region | default("")) ~ "&search=" ~ (search | default("")) ~ "&ticket_status=" ~ (selected_ticket_status | default("all")) ~ "&notification_state=" ~ (selected_notification_state | default("all")),
             variant="secondary",
             color="emerald"
         ) }}
@@ -23,21 +23,19 @@
             <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ summary_total | default(0) }}</p>
         </div>
         <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
-            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">With Ticket</p>
-            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ summary_with_ticket | default(0) }}</p>
-        </div>
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
             <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">No Ticket</p>
             <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ summary_no_ticket | default(0) }}</p>
         </div>
+        {% for card in ticket_status_kpis %}
         <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
-            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Closed Ticket</p>
-            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ summary_closed_ticket | default(0) }}</p>
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ card.label }}</p>
+            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ card.value | default(0) }}</p>
         </div>
+        {% endfor %}
     </div>
 
     {% call dashboard_filter_panel(color="emerald", title="Filters") %}
-    <form method="get" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5 xl:items-end">
+    <form method="get" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6 xl:items-end">
         <div>
             <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
             <input type="text" name="search" value="{{ search | default('') }}" placeholder="Name, email, phone, subscriber #"
@@ -67,6 +65,14 @@
             <select name="ticket_status" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
                 {% for option in ticket_status_options %}
                 <option value="{{ option.value }}" {% if selected_ticket_status == option.value %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Notification State</label>
+            <select name="notification_state" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                {% for option in notification_state_options %}
+                <option value="{{ option.value }}" {% if selected_notification_state == option.value %}selected{% endif %}>{{ option.label }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -145,6 +151,8 @@
                     data-timezone="{{ row.notification_timezone or row.timezone or 'UTC' }}"
                     data-email="{{ row.email }}"
                     data-phone="{{ row.phone }}"
+                    data-last-seen="{{ row.last_seen_at }}"
+                    data-last-activity="{{ row.last_activity or row.last_seen_at }}"
                     data-template-key="{{ row.notification_template_key }}"
                     data-email-subject="{{ row.notification_email_subject }}"
                     data-email-body="{{ row.notification_email_body }}"
@@ -181,6 +189,23 @@
             <input type="hidden" name="subscriber_id" id="notify-subscriber-id">
             <input type="hidden" name="next_url" value="{{ current_query }}">
 
+            <div class="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 md:grid-cols-[auto,1fr] dark:border-slate-700 dark:bg-slate-800/60">
+                <div class="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100 text-xl font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200" id="notify-priority-score">0</div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Priority Score</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white"><span id="notify-priority-label">Low</span> priority follow-up</p>
+                    <p id="notify-priority-reasons" class="mt-1 text-sm text-slate-600 dark:text-slate-300">Scoring will load for this customer.</p>
+                </div>
+            </div>
+
+            <div>
+                <div class="mb-2 flex items-center justify-between gap-3">
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Message Templates</label>
+                    <p id="notify-template-status" class="text-xs text-slate-500 dark:text-slate-400">Templates auto-switch based on ticket status.</p>
+                </div>
+                <div id="notify-template-tabs" class="flex flex-wrap gap-2"></div>
+            </div>
+
             <div class="grid gap-4 md:grid-cols-2">
                 <div>
                     <label for="notify-channel" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Channel</label>
@@ -198,7 +223,8 @@
             </div>
 
             <div class="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100">
-                Tokens: {{ rows[0].notification_tokens if rows else '{name}, {last_seen}, {support_email}, {last_activity}' }}
+                <p class="mb-2 text-xs font-semibold uppercase tracking-wide">Insert tokens</p>
+                <div id="notify-token-buttons" class="flex flex-wrap gap-2"></div>
             </div>
 
             <div id="notify-email-section" class="space-y-4">
@@ -224,7 +250,18 @@
                 <p class="text-xs text-slate-500 dark:text-slate-400">SMS stays under 160 characters after token values are filled in.</p>
             </div>
 
-            <div class="flex items-center justify-end gap-3 border-t border-slate-200 pt-5 dark:border-slate-700">
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/80">
+                <div class="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Activity Log</p>
+                        <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">Latest notifications and ticket activity for this subscriber.</p>
+                    </div>
+                </div>
+                <div id="notify-activity-log" class="space-y-3 text-sm text-slate-700 dark:text-slate-200"></div>
+            </div>
+
+            <div class="flex items-center justify-between gap-3 border-t border-slate-200 pt-5 dark:border-slate-700">
+                <button type="button" id="notify-save-template" class="inline-flex h-11 items-center rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-950/50">Save Template</button>
                 <button type="button" class="inline-flex h-11 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300" onclick="document.getElementById('subscriber-notification-modal').classList.add('hidden')">Cancel</button>
                 <button type="submit" class="inline-flex h-11 items-center rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700">Queue Notification</button>
             </div>
@@ -271,8 +308,33 @@
     const channelInput = document.getElementById('notify-channel');
     const emailSection = document.getElementById('notify-email-section');
     const smsSection = document.getElementById('notify-sms-section');
+    const emailSubjectInput = document.getElementById('notify-email-subject');
+    const emailBodyInput = document.getElementById('notify-email-body');
     const smsBody = document.getElementById('notify-sms-body');
     const smsCount = document.getElementById('notify-sms-count');
+    const tokenButtons = document.getElementById('notify-token-buttons');
+    const templateTabs = document.getElementById('notify-template-tabs');
+    const templateStatus = document.getElementById('notify-template-status');
+    const activityLog = document.getElementById('notify-activity-log');
+    const saveTemplateButton = document.getElementById('notify-save-template');
+    const priorityScore = document.getElementById('notify-priority-score');
+    const priorityLabel = document.getElementById('notify-priority-label');
+    const priorityReasons = document.getElementById('notify-priority-reasons');
+    const subscriberIdInput = document.getElementById('notify-subscriber-id');
+
+    let activeTemplateKey = 'friendly_check_in';
+    let templateState = {};
+    let lastFocusedField = null;
+
+    function deriveTemplateKey(ticketStatus, providedTemplateKey) {
+      if (providedTemplateKey) return providedTemplateKey;
+      const status = (ticketStatus || '').trim().toLowerCase();
+      if (!status) return 'friendly_check_in';
+      if (['closed', 'canceled', 'merged'].includes(status)) return 'resolved_invite_back';
+      if (['on_hold', 'lastmile_rerun', 'site_under_construction'].includes(status)) return 'escalated_formal';
+      if (['new', 'open', 'pending', 'waiting_on_customer'].includes(status)) return 'issue_reference';
+      return 'friendly_check_in';
+    }
 
     function updateChannelVisibility() {
       const value = channelInput.value;
@@ -287,18 +349,162 @@
       smsCount.classList.toggle('dark:text-rose-400', length > 160);
     }
 
+    function persistActiveTemplateDraft() {
+      if (!templateState[activeTemplateKey]) return;
+      templateState[activeTemplateKey].email_subject = emailSubjectInput.value || '';
+      templateState[activeTemplateKey].email_body = emailBodyInput.value || '';
+      templateState[activeTemplateKey].sms_body = smsBody.value || '';
+    }
+
+    function renderTemplateTabs() {
+      templateTabs.innerHTML = '';
+      Object.entries(templateState).forEach(([templateKey, template]) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.templateKey = templateKey;
+        button.className = `rounded-xl px-3 py-2 text-sm font-semibold transition ${
+          templateKey === activeTemplateKey
+            ? 'bg-emerald-600 text-white'
+            : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+        }`;
+        button.textContent = template.label || templateKey;
+        button.addEventListener('click', () => switchTemplate(templateKey));
+        templateTabs.appendChild(button);
+      });
+    }
+
+    function switchTemplate(templateKey) {
+      persistActiveTemplateDraft();
+      activeTemplateKey = templateKey;
+      const template = templateState[templateKey] || {};
+      emailSubjectInput.value = template.email_subject || '';
+      emailBodyInput.value = template.email_body || '';
+      smsBody.value = template.sms_body || '';
+      templateStatus.textContent = `Editing ${template.label || templateKey} template`;
+      renderTemplateTabs();
+      updateSmsCount();
+    }
+
+    function renderTokens(tokens) {
+      tokenButtons.innerHTML = '';
+      tokens.forEach((token) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-950/50';
+        button.textContent = token;
+        button.addEventListener('click', () => {
+          const target = lastFocusedField || emailBodyInput;
+          if (!target) return;
+          const start = target.selectionStart || target.value.length;
+          const end = target.selectionEnd || target.value.length;
+          const nextValue = `${target.value.slice(0, start)}${token}${target.value.slice(end)}`;
+          target.value = nextValue;
+          target.focus();
+          target.selectionStart = target.selectionEnd = start + token.length;
+          persistActiveTemplateDraft();
+          updateSmsCount();
+        });
+        tokenButtons.appendChild(button);
+      });
+    }
+
+    function renderActivity(entries) {
+      activityLog.innerHTML = '';
+      if (!entries.length) {
+        activityLog.innerHTML = '<p class="text-sm text-slate-500 dark:text-slate-400">No recent ticket or notification activity for this subscriber.</p>';
+        return;
+      }
+      entries.forEach((entry) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60';
+        wrapper.innerHTML = `
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="font-semibold text-slate-900 dark:text-white">${entry.title || 'Activity'}</p>
+              <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">${entry.detail || ''}</p>
+            </div>
+            <span class="text-xs font-medium text-slate-500 dark:text-slate-400">${entry.timestamp || ''}</span>
+          </div>
+        `;
+        activityLog.appendChild(wrapper);
+      });
+    }
+
+    async function loadNotifyContext(button) {
+      const templateKey = deriveTemplateKey(button.dataset.ticketStatus, button.dataset.templateKey);
+      subscriberIdInput.value = button.dataset.subscriberId || '';
+      document.getElementById('notify-customer-name').textContent = button.dataset.customerName || 'Customer';
+      document.getElementById('notify-customer-timezone').textContent = button.dataset.timezone || 'UTC';
+      document.getElementById('scheduled-local-at').value = '';
+      channelInput.value = 'email';
+      updateChannelVisibility();
+      try {
+        const params = new URLSearchParams({
+          last_seen_at: button.dataset.lastSeen || '',
+          last_activity: button.dataset.lastActivity || '',
+        });
+        const response = await fetch(`/admin/reports/subscribers/online-last-24h/context/${button.dataset.subscriberId}?${params.toString()}`);
+        const payload = await response.json();
+        templateState = payload.templates || {};
+        activeTemplateKey = payload.template_key || templateKey;
+        renderTokens(payload.token_list || []);
+        switchTemplate(activeTemplateKey);
+        const priority = payload.priority || {};
+        priorityScore.textContent = priority.value ?? 0;
+        priorityLabel.textContent = priority.label || 'Low';
+        priorityReasons.textContent = (priority.reasons || []).join(' • ') || 'Scoring unavailable.';
+        renderActivity(payload.activity_log || []);
+      } catch (_error) {
+        templateState = {
+          [templateKey]: {
+            label: 'Current Template',
+            email_subject: button.dataset.emailSubject || '',
+            email_body: button.dataset.emailBody || '',
+            sms_body: button.dataset.smsBody || '',
+          },
+        };
+        renderTokens(['{name}', '{last_seen}', '{support_email}', '{last_activity}']);
+        switchTemplate(templateKey);
+        priorityScore.textContent = '0';
+        priorityLabel.textContent = 'Low';
+        priorityReasons.textContent = 'Unable to load live scoring right now.';
+        renderActivity([]);
+      }
+    }
+
+    async function saveActiveTemplate() {
+      persistActiveTemplateDraft();
+      const template = templateState[activeTemplateKey];
+      if (!template) return;
+      saveTemplateButton.disabled = true;
+      saveTemplateButton.textContent = 'Saving...';
+      try {
+        const body = new URLSearchParams({
+          template_key: activeTemplateKey,
+          email_subject: template.email_subject || '',
+          email_body: template.email_body || '',
+          sms_body: template.sms_body || '',
+        });
+        const response = await fetch('/admin/reports/subscribers/online-last-24h/templates', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body,
+        });
+        if (!response.ok) throw new Error('save failed');
+        saveTemplateButton.textContent = 'Saved';
+        window.setTimeout(() => {
+          saveTemplateButton.textContent = 'Save Template';
+          saveTemplateButton.disabled = false;
+        }, 1200);
+      } catch (_error) {
+        saveTemplateButton.textContent = 'Retry Save';
+        saveTemplateButton.disabled = false;
+      }
+    }
+
     document.querySelectorAll('[data-notify-button]').forEach((button) => {
-      button.addEventListener('click', () => {
-        document.getElementById('notify-subscriber-id').value = button.dataset.subscriberId || '';
-        document.getElementById('notify-customer-name').textContent = button.dataset.customerName || 'Customer';
-        document.getElementById('notify-customer-timezone').textContent = button.dataset.timezone || 'UTC';
-        document.getElementById('notify-email-subject').value = button.dataset.emailSubject || '';
-        document.getElementById('notify-email-body').value = button.dataset.emailBody || '';
-        smsBody.value = button.dataset.smsBody || '';
-        document.getElementById('scheduled-local-at').value = '';
-        channelInput.value = 'email';
-        updateChannelVisibility();
-        updateSmsCount();
+      button.addEventListener('click', async () => {
+        await loadNotifyContext(button);
         modal.classList.remove('hidden');
         modal.classList.add('flex');
       });
@@ -306,8 +512,16 @@
 
     channelInput.addEventListener('change', updateChannelVisibility);
     smsBody.addEventListener('input', updateSmsCount);
+    [emailSubjectInput, emailBodyInput, smsBody].forEach((field) => {
+      field.addEventListener('focus', () => {
+        lastFocusedField = field;
+      });
+      field.addEventListener('input', persistActiveTemplateDraft);
+    });
+    saveTemplateButton.addEventListener('click', saveActiveTemplate);
 
     const closeModal = () => {
+      persistActiveTemplateDraft();
       modal.classList.add('hidden');
       modal.classList.remove('flex');
     };
