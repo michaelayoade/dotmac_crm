@@ -912,6 +912,7 @@ def test_get_billing_risk_table_normalizes_street_display_symbols(monkeypatch):
     assert len(rows) == 1
     assert rows[0]["street"] == "12, Aminu Kano; Crescent, Suite 4 / Block B"
 
+
 def test_customer_retention_tracker_renders_from_billing_risk_filters(monkeypatch):
     monkeypatch.setattr(billing_risk_web, "get_current_user", lambda _request: {"id": "test-user"})
     monkeypatch.setattr(billing_risk_web, "get_sidebar_stats", lambda _db: {})

@@ -259,7 +259,9 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
                 "latest_notification_channel": "sms" if index == 0 else "",
                 "latest_notification_status": "testing_hold" if index == 0 else "",
                 "latest_notification_scheduled_for": "Apr 27, 2026 10:30 AM" if index == 0 else "",
-                "latest_notification_message_body": "Hi Taylor, we saw activity on your account. Need help? support@example.com" if index == 0 else "",
+                "latest_notification_message_body": "Hi Taylor, we saw activity on your account. Need help? support@example.com"
+                if index == 0
+                else "",
             }
             for index, row in enumerate(rows)
         ],
