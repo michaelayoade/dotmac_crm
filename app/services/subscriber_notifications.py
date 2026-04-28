@@ -341,7 +341,9 @@ def prepare_subscriber_notification(db: Session, subscriber_id: UUID) -> Prepare
     )
 
 
-def _build_activity_log(db: Session, subscriber_id: UUID, ticket: Ticket | None, timezone_name: str) -> list[dict[str, str]]:
+def _build_activity_log(
+    db: Session, subscriber_id: UUID, ticket: Ticket | None, timezone_name: str
+) -> list[dict[str, str]]:
     entries: list[dict[str, str]] = []
     tz = _resolve_timezone(timezone_name)
 
