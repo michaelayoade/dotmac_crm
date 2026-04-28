@@ -690,14 +690,10 @@ def get_billing_risk_table(
                 subscriber_key
             ) or str(context.get("latest_ticket_ref") or "")
             subscriber_context_with_status["ticket_status_counts"] = dict(
-                status_counts_by_subscriber.get(subscriber_key)
-                or context.get("ticket_status_counts")
-                or {}
+                status_counts_by_subscriber.get(subscriber_key) or context.get("ticket_status_counts") or {}
             )
             subscriber_context_with_status["ticket_status_refs"] = dict(
-                status_ticket_ids_by_subscriber.get(subscriber_key)
-                or context.get("ticket_status_refs")
-                or {}
+                status_ticket_ids_by_subscriber.get(subscriber_key) or context.get("ticket_status_refs") or {}
             )
             ticket_context_by_subscriber[subscriber_key] = subscriber_context_with_status
         return ticket_context_by_subscriber, ticket_context_by_person
