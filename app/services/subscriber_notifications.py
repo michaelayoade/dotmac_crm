@@ -9,19 +9,25 @@ from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models.domain_settings import SettingValueType
+from app.models.event_store import EventStore
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.person import ChannelType, Person
 from app.models.subscriber import Subscriber
 from app.models.subscriber_notification import SubscriberNotificationLog
-from app.models.tickets import Ticket, TicketPriority, TicketStatus
+from app.models.tickets import Ticket, TicketComment, TicketPriority, TicketStatus
+from app.schemas.settings import DomainSettingUpdate
 from app.services.branding import get_branding
+from app.services.domain_settings import notification_settings
 
 DEDUPLICATE_WINDOW = timedelta(hours=6)
 SEND_WINDOW_START_HOUR = 9
 SEND_WINDOW_END_HOUR = 18
+RECENT_ACTIVITY_WINDOW = timedelta(days=7)
+TEMPLATE_SETTING_KEY = "subscriber_online_last_24h_templates"
 
 _OPEN_TICKET_STATUSES = {
     TicketStatus.new,
@@ -87,6 +93,13 @@ SMS_TEMPLATES = {
     "resolved_invite_back": "Hi {name}, your issue appears resolved. We saw activity at {last_seen}. Need help again? {support_email}",
 }
 
+TEMPLATE_LABELS = {
+    "friendly_check_in": "No Ticket",
+    "issue_reference": "Open / Pending",
+    "escalated_formal": "Escalated",
+    "resolved_invite_back": "Closed / Resolved",
+}
+
 
 @dataclass
 class NotificationTemplateBundle:
@@ -104,6 +117,13 @@ class PreparedSubscriberNotification:
     timezone_name: str
     template: NotificationTemplateBundle
     token_values: dict[str, str]
+
+
+@dataclass
+class SubscriberPriorityScore:
+    value: int
+    label: str
+    reasons: list[str]
 
 
 def _coerce_utc(value: datetime | None) -> datetime | None:
@@ -151,6 +171,70 @@ def _latest_ticket_for_subscriber(db: Session, subscriber_id: UUID) -> Ticket | 
         .order_by(Ticket.created_at.desc())
         .limit(1)
     )
+
+
+def _default_template_map() -> dict[str, dict[str, str]]:
+    return {
+        key: {
+            "label": TEMPLATE_LABELS[key],
+            "email_subject": EMAIL_SUBJECTS[key],
+            "email_body": EMAIL_TEMPLATES[key],
+            "sms_body": SMS_TEMPLATES[key],
+        }
+        for key in EMAIL_SUBJECTS
+    }
+
+
+def _load_template_map(db: Session) -> dict[str, dict[str, str]]:
+    templates = _default_template_map()
+    try:
+        setting = notification_settings.get_by_key(db, TEMPLATE_SETTING_KEY)
+    except HTTPException:
+        setting = None
+    payload = setting.value_json if setting is not None else None
+    if not isinstance(payload, dict):
+        return templates
+    for template_key, template_values in payload.items():
+        if template_key not in templates or not isinstance(template_values, dict):
+            continue
+        merged = dict(templates[template_key])
+        for field in ("email_subject", "email_body", "sms_body"):
+            value = str(template_values.get(field) or "").strip()
+            if value:
+                merged[field] = value
+        templates[template_key] = merged
+    return templates
+
+
+def save_template_bundle(
+    db: Session,
+    *,
+    template_key: str,
+    email_subject: str,
+    email_body: str,
+    sms_body: str,
+) -> dict[str, str]:
+    normalized_key = (template_key or "").strip()
+    if normalized_key not in EMAIL_SUBJECTS:
+        raise HTTPException(status_code=400, detail="Unknown template status.")
+    templates = _load_template_map(db)
+    templates[normalized_key] = {
+        "label": TEMPLATE_LABELS[normalized_key],
+        "email_subject": email_subject.strip(),
+        "email_body": email_body.strip(),
+        "sms_body": sms_body.strip(),
+    }
+    notification_settings.upsert_by_key(
+        db,
+        TEMPLATE_SETTING_KEY,
+        DomainSettingUpdate(
+            value_type=SettingValueType.json,
+            value_json=templates,
+            value_text=None,
+            is_active=True,
+        ),
+    )
+    return templates[normalized_key]
 
 
 def _select_template_key(ticket: Ticket | None) -> str:
@@ -239,11 +323,13 @@ def prepare_subscriber_notification(db: Session, subscriber_id: UUID) -> Prepare
         "{last_activity}": "recent account activity",
     }
     template_key = _select_template_key(ticket)
+    template_map = _load_template_map(db)
+    template_values = template_map[template_key]
     template = NotificationTemplateBundle(
         template_key=template_key,
-        email_subject=EMAIL_SUBJECTS[template_key],
-        email_body=EMAIL_TEMPLATES[template_key],
-        sms_body=SMS_TEMPLATES[template_key],
+        email_subject=template_values["email_subject"],
+        email_body=template_values["email_body"],
+        sms_body=template_values["sms_body"],
     )
     return PreparedSubscriberNotification(
         subscriber=subscriber,
@@ -253,6 +339,178 @@ def prepare_subscriber_notification(db: Session, subscriber_id: UUID) -> Prepare
         template=template,
         token_values=token_values,
     )
+
+
+def _build_activity_log(db: Session, subscriber_id: UUID, ticket: Ticket | None, timezone_name: str) -> list[dict[str, str]]:
+    entries: list[dict[str, str]] = []
+    tz = _resolve_timezone(timezone_name)
+
+    logs = db.scalars(
+        select(SubscriberNotificationLog)
+        .where(SubscriberNotificationLog.subscriber_id == subscriber_id)
+        .order_by(SubscriberNotificationLog.created_at.desc())
+        .limit(8)
+    ).all()
+    for log in logs:
+        created_at = _coerce_utc(log.created_at)
+        entries.append(
+            {
+                "kind": "notification",
+                "timestamp": created_at.astimezone(tz).strftime("%b %d, %Y %I:%M %p") if created_at else "",
+                "title": f"{log.channel.value.upper()} notification queued",
+                "detail": log.message_body,
+            }
+        )
+
+    if ticket is not None:
+        ticket_stamp = _coerce_utc(ticket.updated_at) or _coerce_utc(ticket.created_at)
+        entries.append(
+            {
+                "kind": "ticket_status",
+                "timestamp": ticket_stamp.astimezone(tz).strftime("%b %d, %Y %I:%M %p") if ticket_stamp else "",
+                "title": f"Ticket {ticket.status.value.replace('_', ' ').title()}",
+                "detail": ticket.title,
+            }
+        )
+        comments = db.scalars(
+            select(TicketComment)
+            .where(TicketComment.ticket_id == ticket.id)
+            .order_by(TicketComment.created_at.desc())
+            .limit(6)
+        ).all()
+        for comment in comments:
+            comment_stamp = _coerce_utc(comment.created_at)
+            entries.append(
+                {
+                    "kind": "ticket_comment",
+                    "timestamp": comment_stamp.astimezone(tz).strftime("%b %d, %Y %I:%M %p") if comment_stamp else "",
+                    "title": "Ticket comment",
+                    "detail": comment.body,
+                }
+            )
+
+    entries.sort(key=lambda item: item.get("timestamp") or "", reverse=True)
+    return entries[:10]
+
+
+def _priority_score(
+    db: Session,
+    *,
+    subscriber_id: UUID,
+    ticket: Ticket | None,
+    last_seen_at: datetime | None,
+) -> SubscriberPriorityScore:
+    now = datetime.now(UTC)
+    score = 0
+    reasons: list[str] = []
+
+    if last_seen_at is not None:
+        hours_since_last_seen = max(0.0, (now - last_seen_at).total_seconds() / 3600.0)
+        stale_points = min(35, int(hours_since_last_seen * 2))
+        score += stale_points
+        if stale_points:
+            reasons.append(f"Last seen {hours_since_last_seen:.1f}h ago")
+
+    recent_activity_count = int(
+        db.scalar(
+            select(func.count(EventStore.id)).where(
+                EventStore.is_active.is_(True),
+                EventStore.subscriber_id == subscriber_id,
+                EventStore.created_at >= now - RECENT_ACTIVITY_WINDOW,
+                EventStore.event_type.in_(["session.started", "device.online", "usage.recorded"]),
+            )
+        )
+        or 0
+    )
+    if recent_activity_count >= 20:
+        score += 18
+        reasons.append("Usually active recently")
+    elif recent_activity_count >= 8:
+        score += 10
+        reasons.append("Moderately active recently")
+
+    if ticket is not None:
+        if ticket.status in _ESCALATED_TICKET_STATUSES or ticket.priority in _ESCALATED_TICKET_PRIORITIES:
+            score += 25
+            reasons.append("Escalated ticket")
+        elif ticket.status in _OPEN_TICKET_STATUSES:
+            score += 15
+            reasons.append("Open ticket")
+        elif ticket.status in _RESOLVED_TICKET_STATUSES:
+            score += 5
+            reasons.append("Recently resolved ticket")
+
+    recent_notification_count = int(
+        db.scalar(
+            select(func.count(SubscriberNotificationLog.id)).where(
+                SubscriberNotificationLog.subscriber_id == subscriber_id,
+                SubscriberNotificationLog.created_at >= now - RECENT_ACTIVITY_WINDOW,
+            )
+        )
+        or 0
+    )
+    if recent_notification_count:
+        score += min(20, recent_notification_count * 5)
+        reasons.append("Recent notifications already queued")
+
+    score = min(100, score)
+    if score >= 70:
+        label = "High"
+    elif score >= 40:
+        label = "Medium"
+    else:
+        label = "Low"
+    return SubscriberPriorityScore(value=score, label=label, reasons=reasons[:3])
+
+
+def notification_context_for_subscriber(
+    db: Session,
+    *,
+    subscriber_id: UUID,
+    last_seen_text: str | None = None,
+    last_activity: str | None = None,
+) -> dict[str, Any]:
+    prepared = prepare_subscriber_notification(db, subscriber_id)
+    templates = _load_template_map(db)
+    tokens = dict(prepared.token_values)
+    tokens["{last_seen}"] = (last_seen_text or "").strip() or "recently"
+    tokens["{last_activity}"] = (last_activity or "").strip() or "recent account activity"
+
+    last_seen_at = None
+    if isinstance(last_seen_text, str) and last_seen_text.strip():
+        for fmt in ("%b %d, %Y %I:%M %p", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M:%S"):
+            try:
+                last_seen_at = datetime.strptime(last_seen_text.strip(), fmt).replace(tzinfo=UTC)
+                break
+            except ValueError:
+                continue
+
+    rendered_templates: dict[str, dict[str, str]] = {}
+    for template_key, template_values in templates.items():
+        rendered_templates[template_key] = {
+            "label": template_values["label"],
+            "email_subject": template_values["email_subject"],
+            "email_body": _render_template(template_values["email_body"], tokens),
+            "sms_body": _render_template(template_values["sms_body"], tokens),
+        }
+
+    priority = _priority_score(
+        db,
+        subscriber_id=prepared.subscriber.id,
+        ticket=prepared.ticket,
+        last_seen_at=last_seen_at,
+    )
+    return {
+        "template_key": prepared.template.template_key,
+        "templates": rendered_templates,
+        "token_list": list(TEMPLATE_TOKENS),
+        "priority": {
+            "value": priority.value,
+            "label": priority.label,
+            "reasons": priority.reasons,
+        },
+        "activity_log": _build_activity_log(db, prepared.subscriber.id, prepared.ticket, prepared.timezone_name),
+    }
 
 
 def enrich_notification_rows(rows: list[dict[str, Any]], db: Session) -> list[dict[str, Any]]:
