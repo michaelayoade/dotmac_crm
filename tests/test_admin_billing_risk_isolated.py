@@ -828,6 +828,90 @@ def test_get_billing_risk_table_prefers_live_customer_status_date_over_local_upd
     assert rows[0]["blocked_date"] != "2026-04-13"
 
 
+def test_get_billing_risk_table_normalizes_street_display_symbols(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    class Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+        def scalars(self):
+            return self._rows
+
+    class FakeDb:
+        def __init__(self):
+            self.calls = 0
+
+        def execute(self, _statement):
+            self.calls += 1
+            if self.calls == 1:
+                return Result(
+                    [
+                        (
+                            "sub-1",
+                            None,
+                            "17060",
+                            "100017060",
+                            {},
+                            None,
+                            None,
+                            0,
+                            "",
+                            "",
+                            "",
+                            "",
+                            " 12,, Aminu   Kano;;; Crescent -- ",
+                            None,
+                            datetime(2026, 4, 13, tzinfo=UTC),
+                            datetime(2026, 1, 10, tzinfo=UTC),
+                            "",
+                        )
+                    ]
+                )
+            return Result([])
+
+    customer_payload = {
+        "id": "17060",
+        "name": "Abduljabbar Anibilowo",
+        "email": "",
+        "phone": "",
+        "status": "blocked",
+        "last_online": "2026-03-20 11:28:03",
+        "street_1": " 12,, Aminu   Kano;;; Crescent -- ",
+        "street_2": "Suite 4  /  Block B",
+        "billing": {"blocking_date": "0000-00-00"},
+    }
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(splynx_service, "fetch_customers", lambda _db: [customer_payload])
+    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(
+        splynx_service,
+        "map_customer_to_subscriber_data",
+        lambda _db, _customer, include_remote_details=False: {
+            "status": "suspended",
+            "subscriber_number": "100017060",
+            "sync_metadata": {},
+        },
+    )
+
+    rows = billing_risk_service.get_billing_risk_table(
+        FakeDb(),
+        segment="suspended",
+        limit=10,
+        enrich_visible_rows=False,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["street"] == "12, Aminu Kano; Crescent, Suite 4 / Block B"
+
 def test_customer_retention_tracker_renders_from_billing_risk_filters(monkeypatch):
     monkeypatch.setattr(billing_risk_web, "get_current_user", lambda _request: {"id": "test-user"})
     monkeypatch.setattr(billing_risk_web, "get_sidebar_stats", lambda _db: {})
@@ -1103,6 +1187,9 @@ def test_subscriber_billing_risk_rows_returns_html(monkeypatch):
                 "open_tickets": 2,
                 "closed_tickets": 5,
                 "total_tickets": 7,
+                "latest_ticket_id": "19814",
+                "ticket_status_counts": {"open": 2, "closed": 5, "pending": 1, "canceled": 1},
+                "ticket_status_refs": {"open": "19814", "closed": "19815", "pending": "19816", "canceled": "19817"},
                 "latest_ticket_ref": "20101",
                 "ticket_subscriber_id": "11111111-1111-1111-1111-111111111111",
                 "_subscriber_uuid": "11111111-1111-1111-1111-111111111111",
@@ -1136,7 +1223,13 @@ def test_subscriber_billing_risk_rows_returns_html(monkeypatch):
     assert "12 Aminu Kano Crescent" in body
     assert "Open 2" in body
     assert "Closed 5" in body
+    assert "Pending 1" in body
+    assert "Canceled 1" in body
     assert "Total 7" in body
+    assert "/admin/support/tickets/19814" in body
+    assert "/admin/support/tickets/19815" in body
+    assert "/admin/support/tickets/19816" in body
+    assert "/admin/support/tickets/19817" in body
     assert ">Balance<" not in body
     assert "Page 1" in body
     assert "billing-risk-metric-count" in body

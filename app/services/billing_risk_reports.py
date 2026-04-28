@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from threading import Lock
 from time import monotonic
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import Date, cast, false, func, or_, select
 from sqlalchemy.orm import Session
@@ -431,8 +432,14 @@ def get_billing_risk_table(
     def _ticket_counts_for_subscribers(
         subscriber_rows_by_id: Mapping[str, Mapping[str, Any]],
         fallback_person_ids: set[str] | None = None,
-    ) -> tuple[dict[str, dict[str, int | str]], dict[str, dict[str, int | str]]]:
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
         subscriber_ids = [subscriber_id for subscriber_id in subscriber_rows_by_id if subscriber_id]
+        subscriber_uuid_ids: list[UUID] = []
+        for subscriber_id in subscriber_ids:
+            try:
+                subscriber_uuid_ids.append(UUID(subscriber_id))
+            except (TypeError, ValueError):
+                continue
         person_ids = sorted(
             {
                 str(row.get("person_id") or "").strip()
@@ -441,12 +448,20 @@ def get_billing_risk_table(
             }
             | {person_id for person_id in (fallback_person_ids or set()) if person_id}
         )
+        person_uuid_ids: list[UUID] = []
+        for person_id in person_ids:
+            try:
+                person_uuid_ids.append(UUID(person_id))
+            except (TypeError, ValueError):
+                continue
         if not subscriber_ids and not person_ids:
             return {}, {}
 
         counts_by_subscriber: dict[str, dict[str, int]] = {}
+        status_counts_by_subscriber: dict[str, dict[str, int]] = {}
+        status_ticket_ids_by_subscriber: dict[str, dict[str, str]] = {}
         rows: Sequence[Any] = []
-        if subscriber_ids:
+        if subscriber_uuid_ids:
             rows = db.execute(
                 select(
                     Ticket.subscriber_id,
@@ -457,7 +472,7 @@ def get_billing_risk_table(
                 )
                 .where(
                     Ticket.is_active.is_(True),
-                    Ticket.subscriber_id.in_(subscriber_ids),
+                    Ticket.subscriber_id.in_(subscriber_uuid_ids),
                 )
                 .group_by(Ticket.subscriber_id)
             ).all()
@@ -479,9 +494,30 @@ def get_billing_risk_table(
             bucket["final_tickets"] += int(final_count or 0)
             bucket["total_tickets"] += int(total_count or 0)
 
+        if subscriber_uuid_ids:
+            subscriber_status_rows = db.execute(
+                select(Ticket.subscriber_id, Ticket.id, Ticket.status)
+                .where(
+                    Ticket.is_active.is_(True),
+                    Ticket.subscriber_id.in_(subscriber_uuid_ids),
+                )
+                .order_by(Ticket.subscriber_id.asc(), Ticket.status.asc(), Ticket.created_at.desc(), Ticket.id.desc())
+            ).all()
+            for subscriber_id, ticket_id, status in subscriber_status_rows:
+                subscriber_key = str(subscriber_id or "").strip()
+                status_key = str(status.value if isinstance(status, TicketStatus) else status or "").strip()
+                if not subscriber_key or not status_key:
+                    continue
+                counts_bucket = status_counts_by_subscriber.setdefault(subscriber_key, {})
+                counts_bucket[status_key] = counts_bucket.get(status_key, 0) + 1
+                refs_bucket = status_ticket_ids_by_subscriber.setdefault(subscriber_key, {})
+                refs_bucket.setdefault(status_key, str(ticket_id or "").strip())
+
         counts_by_person: dict[str, dict[str, int]] = {}
+        status_counts_by_person: dict[str, dict[str, int]] = {}
+        status_ticket_ids_by_person: dict[str, dict[str, str]] = {}
         person_rows: Sequence[Any] = []
-        if person_ids:
+        if person_uuid_ids:
             person_rows = db.execute(
                 select(
                     Ticket.customer_person_id,
@@ -492,7 +528,7 @@ def get_billing_risk_table(
                 )
                 .where(
                     Ticket.is_active.is_(True),
-                    Ticket.customer_person_id.in_(person_ids),
+                    Ticket.customer_person_id.in_(person_uuid_ids),
                 )
                 .group_by(Ticket.customer_person_id)
             ).all()
@@ -507,13 +543,37 @@ def get_billing_risk_table(
                 "total_tickets": int(total_count or 0),
             }
 
+        if person_uuid_ids:
+            person_status_rows = db.execute(
+                select(Ticket.customer_person_id, Ticket.id, Ticket.status)
+                .where(
+                    Ticket.is_active.is_(True),
+                    Ticket.customer_person_id.in_(person_uuid_ids),
+                )
+                .order_by(
+                    Ticket.customer_person_id.asc(),
+                    Ticket.status.asc(),
+                    Ticket.created_at.desc(),
+                    Ticket.id.desc(),
+                )
+            ).all()
+            for person_id, ticket_id, status in person_status_rows:
+                person_key = str(person_id or "").strip()
+                status_key = str(status.value if isinstance(status, TicketStatus) else status or "").strip()
+                if not person_key or not status_key:
+                    continue
+                counts_bucket = status_counts_by_person.setdefault(person_key, {})
+                counts_bucket[status_key] = counts_bucket.get(status_key, 0) + 1
+                refs_bucket = status_ticket_ids_by_person.setdefault(person_key, {})
+                refs_bucket.setdefault(status_key, str(ticket_id or "").strip())
+
         latest_status_by_subscriber: dict[str, str] = {}
-        if subscriber_ids:
+        if subscriber_uuid_ids:
             latest_subscriber_status_rows = db.execute(
                 select(Ticket.subscriber_id, Ticket.status)
                 .where(
                     Ticket.is_active.is_(True),
-                    Ticket.subscriber_id.in_(subscriber_ids),
+                    Ticket.subscriber_id.in_(subscriber_uuid_ids),
                 )
                 .order_by(Ticket.subscriber_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
             ).all()
@@ -526,12 +586,12 @@ def get_billing_risk_table(
                 )
 
         latest_status_by_person: dict[str, str] = {}
-        if person_ids:
+        if person_uuid_ids:
             latest_person_status_rows = db.execute(
                 select(Ticket.customer_person_id, Ticket.status)
                 .where(
                     Ticket.is_active.is_(True),
-                    Ticket.customer_person_id.in_(person_ids),
+                    Ticket.customer_person_id.in_(person_uuid_ids),
                 )
                 .order_by(Ticket.customer_person_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
             ).all()
@@ -542,15 +602,14 @@ def get_billing_risk_table(
                 latest_status_by_person[person_key] = str(
                     status.value if isinstance(status, TicketStatus) else status or ""
                 )
-
         latest_ticket_id_by_subscriber: dict[str, str] = {}
         latest_ticket_ref_by_subscriber: dict[str, str] = {}
-        if subscriber_ids:
+        if subscriber_uuid_ids:
             latest_subscriber_ticket_rows = db.execute(
                 select(Ticket.subscriber_id, Ticket.id, Ticket.number)
                 .where(
                     Ticket.is_active.is_(True),
-                    Ticket.subscriber_id.in_(subscriber_ids),
+                    Ticket.subscriber_id.in_(subscriber_uuid_ids),
                 )
                 .order_by(Ticket.subscriber_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
             ).all()
@@ -565,12 +624,12 @@ def get_billing_risk_table(
 
         latest_ticket_id_by_person: dict[str, str] = {}
         latest_ticket_ref_by_person: dict[str, str] = {}
-        if person_ids:
+        if person_uuid_ids:
             latest_person_ticket_rows = db.execute(
                 select(Ticket.customer_person_id, Ticket.id, Ticket.number)
                 .where(
                     Ticket.is_active.is_(True),
-                    Ticket.customer_person_id.in_(person_ids),
+                    Ticket.customer_person_id.in_(person_uuid_ids),
                 )
                 .order_by(Ticket.customer_person_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
             ).all()
@@ -583,7 +642,7 @@ def get_billing_risk_table(
                 latest_ticket_id_by_person[person_key] = ticket_id_text
                 latest_ticket_ref_by_person[person_key] = ticket_number_text or ticket_id_text
 
-        ticket_context_by_person: dict[str, dict[str, int | str]] = {}
+        ticket_context_by_person: dict[str, dict[str, Any]] = {}
         for person_key in person_ids:
             base_context = counts_by_person.get(person_key) or {
                 "open_tickets": 0,
@@ -592,22 +651,24 @@ def get_billing_risk_table(
                 "total_tickets": 0,
             }
             latest_status = latest_status_by_person.get(person_key) or ""
-            person_context_with_status: dict[str, int | str] = dict(base_context)
+            person_context_with_status: dict[str, Any] = dict(base_context)
             person_context_with_status["latest_ticket_status"] = (
                 latest_status.replace("_", " ").title() if latest_status else ""
             )
             person_context_with_status["latest_ticket_id"] = latest_ticket_id_by_person.get(person_key, "")
             person_context_with_status["latest_ticket_ref"] = latest_ticket_ref_by_person.get(person_key, "")
+            person_context_with_status["ticket_status_counts"] = dict(status_counts_by_person.get(person_key) or {})
+            person_context_with_status["ticket_status_refs"] = dict(status_ticket_ids_by_person.get(person_key) or {})
             ticket_context_by_person[person_key] = person_context_with_status
 
-        ticket_context_by_subscriber: dict[str, dict[str, int | str]] = {}
+        ticket_context_by_subscriber: dict[str, dict[str, Any]] = {}
         for subscriber_key, row in subscriber_rows_by_id.items():
             if not subscriber_key:
                 continue
             person_key = str(row.get("person_id") or "").strip()
             base_subscriber_context = counts_by_subscriber.get(subscriber_key)
             if base_subscriber_context is not None:
-                context: dict[str, int | str] = dict(base_subscriber_context)
+                context: dict[str, Any] = dict(base_subscriber_context)
             else:
                 context = ticket_context_by_person.get(person_key) or {
                     "open_tickets": 0,
@@ -618,7 +679,7 @@ def get_billing_risk_table(
             latest_status = latest_status_by_subscriber.get(subscriber_key) or str(
                 context.get("latest_ticket_status") or ""
             )
-            subscriber_context_with_status: dict[str, int | str] = dict(context)
+            subscriber_context_with_status: dict[str, Any] = dict(context)
             subscriber_context_with_status["latest_ticket_status"] = (
                 latest_status.replace("_", " ").title() if latest_status else ""
             )
@@ -628,6 +689,16 @@ def get_billing_risk_table(
             subscriber_context_with_status["latest_ticket_ref"] = latest_ticket_ref_by_subscriber.get(
                 subscriber_key
             ) or str(context.get("latest_ticket_ref") or "")
+            subscriber_context_with_status["ticket_status_counts"] = dict(
+                status_counts_by_subscriber.get(subscriber_key)
+                or context.get("ticket_status_counts")
+                or {}
+            )
+            subscriber_context_with_status["ticket_status_refs"] = dict(
+                status_ticket_ids_by_subscriber.get(subscriber_key)
+                or context.get("ticket_status_refs")
+                or {}
+            )
             ticket_context_by_subscriber[subscriber_key] = subscriber_context_with_status
         return ticket_context_by_subscriber, ticket_context_by_person
 
@@ -799,6 +870,28 @@ def get_billing_risk_table(
         return ""
 
     def _live_street_address(customer_payload: Mapping[str, Any], cached_subscriber: Mapping[str, Any]) -> str:
+        def _normalize_street_text(raw_value: object) -> str:
+            text = str(raw_value or "").replace("\r", " ").replace("\n", " ")
+            if not text.strip():
+                return ""
+            text = (
+                text.replace("\u2018", "'")
+                .replace("\u2019", "'")
+                .replace("\u201c", '"')
+                .replace("\u201d", '"')
+                .replace("\u2013", "-")
+                .replace("\u2014", "-")
+            )
+            text = re.sub(r"\s+", " ", text).strip()
+            text = re.sub(r"\s*,\s*", ", ", text)
+            text = re.sub(r"(?:,\s*){2,}", ", ", text)
+            text = re.sub(r"\s*;\s*", "; ", text)
+            text = re.sub(r"(?:;\s*){2,}", "; ", text)
+            text = re.sub(r"\s*/\s*", " / ", text)
+            text = re.sub(r"(?:/\s*){2,}", " / ", text)
+            text = re.sub(r"\s{2,}", " ", text)
+            return text.strip(" ,;/-")
+
         ignored_values = {"", "-", "n/a", "na", "none", "null", "unknown"}
         street_parts: list[str] = []
         seen_parts: set[str] = set()
@@ -807,7 +900,7 @@ def get_billing_risk_table(
             customer_payload.get("street_2"),
             cached_subscriber.get("service_address_line1"),
         ):
-            part = " ".join(str(candidate or "").replace("\r", " ").replace("\n", " ").split())
+            part = _normalize_street_text(candidate)
             if part.casefold() in ignored_values:
                 continue
             dedupe_key = part.casefold().strip(" ,")
@@ -1015,6 +1108,8 @@ def get_billing_risk_table(
                 "latest_ticket_status": str(ticket_counts.get("latest_ticket_status") or ""),
                 "latest_ticket_id": str(ticket_counts.get("latest_ticket_id") or ""),
                 "latest_ticket_ref": str(ticket_counts.get("latest_ticket_ref") or ""),
+                "ticket_status_counts": dict(ticket_counts.get("ticket_status_counts") or {}),
+                "ticket_status_refs": dict(ticket_counts.get("ticket_status_refs") or {}),
                 "_person_id": person_id_key,
                 "ticket_subscriber_id": subscriber_id_key,
                 "_subscriber_uuid": subscriber_id_key,
