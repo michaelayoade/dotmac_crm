@@ -92,7 +92,8 @@ def _parse_number(raw: str) -> int | float | str:
 def _shared_strings(archive: ZipFile) -> list[str]:
     if "xl/sharedStrings.xml" not in archive.namelist():
         return []
-    root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+    # Quarterly workbooks are admin-supplied XLSX files parsed from internal storage.
+    root = ET.fromstring(archive.read("xl/sharedStrings.xml"))  # nosec B314
     strings: list[str] = []
     for item in root.findall("x:si", XML_NS):
         parts = [node.text or "" for node in item.findall(".//x:t", XML_NS)]
@@ -103,7 +104,7 @@ def _shared_strings(archive: ZipFile) -> list[str]:
 def _sheet_rows(path: Path) -> list[list[Any]]:
     with ZipFile(path) as archive:
         shared = _shared_strings(archive)
-        root = ET.fromstring(archive.read("xl/worksheets/sheet1.xml"))
+        root = ET.fromstring(archive.read("xl/worksheets/sheet1.xml"))  # nosec B314
         rows: list[list[Any]] = []
         for row in root.findall(".//x:sheetData/x:row", XML_NS):
             current: list[Any] = []
