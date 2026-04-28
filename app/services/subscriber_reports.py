@@ -6,12 +6,14 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, TypedDict
+from uuid import UUID
 
 from sqlalchemy import Date, DateTime, Integer, Numeric, String, and_, case, cast, false, func, or_, select, text, true
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models.bandwidth import BandwidthSample
+from app.models.comms import CustomerNotificationEvent
 from app.models.crm.enums import LeadStatus
 from app.models.crm.sales import Lead
 from app.models.event_store import EventStore
@@ -47,51 +49,143 @@ def _overview_ticket_scope(subscriber_ids: list | None):
     return [Ticket.subscriber_id.in_(subscriber_ids)]
 
 
+def _online_customers_last_24h(db: Session, subscriber_ids: list | None = None) -> int:
+    now = datetime.now(UTC)
+    start = now - timedelta(hours=24)
+    clauses = [
+        EventStore.is_active.is_(True),
+        EventStore.subscriber_id.isnot(None),
+        EventStore.created_at >= start,
+        EventStore.event_type.in_(["session.started", "device.online", "usage.recorded"]),
+    ]
+    if subscriber_ids is not None:
+        clauses.append(EventStore.subscriber_id.in_(subscriber_ids))
+
+    return (
+        db.scalar(
+            select(func.count(func.distinct(EventStore.subscriber_id))).where(
+                *clauses,
+            )
+        )
+        or 0
+    )
+
+
+def online_customers_last_24h_count(db: Session, subscriber_ids: list | None = None) -> int:
+    """Count unique subscribers with online-related events in the last 24 hours."""
+    return _online_customers_last_24h(db, subscriber_ids=subscriber_ids)
+
+
 def online_customers_last_24h_rows(
     db: Session,
     subscriber_ids: list | None = None,
     search: str | None = None,
     ticket_status: str | None = None,
+    notification_state: str | None = None,
     limit: int | None = 200,
 ) -> list[dict]:
-    """Subscribers with online/session/usage events in the last 24 hours."""
+    """Return subscribers with latest online activity in the last 24 hours plus ticket/notification context."""
     now = datetime.now(UTC)
     start = now - timedelta(hours=24)
 
-    event_clauses = [
+    # Primary source for this report: live Splynx customer LAST ONLINE.
+    from app.services.splynx import fetch_customers
+
+    def _parse_online_dt(value: object) -> datetime | None:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        normalized = text.replace("T", " ").replace("Z", "+00:00")
+        for candidate in (normalized, text):
+            try:
+                parsed = datetime.fromisoformat(candidate)
+                return parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+            except ValueError:
+                continue
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M"):
+            try:
+                return datetime.strptime(text, fmt).replace(tzinfo=UTC)
+            except ValueError:
+                continue
+        return None
+
+    clauses = [
         EventStore.is_active.is_(True),
         EventStore.subscriber_id.isnot(None),
         EventStore.created_at >= start,
         EventStore.created_at <= now,
-        EventStore.event_type.in_(["session.started", "device.online", "usage.recorded", "session.ended"]),
+        EventStore.event_type.in_(["session.started", "device.online", "usage.recorded"]),
     ]
     if subscriber_ids is not None:
-        event_clauses.append(EventStore.subscriber_id.in_(subscriber_ids))
+        clauses.append(EventStore.subscriber_id.in_(subscriber_ids))
 
     latest_by_subscriber = (
         select(
             EventStore.subscriber_id.label("subscriber_id"),
             func.max(EventStore.created_at).label("last_seen_at"),
-            func.max(EventStore.event_type).label("last_activity"),
         )
-        .where(*event_clauses)
+        .where(*clauses)
         .group_by(EventStore.subscriber_id)
         .subquery()
     )
-
     ticket_ranked = (
         select(
             Ticket.subscriber_id.label("subscriber_id"),
             Ticket.id.label("ticket_id"),
+            Ticket.title.label("ticket_title"),
             Ticket.status.label("ticket_status"),
+            Ticket.created_at.label("ticket_created_at"),
             func.row_number().over(partition_by=Ticket.subscriber_id, order_by=Ticket.created_at.desc()).label("rn"),
         )
-        .where(Ticket.is_active.is_(True), Ticket.subscriber_id.isnot(None))
+        .where(
+            Ticket.is_active.is_(True),
+            Ticket.subscriber_id.isnot(None),
+        )
         .subquery()
     )
     latest_ticket = (
-        select(ticket_ranked.c.subscriber_id, ticket_ranked.c.ticket_id, ticket_ranked.c.ticket_status)
+        select(
+            ticket_ranked.c.subscriber_id,
+            ticket_ranked.c.ticket_id,
+            ticket_ranked.c.ticket_title,
+            ticket_ranked.c.ticket_status,
+            ticket_ranked.c.ticket_created_at,
+        )
         .where(ticket_ranked.c.rn == 1)
+        .subquery()
+    )
+
+    notification_ranked = (
+        select(
+            CustomerNotificationEvent.entity_id.label("subscriber_id"),
+            CustomerNotificationEvent.channel.label("notification_channel"),
+            CustomerNotificationEvent.status.label("notification_status"),
+            CustomerNotificationEvent.sent_at.label("notification_sent_at"),
+            CustomerNotificationEvent.created_at.label("notification_created_at"),
+            func.row_number()
+            .over(
+                partition_by=CustomerNotificationEvent.entity_id,
+                order_by=func.coalesce(
+                    CustomerNotificationEvent.sent_at,
+                    CustomerNotificationEvent.created_at,
+                ).desc(),
+            )
+            .label("rn"),
+        )
+        .where(
+            CustomerNotificationEvent.entity_type == "subscriber",
+        )
+        .subquery()
+    )
+    latest_notification = (
+        select(
+            notification_ranked.c.subscriber_id,
+            notification_ranked.c.notification_channel,
+            notification_ranked.c.notification_status,
+            notification_ranked.c.notification_sent_at,
+            notification_ranked.c.notification_created_at,
+        )
+        .where(notification_ranked.c.rn == 1)
         .subquery()
     )
 
@@ -103,93 +197,349 @@ def online_customers_last_24h_rows(
             Subscriber.service_plan,
             Subscriber.service_city,
             Subscriber.service_region,
-            Person.display_name,
             Person.first_name,
             Person.last_name,
+            Person.display_name,
             Person.email,
             Person.phone,
+            Person.avatar_url,
+            Person.timezone,
             latest_by_subscriber.c.last_seen_at,
-            latest_by_subscriber.c.last_activity,
             latest_ticket.c.ticket_id,
+            latest_ticket.c.ticket_title,
             latest_ticket.c.ticket_status,
+            latest_notification.c.notification_channel,
+            latest_notification.c.notification_status,
+            latest_notification.c.notification_sent_at,
         )
-        .join(latest_by_subscriber, latest_by_subscriber.c.subscriber_id == Subscriber.id)
         .join(Person, Person.id == Subscriber.person_id, isouter=True)
-        .join(latest_ticket, latest_ticket.c.subscriber_id == Subscriber.id, isouter=True)
+        .join(
+            latest_by_subscriber,
+            latest_by_subscriber.c.subscriber_id == Subscriber.id,
+        )
+        .join(
+            latest_ticket,
+            latest_ticket.c.subscriber_id == Subscriber.id,
+            isouter=True,
+        )
+        .join(
+            latest_notification,
+            latest_notification.c.subscriber_id == Subscriber.id,
+            isouter=True,
+        )
     )
     if subscriber_ids is not None:
         query = query.where(Subscriber.id.in_(subscriber_ids))
-
-    rows = db.execute(query.order_by(latest_by_subscriber.c.last_seen_at.desc())).all()
     search_text = (search or "").strip().lower()
-    ticket_filter = (ticket_status or "all").strip().lower()
-
-    def _format_dt(value: object) -> str:
-        if value is None:
-            return ""
-        if isinstance(value, datetime):
-            normalized = value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
-            return normalized.strftime("%Y-%m-%d %H:%M:%S UTC")
-        return str(value)
-
-    output: list[dict] = []
-    for row in rows:
-        name = (
-            str(row.display_name or "").strip()
-            or f"{str(row.first_name or '').strip()} {str(row.last_name or '').strip()}".strip()
-            or str(row.subscriber_number or "").strip()
-            or "Unknown Subscriber"
-        )
-        status_text = str(row.status.value if isinstance(row.status, SubscriberStatus) else row.status or "").strip()
-        ticket_status_text = str(
-            row.ticket_status.value if isinstance(row.ticket_status, TicketStatus) else row.ticket_status or ""
-        ).strip()
-        status_normalized = status_text.lower()
-        ticket_status_normalized = ticket_status_text.lower()
-
-        if ticket_filter == "with_ticket" and not row.ticket_id:
-            continue
-        if ticket_filter == "no_ticket" and row.ticket_id:
-            continue
-        if ticket_filter == "open" and ticket_status_normalized not in {"open", "pending", "new", "on_hold"}:
-            continue
-        if ticket_filter == "closed" and ticket_status_normalized != "closed":
-            continue
-
-        haystack = " ".join(
-            [
-                name,
-                str(row.subscriber_number or ""),
-                str(row.email or ""),
-                str(row.phone or ""),
-                str(row.service_region or ""),
-                str(row.service_city or ""),
-            ]
-        ).lower()
-        if search_text and search_text not in haystack:
-            continue
-
-        output.append(
-            {
-                "subscriber_id": str(row.id),
-                "id": str(row.subscriber_number or ""),
-                "name": name,
-                "subscriber_number": str(row.subscriber_number or ""),
-                "status": status_normalized.title() if status_normalized else "",
-                "plan": str(row.service_plan or ""),
-                "region": _normalize_city_name(row.service_region) or _normalize_city_name(row.service_city),
-                "email": str(row.email or ""),
-                "phone": str(row.phone or ""),
-                "last_seen_at": _format_dt(row.last_seen_at),
-                "last_activity": str(row.last_activity or ""),
-                "ticket_id": str(row.ticket_id or ""),
-                "ticket_status": ticket_status_normalized.replace("_", " ").title() if ticket_status_normalized else "",
-            }
+    if search_text:
+        like = f"%{search_text}%"
+        query = query.where(
+            or_(
+                func.lower(func.coalesce(Person.display_name, "")).like(like),
+                func.lower(func.coalesce(Person.first_name, "")).like(like),
+                func.lower(func.coalesce(Person.last_name, "")).like(like),
+                func.lower(func.coalesce(Person.email, "")).like(like),
+                func.lower(func.coalesce(Person.phone, "")).like(like),
+                func.lower(func.coalesce(Subscriber.subscriber_number, "")).like(like),
+            )
         )
 
-    if limit is not None and int(limit) >= 0:
-        return output[: int(limit)]
-    return output
+    ticket_filter = (ticket_status or "").strip().lower()
+    if ticket_filter and ticket_filter != "all":
+        if ticket_filter == "not_closed":
+            query = query.where(
+                latest_ticket.c.ticket_status.isnot(None),
+                latest_ticket.c.ticket_status != TicketStatus.closed,
+            )
+        else:
+            ticket_enum = next((candidate for candidate in TicketStatus if candidate.value == ticket_filter), None)
+            if ticket_enum is not None:
+                query = query.where(latest_ticket.c.ticket_status == ticket_enum)
+
+    notification_filter = (notification_state or "").strip().lower()
+    if notification_filter == "notified":
+        query = query.where(latest_notification.c.notification_status.isnot(None))
+    elif notification_filter == "unnotified":
+        query = query.where(latest_notification.c.notification_status.is_(None))
+
+    query = query.order_by(latest_by_subscriber.c.last_seen_at.desc())
+    if limit is not None:
+        query = query.limit(limit)
+
+    rows = db.execute(query).all()
+
+    def _serialize_rows(raw_rows: Any) -> list[dict[str, Any]]:
+        serialized: list[dict[str, Any]] = []
+        for row in raw_rows:
+            raw_name = (
+                row.display_name or f"{row.first_name or ''} {row.last_name or ''}".strip() or row.subscriber_number
+            )
+            ticket_status_value = row.ticket_status.value if row.ticket_status else ""
+            notification_status_value = row.notification_status.value if row.notification_status else ""
+            notification_channel = row.notification_channel or ""
+            last_seen_value = _coerce_datetime_utc(row.last_seen_at)
+            notification_sent_at_value = _coerce_datetime_utc(row.notification_sent_at)
+            last_seen_text = _format_datetime_value(last_seen_value)
+            serialized.append(
+                {
+                    "subscriber_id": str(row.id),
+                    "id": row.subscriber_number or str(row.id),
+                    "name": _clean_report_name(raw_name),
+                    "subscriber_number": row.subscriber_number or "",
+                    "plan": row.service_plan or "",
+                    "status": row.status.value if row.status else "unknown",
+                    "region": _first_nonempty_text(row.service_region, row.service_city),
+                    "email": row.email or "",
+                    "phone": row.phone or "",
+                    "avatar_url": row.avatar_url or "",
+                    "timezone": row.timezone or "UTC",
+                    "last_seen_at": last_seen_text,
+                    "last_seen_at_iso": last_seen_value.isoformat() if last_seen_value else "",
+                    "last_activity": last_seen_text,
+                    "ticket_id": str(row.ticket_id) if row.ticket_id else "",
+                    "ticket_title": row.ticket_title or "",
+                    "ticket_status": ticket_status_value,
+                    "notification_channel": notification_channel,
+                    "notification_status": notification_status_value,
+                    "notification_state": "notified" if notification_status_value else "unnotified",
+                    "notification_sent_at": _format_datetime_value(notification_sent_at_value),
+                }
+            )
+        return serialized
+
+    results = _serialize_rows(rows)
+
+    # Use Splynx LAST ONLINE and enrich rows with local CRM ticket status.
+    customers = fetch_customers(db)
+    if not isinstance(customers, list) or not customers:
+        return results
+
+    customer_online_map: dict[tuple[str, str], datetime] = {}
+    customer_by_external: dict[str, dict[str, Any]] = {}
+    customer_by_login: dict[str, dict[str, Any]] = {}
+    customer_by_email: dict[str, dict[str, Any]] = {}
+    for customer in customers:
+        if not isinstance(customer, Mapping):
+            continue
+        last_online = _parse_online_dt(
+            customer.get("last_online") or customer.get("last_seen") or customer.get("updated_at")
+        )
+        if last_online is None or last_online < start or last_online > now:
+            continue
+        external_id = str(customer.get("id") or "").strip()
+        login = str(customer.get("login") or "").strip()
+        email = str(customer.get("email") or "").strip().lower()
+        customer_payload = {
+            "external_id": external_id,
+            "login": login,
+            "email": email,
+            "name": str(customer.get("name") or "").strip(),
+            "status": str(customer.get("status") or "").strip().lower(),
+            "last_seen_at": last_online,
+        }
+        if external_id:
+            customer_online_map[("external_id", external_id)] = max(
+                last_online,
+                customer_online_map.get(("external_id", external_id), datetime.min.replace(tzinfo=UTC)),
+            )
+            existing = customer_by_external.get(external_id)
+            if existing is None or customer_payload["last_seen_at"] > existing["last_seen_at"]:
+                customer_by_external[external_id] = customer_payload
+        if login:
+            customer_online_map[("subscriber_number", login)] = max(
+                last_online,
+                customer_online_map.get(("subscriber_number", login), datetime.min.replace(tzinfo=UTC)),
+            )
+            existing = customer_by_login.get(login)
+            if existing is None or customer_payload["last_seen_at"] > existing["last_seen_at"]:
+                customer_by_login[login] = customer_payload
+        if email:
+            customer_online_map[("email", email)] = max(
+                last_online,
+                customer_online_map.get(("email", email), datetime.min.replace(tzinfo=UTC)),
+            )
+            existing = customer_by_email.get(email)
+            if existing is None or customer_payload["last_seen_at"] > existing["last_seen_at"]:
+                customer_by_email[email] = customer_payload
+
+    external_ids = [key for key in customer_by_external if key]
+    logins = [key for key in customer_by_login if key]
+    emails = [key for key in customer_by_email if key]
+
+    match_rows = db.execute(
+        select(
+            Subscriber.id,
+            Subscriber.external_id,
+            Subscriber.subscriber_number,
+            Subscriber.person_id,
+            Person.email,
+        )
+        .select_from(Subscriber)
+        .join(Person, Person.id == Subscriber.person_id, isouter=True)
+        .where(
+            or_(
+                Subscriber.external_id.in_(external_ids) if external_ids else false(),
+                Subscriber.subscriber_number.in_(logins) if logins else false(),
+                func.lower(Person.email).in_(emails) if emails else false(),
+            )
+        )
+    ).all()
+
+    external_to_match: dict[str, tuple[str, str]] = {}
+    login_to_match: dict[str, tuple[str, str]] = {}
+    email_to_match: dict[str, tuple[str, str]] = {}
+    for subscriber_id, external_id, subscriber_number, person_id, person_email in match_rows:
+        subscriber_id_text = str(subscriber_id or "").strip()
+        person_id_text = str(person_id or "").strip()
+        if not subscriber_id_text:
+            continue
+        if external_id:
+            external_to_match[str(external_id).strip()] = (subscriber_id_text, person_id_text)
+        if subscriber_number:
+            login_to_match[str(subscriber_number).strip()] = (subscriber_id_text, person_id_text)
+        if person_email:
+            email_to_match[str(person_email).strip().lower()] = (subscriber_id_text, person_id_text)
+
+    email_to_person_id: dict[str, str] = {}
+    if emails:
+        person_rows = db.execute(select(Person.id, Person.email).where(func.lower(Person.email).in_(emails))).all()
+        for person_id, person_email in person_rows:
+            person_key = str(person_id or "").strip()
+            email_key = str(person_email or "").strip().lower()
+            if person_key and email_key:
+                email_to_person_id[email_key] = person_key
+
+    matched_subscriber_ids = sorted(
+        {
+            match[0]
+            for match in [*external_to_match.values(), *login_to_match.values(), *email_to_match.values()]
+            if match[0]
+        }
+    )
+    matched_person_ids = sorted(
+        {
+            match[1]
+            for match in [*external_to_match.values(), *login_to_match.values(), *email_to_match.values()]
+            if match[1]
+        }
+    )
+    for person_id in email_to_person_id.values():
+        if person_id and person_id not in matched_person_ids:
+            matched_person_ids.append(person_id)
+    matched_person_ids = sorted(set(matched_person_ids))
+    matched_subscriber_uuid_ids: list[UUID] = []
+    for value in matched_subscriber_ids:
+        try:
+            matched_subscriber_uuid_ids.append(UUID(value))
+        except (TypeError, ValueError):
+            continue
+    matched_person_uuid_ids: list[UUID] = []
+    for value in matched_person_ids:
+        try:
+            matched_person_uuid_ids.append(UUID(value))
+        except (TypeError, ValueError):
+            continue
+
+    latest_ticket_by_subscriber: dict[str, tuple[str, str]] = {}
+    if matched_subscriber_uuid_ids:
+        latest_subscriber_status_rows = db.execute(
+            select(Ticket.subscriber_id, Ticket.id, Ticket.status)
+            .where(
+                Ticket.is_active.is_(True),
+                Ticket.subscriber_id.in_(matched_subscriber_uuid_ids),
+            )
+            .order_by(Ticket.subscriber_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
+        ).all()
+        for subscriber_id, ticket_id, status in latest_subscriber_status_rows:
+            subscriber_key = str(subscriber_id or "").strip()
+            if not subscriber_key or subscriber_key in latest_ticket_by_subscriber:
+                continue
+            latest_ticket_by_subscriber[subscriber_key] = (
+                str(ticket_id or "").strip(),
+                str(status.value if isinstance(status, TicketStatus) else status or ""),
+            )
+
+    latest_ticket_by_person: dict[str, tuple[str, str]] = {}
+    if matched_person_uuid_ids:
+        latest_person_status_rows = db.execute(
+            select(Ticket.customer_person_id, Ticket.id, Ticket.status)
+            .where(
+                Ticket.is_active.is_(True),
+                Ticket.customer_person_id.in_(matched_person_uuid_ids),
+            )
+            .order_by(Ticket.customer_person_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
+        ).all()
+        for person_id, ticket_id, status in latest_person_status_rows:
+            person_key = str(person_id or "").strip()
+            if not person_key or person_key in latest_ticket_by_person:
+                continue
+            latest_ticket_by_person[person_key] = (
+                str(ticket_id or "").strip(),
+                str(status.value if isinstance(status, TicketStatus) else status or ""),
+            )
+
+    live_rows: list[dict[str, Any]] = []
+    for customer in customer_by_external.values():
+        last_seen_value = customer["last_seen_at"]
+        matched = (
+            external_to_match.get(str(customer.get("external_id") or "").strip())
+            or login_to_match.get(str(customer.get("login") or "").strip())
+            or email_to_match.get(str(customer.get("email") or "").strip().lower())
+            or ("", email_to_person_id.get(str(customer.get("email") or "").strip().lower(), ""))
+        )
+        matched_subscriber_id, matched_person_id = matched
+        ticket_match = (
+            latest_ticket_by_subscriber.get(matched_subscriber_id)
+            or latest_ticket_by_person.get(matched_person_id)
+            or ("", "")
+        )
+        ticket_id_value, raw_ticket_status = ticket_match
+        row = {
+            "subscriber_id": matched_subscriber_id or str(customer.get("external_id") or customer.get("login") or ""),
+            "id": str(customer.get("external_id") or customer.get("login") or ""),
+            "name": _clean_report_name(str(customer.get("name") or "").strip() or "Unknown"),
+            "subscriber_number": str(customer.get("login") or ""),
+            "plan": "",
+            "status": str(customer.get("status") or ""),
+            "region": "",
+            "email": str(customer.get("email") or ""),
+            "phone": "",
+            "avatar_url": "",
+            "timezone": "UTC",
+            "last_seen_at": _format_datetime_value(last_seen_value),
+            "last_seen_at_iso": last_seen_value.isoformat(),
+            "last_activity": _format_datetime_value(last_seen_value),
+            "ticket_id": ticket_id_value,
+            "ticket_title": "",
+            "ticket_status": raw_ticket_status.replace("_", " ").title() if raw_ticket_status else "",
+            "notification_channel": "",
+            "notification_status": "",
+            "notification_state": "unnotified",
+            "notification_sent_at": "",
+        }
+        live_rows.append(row)
+
+    search_text = (search or "").strip().lower()
+    if search_text:
+        live_rows = [
+            row
+            for row in live_rows
+            if search_text
+            in " ".join(
+                [
+                    str(row.get("id") or ""),
+                    str(row.get("name") or ""),
+                    str(row.get("status") or ""),
+                    str(row.get("subscriber_number") or ""),
+                    str(row.get("email") or ""),
+                ]
+            ).lower()
+        ]
+
+    live_rows.sort(key=lambda row: str(row.get("last_seen_at_iso") or ""), reverse=True)
+    if limit is not None:
+        live_rows = live_rows[:limit]
+    return live_rows if live_rows else results
 
 
 def overview_filtered_subscriber_ids(
@@ -220,6 +570,7 @@ def overview_kpis(db: Session, start_dt: datetime, end_dt: datetime, subscriber_
     activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
     subscriber_scope = _overview_subscriber_scope(subscriber_ids)
     ticket_scope = _overview_ticket_scope(subscriber_ids)
+    online_customers_last_24h = online_customers_last_24h_count(db, subscriber_ids=subscriber_ids)
 
     active_count = (
         db.scalar(
@@ -301,6 +652,7 @@ def overview_kpis(db: Session, start_dt: datetime, end_dt: datetime, subscriber_
         "suspended_pct": suspended_pct,
         "avg_tickets_per_sub": avg_tickets,
         "regions_covered": region_count,
+        "online_customers_last_24h": online_customers_last_24h,
     }
 
 
@@ -761,6 +1113,11 @@ def _date_value(value: datetime | date | None) -> date | None:
 def _format_date_value(value: datetime | date | None) -> str:
     date_value = _date_value(value)
     return date_value.strftime("%Y-%m-%d") if date_value is not None else ""
+
+
+def _format_datetime_value(value: datetime | None) -> str:
+    normalized = _coerce_datetime_utc(value)
+    return normalized.strftime("%Y-%m-%d %H:%M:%S") if normalized is not None else ""
 
 
 def _metadata_text(metadata: Mapping[str, Any] | None, key: str) -> str:
