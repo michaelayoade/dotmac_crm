@@ -991,7 +991,11 @@ def subscriber_billing_risk(
     query_segment = request.query_params.get("segment")
     query_days_past_due = request.query_params.get("days_past_due")
     mrr_sort_value = request.query_params.get("mrr_sort")
-    normalized_mrr_sort = (mrr_sort_value if mrr_sort_value is not None else (mrr_sort if isinstance(mrr_sort, str) else "")).strip().lower()
+    normalized_mrr_sort = (
+        (mrr_sort_value if mrr_sort_value is not None else (mrr_sort if isinstance(mrr_sort, str) else ""))
+        .strip()
+        .lower()
+    )
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments, query_segment or segment
     )
@@ -1013,8 +1017,10 @@ def subscriber_billing_risk(
     normalized_search = (search if isinstance(search, str) else "").strip().lower()
     if normalized_search:
         churn_rows = [
-            row for row in churn_rows
-            if normalized_search in " ".join(
+            row
+            for row in churn_rows
+            if normalized_search
+            in " ".join(
                 [
                     str(row.get("name") or ""),
                     str(row.get("subscriber_id") or ""),
@@ -1028,6 +1034,7 @@ def subscriber_billing_risk(
         ]
     normalized_bucket = (bucket if isinstance(bucket, str) else "all").strip().lower()
     if normalized_bucket != "all":
+
         def _matches_bucket(row: dict) -> bool:
             value = row.get("blocked_for_days")
             if value is None:
@@ -1042,6 +1049,7 @@ def subscriber_billing_risk(
             if normalized_bucket == "61+":
                 return days >= 61
             return True
+
         churn_rows = [row for row in churn_rows if _matches_bucket(row)]
     if normalized_mrr_sort == "desc":
         churn_rows.sort(key=lambda row: (-float(row.get("mrr_total") or 0), str(row.get("name") or "").casefold()))
@@ -1211,7 +1219,11 @@ def subscriber_billing_risk_export(
     query_segment = request.query_params.get("segment")
     query_days_past_due = request.query_params.get("days_past_due")
     mrr_sort_value = request.query_params.get("mrr_sort")
-    normalized_mrr_sort = (mrr_sort_value if mrr_sort_value is not None else (mrr_sort if isinstance(mrr_sort, str) else "")).strip().lower()
+    normalized_mrr_sort = (
+        (mrr_sort_value if mrr_sort_value is not None else (mrr_sort if isinstance(mrr_sort, str) else ""))
+        .strip()
+        .lower()
+    )
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments, query_segment or segment
     )

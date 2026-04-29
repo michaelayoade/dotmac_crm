@@ -939,13 +939,19 @@ def subscriber_billing_risk(
     query_segment = request.query_params.get("segment")
     query_days_past_due = request.query_params.get("days_past_due")
     query_bucket = request.query_params.get("bucket")
-    normalized_bucket = (query_bucket if query_bucket is not None else (bucket if isinstance(bucket, str) else "all")).strip() or "all"
+    normalized_bucket = (
+        query_bucket if query_bucket is not None else (bucket if isinstance(bucket, str) else "all")
+    ).strip() or "all"
     query_search = request.query_params.get("search")
     normalized_search = query_search if query_search is not None else (search if isinstance(search, str) else None)
     normalized_customer_segment = "all"
     normalized_enterprise_only = False
     query_mrr_sort = request.query_params.get("mrr_sort")
-    normalized_mrr_sort = (query_mrr_sort if query_mrr_sort is not None else (mrr_sort if isinstance(mrr_sort, str) else "")).strip().lower()
+    normalized_mrr_sort = (
+        (query_mrr_sort if query_mrr_sort is not None else (mrr_sort if isinstance(mrr_sort, str) else ""))
+        .strip()
+        .lower()
+    )
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments,
         query_segment or segment,
@@ -1369,11 +1375,17 @@ def subscriber_billing_risk_rows(
     query_search = request.query_params.get("search")
     normalized_search = query_search if query_search is not None else (search if isinstance(search, str) else None)
     query_bucket = request.query_params.get("bucket")
-    normalized_bucket = (query_bucket if query_bucket is not None else (bucket if isinstance(bucket, str) else "all")).strip() or "all"
+    normalized_bucket = (
+        query_bucket if query_bucket is not None else (bucket if isinstance(bucket, str) else "all")
+    ).strip() or "all"
     normalized_customer_segment = "all"
     normalized_enterprise_only = False
     query_mrr_sort = request.query_params.get("mrr_sort")
-    normalized_mrr_sort = (query_mrr_sort if query_mrr_sort is not None else (mrr_sort if isinstance(mrr_sort, str) else "")).strip().lower()
+    normalized_mrr_sort = (
+        (query_mrr_sort if query_mrr_sort is not None else (mrr_sort if isinstance(mrr_sort, str) else ""))
+        .strip()
+        .lower()
+    )
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments,
         query_segment or segment,
@@ -1439,11 +1451,17 @@ def subscriber_billing_risk_export(
     query_search = request.query_params.get("search")
     normalized_search = query_search if query_search is not None else (search if isinstance(search, str) else None)
     query_bucket = request.query_params.get("bucket")
-    normalized_bucket = (query_bucket if query_bucket is not None else (bucket if isinstance(bucket, str) else "all")).strip() or "all"
+    normalized_bucket = (
+        query_bucket if query_bucket is not None else (bucket if isinstance(bucket, str) else "all")
+    ).strip() or "all"
     normalized_customer_segment = "all"
     normalized_enterprise_only = False
     query_mrr_sort = request.query_params.get("mrr_sort")
-    normalized_mrr_sort = (query_mrr_sort if query_mrr_sort is not None else (mrr_sort if isinstance(mrr_sort, str) else "")).strip().lower()
+    normalized_mrr_sort = (
+        (query_mrr_sort if query_mrr_sort is not None else (mrr_sort if isinstance(mrr_sort, str) else ""))
+        .strip()
+        .lower()
+    )
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments,
         query_segment or segment,

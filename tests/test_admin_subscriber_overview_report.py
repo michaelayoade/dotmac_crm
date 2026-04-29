@@ -3411,7 +3411,9 @@ def test_subscriber_billing_risk_page_preserves_bucket_and_enterprise_in_segment
     monkeypatch.setattr(
         subscriber_reports_service,
         "churn_risk_segment_breakdown",
-        lambda *_args, **_kwargs: [{"segment": "Suspended", "count": 1, "share_pct": 100.0, "balance": 9200.0, "high_balance_count": 1}],
+        lambda *_args, **_kwargs: [
+            {"segment": "Suspended", "count": 1, "share_pct": 100.0, "balance": 9200.0, "high_balance_count": 1}
+        ],
     )
     monkeypatch.setattr(subscriber_reports_service, "churn_risk_aging_buckets", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(reports_web, "_latest_subscriber_sync_at", lambda _db: None)
