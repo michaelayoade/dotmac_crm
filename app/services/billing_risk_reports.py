@@ -238,7 +238,10 @@ def get_billing_risk_table(
     normalized_mrr_sort = (mrr_sort if isinstance(mrr_sort, str) else "").strip().lower()
     if normalized_mrr_sort not in {"asc", "desc"}:
         normalized_mrr_sort = ""
-    requires_live_mrr_resolution = normalized_customer_segment in {"enterprise", "non_enterprise"} or normalized_mrr_sort in {
+    requires_live_mrr_resolution = normalized_customer_segment in {
+        "enterprise",
+        "non_enterprise",
+    } or normalized_mrr_sort in {
         "asc",
         "desc",
     }
@@ -1216,6 +1219,7 @@ def get_billing_risk_table(
     if high_balance_only:
         live_results = [row for row in live_results if row["is_high_balance_risk"]]
     if requires_live_mrr_resolution and live_results:
+
         def _resolve_row_mrr(row: dict[str, Any]) -> dict[str, Any]:
             row["mrr_total"] = _resolved_customer_segment_mrr(
                 str(row.get("_external_id") or "").strip(),
