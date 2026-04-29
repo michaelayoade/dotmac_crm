@@ -11,7 +11,7 @@
     {% call page_header("Online Last 24 Hours", "Subscribers with activity events in the last 24 hours.", color="emerald", color2="teal") %}
         {{ action_button(
             "Export CSV",
-            href="/admin/reports/subscribers/online-last-24h/export?status=" ~ (selected_status | default("")) ~ "&region=" ~ (selected_region | default("")) ~ "&search=" ~ (search | default("")) ~ "&ticket_status=" ~ (selected_ticket_status | default("all")),
+            href="/admin/reports/subscribers/online-last-24h/export?status=" ~ (selected_status | default("")) ~ "&region=" ~ (selected_region | default("")) ~ "&search=" ~ (search | default("")) ~ "&ticket_status=" ~ (selected_ticket_status | default("all")) ~ "&notification_state=" ~ (selected_notification_state | default("all")),
             variant="secondary",
             color="emerald"
         ) }}
@@ -23,21 +23,19 @@
             <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ summary_total | default(0) }}</p>
         </div>
         <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
-            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">With Ticket</p>
-            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ summary_with_ticket | default(0) }}</p>
-        </div>
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
             <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">No Ticket</p>
             <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ summary_no_ticket | default(0) }}</p>
         </div>
+        {% for card in ticket_status_kpis %}
         <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
-            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Closed Ticket</p>
-            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ summary_closed_ticket | default(0) }}</p>
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ card.label }}</p>
+            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ card.value | default(0) }}</p>
         </div>
+        {% endfor %}
     </div>
 
     {% call dashboard_filter_panel(color="emerald", title="Filters") %}
-    <form method="get" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5 xl:items-end">
+    <form method="get" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6 xl:items-end">
         <div>
             <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
             <input type="text" name="search" value="{{ search | default('') }}" placeholder="Name, email, phone, subscriber #"
@@ -70,12 +68,24 @@
                 {% endfor %}
             </select>
         </div>
+        <div>
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Notification State</label>
+            <select name="notification_state" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                {% for option in notification_state_options %}
+                <option value="{{ option.value }}" {% if selected_notification_state == option.value %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+            </select>
+        </div>
         <div class="flex items-center gap-2 xl:justify-end">
             <a href="/admin/reports/subscribers/online-last-24h" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Reset</a>
             <button type="submit" class="inline-flex h-10 items-center rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700">Apply</button>
         </div>
     </form>
     {% endcall %}
+
+    <div class="rounded-2xl border border-slate-300 bg-slate-100 p-4 text-sm text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+        Test mode is active for these notifications. Queueing a notification only saves it for review; it does not send any email or SMS to the customer.
+    </div>
 
     {% call table_shell(table_id="subscriber-online-last-24h", title="Management Table", color="emerald", count=rows|length, bulk_selectable=False) %}
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
@@ -87,6 +97,8 @@
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Region</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Seen</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Ticket</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Queued Notification</th>
+                <th class="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Actions</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
@@ -99,18 +111,456 @@
             <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ row.last_seen_at or "-" }}</td>
             <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">
                 {% if row.ticket_id %}
-                <a href="/admin/support/tickets/{{ row.ticket_id }}" class="font-medium text-emerald-700 hover:text-emerald-800 hover:underline dark:text-emerald-400 dark:hover:text-emerald-300">{{ row.ticket_status or "View Ticket" }}</a>
+                <a href="/admin/support/tickets/{{ row.ticket_id }}" class="font-medium text-emerald-700 hover:text-emerald-800 hover:underline dark:text-emerald-400 dark:hover:text-emerald-300">{{ row.ticket_status | replace('_', ' ') | title or "View Ticket" }}</a>
                 {% else %}
                 No Ticket
                 {% endif %}
             </td>
+            <td class="px-5 py-3 text-sm">
+                {% if row.latest_notification_channel %}
+                <button
+                    type="button"
+                    class="block w-full rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-left text-xs text-emerald-900 transition hover:border-emerald-300 hover:bg-emerald-100/80 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/50"
+                    data-queued-view
+                    data-customer-name="{{ row.name }}"
+                    data-channel="{{ row.latest_notification_channel }}"
+                    data-status="{{ row.latest_notification_status }}"
+                    data-scheduled="{{ row.latest_notification_scheduled_for }}"
+                    data-message="{{ row.latest_notification_message_body }}"
+                >
+                    <p class="font-semibold">
+                        {{ row.latest_notification_status | replace('_', ' ') | title }}
+                        {{ row.latest_notification_channel | upper }}
+                    </p>
+                    <p class="mt-1">Scheduled: {{ row.latest_notification_scheduled_for }}</p>
+                    <p class="mt-1 line-clamp-2">{{ row.latest_notification_message_body }}</p>
+                    <p class="mt-2 font-medium text-emerald-700 dark:text-emerald-300">View full queued draft</p>
+                </button>
+                {% else %}
+                <span class="text-slate-400 dark:text-slate-500">None queued</span>
+                {% endif %}
+            </td>
+            <td class="px-5 py-3 text-right">
+                <button
+                    type="button"
+                    class="inline-flex items-center rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                    data-notify-button
+                    data-subscriber-id="{{ row.subscriber_id }}"
+                    data-customer-name="{{ row.name }}"
+                    data-ticket-status="{{ row.ticket_status }}"
+                    data-timezone="{{ row.notification_timezone or row.timezone or 'UTC' }}"
+                    data-email="{{ row.email }}"
+                    data-phone="{{ row.phone }}"
+                    data-last-seen="{{ row.last_seen_at }}"
+                    data-last-activity="{{ row.last_activity or row.last_seen_at }}"
+                    data-template-key="{{ row.notification_template_key }}"
+                    data-email-subject="{{ row.notification_email_subject }}"
+                    data-email-body="{{ row.notification_email_body }}"
+                    data-sms-body="{{ row.notification_sms_body }}"
+                >
+                    Notify
+                </button>
+            </td>
             {% endcall %}
             {% else %}
-            {{ empty_state(title="No online customers", message="No rows match the selected filters.", color="emerald", color2="teal", colspan=6) }}
+            {{ empty_state(title="No online customers", message="No rows match the selected filters.", color="emerald", color2="teal", colspan=8) }}
             {% endfor %}
         </tbody>
     </table>
     {% endcall %}
 </div>
+
+<div id="subscriber-notification-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" onclick="if(event.target === this) this.classList.add('hidden')">
+    <div class="w-full max-w-3xl rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5 dark:border-slate-700">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-400">Notification</p>
+                <h2 class="mt-2 text-xl font-semibold text-slate-900 dark:text-white">Send customer follow-up</h2>
+                <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                    <span id="notify-customer-name">Customer</span>
+                    <span class="mx-1 text-slate-300 dark:text-slate-600">•</span>
+                    <span id="notify-customer-timezone">UTC</span>
+                </p>
+            </div>
+            <button type="button" class="rounded-xl px-3 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white" onclick="document.getElementById('subscriber-notification-modal').classList.add('hidden')">Close</button>
+        </div>
+
+        <form method="post" action="/admin/reports/subscribers/online-last-24h/notify" class="space-y-5 px-6 py-6">
+            <input type="hidden" name="subscriber_id" id="notify-subscriber-id">
+            <input type="hidden" name="next_url" value="{{ current_query }}">
+
+            <div class="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 md:grid-cols-[auto,1fr] dark:border-slate-700 dark:bg-slate-800/60">
+                <div class="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100 text-xl font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200" id="notify-priority-score">0</div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Priority Score</p>
+                    <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white"><span id="notify-priority-label">Low</span> priority follow-up</p>
+                    <p id="notify-priority-reasons" class="mt-1 text-sm text-slate-600 dark:text-slate-300">Scoring will load for this customer.</p>
+                </div>
+            </div>
+
+            <div>
+                <div class="mb-2 flex items-center justify-between gap-3">
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Message Templates</label>
+                    <p id="notify-template-status" class="text-xs text-slate-500 dark:text-slate-400">Templates auto-switch based on ticket status.</p>
+                </div>
+                <div id="notify-template-tabs" class="flex flex-wrap gap-2"></div>
+            </div>
+
+            <div class="grid gap-4 md:grid-cols-2">
+                <div>
+                    <label for="notify-channel" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Channel</label>
+                    <select id="notify-channel" name="channel" class="block h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                        <option value="email">Email</option>
+                        <option value="sms">SMS</option>
+                        <option value="both">Both</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="scheduled-local-at" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Schedule (optional)</label>
+                    <input type="datetime-local" id="scheduled-local-at" name="scheduled_local_at" class="block h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Leave blank to send at the next allowed window between 9:00 AM and 6:00 PM local time.</p>
+                </div>
+            </div>
+
+            <div class="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100">
+                <p class="mb-2 text-xs font-semibold uppercase tracking-wide">Insert tokens</p>
+                <div id="notify-token-buttons" class="flex flex-wrap gap-2"></div>
+            </div>
+
+            <div id="notify-email-section" class="space-y-4">
+                <div>
+                    <label for="notify-email-subject" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Email subject</label>
+                    <input type="text" id="notify-email-subject" name="email_subject" class="block h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                </div>
+                <div>
+                    <div class="mb-1 flex items-center justify-between gap-3">
+                        <label for="notify-email-body" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Email body</label>
+                        <span class="text-xs text-slate-500 dark:text-slate-400">Keep to 3-4 short sentences.</span>
+                    </div>
+                    <textarea id="notify-email-body" name="email_body" rows="6" class="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"></textarea>
+                </div>
+            </div>
+
+            <div id="notify-sms-section" class="space-y-2">
+                <div class="flex items-center justify-between gap-3">
+                    <label for="notify-sms-body" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">SMS body</label>
+                    <span id="notify-sms-count" class="text-xs font-medium text-slate-500 dark:text-slate-400">0 / 160</span>
+                </div>
+                <textarea id="notify-sms-body" name="sms_body" rows="3" class="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"></textarea>
+                <p class="text-xs text-slate-500 dark:text-slate-400">SMS stays under 160 characters after token values are filled in.</p>
+            </div>
+
+            <div class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/80">
+                <div class="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Activity Log</p>
+                        <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">Latest notifications and ticket activity for this subscriber.</p>
+                    </div>
+                </div>
+                <div id="notify-activity-log" class="space-y-3 text-sm text-slate-700 dark:text-slate-200"></div>
+            </div>
+
+            <div class="flex items-center justify-between gap-3 border-t border-slate-200 pt-5 dark:border-slate-700">
+                <button type="button" id="notify-save-template" class="inline-flex h-11 items-center rounded-xl border border-emerald-200 bg-emerald-50 px-4 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200 dark:hover:bg-emerald-950/50">Save Template</button>
+                <button type="button" class="inline-flex h-11 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300" onclick="document.getElementById('subscriber-notification-modal').classList.add('hidden')">Cancel</button>
+                <button type="submit" class="inline-flex h-11 items-center rounded-xl bg-emerald-600 px-5 text-sm font-semibold text-white hover:bg-emerald-700">Queue Notification</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="queued-notification-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" onclick="if(event.target === this) this.classList.add('hidden')">
+    <div class="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5 dark:border-slate-700">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-400">Queued Draft</p>
+                <h2 class="mt-2 text-xl font-semibold text-slate-900 dark:text-white" id="queued-notification-customer">Customer</h2>
+                <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                    <span id="queued-notification-status">Testing Hold</span>
+                    <span class="mx-1 text-slate-300 dark:text-slate-600">•</span>
+                    <span id="queued-notification-channel">SMS</span>
+                </p>
+            </div>
+            <button type="button" class="rounded-xl px-3 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white" onclick="document.getElementById('queued-notification-modal').classList.add('hidden')">Close</button>
+        </div>
+        <div class="space-y-4 px-6 py-6">
+            <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
+                <span class="font-semibold">Scheduled:</span>
+                <span id="queued-notification-scheduled">-</span>
+            </div>
+            <div>
+                <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Message</p>
+                <div id="queued-notification-message" class="rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm leading-6 text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 whitespace-pre-wrap"></div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
+{% block scripts %}
+{{ super() }}
+<script>
+  (() => {
+    const modal = document.getElementById('subscriber-notification-modal');
+    const queuedModal = document.getElementById('queued-notification-modal');
+    if (!modal) return;
+
+    const channelInput = document.getElementById('notify-channel');
+    const emailSection = document.getElementById('notify-email-section');
+    const smsSection = document.getElementById('notify-sms-section');
+    const emailSubjectInput = document.getElementById('notify-email-subject');
+    const emailBodyInput = document.getElementById('notify-email-body');
+    const smsBody = document.getElementById('notify-sms-body');
+    const smsCount = document.getElementById('notify-sms-count');
+    const tokenButtons = document.getElementById('notify-token-buttons');
+    const templateTabs = document.getElementById('notify-template-tabs');
+    const templateStatus = document.getElementById('notify-template-status');
+    const activityLog = document.getElementById('notify-activity-log');
+    const saveTemplateButton = document.getElementById('notify-save-template');
+    const priorityScore = document.getElementById('notify-priority-score');
+    const priorityLabel = document.getElementById('notify-priority-label');
+    const priorityReasons = document.getElementById('notify-priority-reasons');
+    const subscriberIdInput = document.getElementById('notify-subscriber-id');
+
+    let activeTemplateKey = 'friendly_check_in';
+    let templateState = {};
+    let lastFocusedField = null;
+
+    function deriveTemplateKey(ticketStatus, providedTemplateKey) {
+      if (providedTemplateKey) return providedTemplateKey;
+      const status = (ticketStatus || '').trim().toLowerCase();
+      if (!status) return 'friendly_check_in';
+      if (['closed', 'canceled', 'merged'].includes(status)) return 'resolved_invite_back';
+      if (['on_hold', 'lastmile_rerun', 'site_under_construction'].includes(status)) return 'escalated_formal';
+      if (['new', 'open', 'pending', 'waiting_on_customer'].includes(status)) return 'issue_reference';
+      return 'friendly_check_in';
+    }
+
+    function updateChannelVisibility() {
+      const value = channelInput.value;
+      emailSection.classList.toggle('hidden', value === 'sms');
+      smsSection.classList.toggle('hidden', value === 'email');
+    }
+
+    function updateSmsCount() {
+      const length = (smsBody.value || '').length;
+      smsCount.textContent = `${length} / 160`;
+      smsCount.classList.toggle('text-rose-600', length > 160);
+      smsCount.classList.toggle('dark:text-rose-400', length > 160);
+    }
+
+    function persistActiveTemplateDraft() {
+      if (!templateState[activeTemplateKey]) return;
+      templateState[activeTemplateKey].email_subject = emailSubjectInput.value || '';
+      templateState[activeTemplateKey].email_body = emailBodyInput.value || '';
+      templateState[activeTemplateKey].sms_body = smsBody.value || '';
+    }
+
+    function renderTemplateTabs() {
+      templateTabs.innerHTML = '';
+      Object.entries(templateState).forEach(([templateKey, template]) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.templateKey = templateKey;
+        button.className = `rounded-xl px-3 py-2 text-sm font-semibold transition ${
+          templateKey === activeTemplateKey
+            ? 'bg-emerald-600 text-white'
+            : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700'
+        }`;
+        button.textContent = template.label || templateKey;
+        button.addEventListener('click', () => switchTemplate(templateKey));
+        templateTabs.appendChild(button);
+      });
+    }
+
+    function switchTemplate(templateKey) {
+      persistActiveTemplateDraft();
+      activeTemplateKey = templateKey;
+      const template = templateState[templateKey] || {};
+      emailSubjectInput.value = template.email_subject || '';
+      emailBodyInput.value = template.email_body || '';
+      smsBody.value = template.sms_body || '';
+      templateStatus.textContent = `Editing ${template.label || templateKey} template`;
+      renderTemplateTabs();
+      updateSmsCount();
+    }
+
+    function renderTokens(tokens) {
+      tokenButtons.innerHTML = '';
+      tokens.forEach((token) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'rounded-full border border-emerald-200 bg-white px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-950/50';
+        button.textContent = token;
+        button.addEventListener('click', () => {
+          const target = lastFocusedField || emailBodyInput;
+          if (!target) return;
+          const start = target.selectionStart || target.value.length;
+          const end = target.selectionEnd || target.value.length;
+          const nextValue = `${target.value.slice(0, start)}${token}${target.value.slice(end)}`;
+          target.value = nextValue;
+          target.focus();
+          target.selectionStart = target.selectionEnd = start + token.length;
+          persistActiveTemplateDraft();
+          updateSmsCount();
+        });
+        tokenButtons.appendChild(button);
+      });
+    }
+
+    function renderActivity(entries) {
+      activityLog.innerHTML = '';
+      if (!entries.length) {
+        activityLog.innerHTML = '<p class="text-sm text-slate-500 dark:text-slate-400">No recent ticket or notification activity for this subscriber.</p>';
+        return;
+      }
+      entries.forEach((entry) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60';
+        wrapper.innerHTML = `
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="font-semibold text-slate-900 dark:text-white">${entry.title || 'Activity'}</p>
+              <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">${entry.detail || ''}</p>
+            </div>
+            <span class="text-xs font-medium text-slate-500 dark:text-slate-400">${entry.timestamp || ''}</span>
+          </div>
+        `;
+        activityLog.appendChild(wrapper);
+      });
+    }
+
+    async function loadNotifyContext(button) {
+      const templateKey = deriveTemplateKey(button.dataset.ticketStatus, button.dataset.templateKey);
+      subscriberIdInput.value = button.dataset.subscriberId || '';
+      document.getElementById('notify-customer-name').textContent = button.dataset.customerName || 'Customer';
+      document.getElementById('notify-customer-timezone').textContent = button.dataset.timezone || 'UTC';
+      document.getElementById('scheduled-local-at').value = '';
+      channelInput.value = 'email';
+      updateChannelVisibility();
+      try {
+        const params = new URLSearchParams({
+          last_seen_at: button.dataset.lastSeen || '',
+          last_activity: button.dataset.lastActivity || '',
+        });
+        const response = await fetch(`/admin/reports/subscribers/online-last-24h/context/${button.dataset.subscriberId}?${params.toString()}`);
+        const payload = await response.json();
+        templateState = payload.templates || {};
+        activeTemplateKey = payload.template_key || templateKey;
+        renderTokens(payload.token_list || []);
+        switchTemplate(activeTemplateKey);
+        const priority = payload.priority || {};
+        priorityScore.textContent = priority.value ?? 0;
+        priorityLabel.textContent = priority.label || 'Low';
+        priorityReasons.textContent = (priority.reasons || []).join(' • ') || 'Scoring unavailable.';
+        renderActivity(payload.activity_log || []);
+      } catch (_error) {
+        templateState = {
+          [templateKey]: {
+            label: 'Current Template',
+            email_subject: button.dataset.emailSubject || '',
+            email_body: button.dataset.emailBody || '',
+            sms_body: button.dataset.smsBody || '',
+          },
+        };
+        renderTokens(['{name}', '{last_seen}', '{support_email}', '{last_activity}']);
+        switchTemplate(templateKey);
+        priorityScore.textContent = '0';
+        priorityLabel.textContent = 'Low';
+        priorityReasons.textContent = 'Unable to load live scoring right now.';
+        renderActivity([]);
+      }
+    }
+
+    async function saveActiveTemplate() {
+      persistActiveTemplateDraft();
+      const template = templateState[activeTemplateKey];
+      if (!template) return;
+      saveTemplateButton.disabled = true;
+      saveTemplateButton.textContent = 'Saving...';
+      try {
+        const body = new URLSearchParams({
+          template_key: activeTemplateKey,
+          email_subject: template.email_subject || '',
+          email_body: template.email_body || '',
+          sms_body: template.sms_body || '',
+        });
+        const response = await fetch('/admin/reports/subscribers/online-last-24h/templates', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body,
+        });
+        if (!response.ok) throw new Error('save failed');
+        saveTemplateButton.textContent = 'Saved';
+        window.setTimeout(() => {
+          saveTemplateButton.textContent = 'Save Template';
+          saveTemplateButton.disabled = false;
+        }, 1200);
+      } catch (_error) {
+        saveTemplateButton.textContent = 'Retry Save';
+        saveTemplateButton.disabled = false;
+      }
+    }
+
+    document.querySelectorAll('[data-notify-button]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        await loadNotifyContext(button);
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      });
+    });
+
+    channelInput.addEventListener('change', updateChannelVisibility);
+    smsBody.addEventListener('input', updateSmsCount);
+    [emailSubjectInput, emailBodyInput, smsBody].forEach((field) => {
+      field.addEventListener('focus', () => {
+        lastFocusedField = field;
+      });
+      field.addEventListener('input', persistActiveTemplateDraft);
+    });
+    saveTemplateButton.addEventListener('click', saveActiveTemplate);
+
+    const closeModal = () => {
+      persistActiveTemplateDraft();
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    };
+
+    modal.querySelectorAll('[onclick]').forEach((node) => {
+      const original = node.getAttribute('onclick');
+      if (original && original.includes("classList.add('hidden')")) {
+        node.addEventListener('click', closeModal);
+      }
+    });
+
+    if (queuedModal) {
+      const closeQueuedModal = () => {
+        queuedModal.classList.add('hidden');
+        queuedModal.classList.remove('flex');
+      };
+
+      queuedModal.querySelectorAll('[onclick]').forEach((node) => {
+        const original = node.getAttribute('onclick');
+        if (original && original.includes("classList.add('hidden')")) {
+          node.addEventListener('click', closeQueuedModal);
+        }
+      });
+
+      document.querySelectorAll('[data-queued-view]').forEach((button) => {
+        button.addEventListener('click', () => {
+          document.getElementById('queued-notification-customer').textContent = button.dataset.customerName || 'Customer';
+          document.getElementById('queued-notification-status').textContent = (button.dataset.status || 'testing_hold').replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+          document.getElementById('queued-notification-channel').textContent = (button.dataset.channel || '').toUpperCase();
+          document.getElementById('queued-notification-scheduled').textContent = button.dataset.scheduled || '-';
+          document.getElementById('queued-notification-message').textContent = button.dataset.message || '';
+          queuedModal.classList.remove('hidden');
+          queuedModal.classList.add('flex');
+        });
+      });
+    }
+
+    updateChannelVisibility();
+    updateSmsCount();
+  })();
+</script>
+{% endblock %}

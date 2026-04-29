@@ -61,6 +61,11 @@
                     <p class="text-xs text-slate-400 truncate">{{ contact.company }}</p>
                 </div>
             </div>
+            {% if reseller_contact_hint %}
+            <div class="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                Reseller contact: communication is routed via reseller.
+            </div>
+            {% endif %}
 
             <div class="grid grid-cols-2 gap-2 text-[11px] text-slate-300">
                 <div>

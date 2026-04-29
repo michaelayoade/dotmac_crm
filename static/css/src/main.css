@@ -684,7 +684,12 @@ h1, h2, h3, .font-display {
 }
 
 /* Staggered conversation list animation */
+/* Fail-safe: rows must remain visible even if animation hooks don't run. */
 .conv-stagger {
+  opacity: 1;
+  transform: translateX(0);
+}
+.conv-stagger.is-entering {
   opacity: 0;
   transform: translateX(-8px);
   animation: conv-slide-in 0.3s ease-out forwards;

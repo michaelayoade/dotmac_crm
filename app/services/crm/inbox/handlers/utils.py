@@ -8,14 +8,16 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
-from app.models.crm.enums import ConversationStatus, MessageDirection, MessageStatus
+from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.crm.team import CrmAgent, CrmAgentTeam
+from app.models.person import Person
 from app.services.crm.ai_intake import make_scope_key, process_pending_intake
 from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.context import get_inbox_logger
 from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
 from app.services.crm.inbox.routing import apply_routing_rules
 from app.websocket.broadcaster import (
+    broadcast_agent_notification,
     broadcast_conversation_summary,
     broadcast_inbox_updated,
     broadcast_new_message,
@@ -26,6 +28,75 @@ logger = get_inbox_logger(__name__)
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+_CALL_CONNECT_STATES = {"connect", "ringing", "ring", "incoming", "invited", "calling"}
+_CALL_ACTIVE_STATES = {"accepted", "connected", "in_progress", "ongoing", "active"}
+_CALL_TERMINAL_STATES = {
+    "completed",
+    "ended",
+    "terminated",
+    "rejected",
+    "failed",
+    "missed",
+    "busy",
+    "no_answer",
+    "canceled",
+    "cancelled",
+    "timeout",
+    "terminate",
+}
+
+
+def _extract_call_event_metadata(message: Message) -> dict[str, str] | None:
+    if message.channel_type != ChannelType.whatsapp:
+        return None
+    metadata = message.metadata_ if isinstance(message.metadata_, dict) else {}
+    raw_call_value = metadata.get("call")
+    raw_call: dict[str, Any] = raw_call_value if isinstance(raw_call_value, dict) else {}
+
+    call_id = metadata.get("call_id") or raw_call.get("call_id") or raw_call.get("id")
+    call_status = (
+        metadata.get("call_status") or raw_call.get("call_status") or raw_call.get("event") or raw_call.get("status")
+    )
+    phone_number_id = metadata.get("phone_number_id")
+    call_to = metadata.get("to") or raw_call.get("to")
+
+    normalized_call_id = str(call_id).strip() if isinstance(call_id, str) and call_id.strip() else None
+    normalized_status = (
+        str(call_status).strip().lower() if isinstance(call_status, str) and call_status.strip() else None
+    )
+    normalized_phone_number_id = (
+        str(phone_number_id).strip() if isinstance(phone_number_id, str) and phone_number_id.strip() else None
+    )
+    normalized_call_to = str(call_to).strip() if isinstance(call_to, str) and call_to.strip() else None
+    if not normalized_call_id or not normalized_status:
+        return None
+    return {
+        "call_id": normalized_call_id,
+        "call_status": normalized_status,
+        "phone_number_id": normalized_phone_number_id or "",
+        "call_to": normalized_call_to or "",
+    }
+
+
+def _build_call_notification_actions(call_status: str) -> list[str]:
+    if call_status in _CALL_CONNECT_STATES:
+        return ["accept"]
+    if call_status in _CALL_ACTIVE_STATES:
+        return ["terminate"]
+    if call_status in _CALL_TERMINAL_STATES:
+        return []
+    return []
+
+
+def _contact_name(person: Person | None) -> str | None:
+    if not person:
+        return None
+    if person.display_name:
+        return person.display_name
+    name = f"{person.first_name} {person.last_name}".strip()
+    return name or None
 
 
 def _message_order_timestamp(message: Message) -> datetime:
@@ -93,7 +164,10 @@ def post_process_inbound_message(
         pending_ai_intake = bool(
             intake_result and intake_result.handled and conversation.status == ConversationStatus.pending
         )
-        if not pending_ai_intake:
+        call_event = _extract_call_event_metadata(message)
+        contact = db.get(Person, conversation.person_id) if conversation.person_id else None
+        contact_name = _contact_name(contact)
+        if not pending_ai_intake and call_event is None:
             notify_assigned_agent_new_reply(db, conversation, message)
         broadcast_conversation_summary(
             str(conversation.id),
@@ -149,6 +223,27 @@ def post_process_inbound_message(
         }
         for person_id in agent_person_ids:
             broadcast_inbox_updated(person_id, inbox_payload)
+            if call_event is not None:
+                actions = _build_call_notification_actions(call_event["call_status"])
+                if not actions and call_event["call_status"] not in _CALL_TERMINAL_STATES:
+                    continue
+                call_payload = {
+                    "kind": "whatsapp_call",
+                    "title": "Incoming WhatsApp call",
+                    "subtitle": contact_name or "Incoming call",
+                    "preview": f"Call status: {call_event['call_status']}",
+                    "conversation_id": str(conversation.id),
+                    "contact_id": str(conversation.person_id) if conversation.person_id else None,
+                    "message_id": str(message.id),
+                    "channel": "whatsapp",
+                    "last_message_at": _message_order_timestamp(message).isoformat(),
+                    "call_id": call_event["call_id"],
+                    "call_status": call_event["call_status"],
+                    "phone_number_id": call_event["phone_number_id"] or None,
+                    "call_to": call_event["call_to"] or None,
+                    "call_actions": actions,
+                }
+                broadcast_agent_notification(person_id, call_payload)
 
         inbox_cache.invalidate_inbox_list()
     except Exception as exc:

@@ -7,6 +7,7 @@ Instagram DM, and chat widget channels.
 from __future__ import annotations
 
 import base64
+import html
 import os
 import secrets
 import time
@@ -355,6 +356,24 @@ def _render_personalization(body: str, personalization: dict | None) -> str:
     return rendered
 
 
+def _text_to_email_html(text: str) -> str:
+    """Convert plain text into simple, readable HTML preserving paragraph breaks."""
+    normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    paragraphs = [part.strip() for part in normalized.split("\n\n") if part.strip()]
+    if not paragraphs:
+        return ""
+    html_parts: list[str] = []
+    for idx, paragraph in enumerate(paragraphs):
+        safe = html.escape(paragraph).replace("\n", "<br>")
+        margin_bottom = "0" if idx == len(paragraphs) - 1 else "14px"
+        html_parts.append(f'<p style="margin:0 0 {margin_bottom} 0; line-height:1.6;">{safe}</p>')
+    return (
+        '<div style="font-family:Arial,Helvetica,sans-serif; font-size:14px; color:#0f172a;">'
+        + "".join(html_parts)
+        + "</div>"
+    )
+
+
 def _build_reply_subject(current_subject: str | None, base_subject: str | None) -> str | None:
     if base_subject:
         subject = base_subject.strip()
@@ -670,6 +689,7 @@ def _send_email_message(
     sent = False
     smtp_debug: dict | None = None
     email_attachments = _prepare_email_attachments(payload.attachments)
+    html_body = _text_to_email_html(rendered_body)
     if config:
         smtp_config = _smtp_config_from_connector(config)
         if smtp_config:
@@ -677,7 +697,7 @@ def _send_email_message(
                 smtp_config,
                 person_channel.address,
                 payload.subject or "Message",
-                rendered_body,
+                html_body,
                 rendered_body,
                 cc_emails=payload.cc_addresses,
                 bcc_emails=payload.bcc_addresses,
@@ -696,7 +716,7 @@ def _send_email_message(
             db,
             person_channel.address,
             payload.subject or "Message",
-            rendered_body,
+            html_body,
             rendered_body,
             cc_emails=payload.cc_addresses,
             bcc_emails=payload.bcc_addresses,

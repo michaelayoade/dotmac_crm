@@ -128,6 +128,11 @@ def build_inbox_settings_context(
     )
     auto_resolve_enabled = resolve_value(db, SettingDomain.notification, "crm_inbox_auto_resolve_enabled")
     auto_resolve_days = resolve_value(db, SettingDomain.notification, "crm_inbox_auto_resolve_days")
+    resolved_social_outro_message = resolve_value(
+        db,
+        SettingDomain.notification,
+        "crm_inbox_resolved_social_outro_message",
+    )
     csat_enabled_by_target = get_csat_enabled_map(db)
     for inbox in email_inboxes:
         inbox["csat_enabled"] = bool(csat_enabled_by_target.get(str(inbox.get("target_id")), False))
@@ -286,6 +291,7 @@ def build_inbox_settings_context(
         "ai_assignment_retry_interval_seconds": ai_assignment_retry_interval_seconds,
         "auto_resolve_enabled": auto_resolve_enabled,
         "auto_resolve_days": auto_resolve_days,
+        "resolved_social_outro_message": resolved_social_outro_message,
         "teams": teams,
         "agents": agents,
         "agent_teams": agent_teams,

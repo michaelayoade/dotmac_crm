@@ -51,6 +51,12 @@
         color: #0f172a;
     }
 
+    .inbox-sidebar-resize-tooltip::after {
+        left: calc(100% + 0.625rem);
+        top: 50%;
+        transform: translateY(-50%);
+    }
+
     /* Keep text visible in dark mode when new-conversation fields are focused. */
     .dark [data-new-conversation-modal] input:focus,
     .dark [data-new-conversation-modal] select:focus,
@@ -58,11 +64,25 @@
         background-color: rgb(51 65 85 / 0.7);
         color: #fff;
     }
+
+    /* Keep conversation list pane from collapsing to 0px in flex layouts. */
+    #conversation-list {
+        flex: 1 1 auto;
+        min-height: 12rem;
+    }
+
+    /* Remove stacking context from content wrapper so fixed overlays
+       (call toasts, in-session card) can appear above the header/sidebar. */
+    .inbox-content-wrapper {
+        position: static !important;
+        z-index: auto !important;
+    }
+
 </style>
 <!-- Inbox styles are now in static/css/src/main.css -->
 {% endblock %}
 
-{% block content_container_class %}max-w-none px-0 py-0 h-full{% endblock %}
+{% block content_container_class %}max-w-none px-0 py-0 h-full inbox-content-wrapper{% endblock %}
 
 {% block content %}
 <div x-data="inboxController()"
@@ -70,7 +90,7 @@
      x-effect="updateNewConversationTarget()"
      x-on:toggle-contact-panel.window="toggleContactPanel()"
      x-on:show-contact-panel.window="showContactPanel = true"
-     class="flex h-[calc(100vh-4rem)] min-h-0 w-full overflow-hidden rounded-2xl border border-slate-200/60 bg-white font-editorial shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
+     class="relative h-full min-h-0 w-full">
 
     {% if reply_error %}
     <div x-data="{ showReplyToast: true }"
@@ -100,52 +120,201 @@
     </div>
     {% endif %}
 
-    <div class="pointer-events-none fixed bottom-6 right-6 z-50 flex w-[22rem] flex-col gap-3">
+    <template x-teleport="body">
+    <div class="pointer-events-none fixed bottom-6 right-6 z-[2147483647] flex w-[360px] flex-col gap-3">
         <template x-for="notification in notifications" :key="notification.id">
-            <div class="pointer-events-auto group relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-xl shadow-slate-900/10 backdrop-blur transition hover:-translate-y-0.5 hover:border-amber-200 dark:border-slate-700/60 dark:bg-slate-900/90 dark:hover:border-amber-500/40">
-                <div class="absolute left-0 top-0 h-full w-1.5"
-                     :class="notification.kind === 'reminder' ? 'bg-gradient-to-b from-amber-500 to-orange-500' : 'bg-gradient-to-b from-emerald-500 to-teal-500'"></div>
-                <div class="flex items-start gap-3 pl-2.5">
-                    <div class="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900/5 text-slate-600 dark:bg-white/10 dark:text-slate-200"
-                         :class="notification.kind === 'reminder' ? 'text-amber-600 dark:text-amber-300' : 'text-emerald-600 dark:text-emerald-300'">
-                        <svg class="h-4.5 w-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path x-show="notification.kind === 'reminder'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                            <path x-show="notification.kind !== 'reminder'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h6m-6 4h4m6-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                        </svg>
-                    </div>
-                    <div class="flex-1 cursor-pointer"
-                         @click="openNotification(notification)">
-                        <div class="flex items-start justify-between gap-2">
-                            <div>
-                                <div class="text-sm font-semibold text-slate-900 dark:text-white" x-text="notification.title"></div>
-                                <div class="text-xs text-slate-500 dark:text-slate-400" x-text="notification.subtitle || 'Assigned conversation'"></div>
+            <div>
+                <div x-show="notification.kind === 'whatsapp_call'" x-cloak
+                     class="pointer-events-auto rounded-2xl border border-slate-200/10 bg-white/80 shadow-[0px_12px_40px_rgba(23,29,28,0.12)] backdrop-blur-[12px] dark:border-slate-700/20 dark:bg-slate-900/80">
+                    <div class="p-4">
+                        <div class="flex items-center gap-4">
+                            <div class="relative shrink-0">
+                                <div class="flex h-14 w-14 items-center justify-center rounded-full border-2 border-emerald-100 bg-gradient-to-br from-emerald-100 to-teal-100 text-lg font-bold text-emerald-700 dark:border-emerald-400/40 dark:from-emerald-500/20 dark:to-cyan-500/20 dark:text-emerald-200"
+                                     x-text="(notification.subtitle || notification.title || '?').trim().charAt(0).toUpperCase()"></div>
+                                <div class="absolute -bottom-1 -right-1 rounded-full bg-white p-1 shadow-sm dark:bg-slate-900">
+                                    <div class="flex items-center justify-center rounded-full bg-[#25D366] p-0.5">
+                                        <svg class="h-3.5 w-3.5 text-white" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                            <path d="M6.62 10.79c1.44 2.83 3.76 5.15 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+                                        </svg>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-400" x-text="notification.timeLabel"></div>
+                            <div class="min-w-0 flex-1 cursor-pointer" @click="openNotification(notification)">
+                                <h4 class="truncate text-sm font-bold text-slate-900 dark:text-white"
+                                    x-text="notification.subtitle || notification.title || 'Unknown'"></h4>
+                                <p class="truncate text-sm font-medium text-slate-500 dark:text-slate-400"
+                                   x-text="notification.preview || 'WhatsApp Call'"></p>
+                                <p class="mt-1 flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                                    <span class="relative inline-flex h-2 w-2">
+                                        <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75"></span>
+                                        <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+                                    </span>
+                                    Incoming...
+                                </p>
+                            </div>
                         </div>
-                        <p class="mt-2 text-xs text-slate-600 line-clamp-2 dark:text-slate-300" x-text="notification.preview || 'New message received.'"></p>
-                        <div class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-amber-600 group-hover:gap-2 transition-all dark:text-amber-300">
-                            Open & reply
-                            <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </div>
+                    <div x-show="notification.callActions && notification.callActions.length"
+                         x-cloak
+                         class="flex border-t border-slate-200/10 dark:border-slate-700/10">
+                        <button type="button"
+                                x-show="notification.callActions && notification.callActions.includes('accept')"
+                                @click.prevent.stop="handleNotificationCallAction(notification, 'reject')"
+                                :disabled="notification.callActionBusy"
+                                class="flex-1 rounded-bl-2xl px-4 py-3 text-sm font-semibold text-rose-600 transition-colors hover:bg-rose-50/50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 dark:text-rose-400 dark:hover:bg-rose-500/10">
+                            Decline
+                        </button>
+                        <button type="button"
+                                x-show="notification.callActions && !notification.callActions.includes('accept')"
+                                @click.prevent.stop="handleNotificationCallAction(notification, notification.callActions[0])"
+                                :disabled="notification.callActionBusy"
+                                class="flex-1 rounded-bl-2xl px-4 py-3 text-sm font-semibold text-rose-600 transition-colors hover:bg-rose-50/50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 dark:text-rose-400 dark:hover:bg-rose-500/10"
+                                x-text="notification.callActions[0] === 'terminate' ? 'End Call' : 'Decline'">
+                        </button>
+                        <div class="w-[1px] bg-slate-200/10 dark:bg-slate-700/10"
+                             x-show="notification.callActions && notification.callActions.includes('accept')"></div>
+                        <button type="button"
+                                x-show="notification.callActions && notification.callActions.includes('accept')"
+                                @click.prevent.stop="handleNotificationCallAction(notification, 'accept')"
+                                :disabled="notification.callActionBusy"
+                                class="flex-1 rounded-br-2xl px-4 py-3 text-sm font-semibold text-emerald-600 transition-colors hover:bg-emerald-50/50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 dark:text-emerald-400 dark:hover:bg-emerald-500/10">
+                            Accept
+                        </button>
+                    </div>
+                </div>
+
+                <div x-show="notification.kind !== 'whatsapp_call'" x-cloak
+                     class="pointer-events-auto group relative overflow-hidden rounded-2xl border border-slate-200/70 bg-white/95 p-4 shadow-xl shadow-slate-900/10 backdrop-blur transition hover:-translate-y-0.5 hover:border-amber-200 dark:border-slate-700/60 dark:bg-slate-900/90 dark:hover:border-amber-500/40">
+                    <div class="absolute left-0 top-0 h-full w-1.5"
+                         :class="notification.kind === 'reminder' ? 'bg-gradient-to-b from-amber-500 to-orange-500' : 'bg-gradient-to-b from-emerald-500 to-teal-500'"></div>
+                    <div class="flex items-start gap-3 pl-2.5">
+                        <div class="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900/5 text-slate-600 dark:bg-white/10 dark:text-slate-200"
+                             :class="notification.kind === 'reminder' ? 'text-amber-600 dark:text-amber-300' : 'text-emerald-600 dark:text-emerald-300'">
+                            <svg class="h-4.5 w-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path x-show="notification.kind === 'reminder'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                <path x-show="notification.kind !== 'reminder'" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h6m-6 4h4m6-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                             </svg>
                         </div>
+                        <div class="flex-1 cursor-pointer"
+                             @click="openNotification(notification)">
+                            <div class="flex items-start justify-between gap-2">
+                                <div>
+                                    <div class="text-sm font-semibold text-slate-900 dark:text-white" x-text="notification.title"></div>
+                                    <div class="text-xs text-slate-500 dark:text-slate-400" x-text="notification.subtitle || 'Assigned conversation'"></div>
+                                </div>
+                                <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-400" x-text="notification.timeLabel"></div>
+                            </div>
+                            <p class="mt-2 text-xs text-slate-600 line-clamp-2 dark:text-slate-300" x-text="notification.preview || 'New message received.'"></p>
+                            <div class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-amber-600 group-hover:gap-2 transition-all dark:text-amber-300">
+                                Open & reply
+                                <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                                </svg>
+                            </div>
+                        </div>
+                        <button type="button"
+                                @click.prevent.stop="dismissNotification(notification.id)"
+                                class="relative z-10 ml-1 inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                                aria-label="Dismiss notification">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
                     </div>
-                    <button type="button"
-                            @click.prevent.stop="dismissNotification(notification.id)"
-                            class="relative z-10 ml-1 inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                            aria-label="Dismiss notification">
-                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
-                    </button>
                 </div>
             </div>
         </template>
     </div>
+    </template>
+
+    {# ── In-Session Call Card ── #}
+    <template x-teleport="body">
+    <div x-show="activeCall" x-cloak x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 translate-y-4"
+         class="pointer-events-auto fixed bottom-6 right-6 z-[2147483646] w-[360px] rounded-2xl border border-slate-200/10 bg-white/80 shadow-[0px_12px_40px_rgba(23,29,28,0.12)] backdrop-blur-[12px] dark:border-slate-700/20 dark:bg-slate-900/80">
+        {# Top identity section #}
+        <div class="px-5 pt-5 pb-4">
+            <div class="flex items-center gap-4">
+                <div class="relative shrink-0">
+                    <div class="flex h-16 w-16 items-center justify-center rounded-full border-2 border-emerald-100 bg-gradient-to-br from-emerald-100 to-teal-100 text-xl font-bold text-emerald-700 dark:border-emerald-400/40 dark:from-emerald-500/20 dark:to-cyan-500/20 dark:text-emerald-200"
+                         x-text="activeCall ? activeCall.contactInitial : ''"></div>
+                    <div class="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-emerald-500 shadow-sm dark:border-slate-900">
+                        <svg class="h-3 w-3 text-white" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M6.62 10.79c1.44 2.83 3.76 5.15 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="min-w-0 flex-1">
+                    <h4 class="truncate text-sm font-bold text-slate-900 dark:text-white"
+                        x-text="activeCall ? activeCall.contactName : ''"></h4>
+                    <p class="mt-0.5 flex items-center gap-2 text-xs font-semibold"
+                       :class="activeCall && activeCall.isOnHold ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'">
+                        <span class="relative inline-flex h-2 w-2">
+                            <span class="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75"
+                                  :class="activeCall && activeCall.isOnHold ? 'bg-amber-500' : 'bg-emerald-500'"></span>
+                            <span class="relative inline-flex h-2 w-2 rounded-full"
+                                  :class="activeCall && activeCall.isOnHold ? 'bg-amber-500' : 'bg-emerald-500'"></span>
+                        </span>
+                        <span x-text="activeCall && activeCall.isOnHold ? `On hold · ${activeCallTimer}` : activeCallTimer"></span>
+                    </p>
+                    <div class="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-50/80 px-2.5 py-0.5 dark:border-slate-700/60 dark:bg-slate-800/60">
+                        <svg class="h-3 w-3 text-[#25D366]" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                        </svg>
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">WhatsApp Audio</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {# Control buttons #}
+        <div class="flex items-center justify-center gap-6 border-t border-slate-200/10 px-5 py-4 dark:border-slate-700/10">
+            <div class="flex flex-col items-center gap-1.5">
+                <button type="button"
+                        @click="toggleActiveCallMute()"
+                        class="flex h-11 w-11 items-center justify-center rounded-full transition-all active:scale-95"
+                        :class="activeCall && activeCall.isMuted
+                            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path x-show="!(activeCall && activeCall.isMuted)" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                        <path x-show="activeCall && activeCall.isMuted" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707A1 1 0 0112 5v14a1 1 0 01-1.707.707L5.586 15zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/>
+                    </svg>
+                </button>
+                <span class="text-[10px] font-semibold text-slate-500 dark:text-slate-400"
+                      x-text="activeCall && activeCall.isMuted ? 'Unmute' : 'Mute'"></span>
+            </div>
+            <div class="flex flex-col items-center gap-1.5">
+                <button type="button"
+                        @click="toggleActiveCallHold()"
+                        class="flex h-11 w-11 items-center justify-center rounded-full transition-all active:scale-95"
+                        :class="activeCall && activeCall.isOnHold
+                            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </button>
+                <span class="text-[10px] font-semibold text-slate-500 dark:text-slate-400"
+                      x-text="activeCall && activeCall.isOnHold ? 'Resume' : 'Hold'"></span>
+            </div>
+            <div class="flex flex-col items-center gap-1.5">
+                <button type="button"
+                        @click="endActiveCall()"
+                        class="flex h-11 w-11 items-center justify-center rounded-full bg-rose-500 text-white shadow-lg shadow-rose-500/25 transition-all hover:bg-rose-600 active:scale-95">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z"/>
+                    </svg>
+                </button>
+                <span class="text-[10px] font-semibold text-rose-500">End</span>
+            </div>
+        </div>
+    </div>
+    </template>
+
+    {# Inner container with overflow-hidden — overlays live ABOVE this so they escape the stacking context #}
+    <div class="flex h-full min-h-0 w-full overflow-hidden rounded-2xl border border-slate-200/60 bg-white font-editorial shadow-sm dark:border-slate-700/60 dark:bg-slate-900">
 
     <!-- Left Sidebar - Channel Filters & Conversation List -->
-    <aside class="relative w-full flex-shrink-0 flex flex-col border-r border-slate-200/60 bg-slate-50/50 dark:border-slate-700/60 dark:bg-slate-900/60"
-           :class="selectedConversation && isNarrowViewport ? 'hidden' : 'flex'"
+    <aside class="relative w-full min-h-0 flex-shrink-0 flex flex-col overflow-hidden border-r border-slate-200/60 bg-slate-50/50 dark:border-slate-700/60 dark:bg-slate-900/60"
            :style="sidebarStyle()">
         <!-- Header -->
         <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200/60 dark:border-slate-700/60">
@@ -546,7 +715,7 @@
         </div>
 
         <!-- Conversation List -->
-        <div id="conversation-list" class="flex-1 overflow-y-auto inbox-scroll">
+        <div id="conversation-list" class="min-h-0 flex-1 overflow-y-auto inbox-scroll">
             {% if current_channel == 'comments' %}
                 {% include "admin/crm/_comment_list.html" %}
             {% else %}
@@ -554,23 +723,10 @@
             {% endif %}
         </div>
 
-        <div x-show="!isNarrowViewport"
-             x-cloak
-             @pointerdown.prevent="startSidebarResize($event)"
-             role="separator"
-             aria-orientation="vertical"
-             aria-label="Resize inbox sidebar"
-             title="Drag to resize sidebar"
-             class="group absolute -right-1 top-0 z-30 hidden h-full w-3 cursor-ew-resize items-center justify-center lg:flex">
-            <span class="flex h-14 w-1.5 items-center justify-center rounded-full bg-slate-300/70 opacity-0 transition group-hover:opacity-100 dark:bg-slate-600/80">
-                <span class="h-8 w-px rounded-full bg-amber-500 dark:bg-amber-300"></span>
-            </span>
-        </div>
     </aside>
 
     <!-- Center - Message Thread -->
-    <main class="flex-1 flex flex-col min-w-0 min-h-0 bg-white dark:bg-slate-950 inbox-mesh"
-          :class="!selectedConversation && !selectedCommentId && isNarrowViewport ? 'hidden' : 'flex'">
+    <main class="flex-1 flex flex-col min-w-0 min-h-0 bg-white dark:bg-slate-950 inbox-mesh">
         <div class="px-6 pt-4"
              x-show="threadStale && selectedConversation"
              x-transition
@@ -639,6 +795,7 @@
 
     <!-- Right Sidebar - Contact Details -->
     <aside class="hidden lg:block w-80 flex-shrink-0 border-l border-slate-200/60 bg-slate-50/50 overflow-y-auto inbox-scroll dark:border-slate-700/60 dark:bg-slate-900/40"
+           x-cloak
            x-show="showContactPanel"
            x-transition:enter="transition ease-out duration-200"
            x-transition:enter-start="opacity-0 translate-x-4"
@@ -744,7 +901,7 @@
                         <div class="relative">
                             <input type="text"
                                    x-model="whatsappContactQuery"
-                                   @input="searchWhatsappContacts()"
+                                   @input="onWhatsappContactQueryInput()"
                                    placeholder="Search contact by name or number"
                                    class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">
                             <template x-if="whatsappContactLoading">
@@ -781,9 +938,9 @@
                                x-text="newConversationChannel === 'email' ? 'Recipient email' : (newConversationChannel === 'whatsapp' ? 'WhatsApp number' : 'Recipient ID')"></label>
                     <input name="contact_address"
                            x-model="newConversationContactAddress"
+                           @input="if (newConversationChannel === 'whatsapp') { selectedWhatsappContact = null; newConversationContactName = ''; }"
                            x-bind:type="newConversationChannel === 'email' ? 'email' : 'text'"
                            placeholder="Enter address"
-                           :readonly="newConversationChannel === 'whatsapp'"
                            class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 transition-all focus:border-amber-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:placeholder-slate-500 dark:focus:border-amber-500">
                 </div>
 
@@ -993,6 +1150,8 @@
         </div>
     </aside>
 
+    </div>{# close inner overflow-hidden container #}
+
     {% include "admin/crm/_keyboard_shortcuts_modal.html" %}
     {% include "admin/crm/_command_palette.html" %}
 </div>
@@ -1069,6 +1228,9 @@ function inboxController() {
         _callLocalStreams: {},
         _callAudioElements: {},
         _callNotifications: {},
+        _callConnectionFacts: {},
+        _callDisconnectTimers: {},
+        _callTerminalSuppressions: {},
         _callActionHandlersInitialized: false,
         localPresenceState: 'viewing',
         // Ticket form in the right-side panel is loaded via HTMX; don't allow submits until it's present.
@@ -1090,10 +1252,16 @@ function inboxController() {
         minSummaryFlushIntervalMs: 200,
         pendingMessageAttachments: [],
         pendingPrivateAttachments: [],
+        selectedMessageAttachmentNames: [],
         notifications: [],
         notificationAutoDismissSeconds: {{ (notification_auto_dismiss_seconds or 12) | tojson }},
         notificationSoundEnabled: true,
         notificationAudio: null,
+        callRingtoneAudio: null,
+        activeRingtoneCallId: null,
+        activeCall: null,
+        activeCallTimer: '00:00',
+        activeCallTimerInterval: null,
         showShortcutsHelp: false,
         replyTo: null,
         searchInteracted: false,
@@ -1118,6 +1286,7 @@ function inboxController() {
                 return;
             }
             this._initialized = true;
+            this.normalizeFiltersFromUrl();
             this.initializeSearchState();
             this.scheduleSearchAutofillGuard();
             this.initViewportMode();
@@ -1184,13 +1353,49 @@ function inboxController() {
             window.addEventListener('inbox-new-message', (e) => {
                 const payload = e.detail || {};
                 const summary = payload.summary || payload;
+                const messageConversationId = String(payload.conversation_id || '').trim();
+                const selectedConversationId = String(this.selectedConversation || '').trim();
+                const messageCallId = String(payload.call_id || '').trim();
+                const activeCallId = String(this.activeCall?.callId || '').trim();
+                const activeConversationId = String(this.activeCall?.conversationId || '').trim();
+                const isTerminalCallEvent =
+                    payload.kind === 'whatsapp_call' &&
+                    this.isTerminalCallStatus(payload.call_status);
+                if (isTerminalCallEvent) {
+                    const matchesActiveCall =
+                        (messageCallId && activeCallId && messageCallId === activeCallId) ||
+                        (messageConversationId && activeConversationId && messageConversationId === activeConversationId);
+                    if (matchesActiveCall) {
+                        if (activeCallId) {
+                            this.closeCallPeerConnection(activeCallId);
+                        }
+                        this.clearActiveCall();
+                    }
+                    const matchingNotifications = this.notifications.filter((note) => {
+                        if (note.kind !== 'whatsapp_call') return false;
+                        const notificationCallId = String(note.callId || '').trim();
+                        const notificationConversationId = String(note.conversationId || '').trim();
+                        return (
+                            (messageCallId && notificationCallId && messageCallId === notificationCallId) ||
+                            (messageConversationId &&
+                                notificationConversationId &&
+                                messageConversationId === notificationConversationId)
+                        );
+                    });
+                    matchingNotifications.forEach((note) => this.dismissNotification(note.id));
+                    this.stopCallRingtone(messageCallId || null);
+                    if (messageCallId) {
+                        delete this._callNotifications[messageCallId];
+                        delete this._callTerminalSuppressions[messageCallId];
+                    }
+                }
                 if (summary && summary.conversation_id) {
                     this.queueConversationSummary(summary);
                 } else if (!this.updateConversationRow(summary)) {
                     this.refreshConversations();
                 }
                 this.scheduleSummaryCountsRefresh();
-                if (payload.conversation_id && this.selectedConversation === payload.conversation_id) {
+                if (messageConversationId && selectedConversationId === messageConversationId) {
                     this.scheduleRefresh('thread');
                 }
                 // Play notification sound for inbound messages
@@ -1291,6 +1496,7 @@ function inboxController() {
             if (!this._presenceUnloadBound) {
                 this._presenceUnloadBound = true;
                 window.addEventListener('beforeunload', () => {
+                    this.stopCallRingtone();
                     if (this.selectedConversation) {
                         this.publishPresence(this.selectedConversation, this.localPresenceState, false);
                     }
@@ -1317,12 +1523,14 @@ function inboxController() {
             try {
                 const stored = window.localStorage.getItem('crmInboxShowStats');
                 if (stored === null) {
-                    this.showInboxStats = true;
+                    // Default collapsed to preserve conversation list visibility
+                    // on medium/narrow viewports and high browser zoom levels.
+                    this.showInboxStats = false;
                     return;
                 }
                 this.showInboxStats = stored === '1';
             } catch (e) {
-                this.showInboxStats = true;
+                this.showInboxStats = false;
             }
         },
 
@@ -1388,6 +1596,37 @@ function inboxController() {
                 window.localStorage.setItem('crmInboxSidebarWidthPx', String(this.clampSidebarWidth(this.sidebarWidthPx)));
             } catch (e) {}
         },
+        normalizeFiltersFromUrl() {
+            // If URL does not explicitly request inbox filters, do not keep
+            // backend/session defaults that can auto-swap the visible list to empty
+            // immediately after first paint.
+            let params;
+            try {
+                params = new URLSearchParams(window.location.search || '');
+            } catch (_e) {
+                return;
+            }
+            const hasExplicitFilter =
+                params.has('channel') ||
+                params.has('status') ||
+                params.has('assignment') ||
+                params.has('target_id') ||
+                params.has('search') ||
+                params.has('outbox_status') ||
+                params.has('saved_filter_id');
+            if (hasExplicitFilter) {
+                return;
+            }
+            this.currentChannel = null;
+            this.currentStatus = null;
+            this.currentAssignment = null;
+            this.currentInboxTargetId = null;
+            this.currentOutboxStatus = null;
+            this.currentFilterAgentId = '';
+            this.currentAssignedFrom = '';
+            this.currentAssignedTo = '';
+            this.searchQuery = '';
+        },
         assignmentCount(key) {
             if (!key) return 0;
             if (!this.assignmentCounts || typeof this.assignmentCounts !== 'object') return 0;
@@ -1409,7 +1648,7 @@ function inboxController() {
                     headers: { Accept: 'application/json' }
                 });
                 if (window.DotMacAuth && window.DotMacAuth.handleAuthResponse(resp, '/auth/login')) {
-                    return;
+                    return false;
                 }
                 if (!resp.ok) return;
                 const payload = await resp.json();
@@ -1618,7 +1857,7 @@ function inboxController() {
                 void this.handleWhatsappCallAction(button);
             });
         },
-        async handleWhatsappCallAction(button) {
+        async handleWhatsappCallAction(button, options = {}) {
             const callId = button?.dataset?.callId;
             const action = button?.dataset?.callAction;
             if (!callId || !action) {
@@ -1627,54 +1866,37 @@ function inboxController() {
             const originalText = button.textContent || '';
             const targetPhoneNumberId = (button.dataset.phoneNumberId || '').trim();
             const callTo = (button.dataset.callTo || '').trim();
-            const requiresSession = action === 'accept' || action === 'connect' || action === 'pre_accept';
 
             button.disabled = true;
             button.textContent = action === 'accept' ? 'Accepting...' : `${action[0].toUpperCase()}${action.slice(1)}...`;
 
             try {
-                const payload = {
-                    action,
-                };
-                if (callTo) {
-                    payload.to = callTo;
-                }
-                if (targetPhoneNumberId) {
-                    payload.phone_number_id = targetPhoneNumberId;
-                }
-                if (requiresSession) {
-                    const callContext = await this.getWhatsappCallContext(callId);
-                    payload.phone_number_id = payload.phone_number_id || callContext.phone_number_id || undefined;
-                    const session = await this.createWhatsappCallSession(callId, callContext);
-                    payload.session = session;
-                }
-
-                const resp = await fetch(`/crm/inbox/whatsapp/calls/${encodeURIComponent(callId)}/action`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Accept: 'application/json',
-                    },
-                    body: JSON.stringify(payload),
-                });
-                if (window.DotMacAuth && window.DotMacAuth.handleAuthResponse(resp, '/auth/login')) {
-                    return;
-                }
-                if (!resp.ok) {
-                    let detail = `Call action '${action}' failed (${resp.status})`;
-                    try {
-                        const payload = await resp.json();
-                        detail = payload.detail || payload.message || detail;
-                    } catch (_err) {}
-                    throw new Error(detail);
-                }
+                await this.performWhatsappCallAction(callId, action, { targetPhoneNumberId, callTo });
 
                 if (action === 'accept') {
-                    this.showCallNotification(callId, 'Call accepted', 'Waiting for audio connection...', 'reply');
+                    const contactName =
+                        this.resolveConversationContactName(this.selectedConversation) ||
+                        this.selectedContact?.name ||
+                        this.selectedContact?.display_name ||
+                        'Unknown';
+                    this.activateCallCard({
+                        callId,
+                        subtitle: contactName,
+                        title: 'Call accepted',
+                        conversationId: this.selectedConversation || null,
+                        contactId: this.selectedContact?.id || null,
+                        phoneNumberId: targetPhoneNumberId,
+                        callTo: callTo,
+                    });
                 } else if (action === 'reject') {
-                    this.showCallNotification(callId, 'Call rejected', 'The WhatsApp call was rejected.', 'reply');
+                    this.showCallNotification(callId, 'Call rejected', 'The WhatsApp call was rejected.', 'whatsapp_call');
                 } else if (action === 'terminate') {
-                    this.showCallNotification(callId, 'Call ended', 'The WhatsApp call was terminated.', 'reply');
+                    this._callTerminalSuppressions[String(callId)] = true;
+                    const existingNotificationId = this._callNotifications[String(callId)];
+                    if (existingNotificationId) {
+                        this.dismissNotification(existingNotificationId);
+                    }
+                    this.clearActiveCall();
                 }
 
                 if (action === 'terminate') {
@@ -1682,13 +1904,65 @@ function inboxController() {
                 }
             } catch (err) {
                 const message = err instanceof Error ? err.message : 'Call action failed';
-                alert(message);
+                if (options && options.silent) {
+                    console.warn('[Inbox] WhatsApp call action failed', { callId, action, message, options });
+                    this.showCallNotification(callId, 'Call action failed', message, 'whatsapp_call');
+                } else {
+                    alert(message);
+                }
             } finally {
                 button.disabled = false;
                 button.textContent = originalText;
             }
         },
-        showCallNotification(callId, title, preview, kind = 'reply') {
+        async performWhatsappCallAction(callId, action, options = {}) {
+            const callTo = (options.callTo || '').trim();
+            const targetPhoneNumberId = (options.targetPhoneNumberId || '').trim();
+            const requiresSession = action === 'accept' || action === 'connect' || action === 'pre_accept';
+            const currentContext = await this.getWhatsappCallContext(callId);
+            const currentStatus = String(currentContext?.call_status || '').trim().toLowerCase();
+            const terminalStates = new Set(['completed', 'ended', 'terminated', 'terminate', 'rejected', 'failed', 'missed', 'busy', 'no_answer', 'canceled', 'cancelled', 'timeout']);
+            const connectStates = new Set(['connect', 'ringing', 'ring', 'incoming', 'invited', 'calling']);
+            const activeStates = new Set(['accepted', 'connected', 'in_progress', 'ongoing', 'active']);
+            if (terminalStates.has(currentStatus)) {
+                throw new Error(`Call already ended (${currentStatus}).`);
+            }
+            if (action === 'accept' && !connectStates.has(currentStatus)) {
+                throw new Error(`Call is no longer in an accept state (${currentStatus || 'unknown'}).`);
+            }
+            if (action === 'terminate' && !activeStates.has(currentStatus) && !connectStates.has(currentStatus)) {
+                throw new Error(`Terminate is only available while a call is connecting or active (${currentStatus || 'unknown'}).`);
+            }
+
+            const payload = { action };
+            if (callTo) payload.to = callTo;
+            if (targetPhoneNumberId) payload.phone_number_id = targetPhoneNumberId;
+            if (requiresSession) {
+                payload.phone_number_id = payload.phone_number_id || currentContext.phone_number_id || undefined;
+                payload.session = await this.createWhatsappCallSession(callId, currentContext);
+            }
+
+            const resp = await fetch(`/crm/inbox/whatsapp/calls/${encodeURIComponent(callId)}/action`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+            if (window.DotMacAuth && window.DotMacAuth.handleAuthResponse(resp, '/auth/login')) {
+                throw new Error('Authentication required.');
+            }
+            if (!resp.ok) {
+                let detail = `Call action '${action}' failed (${resp.status})`;
+                try {
+                    const responsePayload = await resp.json();
+                    detail = responsePayload.detail || responsePayload.message || detail;
+                } catch (_err) {}
+                throw new Error(detail);
+            }
+        },
+        showCallNotification(callId, title, preview, kind = 'whatsapp_call') {
             const notificationId = `call-${callId}`;
             const existing = this._callNotifications[callId];
             if (existing) {
@@ -1807,7 +2081,18 @@ function inboxController() {
             if (!iceServers.length) {
                 iceServers.push({ urls: ['stun:stun.l.google.com:19302'] });
             }
-            return { iceServers };
+            // Prefer all candidates for resilience; TURN remains available and prioritized.
+            return {
+                iceServers,
+                iceTransportPolicy: 'all',
+            };
+        },
+        clearCallDisconnectTimer(callId) {
+            const timer = this._callDisconnectTimers[callId];
+            if (timer) {
+                clearTimeout(timer);
+                delete this._callDisconnectTimers[callId];
+            }
         },
         ensureCallAudioElement(callId) {
             let audio = this._callAudioElements[callId];
@@ -1849,7 +2134,7 @@ function inboxController() {
             });
             return summary;
         },
-        async createAnswerForIncomingCall(callId, callContext) {
+        async createAnswerForIncomingCall(callId, callContext, options = {}) {
             const config = await this.getWhatsappWebrtcConfig();
             if (!window.RTCPeerConnection) {
                 throw new Error('WebRTC is not supported in this browser.');
@@ -1864,38 +2149,100 @@ function inboxController() {
             this.closeCallPeerConnection(callId);
             const peerConnection = new RTCPeerConnection(this.buildWhatsappRtcConfig(config.ice_servers));
             this._callPeerConnections[callId] = peerConnection;
+            this._callConnectionFacts[callId] = {
+                acceptedAtMs: Date.now(),
+                everConnected: false,
+                remoteTrackSeen: false,
+            };
             peerConnection.ontrack = (event) => {
                 const stream = event.streams?.[0] || (event.track ? new MediaStream([event.track]) : null);
                 if (!stream) {
                     return;
                 }
+                const facts = this._callConnectionFacts[callId] || {};
+                facts.remoteTrackSeen = true;
+                facts.everConnected = true;
+                this._callConnectionFacts[callId] = facts;
                 const audio = this.ensureCallAudioElement(callId);
                 audio.srcObject = stream;
                 void audio.play().catch((error) => {
                     console.warn('[Inbox] WhatsApp call audio playback failed', error);
                 });
-                this.showCallNotification(callId, 'Call connected', 'Remote audio stream is active.', 'reply');
+                this.applyActiveCallMediaState();
+                this.showCallNotification(callId, 'Call connected', 'Remote audio stream is active.', 'whatsapp_call');
             };
             peerConnection.onconnectionstatechange = () => {
                 const state = peerConnection.connectionState;
+                const facts = this._callConnectionFacts[callId] || {};
+                facts.connectionState = state;
+                this._callConnectionFacts[callId] = facts;
+                console.info('[Inbox][Call]', callId, 'connectionState', state);
                 if (state === 'connecting') {
-                    this.showCallNotification(callId, 'Connecting call', 'Negotiating media with WhatsApp...', 'reply');
+                    this.showCallNotification(callId, 'Connecting call', 'Negotiating media with WhatsApp...', 'whatsapp_call');
                 } else if (state === 'connected') {
-                    this.showCallNotification(callId, 'Call connected', 'Media connection established.', 'reply');
+                    this.clearCallDisconnectTimer(callId);
+                    facts.everConnected = true;
+                    this._callConnectionFacts[callId] = facts;
+                    this.showCallNotification(callId, 'Call connected', 'Media connection established.', 'whatsapp_call');
                 }
-                if (state === 'failed' || state === 'closed' || state === 'disconnected') {
-                    this.showCallNotification(callId, 'Call ended', `Connection state: ${state}.`, 'reply');
+                if (state === 'disconnected') {
+                    this.showCallNotification(callId, 'Connection interrupted', 'Attempting to recover media...', 'whatsapp_call');
+                    this.clearCallDisconnectTimer(callId);
+                    this._callDisconnectTimers[callId] = setTimeout(() => {
+                        const currentPc = this._callPeerConnections[callId];
+                        if (!currentPc) {
+                            return;
+                        }
+                        const currentState = currentPc.connectionState;
+                        if (currentState === 'disconnected' || currentState === 'failed' || currentState === 'closed') {
+                            const currentFacts = this._callConnectionFacts[callId] || { everConnected: false };
+                            if (!currentFacts.everConnected) {
+                                this.showCallNotification(
+                                    callId,
+                                    'Call ended while connecting',
+                                    'Remote side ended the call or ICE media path failed before connection.',
+                                    'whatsapp_call',
+                                );
+                            } else {
+                                if (!this._callTerminalSuppressions[String(callId)]) {
+                                    this.showCallNotification(callId, 'Call ended', `Connection state: ${currentState}.`, 'whatsapp_call');
+                                }
+                            }
+                            this.closeCallPeerConnection(callId);
+                        }
+                    }, 15000);
+                    return;
+                }
+                if (state === 'failed' || state === 'closed') {
+                    this.clearCallDisconnectTimer(callId);
+                    if (!facts.everConnected) {
+                        this.showCallNotification(
+                            callId,
+                            'Call ended while connecting',
+                            'Remote side ended the call or ICE media path failed before connection.',
+                            'whatsapp_call',
+                        );
+                    } else {
+                        if (!this._callTerminalSuppressions[String(callId)]) {
+                            this.showCallNotification(callId, 'Call ended', `Connection state: ${state}.`, 'whatsapp_call');
+                        }
+                    }
                     this.closeCallPeerConnection(callId);
                 }
             };
             peerConnection.oniceconnectionstatechange = () => {
                 const state = peerConnection.iceConnectionState;
+                const facts = this._callConnectionFacts[callId] || {};
+                facts.iceConnectionState = state;
+                this._callConnectionFacts[callId] = facts;
+                console.info('[Inbox][Call]', callId, 'iceConnectionState', state);
                 if (state === 'checking') {
-                    this.showCallNotification(callId, 'Checking network', 'Trying ICE candidates...', 'reply');
+                    this.showCallNotification(callId, 'Checking network', 'Trying ICE candidates...', 'whatsapp_call');
                 } else if (state === 'connected' || state === 'completed') {
-                    this.showCallNotification(callId, 'Call connected', 'ICE connectivity established.', 'reply');
+                    this.clearCallDisconnectTimer(callId);
+                    this.showCallNotification(callId, 'Call connected', 'ICE connectivity established.', 'whatsapp_call');
                 } else if (state === 'failed') {
-                    this.showCallNotification(callId, 'Call failed', 'ICE connectivity failed.', 'reply');
+                    this.showCallNotification(callId, 'Call failed', 'ICE connectivity failed.', 'whatsapp_call');
                 }
             };
 
@@ -1918,7 +2265,8 @@ function inboxController() {
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
 
-            await this.waitForCallIceGathering(peerConnection, 8000);
+            const gatherTimeoutMs = 12000;
+            await this.waitForCallIceGathering(peerConnection, gatherTimeoutMs);
             const localDescription = peerConnection.localDescription;
             if (!localDescription || !localDescription.sdp) {
                 throw new Error('Unable to generate SDP answer.');
@@ -1929,14 +2277,14 @@ function inboxController() {
                     callId,
                     'Relay candidate ready',
                     `ICE candidates: relay=${candidateSummary.relay}, srflx=${candidateSummary.srflx}, host=${candidateSummary.host}`,
-                    'reply',
+                    'whatsapp_call',
                 );
             } else {
                 this.showCallNotification(
                     callId,
                     'No relay candidate',
                     `ICE candidates: relay=0, srflx=${candidateSummary.srflx}, host=${candidateSummary.host}`,
-                    'reply',
+                    'whatsapp_call',
                 );
                 console.warn('[Inbox] WhatsApp call answer has no relay candidates', {
                     callId,
@@ -1948,10 +2296,10 @@ function inboxController() {
                 sdp: localDescription.sdp,
             };
         },
-        async createWhatsappCallSession(callId, callContext = null) {
+        async createWhatsappCallSession(callId, callContext = null, options = {}) {
             try {
                 if (callContext?.session) {
-                    return await this.createAnswerForIncomingCall(callId, callContext);
+                    return await this.createAnswerForIncomingCall(callId, callContext, options);
                 }
                 throw new Error('WhatsApp call session is unavailable.');
             } catch (error) {
@@ -1987,6 +2335,14 @@ function inboxController() {
             if (notificationId) {
                 delete this._callNotifications[callId];
             }
+            const facts = this._callConnectionFacts[callId];
+            if (facts) {
+                delete this._callConnectionFacts[callId];
+            }
+            if (this._callTerminalSuppressions[callId]) {
+                delete this._callTerminalSuppressions[callId];
+            }
+            this.clearCallDisconnectTimer(callId);
         },
         waitForCallIceGathering(peerConnection, timeoutMs = 3000) {
             return new Promise((resolve) => {
@@ -2211,6 +2567,15 @@ function inboxController() {
             this.newConversationContactAddress = contact.whatsapp_address || '';
             this.whatsappContactResults = [];
             this.whatsappContactQuery = contact.name || '';
+        },
+        onWhatsappContactQueryInput() {
+            const selectedName = (this.selectedWhatsappContact?.name || '').trim();
+            const query = (this.whatsappContactQuery || '').trim();
+            if (this.selectedWhatsappContact && query !== selectedName) {
+                this.selectedWhatsappContact = null;
+                this.newConversationContactName = '';
+            }
+            this.searchWhatsappContacts();
         },
         searchWhatsappContacts() {
             const term = (this.whatsappContactQuery || '').trim();
@@ -2478,6 +2843,30 @@ function inboxController() {
             if (stored !== null) {
                 this.notificationSoundEnabled = stored === '1' || stored === 'true';
             }
+            this.primeNotificationSound();
+            this.primeCallRingtone();
+            if (!this._audioPrimeHandlerBound) {
+                this._audioPrimeHandlerBound = true;
+                const unlockAudio = () => {
+                    this.primeNotificationSound();
+                    this.primeCallRingtone();
+                    try {
+                        if (this.callRingtoneAudio) {
+                            const playAttempt = this.callRingtoneAudio.play();
+                            if (playAttempt && typeof playAttempt.then === 'function') {
+                                playAttempt.then(() => {
+                                    this.callRingtoneAudio.pause();
+                                    this.callRingtoneAudio.currentTime = 0;
+                                }).catch(() => {});
+                            }
+                        }
+                    } catch (_error) {}
+                    window.removeEventListener('pointerdown', unlockAudio);
+                    window.removeEventListener('keydown', unlockAudio);
+                };
+                window.addEventListener('pointerdown', unlockAudio, { once: true });
+                window.addEventListener('keydown', unlockAudio, { once: true });
+            }
         },
 
         toggleNotificationSound() {
@@ -2515,8 +2904,87 @@ function inboxController() {
             }
         },
 
+        primeCallRingtone() {
+            try {
+                if (!this.callRingtoneAudio) {
+                    this.callRingtoneAudio = new Audio('/static/audio/inbox-notification.wav');
+                    this.callRingtoneAudio.loop = true;
+                    this.callRingtoneAudio.volume = 0.45;
+                }
+            } catch (error) {
+                console.warn('[Inbox] Call ringtone unavailable', error);
+            }
+        },
+
+        startCallRingtone(callId) {
+            if (!this.notificationSoundEnabled) return;
+            const ringId = String(callId || '').trim();
+            if (!ringId) return;
+            if (this.activeRingtoneCallId === ringId && this.callRingtoneAudio) return;
+            this.primeCallRingtone();
+            if (!this.callRingtoneAudio) return;
+            this.activeRingtoneCallId = ringId;
+            try {
+                this.callRingtoneAudio.currentTime = 0;
+                this.callRingtoneAudio.play().catch(() => {});
+            } catch (error) {
+                console.warn('[Inbox] Call ringtone play error', error);
+            }
+        },
+
+        stopCallRingtone(callId = null) {
+            if (!this.callRingtoneAudio) {
+                this.activeRingtoneCallId = null;
+                return;
+            }
+            const ringId = String(callId || '').trim();
+            if (ringId && this.activeRingtoneCallId && this.activeRingtoneCallId !== ringId) return;
+            try {
+                this.callRingtoneAudio.pause();
+                this.callRingtoneAudio.currentTime = 0;
+            } catch (error) {
+                console.warn('[Inbox] Call ringtone stop error', error);
+            } finally {
+                this.activeRingtoneCallId = null;
+            }
+        },
+
+        isTerminalCallStatus(status) {
+            const normalized = String(status || '').trim().toLowerCase();
+            return ['completed', 'ended', 'terminated', 'terminate', 'rejected', 'failed', 'missed', 'busy', 'no_answer', 'canceled', 'cancelled', 'timeout'].includes(normalized);
+        },
+
         handleAgentNotification(payload) {
             if (!payload) return;
+            const isTerminalCallEvent = payload.kind === 'whatsapp_call' && this.isTerminalCallStatus(payload.call_status);
+            // Auto-clear in-session call card when a terminal event arrives for the active call
+            if (payload.kind === 'whatsapp_call' && this.activeCall) {
+                const payloadCallId = String(payload.call_id || '').trim();
+                const activeCallId = String(this.activeCall.callId || '').trim();
+                const payloadConversationId = String(payload.conversation_id || '').trim();
+                const activeConversationId = String(this.activeCall.conversationId || '').trim();
+                const actions = Array.isArray(payload.call_actions) ? payload.call_actions : [];
+                const matchesActiveCall =
+                    (payloadCallId && activeCallId && payloadCallId === activeCallId) ||
+                    (payloadConversationId && activeConversationId && payloadConversationId === activeConversationId);
+                if (matchesActiveCall && (actions.length === 0 || isTerminalCallEvent)) {
+                    if (activeCallId) {
+                        this.closeCallPeerConnection(activeCallId);
+                    }
+                    this.clearActiveCall();
+                }
+            }
+            if (payload.kind === 'whatsapp_call' && payload.call_id && isTerminalCallEvent) {
+                const callId = String(payload.call_id);
+                const existingNotificationId = this._callNotifications[callId];
+                if (existingNotificationId) {
+                    this.dismissNotification(existingNotificationId);
+                }
+                this.stopCallRingtone(callId);
+                delete this._callNotifications[callId];
+                delete this._callTerminalSuppressions[callId];
+                return;
+            }
             const isConversation = !!payload.conversation_id;
             const isTicket = !!payload.ticket_id;
             if (!isConversation && !isTicket) return;
@@ -2524,6 +2992,9 @@ function inboxController() {
                 return;
             }
             const existing = this.notifications.filter((note) => {
+                if (payload.kind === 'whatsapp_call' && payload.call_id) {
+                    return !(note.kind === 'whatsapp_call' && String(note.callId || '') === String(payload.call_id));
+                }
                 if (isConversation) return note.conversationId !== payload.conversation_id;
                 if (isTicket) return note.ticketId !== payload.ticket_id;
                 return true;
@@ -2535,23 +3006,39 @@ function inboxController() {
                     this.dismissNotification(notification.id);
                 }, notification.autoDismissMs);
             }
+            if (notification.kind === 'whatsapp_call') {
+                const actions = Array.isArray(notification.callActions) ? notification.callActions : [];
+                if (actions.includes('accept')) {
+                    this.startCallRingtone(notification.callId || notification.id);
+                } else {
+                    this.stopCallRingtone(notification.callId || null);
+                }
+            }
             this.playNotificationSound();
         },
 
         buildNotification(payload) {
             const id = `notif-${Date.now()}-${Math.random().toString(16).slice(2)}`;
             const createdAt = payload.last_message_at ? new Date(payload.last_message_at) : new Date();
-            const autoDismissMs = (this.notificationAutoDismissSeconds || 0) * 1000;
+            const isCallNotification = payload.kind === 'whatsapp_call';
+            const autoDismissMs = isCallNotification ? 0 : (this.notificationAutoDismissSeconds || 0) * 1000;
             const ticketRef = payload.ticket_number || payload.ticket_id || null;
             const computedUrl = payload.conversation_id
                 ? null
                 : (ticketRef ? `/admin/support/tickets/${ticketRef}` : null);
             const targetUrl = payload.target_url || computedUrl;
+            const rawSubtitle = typeof payload.subtitle === 'string' ? payload.subtitle.trim() : '';
+            const fallbackName = payload.conversation_id ? this.resolveConversationContactName(payload.conversation_id) : null;
+            const subtitle = (
+                rawSubtitle &&
+                rawSubtitle.toLowerCase() !== 'incoming call' &&
+                rawSubtitle.toLowerCase() !== 'tap to handle call'
+            ) ? rawSubtitle : (fallbackName || rawSubtitle || null);
             return {
                 id,
                 kind: payload.kind || 'reply',
                 title: payload.title || 'New message',
-                subtitle: payload.subtitle || null,
+                subtitle,
                 preview: payload.preview || null,
                 conversationId: payload.conversation_id,
                 contactId: payload.contact_id || null,
@@ -2561,8 +3048,39 @@ function inboxController() {
                 targetUrl,
                 timeLabel: this.formatTimeLabel(createdAt),
                 autoDismissMs,
-                timeoutId: null
+                timeoutId: null,
+                callId: payload.call_id || null,
+                callStatus: payload.call_status || null,
+                callTo: payload.call_to || null,
+                phoneNumberId: payload.phone_number_id || null,
+                callActions: Array.isArray(payload.call_actions) ? payload.call_actions : [],
+                callActionBusy: false,
             };
+        },
+
+        async handleNotificationCallAction(notification, action) {
+            if (!notification || !notification.callId || !action) return;
+            if (notification.callActionBusy) return;
+            notification.callActionBusy = true;
+            this.stopCallRingtone(notification.callId);
+            try {
+                await this.performWhatsappCallAction(notification.callId, action, {
+                    targetPhoneNumberId: notification.phoneNumberId || '',
+                    callTo: notification.callTo || '',
+                });
+                if (action === 'accept') {
+                    this.activateCallCard(notification);
+                    this.dismissNotification(notification.id);
+                } else if (action === 'terminate') {
+                    this.dismissNotification(notification.id);
+                    this.clearActiveCall();
+                }
+            } catch (err) {
+                const message = err instanceof Error ? err.message : 'Call action failed';
+                this.showCallNotification(notification.callId, 'Call action failed', message, 'whatsapp_call');
+            } finally {
+                notification.callActionBusy = false;
+            }
         },
 
         dismissNotification(notificationId) {
@@ -2570,7 +3088,116 @@ function inboxController() {
             if (item && item.timeoutId) {
                 clearTimeout(item.timeoutId);
             }
+            if (item && item.kind === 'whatsapp_call') {
+                this.stopCallRingtone(item.callId || null);
+            }
             this.notifications = this.notifications.filter((note) => note.id !== notificationId);
+        },
+
+        resolveConversationContactName(conversationId) {
+            if (!conversationId) return null;
+            const row = document.querySelector(
+                `[data-conversation-id="${String(conversationId)}"] [data-role="contact-name"]`
+            );
+            if (!row) return null;
+            const text = (row.textContent || '').trim();
+            return text || null;
+        },
+
+        activateCallCard(notification) {
+            const subtitle = (notification.subtitle || '').trim();
+            const isPlaceholderSubtitle =
+                !subtitle ||
+                subtitle.toLowerCase() === 'tap to handle call' ||
+                subtitle.toLowerCase() === 'incoming call';
+            const resolvedName = this.resolveConversationContactName(notification.conversationId);
+            const name = (!isPlaceholderSubtitle ? subtitle : null) || resolvedName || notification.title || 'Unknown';
+            this.activeCall = {
+                callId: notification.callId,
+                contactName: name,
+                contactInitial: name.trim().charAt(0).toUpperCase(),
+                conversationId: notification.conversationId || null,
+                contactId: notification.contactId || null,
+                phoneNumberId: notification.phoneNumberId || '',
+                callTo: notification.callTo || '',
+                startedAt: Date.now(),
+                isMuted: false,
+                isOnHold: false,
+                busy: false,
+            };
+            this.activeCallTimer = '00:00';
+            this.applyActiveCallMediaState();
+            if (this.activeCallTimerInterval) clearInterval(this.activeCallTimerInterval);
+            this.activeCallTimerInterval = setInterval(() => {
+                if (!this.activeCall) return;
+                const elapsed = Math.floor((Date.now() - this.activeCall.startedAt) / 1000);
+                const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
+                const secs = String(elapsed % 60).padStart(2, '0');
+                this.activeCallTimer = `${mins}:${secs}`;
+            }, 1000);
+        },
+
+        applyActiveCallMediaState() {
+            if (!this.activeCall || !this.activeCall.callId) return;
+            const callId = this.activeCall.callId;
+            const localStream = this._callLocalStreams[callId];
+            const localTrackEnabled = !(this.activeCall.isMuted || this.activeCall.isOnHold);
+            if (localStream && typeof localStream.getAudioTracks === 'function') {
+                localStream.getAudioTracks().forEach((track) => {
+                    track.enabled = localTrackEnabled;
+                });
+            }
+            const audio = this._callAudioElements[callId];
+            if (audio) {
+                audio.muted = !!this.activeCall.isOnHold;
+            }
+        },
+
+        toggleActiveCallMute() {
+            if (!this.activeCall || this.activeCall.busy) return;
+            this.activeCall.isMuted = !this.activeCall.isMuted;
+            this.applyActiveCallMediaState();
+        },
+
+        toggleActiveCallHold() {
+            if (!this.activeCall || this.activeCall.busy) return;
+            this.activeCall.isOnHold = !this.activeCall.isOnHold;
+            this.applyActiveCallMediaState();
+            this.showCallNotification(
+                this.activeCall.callId,
+                this.activeCall.isOnHold ? 'Call on hold' : 'Call resumed',
+                this.activeCall.isOnHold ? 'Local media is paused.' : 'Local media is active again.',
+                'whatsapp_call',
+            );
+        },
+
+        async endActiveCall() {
+            if (!this.activeCall || this.activeCall.busy) return;
+            const activeCallRef = this.activeCall;
+            this.activeCall.busy = true;
+            try {
+                await this.performWhatsappCallAction(this.activeCall.callId, 'terminate', {
+                    targetPhoneNumberId: this.activeCall.phoneNumberId,
+                    callTo: this.activeCall.callTo,
+                });
+                this.closeCallPeerConnection(activeCallRef.callId);
+                this.clearActiveCall();
+            } catch (err) {
+                const message = err instanceof Error ? err.message : 'Failed to end call';
+                this.showCallNotification(this.activeCall.callId, 'End call failed', message, 'whatsapp_call');
+                if (this.activeCall && this.activeCall.callId === activeCallRef.callId) {
+                    this.activeCall.busy = false;
+                }
+            }
+        },
+
+        clearActiveCall() {
+            if (this.activeCallTimerInterval) {
+                clearInterval(this.activeCallTimerInterval);
+                this.activeCallTimerInterval = null;
+            }
+            this.activeCall = null;
+            this.activeCallTimer = '00:00';
         },
 
         openNotification(notification) {
@@ -2725,41 +3352,99 @@ function inboxController() {
         uploadAttachments(event, kind = 'message') {
             if (!this.selectedConversation) {
                 console.warn('[Inbox] No conversation selected for attachments');
+                const errorEl = document.querySelector('#message-thread [x-ref="messageError"]');
+                if (kind === 'message' && errorEl) {
+                    errorEl.textContent = 'Select a conversation before attaching files.';
+                }
                 return;
             }
             const files = event.target.files;
             if (!files || !files.length) return;
             const token = this.getCsrfToken();
             const formData = new FormData();
-            Array.from(files).forEach((file) => formData.append('files', file));
+            const selectedFiles = Array.from(files);
+            if (kind === 'message') {
+                this.selectedMessageAttachmentNames = selectedFiles.map((file) => file && file.name).filter(Boolean);
+                const errorEl = document.querySelector('#message-thread [x-ref="messageError"]');
+                if (errorEl) {
+                    errorEl.textContent = '';
+                }
+            } else {
+                const errorEl = document.querySelector('#message-thread [data-private-note-error]');
+                if (errorEl) {
+                    errorEl.textContent = '';
+                }
+            }
+            selectedFiles.forEach((file) => {
+                formData.append('files', file);
+                formData.append('attachments', file);
+            });
 
             fetch(`/admin/crm/inbox/conversation/${this.selectedConversation}/attachments`, {
                 method: 'POST',
-                headers: { 'X-CSRF-Token': token || '' },
+                headers: {
+                    'X-CSRF-Token': token || '',
+                    'Accept': 'application/json'
+                },
                 body: formData
             })
             .then(async (response) => {
+                let data = {};
+                try {
+                    data = await response.json();
+                } catch (err) {
+                    data = {};
+                }
                 if (!response.ok) {
                     let detail = 'Upload failed';
-                    try {
-                        const data = await response.json();
-                        detail = data.detail || detail;
-                    } catch (err) {}
+                    if (data && typeof data === 'object') {
+                        if (typeof data.detail === 'string' && data.detail.trim()) {
+                            detail = data.detail;
+                        } else if (typeof data.message === 'string' && data.message.trim()) {
+                            detail = data.message;
+                        } else if (Array.isArray(data.details) && data.details.length) {
+                            const first = data.details[0];
+                            if (first && typeof first === 'object' && typeof first.msg === 'string' && first.msg.trim()) {
+                                detail = first.msg;
+                            }
+                        }
+                    }
                     throw new Error(detail);
                 }
-                return response.json();
+                return data;
             })
             .then((data) => {
-                const attachments = data.attachments || [];
+                const rawAttachments = data?.attachments ?? data?.files ?? data?.uploads ?? [];
+                const attachments = Array.isArray(rawAttachments)
+                    ? rawAttachments
+                    : rawAttachments
+                        ? [rawAttachments]
+                        : [];
+                if (!attachments.length) {
+                    throw new Error('Upload failed');
+                }
                 if (kind === 'private') {
                     this.pendingPrivateAttachments = [...this.pendingPrivateAttachments, ...attachments];
                     return;
                 }
                 this.pendingMessageAttachments = [...this.pendingMessageAttachments, ...attachments];
+                this.selectedMessageAttachmentNames = [];
                 this.syncMessageAttachmentField();
             })
             .catch((err) => {
                 console.error('[Inbox] attachment upload failed', err);
+                const detail = (err && err.message) ? err.message : 'Upload failed';
+                if (kind === 'private') {
+                    const errorEl = document.querySelector('#message-thread [data-private-note-error]');
+                    if (errorEl) {
+                        errorEl.textContent = detail;
+                    }
+                    return;
+                }
+                const errorEl = document.querySelector('#message-thread [x-ref="messageError"]');
+                if (errorEl) {
+                    errorEl.textContent = detail;
+                }
             })
             .finally(() => {
                 event.target.value = '';
@@ -2909,35 +3594,15 @@ function inboxController() {
         },
 
         restoreConversationCache() {
-            if (this.currentChannel === 'comments') {
-                return;
-            }
-            try {
-                const cached = localStorage.getItem(this.cacheKey());
-                if (cached) {
-                    const list = document.querySelector('#conversation-list');
-                    if (list) {
-                        list.innerHTML = cached;
-                        setTimeout(() => this.refreshConversations(), 0);
-                    }
-                }
-            } catch (err) {
-                console.log('[Inbox] cache restore failed', err);
-            }
+            // Disabled intentionally: stale/corrupt cached markup can replace
+            // the inbox list with invalid DOM and hide conversations.
+            // Always render from server/HTMX for deterministic layout.
+            return;
         },
 
         storeConversationCache() {
-            if (this.currentChannel === 'comments') {
-                return;
-            }
-            try {
-                const list = document.querySelector('#conversation-list');
-                if (list) {
-                    localStorage.setItem(this.cacheKey(), list.innerHTML);
-                }
-            } catch (err) {
-                console.log('[Inbox] cache store failed', err);
-            }
+            // Keep disabled with restoreConversationCache.
+            return;
         },
 
         filterConversations(options = {}) {
@@ -3007,6 +3672,7 @@ function inboxController() {
             this.localPresenceState = 'viewing';
             this.pendingMessageAttachments = [];
             this.pendingPrivateAttachments = [];
+            this.selectedMessageAttachmentNames = [];
             this.syncMessageAttachmentField();
 
             // Subscribe to new conversation
@@ -3194,7 +3860,7 @@ function inboxController() {
             });
         },
         acknowledgeListStale() {
-            this.refreshConversations();
+            this.refreshConversations(true);
         },
         acknowledgeThreadStale() {
             if (!this.selectedConversation) {

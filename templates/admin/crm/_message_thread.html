@@ -464,6 +464,16 @@
 <!-- Messages Container -->
 <div id="messages-container" class="relative z-0 flex-1 min-h-0 overflow-y-auto inbox-scroll px-6 py-6">
 <div id="message-list" class="max-w-6xl mx-auto space-y-4">
+        {% set call_state = namespace(latest_status_by_id={}, latest_message_id_by_id={}) %}
+        {% for msg in messages|reverse %}
+        {% if msg.is_call and msg.call_id %}
+        {% set call_id_key = (msg.call_id|string)|trim %}
+        {% if call_id_key and (call_state.latest_status_by_id.get(call_id_key) is none) %}
+        {% set _ = call_state.latest_status_by_id.update({call_id_key: ((msg.call_status or '') | string | lower)}) %}
+        {% set _ = call_state.latest_message_id_by_id.update({call_id_key: (msg.id|string)}) %}
+        {% endif %}
+        {% endif %}
+        {% endfor %}
         {% for msg in messages %}
         {% if msg.is_assignment_event %}
         <div class="msg-slide-up flex items-start gap-3" style="animation-delay: {{ loop.index0 * 50 }}ms;">
@@ -508,10 +518,14 @@
         </div>
         {% elif msg.is_call %}
         {% set call_status = (msg.call_status or '') | string | lower %}
+        {% set call_id_key = (msg.call_id|string)|trim if msg.call_id else '' %}
+        {% set latest_call_status = call_state.latest_status_by_id.get(call_id_key) if call_id_key else call_status %}
+        {% set is_latest_call_event = (call_state.latest_message_id_by_id.get(call_id_key) == (msg.id|string)) if call_id_key else False %}
         {% set call_direction = (msg.call_direction or '') | string | lower %}
         {% set call_to = msg.call_to or '' %}
         {% set call_from = msg.call_from or '' %}
         {% set call_target = call_to %}
+        {% set call_accepted_by_name = (msg.call_accepted_by_name or '') | trim %}
         {% if call_direction == 'inbound' and call_from %}
         {% set call_target = call_from %}
         {% elif call_direction == 'outbound' and call_to %}
@@ -519,8 +533,13 @@
         {% elif not call_target %}
         {% set call_target = call_from %}
         {% endif %}
-        {% set call_terminal = call_status in ['completed', 'ended', 'terminated', 'rejected', 'failed', 'missed', 'busy', 'no_answer', 'canceled', 'cancelled', 'timeout'] %}
-        {% set call_connect_stage = call_status in ['connect', 'ringing', 'ring', 'incoming', 'invited', 'calling'] %}
+        {% set call_terminal = latest_call_status in ['completed', 'ended', 'terminated', 'terminate', 'rejected', 'failed', 'missed', 'busy', 'no_answer', 'canceled', 'cancelled', 'timeout'] %}
+        {% set call_status_label = (msg.call_status or '') | replace('_', ' ') | title %}
+        {% if call_status == 'terminate' %}
+        {% set call_status_label = 'Terminated' %}
+        {% endif %}
+        {% set call_connect_stage = latest_call_status in ['connect', 'ringing', 'ring', 'incoming', 'invited', 'calling'] %}
+        {% set call_active_stage = latest_call_status in ['accepted', 'connected', 'in_progress', 'ongoing', 'active'] %}
         <div class="msg-slide-up {% if msg.direction == 'outbound' %}flex justify-end{% endif %}" style="animation-delay: {{ loop.index0 * 50 }}ms;">
             <div class="w-full {% if msg.direction == 'outbound' %}pl-[18%]{% else %}pr-[18%]{% endif %}">
                 <div class="{% if msg.direction == 'outbound' %}message-outbound inline-flex w-fit max-w-[72%] flex-col gap-2 rounded-2xl rounded-tr-md px-3 py-2 border border-primary-500/20 bg-primary-500/10 dark:bg-transparent dark:border-primary-500/20{% else %}message-inbound inline-flex w-fit max-w-[72%] flex-col gap-2 rounded-2xl rounded-tl-md px-3 py-2 border border-slate-200 bg-slate-100 dark:bg-transparent dark:border-slate-700/40{% endif %}">
@@ -529,7 +548,7 @@
                     </p>
                     {% if msg.call_id %}
                     <div class="flex flex-wrap gap-2 pt-1">
-                        {% if call_connect_stage and not call_terminal %}
+                        {% if is_latest_call_event and call_connect_stage and not call_terminal %}
                         <button type="button"
                                 data-action="whatsapp-call-action"
                                 data-call-id="{{ msg.call_id }}"
@@ -549,7 +568,7 @@
                             Reject
                         </button>
                         {% endif %}
-                        {% if not call_terminal and call_status %}
+                        {% if is_latest_call_event and call_active_stage and not call_terminal %}
                         <button type="button"
                                 data-action="whatsapp-call-action"
                                 data-call-id="{{ msg.call_id }}"
@@ -562,11 +581,16 @@
                         {% endif %}
                         {% if call_direction %}
                         <span class="inline-flex items-center rounded-full border border-slate-200/70 bg-white/70 px-2 py-1 text-[10px] font-semibold text-slate-600 dark:border-slate-700/70 dark:bg-slate-900/50 dark:text-slate-300">
-                            {{ call_direction | title }} {{ msg.call_type or 'Call' }}{% if msg.call_status %} ({{ call_status | replace('_', ' ') }}){% endif %}
+                            {{ call_direction | title }} {{ msg.call_type or 'Call' }}{% if msg.call_status %} ({{ call_status_label }}){% endif %}
                         </span>
                         {% elif msg.call_status %}
                         <span class="inline-flex items-center rounded-full border border-slate-200/70 bg-white/70 px-2 py-1 text-[10px] font-semibold text-slate-600 dark:border-slate-700/70 dark:bg-slate-900/50 dark:text-slate-300">
-                            {{ msg.call_status | replace('_', ' ') | title }}
+                            {{ call_status_label }}
+                        </span>
+                        {% endif %}
+                        {% if call_terminal and call_accepted_by_name %}
+                        <span class="inline-flex items-center rounded-full border border-primary-200/80 bg-primary-50/80 px-2 py-1 text-[10px] font-semibold text-primary-700 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-300">
+                            Picked by {{ call_accepted_by_name }}
                         </span>
                         {% endif %}
                     </div>
@@ -1133,6 +1157,14 @@
                ">
         <input type="hidden" name="attachments" x-ref="messageAttachments">
         <p x-ref="messageError" class="mt-2 text-[11px] text-red-500 dark:text-red-400"></p>
+
+        <div x-show="selectedMessageAttachmentNames.length && !pendingMessageAttachments.length" class="mt-2 flex flex-wrap gap-2">
+            <template x-for="(name, idx) in selectedMessageAttachmentNames" :key="'selected-' + idx">
+                <span class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-[11px] text-slate-600 dark:border-slate-700/40 dark:bg-slate-900/40 dark:text-slate-300">
+                    <span x-text="name"></span>
+                </span>
+            </template>
+        </div>
 
         <div x-show="pendingMessageAttachments.length" class="mt-2 flex flex-wrap gap-2">
             <template x-for="(att, idx) in pendingMessageAttachments" :key="att.stored_name || idx">

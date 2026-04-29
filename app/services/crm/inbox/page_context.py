@@ -142,6 +142,7 @@ async def build_inbox_page_context(
 
     comments_mode = channel == "comments"
     force_refresh_thread = str(query_params.get("reply_sent") or "").strip() == "1"
+    missing = str(query_params.get("missing") or "").strip() or None
     comments: list[dict] = []
     selected_comment = None
     comment_replies: list[dict] = []
@@ -189,6 +190,7 @@ async def build_inbox_page_context(
             filter_agent_id=filter_agent_id,
             assigned_from=assigned_from,
             assigned_to=assigned_to,
+            missing=missing,
             offset=0,
             limit=page_limit,
             include_thread=False,
@@ -250,10 +252,21 @@ async def build_inbox_page_context(
 
         if conversation_id:
             try:
-                conv = conversation_service.Conversations.get(db, conversation_id)
-                selected_conversation = format_conversation_for_template(conv, db, include_inbox_label=True)
+                current_roles = list((current_user or {}).get("roles") or [])
+                detail_context = build_inbox_conversation_detail_context(
+                    db,
+                    conversation_id=conversation_id,
+                    current_user=current_user,
+                    current_roles=current_roles,
+                )
+                if detail_context:
+                    selected_conversation = detail_context.get("conversation")
+                    messages = detail_context.get("messages") or []
+                else:
+                    conv = conversation_service.Conversations.get(db, conversation_id)
+                    selected_conversation = format_conversation_for_template(conv, db, include_inbox_label=True)
             except Exception:
-                logger.debug("Failed to format contact sidebar details for inbox context.", exc_info=True)
+                logger.debug("Failed to build selected conversation thread for inbox context.", exc_info=True)
 
     stats, channel_stats = load_inbox_stats(db, timezone=inbox_timezone)
     assignment_counts = get_assignment_counts(db, assigned_person_id=assigned_person_id)
@@ -341,6 +354,7 @@ async def build_inbox_page_context(
         "current_filter_agent_id": filter_agent_id or "",
         "current_assigned_from": assigned_from.strftime("%Y-%m-%d") if assigned_from else "",
         "current_assigned_to": assigned_to.strftime("%Y-%m-%d") if assigned_to else "",
+        "current_missing": missing or "",
         "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
         "notification_auto_dismiss_seconds": notification_auto_dismiss_seconds,
         "inbox_timezone": inbox_timezone,
@@ -438,6 +452,10 @@ async def build_inbox_conversations_partial_context(
         "current_outbox_status": outbox_status,
         "current_assignment": assignment,
         "current_target_id": target_id,
+        "current_filter_agent_id": filter_agent_id or "",
+        "current_assigned_from": assigned_from.strftime("%Y-%m-%d") if assigned_from else "",
+        "current_assigned_to": assigned_to.strftime("%Y-%m-%d") if assigned_to else "",
+        "current_missing": missing or "",
         "search": search,
         "conversations_has_more": listing.has_more,
         "conversations_next_offset": listing.next_offset,
