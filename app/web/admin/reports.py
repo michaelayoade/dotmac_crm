@@ -976,6 +976,11 @@ def subscriber_billing_risk(
     segment: str | None = Query(None),
     segments: list[str] = Query(default=[]),
     days_past_due: str | None = Query(None),
+    bucket: str | None = Query("all"),
+    search: str | None = Query(None),
+    enterprise_only: bool = Query(False),
+    customer_segment: str | None = Query(None),
+    mrr_sort: str | None = Query(None),
 ):
     """Billing risk dashboard for blocked, overdue, and otherwise at-risk subscribers."""
     from app.services import subscriber_reports as sr
@@ -985,6 +990,8 @@ def subscriber_billing_risk(
     query_segments = request.query_params.getlist("segments")
     query_segment = request.query_params.get("segment")
     query_days_past_due = request.query_params.get("days_past_due")
+    mrr_sort_value = request.query_params.get("mrr_sort")
+    normalized_mrr_sort = (mrr_sort_value if mrr_sort_value is not None else (mrr_sort if isinstance(mrr_sort, str) else "")).strip().lower()
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments, query_segment or segment
     )
@@ -1003,6 +1010,43 @@ def subscriber_billing_risk(
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
+    normalized_search = (search if isinstance(search, str) else "").strip().lower()
+    if normalized_search:
+        churn_rows = [
+            row for row in churn_rows
+            if normalized_search in " ".join(
+                [
+                    str(row.get("name") or ""),
+                    str(row.get("subscriber_id") or ""),
+                    str(row.get("phone") or ""),
+                    str(row.get("city") or ""),
+                    str(row.get("street") or ""),
+                    str(row.get("area") or ""),
+                    str(row.get("plan") or ""),
+                ]
+            ).lower()
+        ]
+    normalized_bucket = (bucket if isinstance(bucket, str) else "all").strip().lower()
+    if normalized_bucket != "all":
+        def _matches_bucket(row: dict) -> bool:
+            value = row.get("blocked_for_days")
+            if value is None:
+                return False
+            days = int(value)
+            if normalized_bucket == "0-7":
+                return 0 <= days <= 7
+            if normalized_bucket == "8-30":
+                return 8 <= days <= 30
+            if normalized_bucket == "31-60":
+                return 31 <= days <= 60
+            if normalized_bucket == "61+":
+                return days >= 61
+            return True
+        churn_rows = [row for row in churn_rows if _matches_bucket(row)]
+    if normalized_mrr_sort == "desc":
+        churn_rows.sort(key=lambda row: (-float(row.get("mrr_total") or 0), str(row.get("name") or "").casefold()))
+    elif normalized_mrr_sort == "asc":
+        churn_rows.sort(key=lambda row: (float(row.get("mrr_total") or 0), str(row.get("name") or "").casefold()))
     overdue_invoices = sr.get_overdue_invoices_table(
         db,
         min_days_past_due=overdue_invoice_days,
@@ -1019,6 +1063,9 @@ def subscriber_billing_risk(
             "high_balance_only": str(high_balance_only).lower(),
             "segments": selected_segments,
             "days_past_due": query_days_past_due or days_past_due,
+            "bucket": bucket or "all",
+            "search": search or "",
+            "mrr_sort": normalized_mrr_sort,
         },
         doseq=True,
     )
@@ -1028,6 +1075,9 @@ def subscriber_billing_risk(
             "high_balance_only": str(high_balance_only).lower(),
             "segments": selected_segments,
             "days_past_due": query_days_past_due or days_past_due,
+            "bucket": bucket or "all",
+            "search": search or "",
+            "mrr_sort": normalized_mrr_sort,
         },
         doseq=True,
     )
@@ -1039,10 +1089,50 @@ def subscriber_billing_risk(
             "segment": segment or "",
             "segments": selected_segments,
             "days_past_due": query_days_past_due or days_past_due or "",
+            "bucket": bucket or "all",
+            "search": search or "",
+            "mrr_sort": normalized_mrr_sort,
         },
         doseq=True,
     )
-
+    segment_all_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "overdue_invoice_days": overdue_invoice_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "days_past_due": query_days_past_due or days_past_due or "",
+            "bucket": bucket or "all",
+            "search": search or "",
+            "mrr_sort": normalized_mrr_sort,
+        },
+        doseq=True,
+    )
+    segment_due_soon_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "overdue_invoice_days": overdue_invoice_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "days_past_due": query_days_past_due or days_past_due or "",
+            "bucket": bucket or "all",
+            "search": search or "",
+            "mrr_sort": normalized_mrr_sort,
+            "segment": "overdue",
+        },
+        doseq=True,
+    )
+    segment_suspended_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "overdue_invoice_days": overdue_invoice_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "days_past_due": query_days_past_due or days_past_due or "",
+            "bucket": bucket or "all",
+            "search": search or "",
+            "mrr_sort": normalized_mrr_sort,
+            "segment": "suspended",
+        },
+        doseq=True,
+    )
     return templates.TemplateResponse(
         "admin/reports/subscriber_billing_risk.html",
         {
@@ -1065,11 +1155,18 @@ def subscriber_billing_risk(
             "export_query": export_query,
             "retention_tracker_query": retention_tracker_query,
             "refresh_query": refresh_query,
+            "segment_all_query": segment_all_query,
+            "segment_due_soon_query": segment_due_soon_query,
+            "segment_suspended_query": segment_suspended_query,
             "last_synced_at": _latest_subscriber_sync_at(db),
             "billing_risk_cache": {"row_count": len(churn_rows)},
             "csrf_token": get_csrf_token(request),
             "refresh_started": request.query_params.get("refresh_started") == "1",
             "refresh_error": request.query_params.get("refresh_error"),
+            "live_bucket": bucket or "all",
+            "live_search": search or "",
+            "live_mrr_sort": normalized_mrr_sort,
+            "enterprise_mrr_threshold": 70000,
         },
     )
 
@@ -1103,6 +1200,9 @@ def subscriber_billing_risk_export(
     segment: str | None = Query(None),
     segments: list[str] = Query(default=[]),
     days_past_due: str | None = Query(None),
+    enterprise_only: bool = Query(False),
+    customer_segment: str | None = Query(None),
+    mrr_sort: str | None = Query(None),
 ):
     """Export billing risk rows as CSV."""
     from app.services import subscriber_reports as sr
@@ -1110,6 +1210,8 @@ def subscriber_billing_risk_export(
     query_segments = request.query_params.getlist("segments")
     query_segment = request.query_params.get("segment")
     query_days_past_due = request.query_params.get("days_past_due")
+    mrr_sort_value = request.query_params.get("mrr_sort")
+    normalized_mrr_sort = (mrr_sort_value if mrr_sort_value is not None else (mrr_sort if isinstance(mrr_sort, str) else "")).strip().lower()
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments, query_segment or segment
     )
@@ -1127,6 +1229,10 @@ def subscriber_billing_risk_export(
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
+    if normalized_mrr_sort == "desc":
+        churn_rows.sort(key=lambda row: (-float(row.get("mrr_total") or 0), str(row.get("name") or "").casefold()))
+    elif normalized_mrr_sort == "asc":
+        churn_rows.sort(key=lambda row: (float(row.get("mrr_total") or 0), str(row.get("name") or "").casefold()))
     export_data = [
         {
             "Name": row["name"],
