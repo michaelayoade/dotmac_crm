@@ -2,13 +2,15 @@
 
 import csv
 import io
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 from urllib.parse import quote, urlencode
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi import APIRouter, Depends, Form, Query, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
@@ -22,6 +24,7 @@ from app.services import operations_sla_reports as operations_sla_reports_servic
 from app.services.auth_dependencies import require_any_permission
 from app.services.crm import reports as crm_reports_service
 from app.services.crm import team as crm_team_service
+from app.services.quarterly_reports import build_quarterly_report
 from app.tasks.subscribers import sync_subscribers_from_splynx
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.templates import Jinja2Templates
@@ -33,11 +36,57 @@ templates = Jinja2Templates(directory="templates")
 
 _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS = [
     {"value": "all", "label": "All ticket states"},
-    {"value": "with_ticket", "label": "With ticket"},
-    {"value": "no_ticket", "label": "No ticket"},
-    {"value": "open", "label": "Open / Pending"},
+    {"value": "new", "label": "New"},
+    {"value": "open", "label": "Open"},
+    {"value": "pending", "label": "Pending"},
+    {"value": "waiting_on_customer", "label": "Waiting On Customer"},
+    {"value": "lastmile_rerun", "label": "Lastmile Rerun"},
+    {"value": "site_under_construction", "label": "Site Under Construction"},
+    {"value": "on_hold", "label": "On Hold"},
     {"value": "closed", "label": "Closed"},
+    {"value": "canceled", "label": "Canceled"},
+    {"value": "merged", "label": "Merged"},
 ]
+
+_ONLINE_LAST_24H_NOTIFICATION_STATE_OPTIONS = [
+    {"value": "all", "label": "All notifications"},
+    {"value": "notified", "label": "Notified"},
+    {"value": "unnotified", "label": "Not Notified"},
+]
+
+
+def _ticket_status_kpi_label(status_value: str) -> str:
+    if not status_value:
+        return "No Ticket"
+    return status_value.replace("_", " ").title()
+
+
+def _online_last_24h_ticket_status_cards(rows: list[dict]) -> list[dict[str, int | str]]:
+    tracked_statuses = ["open", "closed", "canceled", "pending"]
+    ticket_status_counts: dict[str, int] = {}
+
+    for row in rows:
+        status_value = str(row.get("ticket_status") or "").strip().lower()
+        if not status_value:
+            continue
+        ticket_status_counts[status_value] = ticket_status_counts.get(status_value, 0) + 1
+
+    return [
+        {
+            "label": _ticket_status_kpi_label(status_value),
+            "value": ticket_status_counts.get(status_value, 0),
+        }
+        for status_value in tracked_statuses
+    ]
+
+
+def _filter_online_last_24h_notification_state(rows: list[dict], notification_state: str) -> list[dict]:
+    normalized = (notification_state or "all").strip().lower()
+    if normalized == "notified":
+        return [row for row in rows if str(row.get("notification_state") or "").strip().lower() == "notified"]
+    if normalized == "unnotified":
+        return [row for row in rows if str(row.get("notification_state") or "").strip().lower() == "unnotified"]
+    return rows
 
 
 def _normalize_segment_filters(segments: list[str] | str | None, segment: str | None) -> list[str]:
@@ -128,6 +177,20 @@ def _append_query_flag(url: str, key: str, value: str) -> str:
     return f"{url}{separator}{quote(key)}={quote(value)}"
 
 
+def _toast_redirect(url: str, *, message: str, toast_type: str = "success", status_code: int = 303) -> RedirectResponse:
+    headers = {
+        "HX-Trigger": json.dumps(
+            {
+                "showToast": {
+                    "type": toast_type,
+                    "message": message,
+                }
+            }
+        )
+    }
+    return RedirectResponse(url=url, status_code=status_code, headers=headers)
+
+
 def _latest_subscriber_sync_at(db: Session) -> datetime | None:
     latest = db.scalar(select(func.max(Subscriber.last_synced_at)))
     if latest is None:
@@ -165,6 +228,44 @@ def _resolve_lifecycle_date_range(
 @router.get("/operations")
 def operations_report_alias():
     return RedirectResponse(url="/admin/operations/work-orders", status_code=302)
+
+
+@router.get(
+    "/quarterly",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("reports:operations", "reports"))],
+)
+def quarterly_report(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = get_current_user(request)
+    load_error = ""
+    report: dict[str, object] = {
+        "sources": {
+            "customer_workbook": "Dotmac Customer internet usage.xlsx",
+            "plan_workbook": "Internet plan usage.xlsx",
+        }
+    }
+    try:
+        report = build_quarterly_report()
+    except FileNotFoundError as exc:
+        logger.warning("quarterly_report_missing_source path=%s", exc.filename)
+        load_error = "source_missing"
+
+    return templates.TemplateResponse(
+        "admin/reports/quarterly_report.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "quarterly-report",
+            "active_menu": "reports",
+            "report": report,
+            "load_error": load_error,
+        },
+    )
 
 
 @router.get("/operations-sla-violations", response_class=HTMLResponse)
@@ -438,8 +539,10 @@ def subscriber_online_last_24h(
     region: str | None = Query(None),
     search: str | None = Query(None),
     ticket_status: str | None = Query("all"),
+    notification_state: str | None = Query("all"),
 ):
     """Subscribers with online/session activity in the last 24 hours."""
+    from app.services import subscriber_notifications as subscriber_notifications_service
     from app.services import subscriber_reports as sr
 
     user = get_current_user(request)
@@ -454,6 +557,10 @@ def subscriber_online_last_24h(
     valid_ticket_values = {item["value"] for item in _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS}
     if selected_ticket_status not in valid_ticket_values:
         selected_ticket_status = "all"
+    selected_notification_state = (notification_state or "all").strip().lower()
+    valid_notification_values = {item["value"] for item in _ONLINE_LAST_24H_NOTIFICATION_STATE_OPTIONS}
+    if selected_notification_state not in valid_notification_values:
+        selected_notification_state = "all"
     search_value = (search or "").strip()
 
     online_customers = sr.online_customers_last_24h_rows(
@@ -461,8 +568,11 @@ def subscriber_online_last_24h(
         subscriber_ids=subscriber_ids,
         search=search_value,
         ticket_status=selected_ticket_status,
+        notification_state=selected_notification_state,
         limit=None,
     )
+    online_customers = subscriber_notifications_service.enrich_notification_rows(online_customers, db)
+    online_customers = _filter_online_last_24h_notification_state(online_customers, selected_notification_state)
 
     return templates.TemplateResponse(
         "admin/reports/subscriber_online_last_24h.html",
@@ -475,17 +585,107 @@ def subscriber_online_last_24h(
             "active_menu": "reports",
             "online_customers": online_customers,
             "summary_total": len(online_customers),
-            "summary_no_ticket": sum(1 for row in online_customers if not row.get("ticket_id")),
-            "summary_with_ticket": sum(1 for row in online_customers if row.get("ticket_id")),
-            "summary_closed_ticket": sum(1 for row in online_customers if row.get("ticket_status") == "Closed"),
+            "summary_no_ticket": sum(1 for row in online_customers if not row.get("ticket_status")),
+            "ticket_status_kpis": _online_last_24h_ticket_status_cards(online_customers),
             "filter_opts": filter_opts,
             "selected_status": selected_status.value if selected_status else "",
             "selected_region": selected_region or "",
             "search": search_value,
             "selected_ticket_status": selected_ticket_status,
             "ticket_status_options": _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS,
+            "selected_notification_state": selected_notification_state,
+            "notification_state_options": _ONLINE_LAST_24H_NOTIFICATION_STATE_OPTIONS,
+            "current_query": request.url.path + (f"?{request.url.query}" if request.url.query else ""),
         },
     )
+
+
+@router.get("/subscribers/online-last-24h/context/{subscriber_id}", response_class=JSONResponse)
+def subscriber_online_last_24h_notify_context(
+    subscriber_id: UUID,
+    last_seen_at: str | None = Query(None),
+    last_activity: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    from app.services import subscriber_notifications as subscriber_notifications_service
+
+    payload = subscriber_notifications_service.notification_context_for_subscriber(
+        db,
+        subscriber_id=subscriber_id,
+        last_seen_text=last_seen_at,
+        last_activity=last_activity,
+    )
+    return JSONResponse(payload)
+
+
+@router.post("/subscribers/online-last-24h/templates", response_class=JSONResponse)
+def subscriber_online_last_24h_save_template(
+    template_key: str = Form(...),
+    email_subject: str = Form(...),
+    email_body: str = Form(...),
+    sms_body: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    from app.services import subscriber_notifications as subscriber_notifications_service
+
+    saved = subscriber_notifications_service.save_template_bundle(
+        db,
+        template_key=template_key,
+        email_subject=email_subject,
+        email_body=email_body,
+        sms_body=sms_body,
+    )
+    return JSONResponse({"ok": True, "template": saved})
+
+
+@router.post("/subscribers/online-last-24h/notify")
+def subscriber_online_last_24h_notify(
+    request: Request,
+    subscriber_id: UUID = Form(...),
+    channel: str = Form(...),
+    email_subject: str | None = Form(None),
+    email_body: str | None = Form(None),
+    sms_body: str | None = Form(None),
+    scheduled_local_at: str | None = Form(None),
+    next_url: str = Form("/admin/reports/subscribers/online-last-24h"),
+    db: Session = Depends(get_db),
+):
+    from app.services import subscriber_notifications as subscriber_notifications_service
+
+    if not next_url.startswith("/admin/reports/subscribers/online-last-24h"):
+        next_url = "/admin/reports/subscribers/online-last-24h"
+
+    user = get_current_user(request)
+    raw_user_id = user.get("id")
+    raw_person_id = user.get("person_id")
+
+    try:
+        subscriber_notifications_service.queue_subscriber_notification(
+            db,
+            subscriber_id=subscriber_id,
+            channel_value=channel,
+            email_subject=email_subject,
+            email_body=email_body,
+            sms_body=sms_body,
+            scheduled_local_text=scheduled_local_at,
+            sent_by_user_id=UUID(str(raw_user_id)) if raw_user_id else None,
+            sent_by_person_id=UUID(str(raw_person_id)) if raw_person_id else None,
+        )
+    except Exception as exc:
+        db.rollback()
+        if isinstance(exc, Response):
+            return exc
+        detail = getattr(exc, "detail", None) or str(exc)
+        return _toast_redirect(next_url, message=str(detail), toast_type="error", status_code=303)
+
+    channel_label = channel.strip().lower()
+    if channel_label == "both":
+        message = "Email and SMS notifications saved in test queue. No customer message was sent."
+    elif channel_label == "sms":
+        message = "SMS notification saved in test queue. No customer message was sent."
+    else:
+        message = "Email notification saved in test queue. No customer message was sent."
+    return _toast_redirect(next_url, message=message)
 
 
 @router.get("/subscribers/online-last-24h/export")
@@ -495,8 +695,10 @@ def subscriber_online_last_24h_export(
     region: str | None = Query(None),
     search: str | None = Query(None),
     ticket_status: str | None = Query("all"),
+    notification_state: str | None = Query("all"),
 ):
     """Export last-24h online subscribers report."""
+    from app.services import subscriber_notifications as subscriber_notifications_service
     from app.services import subscriber_reports as sr
 
     filter_opts = sr.overview_filter_options(db)
@@ -509,14 +711,21 @@ def subscriber_online_last_24h_export(
     valid_ticket_values = {item["value"] for item in _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS}
     if selected_ticket_status not in valid_ticket_values:
         selected_ticket_status = "all"
+    selected_notification_state = (notification_state or "all").strip().lower()
+    valid_notification_values = {item["value"] for item in _ONLINE_LAST_24H_NOTIFICATION_STATE_OPTIONS}
+    if selected_notification_state not in valid_notification_values:
+        selected_notification_state = "all"
 
     online_customers = sr.online_customers_last_24h_rows(
         db,
         subscriber_ids=subscriber_ids,
         search=(search or "").strip(),
         ticket_status=selected_ticket_status,
+        notification_state=selected_notification_state,
         limit=None,
     )
+    online_customers = subscriber_notifications_service.enrich_notification_rows(online_customers, db)
+    online_customers = _filter_online_last_24h_notification_state(online_customers, selected_notification_state)
 
     export_rows = [
         {
@@ -767,6 +976,11 @@ def subscriber_billing_risk(
     segment: str | None = Query(None),
     segments: list[str] = Query(default=[]),
     days_past_due: str | None = Query(None),
+    bucket: str | None = Query("all"),
+    search: str | None = Query(None),
+    enterprise_only: bool = Query(False),
+    customer_segment: str | None = Query(None),
+    mrr_sort: str | None = Query(None),
 ):
     """Billing risk dashboard for blocked, overdue, and otherwise at-risk subscribers."""
     from app.services import subscriber_reports as sr
@@ -776,6 +990,12 @@ def subscriber_billing_risk(
     query_segments = request.query_params.getlist("segments")
     query_segment = request.query_params.get("segment")
     query_days_past_due = request.query_params.get("days_past_due")
+    mrr_sort_value = request.query_params.get("mrr_sort")
+    normalized_mrr_sort = (
+        (mrr_sort_value if mrr_sort_value is not None else (mrr_sort if isinstance(mrr_sort, str) else ""))
+        .strip()
+        .lower()
+    )
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments, query_segment or segment
     )
@@ -794,6 +1014,47 @@ def subscriber_billing_risk(
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
+    normalized_search = (search if isinstance(search, str) else "").strip().lower()
+    if normalized_search:
+        churn_rows = [
+            row
+            for row in churn_rows
+            if normalized_search
+            in " ".join(
+                [
+                    str(row.get("name") or ""),
+                    str(row.get("subscriber_id") or ""),
+                    str(row.get("phone") or ""),
+                    str(row.get("city") or ""),
+                    str(row.get("street") or ""),
+                    str(row.get("area") or ""),
+                    str(row.get("plan") or ""),
+                ]
+            ).lower()
+        ]
+    normalized_bucket = (bucket if isinstance(bucket, str) else "all").strip().lower()
+    if normalized_bucket != "all":
+
+        def _matches_bucket(row: dict) -> bool:
+            value = row.get("blocked_for_days")
+            if value is None:
+                return False
+            days = int(value)
+            if normalized_bucket == "0-7":
+                return 0 <= days <= 7
+            if normalized_bucket == "8-30":
+                return 8 <= days <= 30
+            if normalized_bucket == "31-60":
+                return 31 <= days <= 60
+            if normalized_bucket == "61+":
+                return days >= 61
+            return True
+
+        churn_rows = [row for row in churn_rows if _matches_bucket(row)]
+    if normalized_mrr_sort == "desc":
+        churn_rows.sort(key=lambda row: (-float(row.get("mrr_total") or 0), str(row.get("name") or "").casefold()))
+    elif normalized_mrr_sort == "asc":
+        churn_rows.sort(key=lambda row: (float(row.get("mrr_total") or 0), str(row.get("name") or "").casefold()))
     overdue_invoices = sr.get_overdue_invoices_table(
         db,
         min_days_past_due=overdue_invoice_days,
@@ -810,6 +1071,9 @@ def subscriber_billing_risk(
             "high_balance_only": str(high_balance_only).lower(),
             "segments": selected_segments,
             "days_past_due": query_days_past_due or days_past_due,
+            "bucket": bucket or "all",
+            "search": search or "",
+            "mrr_sort": normalized_mrr_sort,
         },
         doseq=True,
     )
@@ -819,6 +1083,9 @@ def subscriber_billing_risk(
             "high_balance_only": str(high_balance_only).lower(),
             "segments": selected_segments,
             "days_past_due": query_days_past_due or days_past_due,
+            "bucket": bucket or "all",
+            "search": search or "",
+            "mrr_sort": normalized_mrr_sort,
         },
         doseq=True,
     )
@@ -830,10 +1097,50 @@ def subscriber_billing_risk(
             "segment": segment or "",
             "segments": selected_segments,
             "days_past_due": query_days_past_due or days_past_due or "",
+            "bucket": bucket or "all",
+            "search": search or "",
+            "mrr_sort": normalized_mrr_sort,
         },
         doseq=True,
     )
-
+    segment_all_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "overdue_invoice_days": overdue_invoice_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "days_past_due": query_days_past_due or days_past_due or "",
+            "bucket": bucket or "all",
+            "search": search or "",
+            "mrr_sort": normalized_mrr_sort,
+        },
+        doseq=True,
+    )
+    segment_due_soon_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "overdue_invoice_days": overdue_invoice_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "days_past_due": query_days_past_due or days_past_due or "",
+            "bucket": bucket or "all",
+            "search": search or "",
+            "mrr_sort": normalized_mrr_sort,
+            "segment": "overdue",
+        },
+        doseq=True,
+    )
+    segment_suspended_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "overdue_invoice_days": overdue_invoice_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "days_past_due": query_days_past_due or days_past_due or "",
+            "bucket": bucket or "all",
+            "search": search or "",
+            "mrr_sort": normalized_mrr_sort,
+            "segment": "suspended",
+        },
+        doseq=True,
+    )
     return templates.TemplateResponse(
         "admin/reports/subscriber_billing_risk.html",
         {
@@ -856,11 +1163,18 @@ def subscriber_billing_risk(
             "export_query": export_query,
             "retention_tracker_query": retention_tracker_query,
             "refresh_query": refresh_query,
+            "segment_all_query": segment_all_query,
+            "segment_due_soon_query": segment_due_soon_query,
+            "segment_suspended_query": segment_suspended_query,
             "last_synced_at": _latest_subscriber_sync_at(db),
             "billing_risk_cache": {"row_count": len(churn_rows)},
             "csrf_token": get_csrf_token(request),
             "refresh_started": request.query_params.get("refresh_started") == "1",
             "refresh_error": request.query_params.get("refresh_error"),
+            "live_bucket": bucket or "all",
+            "live_search": search or "",
+            "live_mrr_sort": normalized_mrr_sort,
+            "enterprise_mrr_threshold": 70000,
         },
     )
 
@@ -894,6 +1208,9 @@ def subscriber_billing_risk_export(
     segment: str | None = Query(None),
     segments: list[str] = Query(default=[]),
     days_past_due: str | None = Query(None),
+    enterprise_only: bool = Query(False),
+    customer_segment: str | None = Query(None),
+    mrr_sort: str | None = Query(None),
 ):
     """Export billing risk rows as CSV."""
     from app.services import subscriber_reports as sr
@@ -901,6 +1218,12 @@ def subscriber_billing_risk_export(
     query_segments = request.query_params.getlist("segments")
     query_segment = request.query_params.get("segment")
     query_days_past_due = request.query_params.get("days_past_due")
+    mrr_sort_value = request.query_params.get("mrr_sort")
+    normalized_mrr_sort = (
+        (mrr_sort_value if mrr_sort_value is not None else (mrr_sort if isinstance(mrr_sort, str) else ""))
+        .strip()
+        .lower()
+    )
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments, query_segment or segment
     )
@@ -918,6 +1241,10 @@ def subscriber_billing_risk_export(
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
+    if normalized_mrr_sort == "desc":
+        churn_rows.sort(key=lambda row: (-float(row.get("mrr_total") or 0), str(row.get("name") or "").casefold()))
+    elif normalized_mrr_sort == "asc":
+        churn_rows.sort(key=lambda row: (float(row.get("mrr_total") or 0), str(row.get("name") or "").casefold()))
     export_data = [
         {
             "Name": row["name"],
