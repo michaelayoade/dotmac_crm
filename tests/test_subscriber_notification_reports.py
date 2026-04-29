@@ -1,7 +1,8 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi import HTTPException
@@ -70,6 +71,12 @@ def _subscriber(db_session, *, timezone: str = "Africa/Lagos") -> Subscriber:
     db_session.commit()
     db_session.refresh(subscriber)
     return subscriber
+
+
+def _future_local_text(*, timezone: str = "Africa/Lagos", hours: int = 2, minutes: int = 0) -> str:
+    future_local = datetime.now(UTC).astimezone(ZoneInfo(timezone)) + timedelta(hours=hours, minutes=minutes)
+    future_local = future_local.replace(second=0, microsecond=0)
+    return future_local.strftime("%Y-%m-%dT%H:%M")
 
 
 def test_enrich_notification_rows_uses_escalated_template_for_urgent_ticket(db_session):
@@ -146,6 +153,8 @@ def test_effective_send_at_uses_next_local_window_when_immediate_send_is_after_h
 
 def test_queue_subscriber_notification_creates_notifications_logs_and_blocks_duplicates(db_session):
     subscriber = _subscriber(db_session)
+    first_schedule = _future_local_text()
+    second_schedule = _future_local_text(minutes=30)
 
     first_logs = subscriber_notifications_service.queue_subscriber_notification(
         db_session,
@@ -159,7 +168,7 @@ def test_queue_subscriber_notification_creates_notifications_logs_and_blocks_dup
             "Thank you for your time."
         ),
         sms_body="Hi Taylor, your connection looks stable. Need help? support@example.com",
-        scheduled_local_text="2026-04-29T10:30",
+        scheduled_local_text=first_schedule,
         sent_by_user_id=uuid4(),
         sent_by_person_id=uuid4(),
     )
@@ -181,7 +190,7 @@ def test_queue_subscriber_notification_creates_notifications_logs_and_blocks_dup
                 "Thank you for your time."
             ),
             sms_body="",
-            scheduled_local_text="2026-04-29T11:00",
+            scheduled_local_text=second_schedule,
             sent_by_user_id=uuid4(),
             sent_by_person_id=uuid4(),
         )
@@ -312,7 +321,7 @@ def test_enrich_notification_rows_includes_latest_queued_notification_summary(db
         email_subject=None,
         email_body=None,
         sms_body="Hi Taylor, queued reminder.",
-        scheduled_local_text="2026-04-29T10:30",
+        scheduled_local_text=_future_local_text(),
         sent_by_user_id=uuid4(),
         sent_by_person_id=uuid4(),
     )[0]
@@ -347,7 +356,7 @@ def test_subscriber_online_last_24h_notify_route_queues_notification(db_session)
         email_subject=None,
         email_body=None,
         sms_body="Hi Taylor, we saw activity at 10:30 AM. Need help? support@example.com",
-        scheduled_local_at="2026-04-29T10:30",
+        scheduled_local_at=_future_local_text(),
         next_url="/admin/reports/subscribers/online-last-24h",
         db=db_session,
     )
