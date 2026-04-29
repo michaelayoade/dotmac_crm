@@ -14,6 +14,7 @@
 {% set total_pages_count = total_pages|default(1) %}
 {% set show_prev = has_prev|default(false) %}
 {% set show_next = has_next|default(false) %}
+{% set enterprise_threshold = enterprise_mrr_threshold|default(70000) %}
 {% set page_size_control %}
 <label class="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
     Show
@@ -83,9 +84,22 @@
                 data-area="{{ (row.area or '')|lower }}"
                 data-plan="{{ (row.plan or '')|lower }}"
                 data-balance="{{ (row.balance or 0)|float }}"
+                data-mrr-total="{{ (row.mrr_total or 0)|float }}"
+                data-external-id="{{ row.get('_external_id') or '' }}"
+                data-subscriber-status="{{ (row.subscriber_status or '')|lower }}"
+                data-risk-segment="{{ row.risk_segment or '' }}"
                 data-blocked-for-days="{{ blocked_for_days if blocked_for_days is not none else '' }}"
                 data-customer-id="{{ engagement_customer_id }}"
-            >{{ row.name or "-" }}</td>
+            >
+                <div class="flex flex-wrap items-center gap-2">
+                    <span>{{ row.name or "-" }}</span>
+                    {% if (row.mrr_total or 0)|float >= enterprise_threshold %}
+                    <span class="inline-flex items-center rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-200">Enterprise</span>
+                    {% else %}
+                    <span class="inline-flex items-center rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200">Non-enterprise</span>
+                    {% endif %}
+                </div>
+            </td>
             <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.phone or "-" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.city or "-" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.street or "-" }}</td>

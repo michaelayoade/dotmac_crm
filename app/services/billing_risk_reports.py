@@ -36,10 +36,13 @@ _SPYLNX_LIVE_CACHE_TTLS = {
     "fetch_customers": 60.0,
     "fetch_customer_billing": 300.0,
     "fetch_customer_internet_services": 300.0,
+    "resolve_customer_segment_mrr": 300.0,
 }
 _SPYLNX_LIVE_CACHE: dict[tuple[str, tuple[object, ...]], tuple[float, Any]] = {}
 _SPYLNX_LIVE_CACHE_LOCK = Lock()
 _BILLING_RISK_SEGMENT_ORDER = ["Due Soon", "Suspended", "Churned", "Pending"]
+_BILLING_RISK_ENRICH_MAX_WORKERS = 2
+ENTERPRISE_MRR_THRESHOLD = 70000.0
 _OPEN_TICKET_STATUSES = (
     TicketStatus.new,
     TicketStatus.open,
@@ -151,6 +154,9 @@ def get_billing_risk_table(
     page_size: int | None = None,
     search: str | None = None,
     overdue_bucket: str | None = None,
+    enterprise_only: bool = False,
+    customer_segment: str | None = None,
+    mrr_sort: str | None = None,
     enrich_visible_rows: bool = True,
 ) -> list[dict]:
     """Billing risk rows sourced from live Splynx data."""
@@ -222,6 +228,20 @@ def get_billing_risk_table(
 
     normalized_search = (search if isinstance(search, str) else "").strip().lower()
     normalized_overdue_bucket = (overdue_bucket if isinstance(overdue_bucket, str) else "").strip().lower()
+    raw_customer_segment = customer_segment if isinstance(customer_segment, str) else None
+    if raw_customer_segment is None:
+        normalized_customer_segment = "enterprise" if enterprise_only else ""
+    else:
+        normalized_customer_segment = raw_customer_segment.strip().lower()
+        if normalized_customer_segment not in {"enterprise", "non_enterprise"}:
+            normalized_customer_segment = ""
+    normalized_mrr_sort = (mrr_sort if isinstance(mrr_sort, str) else "").strip().lower()
+    if normalized_mrr_sort not in {"asc", "desc"}:
+        normalized_mrr_sort = ""
+    requires_live_mrr_resolution = normalized_customer_segment in {"enterprise", "non_enterprise"} or normalized_mrr_sort in {
+        "asc",
+        "desc",
+    }
 
     def _blocked_days_from_text(value: object) -> int | None:
         parsed = _parse_iso_date_text(str(value or ""))
@@ -264,6 +284,69 @@ def get_billing_risk_table(
             ]
         ).lower()
         return normalized_search in haystack
+
+    def _service_mrr_amount(services_payload: object) -> float:
+        if not isinstance(services_payload, list):
+            return 0.0
+        services = [service for service in services_payload if isinstance(service, dict)]
+        primary_service = _select_primary_service(services)
+        if not isinstance(primary_service, Mapping):
+            return 0.0
+        for candidate in (
+            primary_service.get("unit_price"),
+            primary_service.get("price"),
+            primary_service.get("monthly_price"),
+            primary_service.get("amount"),
+        ):
+            amount = _parse_balance_amount(candidate)
+            if amount > 0:
+                return amount
+        return 0.0
+
+    def _resolved_customer_segment_mrr(external_id: str, current_mrr_total: float) -> float:
+        bound_external_id = str(external_id or "").strip()
+        if not bound_external_id:
+            return current_mrr_total
+
+        def _loader() -> float:
+            splynx_db = SessionLocal()
+            try:
+                try:
+                    services_payload = fetch_customer_internet_services(splynx_db, bound_external_id)
+                except Exception:
+                    services_payload = []
+                service_amount = _service_mrr_amount(services_payload)
+                if service_amount > 0:
+                    return service_amount
+                try:
+                    billing_payload = fetch_customer_billing(splynx_db, bound_external_id)
+                except Exception:
+                    billing_payload = {}
+                if isinstance(billing_payload, Mapping):
+                    billing_amount = _parse_balance_amount(billing_payload.get("month_price"))
+                    if billing_amount > 0:
+                        return billing_amount
+                return current_mrr_total
+            finally:
+                splynx_db.close()
+
+        resolved_amount = _cached_live_splynx_read(
+            "resolve_customer_segment_mrr",
+            _loader,
+            bound_external_id,
+            cache_scope="resolve_customer_segment_mrr",
+        )
+        try:
+            return float(resolved_amount or 0)
+        except (TypeError, ValueError):
+            return current_mrr_total
+
+    def _matches_customer_segment(mrr_total_value: float) -> bool:
+        if normalized_customer_segment == "enterprise":
+            return mrr_total_value >= ENTERPRISE_MRR_THRESHOLD
+        if normalized_customer_segment == "non_enterprise":
+            return mrr_total_value < ENTERPRISE_MRR_THRESHOLD
+        return True
 
     def _slice_page(rows: list[dict]) -> list[dict]:
         if normalized_page_size is None:
@@ -990,6 +1073,11 @@ def get_billing_risk_table(
         balance_amount = _parse_balance_amount(mapped.get("balance") or customer.get("balance"))
         if balance_amount == 0.0 and cached_subscriber.get("balance") is not None:
             balance_amount = float(cached_subscriber.get("balance") or 0.0)
+        mrr_total_value = _parse_balance_amount(
+            customer.get("mrr_total")
+            or (embedded_billing.get("month_price") if isinstance(embedded_billing, Mapping) else None)
+            or cached_subscriber.get("mrr_total")
+        )
         sync_metadata = mapped.get("sync_metadata") if isinstance(mapped.get("sync_metadata"), Mapping) else {}
         if not sync_metadata and cached_sync_metadata:
             sync_metadata = cached_sync_metadata
@@ -1040,6 +1128,7 @@ def get_billing_risk_table(
             continue
         if not _matches_days_past_due_bucket(row_days_past_due):
             continue
+        external_id_value = str(customer.get("id") or "").strip()
 
         display_name = str(customer.get("name") or "").strip() or str(mapped.get("subscriber_number") or "").strip()
         email_value = str(customer.get("email") or "").strip()
@@ -1063,7 +1152,6 @@ def get_billing_risk_table(
         ticket_counts = (
             ticket_counts_by_subscriber.get(subscriber_id_key) or ticket_counts_by_person.get(person_id_key) or {}
         )
-        mrr_total_value = _parse_balance_amount(customer.get("mrr_total"))
         cleaned_display_name = _clean_report_name(display_name or "Unknown")
         if _is_excluded_report_customer(cleaned_display_name):
             continue
@@ -1109,7 +1197,7 @@ def get_billing_risk_table(
                 "_person_id": person_id_key,
                 "ticket_subscriber_id": subscriber_id_key,
                 "_subscriber_uuid": subscriber_id_key,
-                "_external_id": str(customer.get("id") or ""),
+                "_external_id": external_id_value,
                 "_subscriber_number": str(mapped.get("subscriber_number") or ""),
                 "_last_synced_at": "",
                 "_customer_last_update": customer_last_update,
@@ -1127,17 +1215,48 @@ def get_billing_risk_table(
         }
     if high_balance_only:
         live_results = [row for row in live_results if row["is_high_balance_risk"]]
+    if requires_live_mrr_resolution and live_results:
+        def _resolve_row_mrr(row: dict[str, Any]) -> dict[str, Any]:
+            row["mrr_total"] = _resolved_customer_segment_mrr(
+                str(row.get("_external_id") or "").strip(),
+                float(row.get("mrr_total") or 0),
+            )
+            return row
+
+        if len(live_results) == 1:
+            _resolve_row_mrr(live_results[0])
+        else:
+            worker_count = min(_BILLING_RISK_ENRICH_MAX_WORKERS, len(live_results))
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                live_results = list(executor.map(_resolve_row_mrr, live_results))
+    if normalized_customer_segment in {"enterprise", "non_enterprise"}:
+        live_results = [row for row in live_results if _matches_customer_segment(float(row.get("mrr_total") or 0))]
     live_results = [
         row for row in live_results if _matches_search(row) and _matches_overdue_bucket(row.get("blocked_for_days"))
     ]
-    live_results.sort(
-        key=lambda row: (
-            -int(bool(row["is_high_balance_risk"])),
-            -float(row["balance"]),
-            row["days_to_due"] if isinstance(row["days_to_due"], int) else 10**9,
-            row["name"],
+    if normalized_mrr_sort == "desc":
+        live_results.sort(
+            key=lambda row: (
+                -float(row.get("mrr_total") or 0),
+                str(row.get("name") or "").casefold(),
+            )
         )
-    )
+    elif normalized_mrr_sort == "asc":
+        live_results.sort(
+            key=lambda row: (
+                float(row.get("mrr_total") or 0),
+                str(row.get("name") or "").casefold(),
+            )
+        )
+    else:
+        live_results.sort(
+            key=lambda row: (
+                -int(bool(row["is_high_balance_risk"])),
+                -float(row["balance"]),
+                row["days_to_due"] if isinstance(row["days_to_due"], int) else 10**9,
+                row["name"],
+            )
+        )
     visible_results = _slice_page(live_results)
 
     def _enrich_live_entry(entry: dict[str, Any]) -> dict[str, Any]:
@@ -1216,17 +1335,18 @@ def get_billing_risk_table(
         return updates
 
     if enrich_visible_rows and visible_results:
-        max_workers = min(8, len(visible_results))
+        max_workers = min(_BILLING_RISK_ENRICH_MAX_WORKERS, len(visible_results))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(_enrich_live_entry, entry) for entry in visible_results]
             for entry, future in zip(visible_results, futures, strict=False):
                 entry.update(future.result())
-    visible_results.sort(
-        key=lambda row: (
-            _parse_iso_date_text(str(row.get("blocked_date") or "")) or date.max,
-            row.get("name") or "",
+    if not normalized_mrr_sort:
+        visible_results.sort(
+            key=lambda row: (
+                _parse_iso_date_text(str(row.get("blocked_date") or "")) or date.max,
+                row.get("name") or "",
+            )
         )
-    )
     return visible_results
 
 
@@ -1438,7 +1558,7 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
         return updates
 
     if rows:
-        max_workers = min(8, len(rows))
+        max_workers = min(_BILLING_RISK_ENRICH_MAX_WORKERS, len(rows))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(_enrich_live_entry, entry) for entry in rows]
             for entry, future in zip(rows, futures, strict=False):

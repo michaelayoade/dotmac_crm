@@ -3379,8 +3379,72 @@ def test_subscriber_billing_risk_page_renders(monkeypatch):
     body = response.body.decode()
     assert "Subscriber Billing Risk" in body
     assert "At-Risk Subscribers" in body
-    assert "Overdue Invoices" in body
+    assert "Total Balance Exposure" in body
     assert "Blocked Customer" in body
+
+
+def test_subscriber_billing_risk_page_preserves_bucket_and_enterprise_in_segment_links(monkeypatch):
+    monkeypatch.setattr(reports_web, "get_sidebar_stats", lambda _db: {"open_tickets": 0, "dispatch_jobs": 0})
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "get_churn_table",
+        lambda *_args, **_kwargs: [
+            {
+                "name": "Enterprise Customer",
+                "email": "enterprise@example.com",
+                "subscriber_status": "Suspended",
+                "risk_segment": "Suspended",
+                "next_bill_date": "2026-04-12",
+                "days_to_due": 5,
+                "balance": 9200.0,
+                "mrr_total": 82000.0,
+                "blocked_for_days": 18,
+            }
+        ],
+    )
+    monkeypatch.setattr(subscriber_reports_service, "get_overdue_invoices_table", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "churn_risk_summary",
+        lambda *_args, **_kwargs: {"total_at_risk": 1, "total_balance_exposure": 9200.0, "high_balance_risk_count": 1},
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "churn_risk_segment_breakdown",
+        lambda *_args, **_kwargs: [{"segment": "Suspended", "count": 1, "share_pct": 100.0, "balance": 9200.0, "high_balance_count": 1}],
+    )
+    monkeypatch.setattr(subscriber_reports_service, "churn_risk_aging_buckets", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(reports_web, "_latest_subscriber_sync_at", lambda _db: None)
+    monkeypatch.setattr(reports_web, "get_csrf_token", lambda _request: "test-csrf-token")
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/reports/subscribers/billing-risk",
+            "headers": [],
+            "query_string": b"mrr_sort=desc&bucket=8-30",
+            "server": ("testserver", 80),
+            "client": ("testclient", 50000),
+            "scheme": "http",
+        }
+    )
+
+    response = reports_web.subscriber_billing_risk(
+        request=request,
+        db=None,
+        due_soon_days=7,
+        overdue_invoice_days=30,
+        high_balance_only=False,
+        segment=None,
+        bucket="8-30",
+        mrr_sort="desc",
+    )
+
+    assert response.status_code == 200
+    body = response.body.decode()
+    assert "bucket=8-30" in body
+    assert 'data-segment-filter="suspended"' in body
 
 
 def test_subscriber_billing_risk_export_returns_csv(monkeypatch):

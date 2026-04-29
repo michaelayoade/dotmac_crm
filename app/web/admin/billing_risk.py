@@ -35,6 +35,7 @@ customer_retention_router = APIRouter(tags=["admin-customer-retention"])
 templates = Jinja2Templates(directory="templates")
 
 RETENTION_PIPELINE_STEPS = ("Contacted", "Follow-up Pending", "Promised to Pay", "Resolved", "Lost")
+ENTERPRISE_MRR_THRESHOLD = int(billing_risk_service.ENTERPRISE_MRR_THRESHOLD)
 RETENTION_FIXED_REP_NAMES = (
     "Chizaram Ogbonna",
     "Grace Moses",
@@ -166,8 +167,11 @@ def _billing_risk_page_rows(
     page_size: int,
     search: str | None,
     overdue_bucket: str | None,
+    enterprise_only: bool = False,
+    customer_segment: str | None = None,
+    mrr_sort: str | None = None,
 ) -> tuple[list[dict], dict[str, int | float], bool]:
-    fetch_size = max(1, int(page_size)) + 1
+    requested_page_size = max(1, int(page_size))
     churn_rows = billing_risk_service.get_billing_risk_table(
         db,
         due_soon_days=due_soon_days,
@@ -175,20 +179,24 @@ def _billing_risk_page_rows(
         segment=segment,
         segments=selected_segments,
         days_past_due=days_past_due,
-        page=page,
-        page_size=fetch_size,
+        limit=requested_page_size + 1,
+        page=max(1, int(page)),
+        page_size=requested_page_size + 1,
         search=search,
         overdue_bucket=overdue_bucket,
+        enterprise_only=enterprise_only,
+        customer_segment=customer_segment,
+        mrr_sort=mrr_sort,
         enrich_visible_rows=False,
     )
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
-    has_next = len(churn_rows) > page_size
-    visible_rows = churn_rows[:page_size]
+    has_next = len(churn_rows) > requested_page_size
+    visible_rows = [dict(row) for row in churn_rows[:requested_page_size]]
     if not str(search or "").strip():
         billing_risk_service.enrich_billing_risk_rows(visible_rows)
-    _enrich_missing_blocked_fields(visible_rows)
+    _enrich_missing_blocked_fields(visible_rows, force_live=False)
     return visible_rows, _billing_risk_page_metrics(visible_rows), has_next
 
 
@@ -200,7 +208,7 @@ def _billing_risk_initial_rows(
     has_next = len(churn_rows) > page_size
     visible_rows = [dict(row) for row in churn_rows[:page_size]]
     billing_risk_service.enrich_billing_risk_rows(visible_rows)
-    _enrich_missing_blocked_fields(visible_rows)
+    _enrich_missing_blocked_fields(visible_rows, force_live=False)
     return visible_rows, _billing_risk_page_metrics(visible_rows), has_next
 
 
@@ -495,7 +503,7 @@ def _blocked_days_buckets(churn_rows: list[dict]) -> list[dict[str, int | str]]:
 def _safe_live_blocked_dates(
     external_ids: list[str],
     *,
-    force_live: bool = True,
+    force_live: bool = False,
     blocking_only_external_ids: list[str] | None = None,
 ) -> dict[str, str]:
     if not external_ids:
@@ -518,7 +526,7 @@ def _safe_live_blocked_dates(
         return {}
 
 
-def _enrich_missing_blocked_fields(churn_rows: list[dict]) -> None:
+def _enrich_missing_blocked_fields(churn_rows: list[dict], *, force_live: bool = False) -> None:
     if not churn_rows:
         return
 
@@ -556,7 +564,7 @@ def _enrich_missing_blocked_fields(churn_rows: list[dict]) -> None:
     # Always prefer live Splynx blocking_date for the UI Blocked Date cell.
     live_blocked_dates = _safe_live_blocked_dates(
         external_ids,
-        force_live=True,
+        force_live=force_live,
     )
     target_rows: list[tuple[dict, str]] = []
     missing_external_ids: set[str] = set()
@@ -920,16 +928,49 @@ def subscriber_billing_risk(
     segment: str | None = Query(None),
     segments: list[str] = Query(default=[]),
     days_past_due: str | None = Query(None),
+    bucket: str | None = Query("all"),
+    search: str | None = Query(None),
+    enterprise_only: bool = Query(False),
+    customer_segment: str | None = Query(None),
+    mrr_sort: str | None = Query(None),
 ):
     user = get_current_user(request)
     query_segments = request.query_params.getlist("segments")
     query_segment = request.query_params.get("segment")
     query_days_past_due = request.query_params.get("days_past_due")
+    query_bucket = request.query_params.get("bucket")
+    normalized_bucket = (query_bucket if query_bucket is not None else (bucket if isinstance(bucket, str) else "all")).strip() or "all"
+    query_search = request.query_params.get("search")
+    normalized_search = query_search if query_search is not None else (search if isinstance(search, str) else None)
+    normalized_customer_segment = "all"
+    normalized_enterprise_only = False
+    query_mrr_sort = request.query_params.get("mrr_sort")
+    normalized_mrr_sort = (query_mrr_sort if query_mrr_sort is not None else (mrr_sort if isinstance(mrr_sort, str) else "")).strip().lower()
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments,
         query_segment or segment,
     )
-    global_churn_rows = billing_risk_service.get_billing_risk_table(
+    initial_rows = billing_risk_service.get_billing_risk_table(
+        db,
+        due_soon_days=due_soon_days,
+        high_balance_only=high_balance_only,
+        segment=segment,
+        segments=selected_segments,
+        days_past_due=query_days_past_due or days_past_due,
+        limit=51,
+        page=1,
+        page_size=51,
+        search=normalized_search,
+        overdue_bucket=normalized_bucket,
+        enterprise_only=normalized_enterprise_only,
+        customer_segment=normalized_customer_segment,
+        mrr_sort=normalized_mrr_sort,
+        enrich_visible_rows=False,
+    )
+    selected_labels = _segment_labels(selected_segments)
+    if selected_labels:
+        initial_rows = [row for row in initial_rows if str(row.get("risk_segment") or "") in selected_labels]
+    full_metric_rows = billing_risk_service.get_billing_risk_table(
         db,
         due_soon_days=due_soon_days,
         high_balance_only=high_balance_only,
@@ -937,31 +978,24 @@ def subscriber_billing_risk(
         segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
         limit=10000,
+        search=normalized_search,
+        overdue_bucket=normalized_bucket,
+        enterprise_only=normalized_enterprise_only,
+        customer_segment=normalized_customer_segment,
+        mrr_sort=normalized_mrr_sort,
         enrich_visible_rows=False,
     )
-    selected_labels = _segment_labels(selected_segments)
     if selected_labels:
-        global_churn_rows = [row for row in global_churn_rows if str(row.get("risk_segment") or "") in selected_labels]
-    page_rows, page_metrics, has_next = _billing_risk_page_rows(
-        db,
-        due_soon_days=due_soon_days,
-        high_balance_only=high_balance_only,
-        segment=segment,
-        selected_segments=selected_segments,
-        days_past_due=query_days_past_due or days_past_due,
-        page=1,
-        page_size=50,
-        search=None,
-        overdue_bucket="all",
-    )
+        full_metric_rows = [row for row in full_metric_rows if str(row.get("risk_segment") or "") in selected_labels]
+    page_rows, page_metrics, has_next = _billing_risk_initial_rows(initial_rows, page_size=50)
     overdue_invoices = billing_risk_service.get_overdue_invoices_table(
         db,
         min_days_past_due=overdue_invoice_days,
         limit=250,
     )
-    kpis = billing_risk_service.get_billing_risk_summary(global_churn_rows, overdue_invoices)
-    segment_breakdown = billing_risk_service.get_billing_risk_segment_breakdown(global_churn_rows)
-    aging_buckets = billing_risk_service.get_billing_risk_aging_buckets(global_churn_rows)
+    kpis = billing_risk_service.get_billing_risk_summary(full_metric_rows, overdue_invoices)
+    segment_breakdown = billing_risk_service.get_billing_risk_segment_breakdown(full_metric_rows)
+    aging_buckets = billing_risk_service.get_billing_risk_aging_buckets(full_metric_rows)
 
     export_query = urlencode(
         {
@@ -970,6 +1004,9 @@ def subscriber_billing_risk(
             "high_balance_only": str(high_balance_only).lower(),
             "segments": selected_segments,
             "days_past_due": query_days_past_due or days_past_due,
+            "bucket": normalized_bucket,
+            "search": normalized_search or "",
+            "mrr_sort": normalized_mrr_sort,
         },
         doseq=True,
     )
@@ -979,6 +1016,9 @@ def subscriber_billing_risk(
             "high_balance_only": str(high_balance_only).lower(),
             "segments": selected_segments,
             "days_past_due": query_days_past_due or days_past_due,
+            "bucket": normalized_bucket,
+            "search": normalized_search or "",
+            "mrr_sort": normalized_mrr_sort,
         },
         doseq=True,
     )
@@ -990,10 +1030,50 @@ def subscriber_billing_risk(
             "segment": segment or "",
             "segments": selected_segments,
             "days_past_due": query_days_past_due or days_past_due or "",
+            "bucket": normalized_bucket,
+            "search": normalized_search or "",
+            "mrr_sort": normalized_mrr_sort,
         },
         doseq=True,
     )
-
+    segment_all_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "overdue_invoice_days": overdue_invoice_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "days_past_due": query_days_past_due or days_past_due or "",
+            "bucket": normalized_bucket,
+            "search": normalized_search or "",
+            "mrr_sort": normalized_mrr_sort,
+        },
+        doseq=True,
+    )
+    segment_due_soon_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "overdue_invoice_days": overdue_invoice_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "days_past_due": query_days_past_due or days_past_due or "",
+            "bucket": normalized_bucket,
+            "search": normalized_search or "",
+            "mrr_sort": normalized_mrr_sort,
+            "segment": "overdue",
+        },
+        doseq=True,
+    )
+    segment_suspended_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "overdue_invoice_days": overdue_invoice_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "days_past_due": query_days_past_due or days_past_due or "",
+            "bucket": normalized_bucket,
+            "search": normalized_search or "",
+            "mrr_sort": normalized_mrr_sort,
+            "segment": "suspended",
+        },
+        doseq=True,
+    )
     return templates.TemplateResponse(
         "admin/reports/subscriber_billing_risk.html",
         {
@@ -1016,21 +1096,26 @@ def subscriber_billing_risk(
             "export_query": export_query,
             "retention_tracker_query": retention_tracker_query,
             "refresh_query": refresh_query,
+            "segment_all_query": segment_all_query,
+            "segment_due_soon_query": segment_due_soon_query,
+            "segment_suspended_query": segment_suspended_query,
             "last_synced_at": _latest_subscriber_sync_at(db),
-            "billing_risk_cache": {"row_count": len(global_churn_rows)},
+            "billing_risk_cache": {"row_count": len(full_metric_rows)},
             "csrf_token": get_csrf_token(request),
             "refresh_started": request.query_params.get("refresh_started") == "1",
             "refresh_error": request.query_params.get("refresh_error"),
             "live_page": 1,
             "live_page_size": 50,
             "live_has_next": has_next,
-            "live_search": "",
-            "live_bucket": "all",
+            "live_search": normalized_search or "",
+            "live_bucket": normalized_bucket,
+            "live_mrr_sort": normalized_mrr_sort,
             "page_metrics": page_metrics,
             "page": 1,
             "has_prev": False,
             "has_next": has_next,
             "rep_options": _retention_rep_options(db),
+            "enterprise_mrr_threshold": ENTERPRISE_MRR_THRESHOLD,
         },
     )
 
@@ -1253,7 +1338,8 @@ def subscriber_billing_risk_blocked_dates(
     get_current_user(request)
     blocked_dates = _safe_live_blocked_dates(
         external_id,
-        force_live=True,
+        force_live=False,
+        blocking_only_external_ids=blocked_like_external_id,
     )
     return JSONResponse({"blocked_dates": blocked_dates})
 
@@ -1272,11 +1358,22 @@ def subscriber_billing_risk_rows(
     page_size: int = Query(50, ge=1, le=100),
     search: str | None = Query(None),
     bucket: str | None = Query("all"),
+    enterprise_only: bool = Query(False),
+    customer_segment: str | None = Query(None),
+    mrr_sort: str | None = Query(None),
 ):
     get_current_user(request)
     query_segments = request.query_params.getlist("segments")
     query_segment = request.query_params.get("segment")
     query_days_past_due = request.query_params.get("days_past_due")
+    query_search = request.query_params.get("search")
+    normalized_search = query_search if query_search is not None else (search if isinstance(search, str) else None)
+    query_bucket = request.query_params.get("bucket")
+    normalized_bucket = (query_bucket if query_bucket is not None else (bucket if isinstance(bucket, str) else "all")).strip() or "all"
+    normalized_customer_segment = "all"
+    normalized_enterprise_only = False
+    query_mrr_sort = request.query_params.get("mrr_sort")
+    normalized_mrr_sort = (query_mrr_sort if query_mrr_sort is not None else (mrr_sort if isinstance(mrr_sort, str) else "")).strip().lower()
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments,
         query_segment or segment,
@@ -1290,8 +1387,11 @@ def subscriber_billing_risk_rows(
         days_past_due=query_days_past_due or days_past_due,
         page=page,
         page_size=page_size,
-        search=search,
-        overdue_bucket=bucket or "all",
+        search=normalized_search,
+        overdue_bucket=normalized_bucket,
+        enterprise_only=normalized_enterprise_only,
+        customer_segment=normalized_customer_segment,
+        mrr_sort=normalized_mrr_sort,
     )
     return templates.TemplateResponse(
         "admin/reports/_subscriber_billing_risk_results.html",
@@ -1300,8 +1400,10 @@ def subscriber_billing_risk_rows(
             "churn_rows": page_rows,
             "page_metrics": page_metrics,
             "page": page,
+            "page_size": page_size,
             "has_prev": page > 1,
             "has_next": has_next,
+            "enterprise_mrr_threshold": ENTERPRISE_MRR_THRESHOLD,
         },
     )
 
@@ -1312,7 +1414,7 @@ def subscriber_billing_risk_blocked_date_cell(
     external_id: str = Query(...),
 ):
     get_current_user(request)
-    blocked_dates = _safe_live_blocked_dates([external_id], force_live=True)
+    blocked_dates = _safe_live_blocked_dates([external_id], force_live=False)
     return HTMLResponse(blocked_dates.get(external_id, "N/A"))
 
 
@@ -1327,10 +1429,21 @@ def subscriber_billing_risk_export(
     days_past_due: str | None = Query(None),
     search: str | None = Query(None),
     bucket: str | None = Query("all"),
+    enterprise_only: bool = Query(False),
+    customer_segment: str | None = Query(None),
+    mrr_sort: str | None = Query(None),
 ):
     query_segments = request.query_params.getlist("segments")
     query_segment = request.query_params.get("segment")
     query_days_past_due = request.query_params.get("days_past_due")
+    query_search = request.query_params.get("search")
+    normalized_search = query_search if query_search is not None else (search if isinstance(search, str) else None)
+    query_bucket = request.query_params.get("bucket")
+    normalized_bucket = (query_bucket if query_bucket is not None else (bucket if isinstance(bucket, str) else "all")).strip() or "all"
+    normalized_customer_segment = "all"
+    normalized_enterprise_only = False
+    query_mrr_sort = request.query_params.get("mrr_sort")
+    normalized_mrr_sort = (query_mrr_sort if query_mrr_sort is not None else (mrr_sort if isinstance(mrr_sort, str) else "")).strip().lower()
     selected_segments = _normalize_segment_filters(
         query_segments if query_segments else segments,
         query_segment or segment,
@@ -1344,14 +1457,17 @@ def subscriber_billing_risk_export(
         segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
         limit=6000,
-        search=search,
-        overdue_bucket=bucket or "all",
+        search=normalized_search,
+        overdue_bucket=normalized_bucket,
+        enterprise_only=normalized_enterprise_only,
+        customer_segment=normalized_customer_segment,
+        mrr_sort=normalized_mrr_sort,
         enrich_visible_rows=False,
     )
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
-    _enrich_missing_blocked_fields(churn_rows)
+    _enrich_missing_blocked_fields(churn_rows, force_live=False)
     export_data = _billing_risk_visible_export_rows(db, churn_rows)
     filename = f"subscriber_billing_risk_{datetime.now(UTC).strftime('%Y%m%d')}.csv"
     return _csv_response(export_data, filename)
