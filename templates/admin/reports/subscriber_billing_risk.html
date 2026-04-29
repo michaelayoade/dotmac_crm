@@ -5,6 +5,7 @@
 
 {% block content %}
 <div class="space-y-6">
+    {% set live_mrr = live_mrr_sort|default('') %}
     {% call page_header("Subscriber Billing Risk", "Computed billing-risk segments derived from synced subscriber status and next-bill timing, with receivables shown separately for balance exposure.", color="amber", color2="orange") %}
         {{ action_button(
             "Customer Retention Tracker",
@@ -41,53 +42,49 @@
 
     {% call dashboard_kpi_grid(cols="3") %}
         {{ stats_card("At-Risk Subscribers", kpis.total_at_risk|default(0), color="amber", color2="orange") }}
-        {{ stats_card("Overdue Invoices", "₦" ~ "{:,.2f}".format(kpis.total_balance_exposure|default(0)), color="rose", color2="red") }}
+        {{ stats_card("Total Balance Exposure", "₦" ~ "{:,.2f}".format(kpis.total_balance_exposure|default(0)), color="rose", color2="red") }}
         {{ stats_card("High Balance Risk", kpis.high_balance_risk_count|default(0), color="slate", color2="gray") }}
     {% endcall %}
 
-    {% set blocked_bucket_counts = namespace(d0_7=0, d8_30=0, d31_60=0, d61_plus=0) %}
-    {% for bucket in aging_buckets|default([]) %}
-        {% set label = bucket.label|default('') %}
-        {% if label == "Blocked 0-7 Days" %}
-            {% set blocked_bucket_counts.d0_7 = bucket.count|default(0) %}
-        {% elif label == "Blocked 8-30 Days" %}
-            {% set blocked_bucket_counts.d8_30 = bucket.count|default(0) %}
-        {% elif label == "Blocked 31-60 Days" %}
-            {% set blocked_bucket_counts.d31_60 = bucket.count|default(0) %}
-        {% elif label == "Blocked 61+ Days" %}
-            {% set blocked_bucket_counts.d61_plus = bucket.count|default(0) %}
-        {% endif %}
-    {% endfor %}
-
     {% call dashboard_kpi_grid(cols="4") %}
-        {{ stats_card("Blocked 0-7 Days", blocked_bucket_counts.d0_7, color="amber", color2="orange") }}
-        {{ stats_card("Blocked 8-30 Days", blocked_bucket_counts.d8_30, color="rose", color2="red") }}
-        {{ stats_card("Blocked 31-60 Days", blocked_bucket_counts.d31_60, color="slate", color2="gray") }}
-        {{ stats_card("Blocked 61+ Days", blocked_bucket_counts.d61_plus, color="emerald", color2="teal") }}
+        {% for bucket in aging_buckets|default([]) %}
+            {% set label = bucket.label|default('Blocked') %}
+            {% if label == "Blocked 0-7 Days" %}
+                {{ stats_card(label, bucket.count|default(0), color="amber", color2="orange") }}
+            {% elif label == "Blocked 8-30 Days" %}
+                {{ stats_card(label, bucket.count|default(0), color="rose", color2="red") }}
+            {% elif label == "Blocked 31-60 Days" %}
+                {{ stats_card(label, bucket.count|default(0), color="slate", color2="gray") }}
+            {% elif label == "Blocked 61+ Days" %}
+                {{ stats_card(label, bucket.count|default(0), color="emerald", color2="teal") }}
+            {% else %}
+                {{ stats_card(label, bucket.count|default(0), color="slate", color2="gray") }}
+            {% endif %}
+        {% endfor %}
     {% endcall %}
 
     {% call dashboard_filter_panel(color="rose", title="Computed Segment Filter") %}
     <div class="flex flex-wrap items-center gap-2">
-        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if days_past_due is not none %}&days_past_due={{ days_past_due }}{% endif %}{% if high_balance_only %}&high_balance_only=true{% endif %}"
+        <button type="button" data-segment-filter="" 
            class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
            {{ 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200'
            if not selected_segments else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
             All Segments
-        </a>
-        {% for key, label in [("overdue", "Due Soon"), ("suspended", "Suspended")] %}
-        <a href="/admin/reports/subscribers/billing-risk?due_soon_days={{ due_soon_days }}&overdue_invoice_days={{ overdue_invoice_days }}{% if days_past_due is not none %}&days_past_due={{ days_past_due }}{% endif %}{% if high_balance_only %}&high_balance_only=true{% endif %}&segment={{ key }}"
+        </button>
+        {% for key, label, query_string in [("overdue", "Due Soon", segment_due_soon_query), ("suspended", "Suspended", segment_suspended_query)] %}
+        <button type="button" data-segment-filter="{{ key }}"
            class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
            {{ 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200'
            if key in selected_segments else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
             {{ label }}
-        </a>
+        </button>
         {% endfor %}
     </div>
     {% endcall %}
 
     {% call dashboard_filter_panel(color="rose", title="Blocked Customer Live Filters") %}
     <div id="billing-risk-live-controls" class="space-y-4">
-        <div class="grid grid-cols-1 gap-3 lg:grid-cols-4">
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-3">
             <div class="lg:col-span-2">
                 <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Blocked Customers</label>
                 <div class="flex gap-2">
@@ -95,6 +92,7 @@
                         id="billing-risk-search"
                         type="search"
                         placeholder="Search name, ID, or plan"
+                        value="{{ live_search|default('') }}"
                         class="block h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
                     >
                     <button
@@ -106,7 +104,19 @@
                     </button>
                 </div>
             </div>
-            <div class="lg:col-span-2">
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer Segment</label>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="button" data-customer-tier="all" class="billing-risk-tier-toggle inline-flex items-center rounded-full border border-rose-300 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700 transition dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200">All Customers</button>
+                    <button type="button" data-customer-tier="enterprise" class="billing-risk-tier-toggle inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Enterprise</button>
+                    <button type="button" data-customer-tier="non_enterprise" class="billing-risk-tier-toggle inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Non-enterprise</button>
+                </div>
+                <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    Showing <span id="billing-risk-tier-count" class="font-semibold text-slate-700 dark:text-slate-200">0</span> customers on this page
+                </p>
+            </div>
+        </div>
+        <div>
                 <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Blocked For Buckets</label>
                 <div class="flex flex-wrap items-center gap-2">
                     <button type="button" data-blocked-bucket="all" class="billing-risk-bucket inline-flex items-center rounded-full border border-rose-300 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200">All</button>
@@ -116,7 +126,6 @@
                     <button type="button" data-blocked-bucket="61+" class="billing-risk-bucket inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">61+ Days</button>
                 </div>
             </div>
-        </div>
     </div>
     {% endcall %}
 
@@ -130,7 +139,10 @@
         data-page-size="{{ live_page_size }}"
         data-page="{{ live_page }}"
         data-bucket="{{ live_bucket }}"
+        data-search="{{ live_search|default('') }}"
+        data-mrr-sort="{{ live_mrr }}"
         data-segments="{{ selected_segments|join(',') }}"
+        data-customer-tier="all"
     >
         {% include "admin/reports/_subscriber_billing_risk_results.html" %}
     </div>
@@ -214,8 +226,19 @@
             const searchInput = document.getElementById('billing-risk-search');
             const searchButton = document.getElementById('billing-risk-search-button');
             const bucketButtons = Array.from(document.querySelectorAll('.billing-risk-bucket'));
+            const segmentButtons = Array.from(document.querySelectorAll('[data-segment-filter]'));
+            const tierButtons = Array.from(document.querySelectorAll('.billing-risk-tier-toggle'));
+            const tierCount = document.getElementById('billing-risk-tier-count');
+            const mrrSortSelect = document.getElementById('billing-risk-mrr-sort');
             const exportLink = document.querySelector('a[href^="/admin/reports/subscribers/billing-risk/export"]');
-            let activeBucket = results.dataset.bucket || 'all';
+            const filterState = {
+                bucket: results.dataset.bucket || 'all',
+                customerTier: results.dataset.customerTier || 'all',
+                mrrSort: results.dataset.mrrSort || '',
+                segments: (results.dataset.segments || '').split(',').map((segment) => segment.trim()).filter(Boolean),
+                search: results.dataset.search || searchInput?.value || '',
+                pageSize: Number(results.dataset.pageSize || '50'),
+            };
             let currentPage = Number(results.dataset.page || '1');
             let activeRequestId = 0;
             let selectedEngagementCustomer = null;
@@ -482,7 +505,7 @@
 
             function applyBucketButtonState() {
                 for (const candidate of bucketButtons) {
-                    const active = (candidate.dataset.blockedBucket || 'all') === activeBucket;
+                    const active = (candidate.dataset.blockedBucket || 'all') === filterState.bucket;
                     candidate.classList.toggle('border-rose-300', active);
                     candidate.classList.toggle('bg-rose-50', active);
                     candidate.classList.toggle('text-rose-700', active);
@@ -498,13 +521,92 @@
                 }
             }
 
+            function applySegmentButtonState() {
+                const activeSegment = filterState.segments[0] || '';
+                for (const candidate of segmentButtons) {
+                    const active = (candidate.dataset.segmentFilter || '') === activeSegment;
+                    candidate.classList.toggle('border-rose-300', active);
+                    candidate.classList.toggle('bg-rose-50', active);
+                    candidate.classList.toggle('text-rose-700', active);
+                    candidate.classList.toggle('dark:border-rose-700', active);
+                    candidate.classList.toggle('dark:bg-rose-900/30', active);
+                    candidate.classList.toggle('dark:text-rose-200', active);
+                    candidate.classList.toggle('border-slate-300', !active);
+                    candidate.classList.toggle('bg-white', !active);
+                    candidate.classList.toggle('text-slate-700', !active);
+                    candidate.classList.toggle('dark:border-slate-600', !active);
+                    candidate.classList.toggle('dark:bg-slate-800', !active);
+                    candidate.classList.toggle('dark:text-slate-300', !active);
+                }
+            }
+
+            function applyTierButtonState() {
+                for (const candidate of tierButtons) {
+                    const active = (candidate.dataset.customerTier || 'all') === filterState.customerTier;
+                    candidate.classList.toggle('border-rose-300', active);
+                    candidate.classList.toggle('bg-rose-50', active);
+                    candidate.classList.toggle('text-rose-700', active);
+                    candidate.classList.toggle('dark:border-rose-700', active);
+                    candidate.classList.toggle('dark:bg-rose-900/30', active);
+                    candidate.classList.toggle('dark:text-rose-200', active);
+                    candidate.classList.toggle('border-slate-300', !active);
+                    candidate.classList.toggle('bg-white', !active);
+                    candidate.classList.toggle('text-slate-700', !active);
+                    candidate.classList.toggle('dark:border-slate-600', !active);
+                    candidate.classList.toggle('dark:bg-slate-800', !active);
+                    candidate.classList.toggle('dark:text-slate-300', !active);
+                }
+            }
+
+            function syncUrlState() {
+                const params = new URLSearchParams();
+                params.set('due_soon_days', results.dataset.dueSoonDays || '7');
+                params.set('overdue_invoice_days', results.dataset.overdueInvoiceDays || '30');
+                params.set('high_balance_only', results.dataset.highBalanceOnly || 'false');
+                params.set('days_past_due', results.dataset.daysPastDue || '');
+                params.set('bucket', filterState.bucket);
+                params.set('mrr_sort', filterState.mrrSort);
+                params.set('search', filterState.search);
+                for (const segment of filterState.segments) {
+                    params.append('segments', segment);
+                }
+                window.history.replaceState({}, '', `/admin/reports/subscribers/billing-risk?${params.toString()}`);
+            }
+
             function syncExportLink() {
                 if (!exportLink) return;
                 const [, queryString = ''] = exportLink.href.split('?');
                 const params = new URLSearchParams(queryString);
-                params.set('search', (searchInput?.value || '').trim());
-                params.set('bucket', activeBucket);
+                params.set('search', filterState.search);
+                params.set('bucket', filterState.bucket);
+                params.delete('enterprise_only');
+                params.delete('customer_segment');
+                params.set('mrr_sort', filterState.mrrSort);
+                params.delete('segments');
+                for (const segment of filterState.segments) {
+                    params.append('segments', segment);
+                }
                 exportLink.href = `/admin/reports/subscribers/billing-risk/export?${params.toString()}`;
+            }
+
+            function rowTier(metaCell) {
+                const mrrTotal = Number(metaCell?.dataset.mrrTotal || '0');
+                return mrrTotal >= 70000 ? 'enterprise' : 'non_enterprise';
+            }
+
+            function applyCustomerTierFilter() {
+                const rows = Array.from(document.querySelectorAll('#billing-risk-live-body tr'));
+                let visibleCount = 0;
+                for (const row of rows) {
+                    const meta = row.querySelector('td[data-billing-risk-row="1"]');
+                    if (!meta) continue;
+                    const matches = filterState.customerTier === 'all' || rowTier(meta) === filterState.customerTier;
+                    row.classList.toggle('hidden', !matches);
+                    if (matches) visibleCount += 1;
+                }
+                if (tierCount) {
+                    tierCount.textContent = String(visibleCount);
+                }
             }
 
             function csvCell(value) {
@@ -579,19 +681,22 @@
                     externalId: (cell.getAttribute('data-external-id') || '').trim(),
                 })).filter(({ row, externalId }) => row && externalId);
                 if (!rows.length) return;
+                const rowsNeedingRefresh = rows.filter(({ row, meta }) => {
+                    const blockedCell = row.querySelector('[data-blocked-date-cell]');
+                    const blockedValue = (blockedCell?.textContent || '').trim();
+                    const subscriberStatus = ((meta?.dataset.subscriberStatus) || '').trim().toLowerCase();
+                    const riskSegment = ((meta?.dataset.riskSegment) || '').trim();
+                    const isBlockedLike = subscriberStatus === 'blocked'
+                        || subscriberStatus === 'suspended'
+                        || riskSegment === 'Suspended'
+                        || riskSegment === 'Churned';
+                    return isBlockedLike && (!blockedValue || blockedValue === '-' || blockedValue === 'N/A' || blockedValue === 'Loading...');
+                });
+                if (!rowsNeedingRefresh.length) return;
 
                 const params = new URLSearchParams();
-                const uniqueExternalIds = [...new Set(rows.map((entry) => entry.externalId))];
-                const blockedLikeExternalIds = [...new Set(rows
-                    .filter(({ meta }) => {
-                        const subscriberStatus = ((meta?.dataset.subscriberStatus) || '').trim().toLowerCase();
-                        const riskSegment = ((meta?.dataset.riskSegment) || '').trim();
-                        return subscriberStatus === 'blocked'
-                            || subscriberStatus === 'suspended'
-                            || riskSegment === 'Suspended'
-                            || riskSegment === 'Churned';
-                    })
-                    .map((entry) => entry.externalId))];
+                const uniqueExternalIds = [...new Set(rowsNeedingRefresh.map((entry) => entry.externalId))];
+                const blockedLikeExternalIds = [...new Set(rowsNeedingRefresh.map((entry) => entry.externalId))];
                 for (const externalId of uniqueExternalIds) {
                     params.append('external_id', externalId);
                 }
@@ -637,18 +742,21 @@
                 for (const row of rows) {
                     updateRowDerivedState(row);
                 }
-                rows.sort((a, b) => {
-                    const aMeta = a.querySelector('td[data-billing-risk-row="1"]');
-                    const bMeta = b.querySelector('td[data-billing-risk-row="1"]');
-                    const aDays = aMeta?.dataset.blockedForDays === '' ? Number.POSITIVE_INFINITY : Number(aMeta?.dataset.blockedForDays || Number.POSITIVE_INFINITY);
-                    const bDays = bMeta?.dataset.blockedForDays === '' ? Number.POSITIVE_INFINITY : Number(bMeta?.dataset.blockedForDays || Number.POSITIVE_INFINITY);
-                    if (aDays !== bDays) return aDays - bDays;
-                    return (aMeta?.dataset.name || '').localeCompare(bMeta?.dataset.name || '');
-                });
+                if (!filterState.mrrSort) {
+                    rows.sort((a, b) => {
+                        const aMeta = a.querySelector('td[data-billing-risk-row="1"]');
+                        const bMeta = b.querySelector('td[data-billing-risk-row="1"]');
+                        const aDays = aMeta?.dataset.blockedForDays === '' ? Number.POSITIVE_INFINITY : Number(aMeta?.dataset.blockedForDays || Number.POSITIVE_INFINITY);
+                        const bDays = bMeta?.dataset.blockedForDays === '' ? Number.POSITIVE_INFINITY : Number(bMeta?.dataset.blockedForDays || Number.POSITIVE_INFINITY);
+                        if (aDays !== bDays) return aDays - bDays;
+                        return (aMeta?.dataset.name || '').localeCompare(bMeta?.dataset.name || '');
+                    });
+                }
                 for (const row of rows) tbody.appendChild(row);
                 renderEngagementCells();
                 loadEngagementsForVisibleRows();
                 refreshBlockedDatesForVisibleRows();
+                applyCustomerTierFilter();
             }
 
             async function loadEngagementsForVisibleRows() {
@@ -668,21 +776,31 @@
                 engagements.setValue(payload.engagements || {});
             }
 
-            async function loadResults(page, resetSearchPage = false) {
+            async function loadResults(page, resetSearchPage = false, nextState = {}) {
+                if (Object.prototype.hasOwnProperty.call(nextState, 'bucket')) {
+                    filterState.bucket = nextState.bucket || 'all';
+                }
+                if (Object.prototype.hasOwnProperty.call(nextState, 'mrrSort')) {
+                    filterState.mrrSort = nextState.mrrSort || '';
+                }
+                if (Object.prototype.hasOwnProperty.call(nextState, 'segments')) {
+                    filterState.segments = Array.isArray(nextState.segments) ? nextState.segments : [];
+                }
                 currentPage = resetSearchPage ? 1 : Math.max(1, Number(page || 1));
+                filterState.search = (searchInput?.value || '').trim();
                 const requestId = ++activeRequestId;
                 const params = new URLSearchParams({
                     page: String(currentPage),
-                    page_size: results.dataset.pageSize || '50',
-                    search: (searchInput?.value || '').trim(),
-                    bucket: activeBucket,
+                    page_size: String(filterState.pageSize),
+                    search: filterState.search,
+                    bucket: filterState.bucket,
                     due_soon_days: results.dataset.dueSoonDays || '7',
                     overdue_invoice_days: results.dataset.overdueInvoiceDays || '30',
                     high_balance_only: results.dataset.highBalanceOnly || 'false',
                     days_past_due: results.dataset.daysPastDue || '',
+                    mrr_sort: filterState.mrrSort,
                 });
-                const activeSegments = (results.dataset.segments || '').split(',').map(segment => segment.trim()).filter(Boolean);
-                for (const segment of activeSegments) {
+                for (const segment of filterState.segments) {
                     params.append('segments', segment);
                 }
                 results.classList.add('opacity-60');
@@ -702,14 +820,29 @@
                 if (!response.ok) return;
                 results.innerHTML = await response.text();
                 results.dataset.page = String(currentPage);
-                results.dataset.bucket = activeBucket;
+                results.dataset.bucket = filterState.bucket;
+                results.dataset.mrrSort = filterState.mrrSort;
+                results.dataset.segments = filterState.segments.join(',');
+                results.dataset.pageSize = String(filterState.pageSize);
+                results.dataset.search = filterState.search;
+                results.dataset.customerTier = filterState.customerTier;
+                syncUrlState();
                 syncExportLink();
+                applyBucketButtonState();
+                applySegmentButtonState();
+                applyTierButtonState();
                 hydrateResults();
             }
 
             hydrateResults();
             applyBucketButtonState();
+            applySegmentButtonState();
+            applyTierButtonState();
+            if (searchInput) {
+                searchInput.value = filterState.search;
+            }
             syncExportLink();
+            syncUrlState();
 
             searchButton?.addEventListener('click', () => {
                 loadResults(1, true);
@@ -722,11 +855,31 @@
             });
             for (const button of bucketButtons) {
                 button.addEventListener('click', () => {
-                    activeBucket = button.dataset.blockedBucket || 'all';
+                    filterState.bucket = button.dataset.blockedBucket || 'all';
                     applyBucketButtonState();
-                    loadResults(1, true);
+                    loadResults(1, true, { bucket: button.dataset.blockedBucket || 'all' });
                 });
             }
+            for (const button of segmentButtons) {
+                button.addEventListener('click', () => {
+                    const nextSegment = (button.dataset.segmentFilter || '').trim();
+                    filterState.segments = nextSegment ? [nextSegment] : [];
+                    applySegmentButtonState();
+                    loadResults(1, true, { segments: nextSegment ? [nextSegment] : [] });
+                });
+            }
+            for (const button of tierButtons) {
+                button.addEventListener('click', () => {
+                    filterState.customerTier = button.dataset.customerTier || 'all';
+                    results.dataset.customerTier = filterState.customerTier;
+                    applyTierButtonState();
+                    applyCustomerTierFilter();
+                });
+            }
+            mrrSortSelect?.addEventListener('change', () => {
+                filterState.mrrSort = mrrSortSelect.value || '';
+                loadResults(1, true, { mrrSort: mrrSortSelect.value || '' });
+            });
             exportLink?.addEventListener('click', (event) => {
                 event.preventDefault();
                 syncExportLink();
@@ -804,6 +957,15 @@
                 if (!results.contains(pageButton)) return;
                 const nextPage = Number(pageButton.getAttribute('data-billing-risk-page') || currentPage);
                 loadResults(nextPage);
+                return;
+            });
+
+            document.body.addEventListener('change', (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLSelectElement)) return;
+                if (target.id !== 'billing-risk-page-size') return;
+                filterState.pageSize = Number(target.value || filterState.pageSize || 50);
+                loadResults(1, true);
             });
         })();
     </script>
