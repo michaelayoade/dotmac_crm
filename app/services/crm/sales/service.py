@@ -581,6 +581,7 @@ class Leads(ListResponseMixin):
         limit: int,
         offset: int,
         lead_source: str | None = None,
+        search: str | None = None,
     ):
         query = db.query(Lead)
         if pipeline_id:
@@ -594,6 +595,21 @@ class Leads(ListResponseMixin):
             query = query.filter(Lead.status == status_value)
         if lead_source:
             query = query.filter(func.lower(Lead.lead_source) == lead_source.strip().lower())
+        if search:
+            pattern = f"%{search.strip()}%"
+            if pattern != "%%":
+                full_name = func.trim(func.coalesce(Person.first_name, "") + " " + func.coalesce(Person.last_name, ""))
+                query = query.outerjoin(Person, Person.id == Lead.person_id).filter(
+                    or_(
+                        Lead.title.ilike(pattern),
+                        Person.display_name.ilike(pattern),
+                        full_name.ilike(pattern),
+                        Person.first_name.ilike(pattern),
+                        Person.last_name.ilike(pattern),
+                        Person.email.ilike(pattern),
+                        Person.phone.ilike(pattern),
+                    )
+                )
         if is_active is None:
             query = query.filter(Lead.is_active.is_(True))
         else:

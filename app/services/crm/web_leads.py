@@ -105,6 +105,7 @@ def list_leads_page_data(
     stage_id: str | None,
     owner_agent_id: str | None,
     lead_source: str | None,
+    search: str | None,
     page: int,
     per_page: int,
     options: dict[str, Any],
@@ -124,6 +125,7 @@ def list_leads_page_data(
         order_dir="desc",
         limit=per_page,
         offset=offset,
+        search=search,
     )
     all_leads = crm_service.leads.list(
         db=db,
@@ -137,6 +139,7 @@ def list_leads_page_data(
         order_dir="desc",
         limit=10000,
         offset=0,
+        search=search,
     )
 
     total = len(all_leads)
@@ -187,6 +190,7 @@ def list_leads_page_data(
         "stage_id": stage_id or "",
         "owner_agent_id": owner_agent_id or "",
         "lead_source": lead_source or "",
+        "search": search or "",
         "lead_statuses": lead_status_values(),
         "lead_sources": lead_source_values(),
         "contacts": options["contacts"],

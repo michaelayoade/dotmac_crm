@@ -17,6 +17,7 @@ from app.models.notification import (
 )
 from app.services import email as email_service
 from app.services import nextcloud_talk_notifications as talk_notifications_service
+from app.services import sms as sms_service
 from app.services.branding import get_branding
 
 # Timeout for stuck "sending" notifications (5 minutes)
@@ -116,6 +117,47 @@ def _deliver_notification_queue(db, batch_size: int = 50) -> int:
             notification.status = NotificationStatus.failed
             if not notification.last_error:
                 notification.last_error = "send_email_failed"
+        db.commit()
+
+    sms_notifications = (
+        db.query(Notification)
+        .filter(Notification.is_active.is_(True))
+        .filter(Notification.channel == NotificationChannel.sms)
+        .filter(
+            or_(
+                Notification.status == NotificationStatus.queued,
+                ((Notification.status == NotificationStatus.sending) & (Notification.updated_at < stuck_threshold)),
+            )
+        )
+        .filter((Notification.send_at.is_(None)) | (Notification.send_at <= now))
+        .order_by(Notification.created_at.asc())
+        .limit(batch_size)
+        .all()
+    )
+    for notification in sms_notifications:
+        notification.status = NotificationStatus.sending
+        db.commit()
+
+        try:
+            success = sms_service.send_sms(
+                db=db,
+                to_phone=notification.recipient,
+                body=notification.body or "",
+                track=False,
+            )
+        except Exception as exc:
+            success = False
+            notification.last_error = str(exc)
+
+        if success:
+            notification.status = NotificationStatus.delivered
+            notification.sent_at = datetime.now(UTC)
+            notification.last_error = None
+            delivered += 1
+        else:
+            notification.status = NotificationStatus.failed
+            if not notification.last_error:
+                notification.last_error = "send_sms_failed"
         db.commit()
 
     whatsapp_notifications = (

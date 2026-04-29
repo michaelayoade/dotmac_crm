@@ -129,11 +129,13 @@
                 {% endcall %}
                 {% endfor %}
                 {% else %}
-                <tr>
-                    <td colspan="8" class="px-6 py-12">
-                        {{ empty_state("No quotes found", "Create your first quote to get started.", "/admin/crm/quotes/new", "New Quote") }}
-                    </td>
-                </tr>
+                {{ empty_state(
+                    "No quotes found",
+                    "No quotes match your filter. Create a new quote to get started.",
+                    action_label="New Quote",
+                    action_href="/admin/crm/quotes/new",
+                    colspan=8
+                ) }}
                 {% endif %}
             </tbody>
     </table>

@@ -294,6 +294,19 @@ SETTINGS_SPECS: list[SettingSpec] = [
     ),
     SettingSpec(
         domain=SettingDomain.notification,
+        key="crm_inbox_resolved_social_outro_message",
+        env_var=None,
+        value_type=SettingValueType.string,
+        default=(
+            "Thanks for chatting with us today.\n\n"
+            "Follow us for updates:\n"
+            "Instagram: https://instagram.com/yourbrand\n"
+            "Facebook: https://facebook.com/yourbrand\n"
+            "LinkedIn: https://linkedin.com/company/yourbrand"
+        ),
+    ),
+    SettingSpec(
+        domain=SettingDomain.notification,
         key="crm_inbox_ai_assignment_retry_interval_seconds",
         env_var="CRM_INBOX_AI_ASSIGNMENT_RETRY_INTERVAL_SECONDS",
         value_type=SettingValueType.integer,

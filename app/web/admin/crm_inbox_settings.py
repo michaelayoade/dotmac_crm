@@ -82,6 +82,7 @@ async def update_inbox_notification_settings(
     ai_assignment_retry_interval_seconds: str = Form("60"),
     auto_resolve_enabled: str | None = Form(None),
     auto_resolve_days: str = Form("7"),
+    resolved_social_outro_message: str = Form(""),
     db: Session = Depends(get_db),
 ):
     result = update_notification_settings(
@@ -93,6 +94,7 @@ async def update_inbox_notification_settings(
         ai_assignment_retry_interval_seconds=ai_assignment_retry_interval_seconds,
         auto_resolve_enabled=auto_resolve_enabled,
         auto_resolve_days=auto_resolve_days,
+        resolved_social_outro_message=resolved_social_outro_message,
         roles=_get_current_roles(request),
         scopes=_get_current_scopes(request),
     )

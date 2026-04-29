@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from threading import Lock
 from time import monotonic
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import Date, cast, false, func, or_, select
 from sqlalchemy.orm import Session
@@ -35,10 +36,13 @@ _SPYLNX_LIVE_CACHE_TTLS = {
     "fetch_customers": 60.0,
     "fetch_customer_billing": 300.0,
     "fetch_customer_internet_services": 300.0,
+    "resolve_customer_segment_mrr": 300.0,
 }
 _SPYLNX_LIVE_CACHE: dict[tuple[str, tuple[object, ...]], tuple[float, Any]] = {}
 _SPYLNX_LIVE_CACHE_LOCK = Lock()
 _BILLING_RISK_SEGMENT_ORDER = ["Due Soon", "Suspended", "Churned", "Pending"]
+_BILLING_RISK_ENRICH_MAX_WORKERS = 2
+ENTERPRISE_MRR_THRESHOLD = 70000.0
 _OPEN_TICKET_STATUSES = (
     TicketStatus.new,
     TicketStatus.open,
@@ -150,6 +154,9 @@ def get_billing_risk_table(
     page_size: int | None = None,
     search: str | None = None,
     overdue_bucket: str | None = None,
+    enterprise_only: bool = False,
+    customer_segment: str | None = None,
+    mrr_sort: str | None = None,
     enrich_visible_rows: bool = True,
 ) -> list[dict]:
     """Billing risk rows sourced from live Splynx data."""
@@ -221,6 +228,23 @@ def get_billing_risk_table(
 
     normalized_search = (search if isinstance(search, str) else "").strip().lower()
     normalized_overdue_bucket = (overdue_bucket if isinstance(overdue_bucket, str) else "").strip().lower()
+    raw_customer_segment = customer_segment if isinstance(customer_segment, str) else None
+    if raw_customer_segment is None:
+        normalized_customer_segment = "enterprise" if enterprise_only else ""
+    else:
+        normalized_customer_segment = raw_customer_segment.strip().lower()
+        if normalized_customer_segment not in {"enterprise", "non_enterprise"}:
+            normalized_customer_segment = ""
+    normalized_mrr_sort = (mrr_sort if isinstance(mrr_sort, str) else "").strip().lower()
+    if normalized_mrr_sort not in {"asc", "desc"}:
+        normalized_mrr_sort = ""
+    requires_live_mrr_resolution = normalized_customer_segment in {
+        "enterprise",
+        "non_enterprise",
+    } or normalized_mrr_sort in {
+        "asc",
+        "desc",
+    }
 
     def _blocked_days_from_text(value: object) -> int | None:
         parsed = _parse_iso_date_text(str(value or ""))
@@ -263,6 +287,69 @@ def get_billing_risk_table(
             ]
         ).lower()
         return normalized_search in haystack
+
+    def _service_mrr_amount(services_payload: object) -> float:
+        if not isinstance(services_payload, list):
+            return 0.0
+        services = [service for service in services_payload if isinstance(service, dict)]
+        primary_service = _select_primary_service(services)
+        if not isinstance(primary_service, Mapping):
+            return 0.0
+        for candidate in (
+            primary_service.get("unit_price"),
+            primary_service.get("price"),
+            primary_service.get("monthly_price"),
+            primary_service.get("amount"),
+        ):
+            amount = _parse_balance_amount(candidate)
+            if amount > 0:
+                return amount
+        return 0.0
+
+    def _resolved_customer_segment_mrr(external_id: str, current_mrr_total: float) -> float:
+        bound_external_id = str(external_id or "").strip()
+        if not bound_external_id:
+            return current_mrr_total
+
+        def _loader() -> float:
+            splynx_db = SessionLocal()
+            try:
+                try:
+                    services_payload = fetch_customer_internet_services(splynx_db, bound_external_id)
+                except Exception:
+                    services_payload = []
+                service_amount = _service_mrr_amount(services_payload)
+                if service_amount > 0:
+                    return service_amount
+                try:
+                    billing_payload = fetch_customer_billing(splynx_db, bound_external_id)
+                except Exception:
+                    billing_payload = {}
+                if isinstance(billing_payload, Mapping):
+                    billing_amount = _parse_balance_amount(billing_payload.get("month_price"))
+                    if billing_amount > 0:
+                        return billing_amount
+                return current_mrr_total
+            finally:
+                splynx_db.close()
+
+        resolved_amount = _cached_live_splynx_read(
+            "resolve_customer_segment_mrr",
+            _loader,
+            bound_external_id,
+            cache_scope="resolve_customer_segment_mrr",
+        )
+        try:
+            return float(resolved_amount or 0)
+        except (TypeError, ValueError):
+            return current_mrr_total
+
+    def _matches_customer_segment(mrr_total_value: float) -> bool:
+        if normalized_customer_segment == "enterprise":
+            return mrr_total_value >= ENTERPRISE_MRR_THRESHOLD
+        if normalized_customer_segment == "non_enterprise":
+            return mrr_total_value < ENTERPRISE_MRR_THRESHOLD
+        return True
 
     def _slice_page(rows: list[dict]) -> list[dict]:
         if normalized_page_size is None:
@@ -431,8 +518,14 @@ def get_billing_risk_table(
     def _ticket_counts_for_subscribers(
         subscriber_rows_by_id: Mapping[str, Mapping[str, Any]],
         fallback_person_ids: set[str] | None = None,
-    ) -> tuple[dict[str, dict[str, int | str]], dict[str, dict[str, int | str]]]:
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
         subscriber_ids = [subscriber_id for subscriber_id in subscriber_rows_by_id if subscriber_id]
+        subscriber_uuid_ids: list[UUID] = []
+        for subscriber_id in subscriber_ids:
+            try:
+                subscriber_uuid_ids.append(UUID(subscriber_id))
+            except (TypeError, ValueError):
+                continue
         person_ids = sorted(
             {
                 str(row.get("person_id") or "").strip()
@@ -441,12 +534,20 @@ def get_billing_risk_table(
             }
             | {person_id for person_id in (fallback_person_ids or set()) if person_id}
         )
+        person_uuid_ids: list[UUID] = []
+        for person_id in person_ids:
+            try:
+                person_uuid_ids.append(UUID(person_id))
+            except (TypeError, ValueError):
+                continue
         if not subscriber_ids and not person_ids:
             return {}, {}
 
         counts_by_subscriber: dict[str, dict[str, int]] = {}
+        status_counts_by_subscriber: dict[str, dict[str, int]] = {}
+        status_ticket_ids_by_subscriber: dict[str, dict[str, str]] = {}
         rows: Sequence[Any] = []
-        if subscriber_ids:
+        if subscriber_uuid_ids:
             rows = db.execute(
                 select(
                     Ticket.subscriber_id,
@@ -457,7 +558,7 @@ def get_billing_risk_table(
                 )
                 .where(
                     Ticket.is_active.is_(True),
-                    Ticket.subscriber_id.in_(subscriber_ids),
+                    Ticket.subscriber_id.in_(subscriber_uuid_ids),
                 )
                 .group_by(Ticket.subscriber_id)
             ).all()
@@ -479,9 +580,30 @@ def get_billing_risk_table(
             bucket["final_tickets"] += int(final_count or 0)
             bucket["total_tickets"] += int(total_count or 0)
 
+        if subscriber_uuid_ids:
+            subscriber_status_rows = db.execute(
+                select(Ticket.subscriber_id, Ticket.id, Ticket.status)
+                .where(
+                    Ticket.is_active.is_(True),
+                    Ticket.subscriber_id.in_(subscriber_uuid_ids),
+                )
+                .order_by(Ticket.subscriber_id.asc(), Ticket.status.asc(), Ticket.created_at.desc(), Ticket.id.desc())
+            ).all()
+            for subscriber_id, ticket_id, status in subscriber_status_rows:
+                subscriber_key = str(subscriber_id or "").strip()
+                status_key = str(status.value if isinstance(status, TicketStatus) else status or "").strip()
+                if not subscriber_key or not status_key:
+                    continue
+                counts_bucket = status_counts_by_subscriber.setdefault(subscriber_key, {})
+                counts_bucket[status_key] = counts_bucket.get(status_key, 0) + 1
+                refs_bucket = status_ticket_ids_by_subscriber.setdefault(subscriber_key, {})
+                refs_bucket.setdefault(status_key, str(ticket_id or "").strip())
+
         counts_by_person: dict[str, dict[str, int]] = {}
+        status_counts_by_person: dict[str, dict[str, int]] = {}
+        status_ticket_ids_by_person: dict[str, dict[str, str]] = {}
         person_rows: Sequence[Any] = []
-        if person_ids:
+        if person_uuid_ids:
             person_rows = db.execute(
                 select(
                     Ticket.customer_person_id,
@@ -492,7 +614,7 @@ def get_billing_risk_table(
                 )
                 .where(
                     Ticket.is_active.is_(True),
-                    Ticket.customer_person_id.in_(person_ids),
+                    Ticket.customer_person_id.in_(person_uuid_ids),
                 )
                 .group_by(Ticket.customer_person_id)
             ).all()
@@ -507,13 +629,37 @@ def get_billing_risk_table(
                 "total_tickets": int(total_count or 0),
             }
 
+        if person_uuid_ids:
+            person_status_rows = db.execute(
+                select(Ticket.customer_person_id, Ticket.id, Ticket.status)
+                .where(
+                    Ticket.is_active.is_(True),
+                    Ticket.customer_person_id.in_(person_uuid_ids),
+                )
+                .order_by(
+                    Ticket.customer_person_id.asc(),
+                    Ticket.status.asc(),
+                    Ticket.created_at.desc(),
+                    Ticket.id.desc(),
+                )
+            ).all()
+            for person_id, ticket_id, status in person_status_rows:
+                person_key = str(person_id or "").strip()
+                status_key = str(status.value if isinstance(status, TicketStatus) else status or "").strip()
+                if not person_key or not status_key:
+                    continue
+                counts_bucket = status_counts_by_person.setdefault(person_key, {})
+                counts_bucket[status_key] = counts_bucket.get(status_key, 0) + 1
+                refs_bucket = status_ticket_ids_by_person.setdefault(person_key, {})
+                refs_bucket.setdefault(status_key, str(ticket_id or "").strip())
+
         latest_status_by_subscriber: dict[str, str] = {}
-        if subscriber_ids:
+        if subscriber_uuid_ids:
             latest_subscriber_status_rows = db.execute(
                 select(Ticket.subscriber_id, Ticket.status)
                 .where(
                     Ticket.is_active.is_(True),
-                    Ticket.subscriber_id.in_(subscriber_ids),
+                    Ticket.subscriber_id.in_(subscriber_uuid_ids),
                 )
                 .order_by(Ticket.subscriber_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
             ).all()
@@ -526,12 +672,12 @@ def get_billing_risk_table(
                 )
 
         latest_status_by_person: dict[str, str] = {}
-        if person_ids:
+        if person_uuid_ids:
             latest_person_status_rows = db.execute(
                 select(Ticket.customer_person_id, Ticket.status)
                 .where(
                     Ticket.is_active.is_(True),
-                    Ticket.customer_person_id.in_(person_ids),
+                    Ticket.customer_person_id.in_(person_uuid_ids),
                 )
                 .order_by(Ticket.customer_person_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
             ).all()
@@ -542,15 +688,14 @@ def get_billing_risk_table(
                 latest_status_by_person[person_key] = str(
                     status.value if isinstance(status, TicketStatus) else status or ""
                 )
-
         latest_ticket_id_by_subscriber: dict[str, str] = {}
         latest_ticket_ref_by_subscriber: dict[str, str] = {}
-        if subscriber_ids:
+        if subscriber_uuid_ids:
             latest_subscriber_ticket_rows = db.execute(
                 select(Ticket.subscriber_id, Ticket.id, Ticket.number)
                 .where(
                     Ticket.is_active.is_(True),
-                    Ticket.subscriber_id.in_(subscriber_ids),
+                    Ticket.subscriber_id.in_(subscriber_uuid_ids),
                 )
                 .order_by(Ticket.subscriber_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
             ).all()
@@ -565,12 +710,12 @@ def get_billing_risk_table(
 
         latest_ticket_id_by_person: dict[str, str] = {}
         latest_ticket_ref_by_person: dict[str, str] = {}
-        if person_ids:
+        if person_uuid_ids:
             latest_person_ticket_rows = db.execute(
                 select(Ticket.customer_person_id, Ticket.id, Ticket.number)
                 .where(
                     Ticket.is_active.is_(True),
-                    Ticket.customer_person_id.in_(person_ids),
+                    Ticket.customer_person_id.in_(person_uuid_ids),
                 )
                 .order_by(Ticket.customer_person_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
             ).all()
@@ -583,7 +728,7 @@ def get_billing_risk_table(
                 latest_ticket_id_by_person[person_key] = ticket_id_text
                 latest_ticket_ref_by_person[person_key] = ticket_number_text or ticket_id_text
 
-        ticket_context_by_person: dict[str, dict[str, int | str]] = {}
+        ticket_context_by_person: dict[str, dict[str, Any]] = {}
         for person_key in person_ids:
             base_context = counts_by_person.get(person_key) or {
                 "open_tickets": 0,
@@ -592,22 +737,24 @@ def get_billing_risk_table(
                 "total_tickets": 0,
             }
             latest_status = latest_status_by_person.get(person_key) or ""
-            person_context_with_status: dict[str, int | str] = dict(base_context)
+            person_context_with_status: dict[str, Any] = dict(base_context)
             person_context_with_status["latest_ticket_status"] = (
                 latest_status.replace("_", " ").title() if latest_status else ""
             )
             person_context_with_status["latest_ticket_id"] = latest_ticket_id_by_person.get(person_key, "")
             person_context_with_status["latest_ticket_ref"] = latest_ticket_ref_by_person.get(person_key, "")
+            person_context_with_status["ticket_status_counts"] = dict(status_counts_by_person.get(person_key) or {})
+            person_context_with_status["ticket_status_refs"] = dict(status_ticket_ids_by_person.get(person_key) or {})
             ticket_context_by_person[person_key] = person_context_with_status
 
-        ticket_context_by_subscriber: dict[str, dict[str, int | str]] = {}
+        ticket_context_by_subscriber: dict[str, dict[str, Any]] = {}
         for subscriber_key, row in subscriber_rows_by_id.items():
             if not subscriber_key:
                 continue
             person_key = str(row.get("person_id") or "").strip()
             base_subscriber_context = counts_by_subscriber.get(subscriber_key)
             if base_subscriber_context is not None:
-                context: dict[str, int | str] = dict(base_subscriber_context)
+                context: dict[str, Any] = dict(base_subscriber_context)
             else:
                 context = ticket_context_by_person.get(person_key) or {
                     "open_tickets": 0,
@@ -618,7 +765,7 @@ def get_billing_risk_table(
             latest_status = latest_status_by_subscriber.get(subscriber_key) or str(
                 context.get("latest_ticket_status") or ""
             )
-            subscriber_context_with_status: dict[str, int | str] = dict(context)
+            subscriber_context_with_status: dict[str, Any] = dict(context)
             subscriber_context_with_status["latest_ticket_status"] = (
                 latest_status.replace("_", " ").title() if latest_status else ""
             )
@@ -628,6 +775,12 @@ def get_billing_risk_table(
             subscriber_context_with_status["latest_ticket_ref"] = latest_ticket_ref_by_subscriber.get(
                 subscriber_key
             ) or str(context.get("latest_ticket_ref") or "")
+            subscriber_context_with_status["ticket_status_counts"] = dict(
+                status_counts_by_subscriber.get(subscriber_key) or context.get("ticket_status_counts") or {}
+            )
+            subscriber_context_with_status["ticket_status_refs"] = dict(
+                status_ticket_ids_by_subscriber.get(subscriber_key) or context.get("ticket_status_refs") or {}
+            )
             ticket_context_by_subscriber[subscriber_key] = subscriber_context_with_status
         return ticket_context_by_subscriber, ticket_context_by_person
 
@@ -799,6 +952,28 @@ def get_billing_risk_table(
         return ""
 
     def _live_street_address(customer_payload: Mapping[str, Any], cached_subscriber: Mapping[str, Any]) -> str:
+        def _normalize_street_text(raw_value: object) -> str:
+            text = str(raw_value or "").replace("\r", " ").replace("\n", " ")
+            if not text.strip():
+                return ""
+            text = (
+                text.replace("\u2018", "'")
+                .replace("\u2019", "'")
+                .replace("\u201c", '"')
+                .replace("\u201d", '"')
+                .replace("\u2013", "-")
+                .replace("\u2014", "-")
+            )
+            text = re.sub(r"\s+", " ", text).strip()
+            text = re.sub(r"\s*,\s*", ", ", text)
+            text = re.sub(r"(?:,\s*){2,}", ", ", text)
+            text = re.sub(r"\s*;\s*", "; ", text)
+            text = re.sub(r"(?:;\s*){2,}", "; ", text)
+            text = re.sub(r"\s*/\s*", " / ", text)
+            text = re.sub(r"(?:/\s*){2,}", " / ", text)
+            text = re.sub(r"\s{2,}", " ", text)
+            return text.strip(" ,;/-")
+
         ignored_values = {"", "-", "n/a", "na", "none", "null", "unknown"}
         street_parts: list[str] = []
         seen_parts: set[str] = set()
@@ -807,7 +982,7 @@ def get_billing_risk_table(
             customer_payload.get("street_2"),
             cached_subscriber.get("service_address_line1"),
         ):
-            part = " ".join(str(candidate or "").replace("\r", " ").replace("\n", " ").split())
+            part = _normalize_street_text(candidate)
             if part.casefold() in ignored_values:
                 continue
             dedupe_key = part.casefold().strip(" ,")
@@ -901,6 +1076,11 @@ def get_billing_risk_table(
         balance_amount = _parse_balance_amount(mapped.get("balance") or customer.get("balance"))
         if balance_amount == 0.0 and cached_subscriber.get("balance") is not None:
             balance_amount = float(cached_subscriber.get("balance") or 0.0)
+        mrr_total_value = _parse_balance_amount(
+            customer.get("mrr_total")
+            or (embedded_billing.get("month_price") if isinstance(embedded_billing, Mapping) else None)
+            or cached_subscriber.get("mrr_total")
+        )
         sync_metadata = mapped.get("sync_metadata") if isinstance(mapped.get("sync_metadata"), Mapping) else {}
         if not sync_metadata and cached_sync_metadata:
             sync_metadata = cached_sync_metadata
@@ -951,6 +1131,7 @@ def get_billing_risk_table(
             continue
         if not _matches_days_past_due_bucket(row_days_past_due):
             continue
+        external_id_value = str(customer.get("id") or "").strip()
 
         display_name = str(customer.get("name") or "").strip() or str(mapped.get("subscriber_number") or "").strip()
         email_value = str(customer.get("email") or "").strip()
@@ -974,7 +1155,6 @@ def get_billing_risk_table(
         ticket_counts = (
             ticket_counts_by_subscriber.get(subscriber_id_key) or ticket_counts_by_person.get(person_id_key) or {}
         )
-        mrr_total_value = _parse_balance_amount(customer.get("mrr_total"))
         cleaned_display_name = _clean_report_name(display_name or "Unknown")
         if _is_excluded_report_customer(cleaned_display_name):
             continue
@@ -1015,10 +1195,12 @@ def get_billing_risk_table(
                 "latest_ticket_status": str(ticket_counts.get("latest_ticket_status") or ""),
                 "latest_ticket_id": str(ticket_counts.get("latest_ticket_id") or ""),
                 "latest_ticket_ref": str(ticket_counts.get("latest_ticket_ref") or ""),
+                "ticket_status_counts": dict(ticket_counts.get("ticket_status_counts") or {}),
+                "ticket_status_refs": dict(ticket_counts.get("ticket_status_refs") or {}),
                 "_person_id": person_id_key,
                 "ticket_subscriber_id": subscriber_id_key,
                 "_subscriber_uuid": subscriber_id_key,
-                "_external_id": str(customer.get("id") or ""),
+                "_external_id": external_id_value,
                 "_subscriber_number": str(mapped.get("subscriber_number") or ""),
                 "_last_synced_at": "",
                 "_customer_last_update": customer_last_update,
@@ -1036,17 +1218,49 @@ def get_billing_risk_table(
         }
     if high_balance_only:
         live_results = [row for row in live_results if row["is_high_balance_risk"]]
+    if requires_live_mrr_resolution and live_results:
+
+        def _resolve_row_mrr(row: dict[str, Any]) -> dict[str, Any]:
+            row["mrr_total"] = _resolved_customer_segment_mrr(
+                str(row.get("_external_id") or "").strip(),
+                float(row.get("mrr_total") or 0),
+            )
+            return row
+
+        if len(live_results) == 1:
+            _resolve_row_mrr(live_results[0])
+        else:
+            worker_count = min(_BILLING_RISK_ENRICH_MAX_WORKERS, len(live_results))
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                live_results = list(executor.map(_resolve_row_mrr, live_results))
+    if normalized_customer_segment in {"enterprise", "non_enterprise"}:
+        live_results = [row for row in live_results if _matches_customer_segment(float(row.get("mrr_total") or 0))]
     live_results = [
         row for row in live_results if _matches_search(row) and _matches_overdue_bucket(row.get("blocked_for_days"))
     ]
-    live_results.sort(
-        key=lambda row: (
-            -int(bool(row["is_high_balance_risk"])),
-            -float(row["balance"]),
-            row["days_to_due"] if isinstance(row["days_to_due"], int) else 10**9,
-            row["name"],
+    if normalized_mrr_sort == "desc":
+        live_results.sort(
+            key=lambda row: (
+                -float(row.get("mrr_total") or 0),
+                str(row.get("name") or "").casefold(),
+            )
         )
-    )
+    elif normalized_mrr_sort == "asc":
+        live_results.sort(
+            key=lambda row: (
+                float(row.get("mrr_total") or 0),
+                str(row.get("name") or "").casefold(),
+            )
+        )
+    else:
+        live_results.sort(
+            key=lambda row: (
+                -int(bool(row["is_high_balance_risk"])),
+                -float(row["balance"]),
+                row["days_to_due"] if isinstance(row["days_to_due"], int) else 10**9,
+                row["name"],
+            )
+        )
     visible_results = _slice_page(live_results)
 
     def _enrich_live_entry(entry: dict[str, Any]) -> dict[str, Any]:
@@ -1125,17 +1339,18 @@ def get_billing_risk_table(
         return updates
 
     if enrich_visible_rows and visible_results:
-        max_workers = min(8, len(visible_results))
+        max_workers = min(_BILLING_RISK_ENRICH_MAX_WORKERS, len(visible_results))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(_enrich_live_entry, entry) for entry in visible_results]
             for entry, future in zip(visible_results, futures, strict=False):
                 entry.update(future.result())
-    visible_results.sort(
-        key=lambda row: (
-            _parse_iso_date_text(str(row.get("blocked_date") or "")) or date.max,
-            row.get("name") or "",
+    if not normalized_mrr_sort:
+        visible_results.sort(
+            key=lambda row: (
+                _parse_iso_date_text(str(row.get("blocked_date") or "")) or date.max,
+                row.get("name") or "",
+            )
         )
-    )
     return visible_results
 
 
@@ -1347,7 +1562,7 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
         return updates
 
     if rows:
-        max_workers = min(8, len(rows))
+        max_workers = min(_BILLING_RISK_ENRICH_MAX_WORKERS, len(rows))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(_enrich_live_entry, entry) for entry in rows]
             for entry, future in zip(rows, futures, strict=False):

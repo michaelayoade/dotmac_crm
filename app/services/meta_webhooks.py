@@ -109,6 +109,14 @@ def _get_meta_graph_base_url(db: Session | None) -> str:
     return f"https://graph.facebook.com/{version}"
 
 
+def _get_facebook_access_token_override(db: Session) -> str | None:
+    token = resolve_value(db, SettingDomain.comms, "meta_facebook_access_token_override")
+    if isinstance(token, str):
+        token = token.strip()
+        return token or None
+    return None
+
+
 def _normalize_external_id(raw_id: str | None) -> tuple[str | None, str | None]:
     if not raw_id:
         return None, None
@@ -1074,6 +1082,7 @@ def process_messenger_webhook(
 
     _target, config = _resolve_meta_connector(db, ConnectorType.facebook)
     base_url = _get_meta_graph_base_url(db)
+    facebook_override_token = _get_facebook_access_token_override(db)
 
     for entry in payload.entry:
         page_id = entry.id
@@ -1082,11 +1091,16 @@ def process_messenger_webhook(
         if config:
             page_oauth_token = _find_token_for_account(db, config.id, "page", page_id)
             page_token = page_oauth_token.access_token if page_oauth_token else None
+        leadgen_token = facebook_override_token or page_token
 
         if entry.changes:
-            if any(change.get("field") == "leadgen" for change in entry.changes or []) and not _token_has_scope(
-                page_oauth_token,
-                "leads_retrieval",
+            if (
+                any(change.get("field") == "leadgen" for change in entry.changes or [])
+                and not facebook_override_token
+                and not _token_has_scope(
+                    page_oauth_token,
+                    "leads_retrieval",
+                )
             ):
                 logger.warning(
                     "facebook_leadgen_scope_missing page_id=%s connector_id=%s",
@@ -1097,7 +1111,7 @@ def process_messenger_webhook(
                 _process_facebook_leadgen_changes(
                     db,
                     entry=entry,
-                    page_token=page_token,
+                    page_token=leadgen_token,
                     base_url=base_url,
                 )
             )

@@ -23,6 +23,11 @@ from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm.inbox.formatting import format_contact_for_template
 from app.services.person import InvalidTransitionError, People
+from app.services.reseller_contact_policy import (
+    resolve_reseller_owner_org_id,
+    resolve_reseller_placeholder_email,
+    with_reseller_contact_metadata,
+)
 from app.services.subscriber import subscriber as subscriber_service
 
 
@@ -291,6 +296,7 @@ def new_contact_form_context() -> dict[str, Any]:
         "contact_whatsapp": [],
         "primary_email_index": 0,
         "primary_phone_index": 0,
+        "reseller_contact_hint": False,
     }
 
 
@@ -352,21 +358,47 @@ def create_contact(db: Session, form: ContactUpsertInput) -> None:
         except ValueError:
             party_status_value = None
 
-    email_values, phone_values, whatsapp_values, primary_email_index, primary_phone_index = _extract_channels(form)
-    if email_values:
-        primary_idx = primary_email_index if primary_email_index is not None else 0
-        primary_idx = primary_idx if 0 <= primary_idx < len(email_values) else 0
-        primary_email_value = email_values[primary_idx]
-        existing_email_owner = db.query(Person).filter(func.lower(Person.email) == primary_email_value.lower()).first()
-        if existing_email_owner:
-            raise ValueError("Email already belongs to another contact")
+    organization_uuid = _coerce_uuid_optional(organization_id_value)
+    reseller_owner_org_id = resolve_reseller_owner_org_id(db, organization_uuid)
+    is_reseller_linked = reseller_owner_org_id is not None and organization_uuid is not None
 
-    primary_email_value = (
-        email_values[primary_email_index]
-        if email_values and primary_email_index is not None and primary_email_index < len(email_values)
-        else (email_values[0] if email_values else "")
+    email_values, phone_values, whatsapp_values, primary_email_index, primary_phone_index = _extract_channels(form)
+    if is_reseller_linked:
+        assert organization_uuid is not None
+        email_values = []
+        phone_values = []
+        whatsapp_values = []
+        primary_email_index = None
+        primary_phone_index = None
+        email_value = resolve_reseller_placeholder_email(None, organization_uuid)
+        phone_value = None
+    else:
+        if email_values:
+            primary_idx = primary_email_index if primary_email_index is not None else 0
+            primary_idx = primary_idx if 0 <= primary_idx < len(email_values) else 0
+            primary_email_value = email_values[primary_idx]
+            existing_email_owner = (
+                db.query(Person).filter(func.lower(Person.email) == primary_email_value.lower()).first()
+            )
+            if existing_email_owner:
+                raise ValueError("Email already belongs to another contact")
+
+        primary_email_value = (
+            email_values[primary_email_index]
+            if email_values and primary_email_index is not None and primary_email_index < len(email_values)
+            else (email_values[0] if email_values else "")
+        )
+        email_value = primary_email_value or f"contact-{uuid.uuid4().hex}@placeholder.local"
+        phone_value = (
+            phone_values[primary_phone_index]
+            if phone_values and primary_phone_index is not None and primary_phone_index < len(phone_values)
+            else (phone_values[0] if phone_values else None)
+        )
+
+    metadata_value = with_reseller_contact_metadata(
+        None,
+        reseller_owner_org_id=reseller_owner_org_id,
     )
-    email_value = primary_email_value or f"contact-{uuid.uuid4().hex}@placeholder.local"
 
     payload = ContactCreate(
         first_name=first_name,
@@ -374,9 +406,7 @@ def create_contact(db: Session, form: ContactUpsertInput) -> None:
         display_name=display_name_value or None,
         splynx_id=splynx_id_value or None,
         email=email_value,
-        phone=phone_values[primary_phone_index]
-        if phone_values and primary_phone_index is not None and primary_phone_index < len(phone_values)
-        else (phone_values[0] if phone_values else None),
+        phone=phone_value,
         address_line1=address_line1_value or None,
         address_line2=address_line2_value or None,
         city=city_value or None,
@@ -387,6 +417,7 @@ def create_contact(db: Session, form: ContactUpsertInput) -> None:
         party_status=party_status_value or PartyStatusEnum.contact,
         notes=notes_value or None,
         is_active=bool(contact["is_active"]),
+        metadata_=metadata_value,
     )
     person = crm_service.contacts.create(db=db, payload=payload)
     contact_service.update_contact_channels(
@@ -422,20 +453,57 @@ def update_contact(db: Session, contact_id: str, form: ContactUpsertInput) -> No
         except ValueError:
             party_status_value = None
 
+    existing_person = db.get(Person, coerce_uuid(contact_id))
+    if not existing_person:
+        raise ValueError("Contact not found")
+
+    organization_uuid = _coerce_uuid_optional(organization_id_value)
+    effective_org_uuid = organization_uuid
+    reseller_owner_org_id = resolve_reseller_owner_org_id(db, effective_org_uuid)
+    is_reseller_linked = reseller_owner_org_id is not None and effective_org_uuid is not None
+
     email_values, phone_values, whatsapp_values, primary_email_index, primary_phone_index = _extract_channels(form)
+    if is_reseller_linked:
+        assert effective_org_uuid is not None
+        email_values = []
+        phone_values = []
+        whatsapp_values = []
+        primary_email_index = None
+        primary_phone_index = None
+        email_value = resolve_reseller_placeholder_email(existing_person.email, effective_org_uuid)
+        phone_value = None
+    else:
+        email_value = None
+        phone_value = None
+
+    metadata_seed = existing_person.metadata_ if isinstance(existing_person.metadata_, dict) else None
+    metadata_value = with_reseller_contact_metadata(
+        metadata_seed,
+        reseller_owner_org_id=reseller_owner_org_id,
+    )
+
+    payload_kwargs: dict[str, Any] = {
+        "display_name": display_name_value or None,
+        "splynx_id": splynx_id_value or None,
+        "address_line1": address_line1_value or None,
+        "address_line2": address_line2_value or None,
+        "city": city_value or None,
+        "region": region_value or None,
+        "postal_code": postal_code_value or None,
+        "country_code": country_code_value or None,
+        "organization_id": _coerce_uuid_optional(organization_id_value),
+        "notes": notes_value or None,
+        "is_active": bool(contact["is_active"]),
+        "metadata_": metadata_value,
+    }
+    if party_status_value is not None:
+        payload_kwargs["party_status"] = party_status_value
+    if is_reseller_linked:
+        payload_kwargs["email"] = email_value
+        payload_kwargs["phone"] = phone_value
+
     payload = ContactUpdate(
-        display_name=display_name_value or None,
-        splynx_id=splynx_id_value or None,
-        address_line1=address_line1_value or None,
-        address_line2=address_line2_value or None,
-        city=city_value or None,
-        region=region_value or None,
-        postal_code=postal_code_value or None,
-        country_code=country_code_value or None,
-        organization_id=_coerce_uuid_optional(organization_id_value),
-        party_status=party_status_value,
-        notes=notes_value or None,
-        is_active=bool(contact["is_active"]),
+        **payload_kwargs,
     )
     person = crm_service.contacts.update(db=db, contact_id=contact_id, payload=payload)
     contact_service.update_contact_channels(
@@ -459,11 +527,13 @@ def contact_form_error_context(
     contact = _normalize_upsert_form(form, contact_id=contact_id)
 
     organization_label = None
+    reseller_contact_hint = False
     organization_value = contact.get("organization_id")
     if isinstance(organization_value, str) and organization_value:
         org = db.get(Organization, coerce_uuid(organization_value))
         if org:
             organization_label = org.name
+            reseller_contact_hint = resolve_reseller_owner_org_id(db, org.id) is not None
 
     action_url = "/admin/crm/contacts" if mode == "create" else f"/admin/crm/contacts/{contact_id}/edit"
 
@@ -479,6 +549,7 @@ def contact_form_error_context(
         "contact_whatsapp": [p.strip() for p in (form.whatsapp_phones or []) if p and p.strip()],
         "primary_email_index": _parse_optional_int(form.primary_email) or 0,
         "primary_phone_index": _parse_optional_int(form.primary_phone) or 0,
+        "reseller_contact_hint": reseller_contact_hint,
     }
 
 
@@ -531,6 +602,7 @@ def edit_contact_form_context(db: Session, contact_id: str) -> dict[str, Any] | 
         "contact_whatsapp": whatsapp_phones,
         "primary_email_index": primary_email_index if emails else 0,
         "primary_phone_index": primary_phone_index if phones else 0,
+        "reseller_contact_hint": resolve_reseller_owner_org_id(db, contact_obj.organization_id) is not None,
     }
 
 
@@ -575,6 +647,7 @@ def contact_detail_data(db: Session, contact_id: str) -> dict[str, Any] | None:
 
     return {
         "contact": format_contact_for_template(contact, db),
+        "reseller_contact_hint": resolve_reseller_owner_org_id(db, contact.organization_id) is not None,
     }
 
 
