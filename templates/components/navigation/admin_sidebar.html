@@ -10,7 +10,7 @@
     'sales-orders': 'operations', 'installations': 'operations', 'technicians': 'operations',
     'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations', 'vendor-quotes': 'operations', 'vendor-as-built': 'operations', 'vendor-purchase-invoices': 'operations',
     'material-requests': 'operations',
-    'subscriber-overview': 'reports', 'subscriber-online-last-24h': 'reports', 'subscriber-lifecycle': 'reports', 'subscriber-churned': 'reports', 'subscriber-service-quality': 'reports', 'subscriber-revenue': 'reports', 'network-report': 'reports',
+    'subscriber-overview': 'reports', 'subscriber-online-last-24h': 'reports', 'subscriber-lifecycle': 'reports', 'subscriber-churned': 'reports', 'subscriber-service-quality': 'reports', 'subscriber-revenue': 'reports', 'network-report': 'reports', 'quarterly-report': 'reports',
     'my-performance': 'reports',
     'team-performance': 'reports',
     'ai-insights': 'reports',
@@ -184,23 +184,6 @@
         </svg>
         <span x-show="!sidebarCollapsed">Dashboard</span>
     </a>
-
-    <!-- 1b. NEXTCLOUD TALK (opens drawer) -->
-    <button type="button"
-            data-sidebar-tooltip="Talk"
-            x-on:click="window.dispatchEvent(new CustomEvent('nextcloud-talk-toggle'))"
-            x-on:mouseenter="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
-            x-on:focus="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
-            x-on:mouseleave="$dispatch('admin-sidebar-tooltip-hide')"
-            x-on:blur="$dispatch('admin-sidebar-tooltip-hide')"
-            class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
-                   text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white">
-        <svg class="h-5 w-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                  d="M8 10h8M8 14h5m9-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-        </svg>
-        <span x-show="!sidebarCollapsed">Talk</span>
-    </button>
 
     <!-- 2. CUSTOMERS (Collapsible Section) -->
     {% if customers_section_visible %}
@@ -533,6 +516,9 @@
             {% endif %}
             {% if can_reports_crm %}
             <a href="/admin/reports/crm-performance" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">CRM Performance</a>
+            {% endif %}
+            {% if can_reports_technician %}
+            <a href="/admin/reports/quarterly" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'quarterly-report' else '' }}">Quarterly Report</a>
             {% endif %}
             <a href="/admin/reports/operations-sla-violations" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'operations-sla-violations' else '' }}">Operations SLA Violations</a>
             {% if can_reports_my_performance %}

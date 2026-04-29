@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationPriority, ConversationStatus, MessageDirection
+from app.models.domain_settings import SettingDomain
 from app.schemas.crm.conversation import ConversationUpdate
 from app.services.common import coerce_uuid
 from app.services.crm import conversation as conversation_service
@@ -20,6 +21,7 @@ from app.services.crm.inbox.audit import log_conversation_action
 from app.services.crm.inbox.csat import queue_for_resolved_conversation
 from app.services.crm.inbox.permissions import can_update_conversation_status
 from app.services.crm.inbox.status_flow import validate_transition
+from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
 SNOOZE_METADATA_KEY = "snooze"
@@ -235,10 +237,16 @@ def _resolve_latest_channel_type(db: Session, conversation_id: str) -> ChannelTy
 
 
 def _build_resolved_closing_message(
+    db: Session,
     *,
     channel_type: ChannelType,
     variant: Literal["social", "feedback"],
 ) -> tuple[str | None, str]:
+    if variant == "social":
+        configured = resolve_value(db, SettingDomain.notification, "crm_inbox_resolved_social_outro_message")
+        configured_text = str(configured).strip() if configured is not None else ""
+        if configured_text:
+            return RESOLVED_CLOSING_EMAIL_SUBJECT if channel_type == ChannelType.email else None, configured_text
     if channel_type == ChannelType.email:
         if variant == "social":
             return RESOLVED_CLOSING_EMAIL_SUBJECT, EMAIL_SOCIAL_TEMPLATE
@@ -259,6 +267,7 @@ def _send_resolved_closing_message(
     from app.services.crm.inbox.admin_ui import send_conversation_message
 
     subject, message_text = _build_resolved_closing_message(
+        db,
         channel_type=channel_type,
         variant=variant,
     )
