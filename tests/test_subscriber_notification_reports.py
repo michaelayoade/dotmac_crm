@@ -74,8 +74,13 @@ def _subscriber(db_session, *, timezone: str = "Africa/Lagos") -> Subscriber:
 
 
 def _future_local_text(*, timezone: str = "Africa/Lagos", hours: int = 2, minutes: int = 0) -> str:
-    future_local = datetime.now(UTC).astimezone(ZoneInfo(timezone)) + timedelta(hours=hours, minutes=minutes)
+    now_local = datetime.now(UTC).astimezone(ZoneInfo(timezone))
+    future_local = now_local + timedelta(hours=hours, minutes=minutes)
     future_local = future_local.replace(second=0, microsecond=0)
+    if future_local.hour < 9:
+        future_local = future_local.replace(hour=9, minute=0)
+    elif future_local.hour >= 18:
+        future_local = (future_local + timedelta(days=1)).replace(hour=9, minute=0)
     return future_local.strftime("%Y-%m-%dT%H:%M")
 
 
