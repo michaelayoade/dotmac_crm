@@ -61,8 +61,7 @@ EMAIL_SOCIAL_TEMPLATE = (
     "DOTMAC Support Team"
 )
 EMAIL_FEEDBACK_TEMPLATE = (
-    "Hello,\n\n"
-    "We're glad your request has been successfully resolved.\n\n"
+    "Your request has been successfully resolved.\n\n"
     "We would appreciate your feedback on your experience:\n"
     f"{FEEDBACK_URL}\n\n"
     "If you require any further assistance, please don't hesitate to contact us.\n\n"
@@ -289,7 +288,6 @@ def _build_resolved_closing_message(
         if channel_type == ChannelType.email:
             return (
                 RESOLVED_CLOSING_EMAIL_SUBJECT,
-                "Hello,\n\n"
                 "Your conversation has been escalated to our internal team.\n\n"
                 f"We are working on fixing your issue and will communicate with you via ticket {ticket_reference}.\n\n"
                 f"How was your experience? Rate us here: {FEEDBACK_URL}\n\n"
