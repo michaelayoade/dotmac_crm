@@ -13,12 +13,11 @@ from app.services.storage import storage
 router = APIRouter(prefix="/public/media", tags=["web-public-media"])
 
 
-@router.get("/messages/{stored_name}")
-def get_public_message_media(
+def _build_public_message_media_response(
     stored_name: str,
-    exp: int = Query(...),
-    sig: str = Query(...),
-):
+    exp: int,
+    sig: str,
+) -> Response:
     if not public_media.is_valid_stored_name(stored_name):
         raise HTTPException(status_code=404, detail="Not found")
     if not public_media.verify_media_signature(stored_name, exp, sig):
@@ -32,3 +31,12 @@ def get_public_message_media(
 
     ctype, _enc = mimetypes.guess_type(stored_name)
     return Response(content=data, media_type=ctype or "application/octet-stream")
+
+
+@router.api_route("/messages/{stored_name}", methods=["GET", "HEAD"])
+def get_public_message_media(
+    stored_name: str,
+    exp: int = Query(...),
+    sig: str = Query(...),
+):
+    return _build_public_message_media_response(stored_name, exp, sig)
