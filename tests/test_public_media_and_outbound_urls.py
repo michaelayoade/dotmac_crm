@@ -77,7 +77,9 @@ def test_public_media_head_returns_headers_without_body(monkeypatch):
     monkeypatch.setattr(public_media_web.public_media, "verify_media_signature", lambda stored_name, exp, sig: True)
     monkeypatch.setattr(public_media_web.storage, "get", lambda key: b"png-bytes")
 
-    route = next(route for route in public_media_web.router.routes if route.path == "/public/media/messages/{stored_name}")
+    route = next(
+        route for route in public_media_web.router.routes if route.path == "/public/media/messages/{stored_name}"
+    )
     response = public_media_web.get_public_message_media("abc123.png", exp=1, sig="signed")
 
     assert "HEAD" in route.methods

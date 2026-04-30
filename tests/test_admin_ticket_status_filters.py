@@ -118,10 +118,14 @@ def test_ticket_query_filters_by_created_range(db_session):
     newer_ticket.created_at = datetime(2026, 4, 20, 9, 0, tzinfo=UTC)
     db_session.commit()
 
-    tickets = TicketQuery(db_session).by_created_range(
-        datetime(2026, 4, 15, tzinfo=UTC).date(),
-        datetime(2026, 4, 25, tzinfo=UTC).date(),
-    ).all()
+    tickets = (
+        TicketQuery(db_session)
+        .by_created_range(
+            datetime(2026, 4, 15, tzinfo=UTC).date(),
+            datetime(2026, 4, 25, tzinfo=UTC).date(),
+        )
+        .all()
+    )
 
     assert [ticket.id for ticket in tickets] == [newer_ticket.id]
 
