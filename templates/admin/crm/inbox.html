@@ -1253,6 +1253,8 @@ function inboxController() {
         pendingMessageAttachments: [],
         pendingPrivateAttachments: [],
         selectedMessageAttachmentNames: [],
+        messageAttachmentUploadCount: 0,
+        isMessageAttachmentUploading: false,
         notifications: [],
         notificationAutoDismissSeconds: {{ (notification_auto_dismiss_seconds or 12) | tojson }},
         notificationSoundEnabled: true,
@@ -3364,6 +3366,8 @@ function inboxController() {
             const formData = new FormData();
             const selectedFiles = Array.from(files);
             if (kind === 'message') {
+                this.messageAttachmentUploadCount += 1;
+                this.isMessageAttachmentUploading = true;
                 this.selectedMessageAttachmentNames = selectedFiles.map((file) => file && file.name).filter(Boolean);
                 const errorEl = document.querySelector('#message-thread [x-ref="messageError"]');
                 if (errorEl) {
@@ -3447,6 +3451,10 @@ function inboxController() {
                 }
             })
             .finally(() => {
+                if (kind === 'message') {
+                    this.messageAttachmentUploadCount = Math.max(0, this.messageAttachmentUploadCount - 1);
+                    this.isMessageAttachmentUploading = this.messageAttachmentUploadCount > 0;
+                }
                 event.target.value = '';
             });
         },
@@ -3673,6 +3681,8 @@ function inboxController() {
             this.pendingMessageAttachments = [];
             this.pendingPrivateAttachments = [];
             this.selectedMessageAttachmentNames = [];
+            this.messageAttachmentUploadCount = 0;
+            this.isMessageAttachmentUploading = false;
             this.syncMessageAttachmentField();
 
             // Subscribe to new conversation

@@ -1,16 +1,20 @@
 """Admin ticket management web routes."""
 
+import csv
+import io
 import json
 import re
-from datetime import UTC
+from collections import defaultdict
+from collections.abc import Callable
+from datetime import UTC, date, datetime
 from math import ceil
 from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import func
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.db import SessionLocal
@@ -18,6 +22,7 @@ from app.logging import get_logger
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.domain_settings import SettingDomain
+from app.models.material_request import MaterialRequest
 from app.models.person import Person
 from app.models.service_team import ServiceTeam
 from app.models.subscriber import Subscriber
@@ -41,6 +46,75 @@ logger = get_logger(__name__)
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/support", tags=["web-admin-support"])
 DEFAULT_TICKET_STATUS_FILTER = "not_closed"
+DEFAULT_TICKET_EXPORT_COLUMNS = (
+    "ticket",
+    "type",
+    "priority",
+    "status",
+    "customer",
+    "created",
+)
+REQUIRED_TICKET_EXPORT_COLUMNS = ("ticket", "created")
+DETAIL_TICKET_EXPORT_COLUMNS = (
+    "status",
+    "priority",
+    "title",
+    "description",
+    "customer",
+    "customer_email",
+    "customer_phone",
+    "customer_organization",
+    "customer_address",
+    "subscriber",
+    "subscriber_number",
+    "subscriber_account_number",
+    "subscriber_status",
+    "subscriber_service_plan",
+    "subscriber_service_speed",
+    "subscriber_service_address",
+    "merged_into_ticket",
+    "merged_into_ticket_title",
+    "merged_ticket_refs",
+    "merged_ticket_titles",
+    "merge_reasons",
+    "primary_outage_ticket",
+    "primary_outage_ticket_title",
+    "linked_outage_ticket_refs",
+    "linked_outage_ticket_titles",
+    "sibling_outage_ticket_refs",
+    "sibling_outage_ticket_titles",
+    "channel",
+    "type",
+    "region",
+    "base_station_details",
+    "account_name",
+    "created_by",
+    "assigned",
+    "assigned_group",
+    "project_manager",
+    "site_coordinator",
+    "created",
+    "closed",
+    "material_request_refs",
+    "material_request_item_counts",
+    "material_request_statuses",
+)
+
+
+def _csv_response(data: list[dict[str, str]], filename: str) -> Response:
+    output = io.StringIO()
+    if data:
+        writer = csv.DictWriter(output, fieldnames=list(data[0].keys()))
+        writer.writeheader()
+        writer.writerows(data)
+    else:
+        output.write("No data available\n")
+    output.seek(0)
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _clean_text(value: object | None) -> str | None:
@@ -48,6 +122,371 @@ def _clean_text(value: object | None) -> str | None:
         return None
     cleaned = value.strip()
     return cleaned or None
+
+
+def _resolve_date(value: str | None) -> date | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _normalize_ticket_export_columns(columns: str | None) -> list[str]:
+    valid_keys = {
+        "ticket",
+        "type",
+        "title",
+        "description",
+        "priority",
+        "status",
+        "customer",
+        "customer_id",
+        "customer_address",
+        "customer_email",
+        "customer_phone",
+        "customer_organization",
+        "subscriber",
+        "subscriber_number",
+        "subscriber_account_number",
+        "subscriber_status",
+        "subscriber_service_plan",
+        "subscriber_service_speed",
+        "subscriber_service_address",
+        "region",
+        "base_station_details",
+        "account_name",
+        "created_by",
+        "assigned",
+        "assigned_group",
+        "project_manager",
+        "site_coordinator",
+        "channel",
+        "due_at",
+        "created",
+        "closed",
+        "merged_into_ticket",
+        "merged_into_ticket_title",
+        "merged_ticket_refs",
+        "merged_ticket_titles",
+        "merge_reasons",
+        "primary_outage_ticket",
+        "primary_outage_ticket_title",
+        "linked_outage_ticket_refs",
+        "linked_outage_ticket_titles",
+        "sibling_outage_ticket_refs",
+        "sibling_outage_ticket_titles",
+        "material_request_refs",
+        "material_request_item_counts",
+        "material_request_statuses",
+    }
+    parsed: list[str] = []
+    for raw in (columns or "").split(","):
+        key = raw.strip()
+        if not key or key == "actions" or key not in valid_keys:
+            continue
+        if key not in parsed:
+            parsed.append(key)
+    normalized = parsed or list(DEFAULT_TICKET_EXPORT_COLUMNS)
+    for required in REQUIRED_TICKET_EXPORT_COLUMNS:
+        if required not in normalized:
+            normalized.append(required)
+    return normalized
+
+
+def _person_name(person: Person | None) -> str:
+    if not person:
+        return ""
+    return (
+        person.display_name
+        or f"{person.first_name or ''} {person.last_name or ''}".strip()
+        or ""
+    )
+
+
+def _ticket_ref(ticket: Ticket | None) -> str:
+    if not ticket:
+        return ""
+    return str(ticket.number or ticket.id or "")
+
+
+def _format_person_address(person: Person | None) -> str:
+    if not person:
+        return ""
+    parts = [
+        person.address_line1,
+        person.address_line2,
+        person.city,
+        person.region,
+        person.postal_code,
+        person.country_code,
+    ]
+    return ", ".join([part for part in parts if part]) or ""
+
+
+def _fmt_dt(value: datetime | None, *, include_time: bool = True) -> str:
+    if not value:
+        return ""
+    return value.strftime("%Y-%m-%d %H:%M" if include_time else "%Y-%m-%d")
+
+
+def _collect_ticket_export_details(db: Session, tickets: list[Ticket]) -> dict[UUID, dict[str, str]]:
+    ticket_ids = [ticket.id for ticket in tickets]
+    details_by_ticket: dict[UUID, dict[str, str]] = {ticket.id: {} for ticket in tickets}
+    if not ticket_ids:
+        return details_by_ticket
+
+    merged_sources_by_target: dict[UUID, list[TicketMerge]] = defaultdict(list)
+    merged_sources = (
+        db.query(TicketMerge)
+        .options(selectinload(TicketMerge.source_ticket))
+        .filter(TicketMerge.target_ticket_id.in_(ticket_ids))
+        .order_by(TicketMerge.created_at.asc())
+        .all()
+    )
+    for merge in merged_sources:
+        merged_sources_by_target[merge.target_ticket_id].append(merge)
+
+    direct_outage_links = (
+        db.query(TicketLink)
+        .filter(TicketLink.link_type == tickets_service.RELATED_OUTAGE_LINK_TYPE)
+        .filter(or_(TicketLink.from_ticket_id.in_(ticket_ids), TicketLink.to_ticket_id.in_(ticket_ids)))
+        .all()
+    )
+    primary_ids = {
+        link.to_ticket_id
+        for link in direct_outage_links
+        if link.from_ticket_id in details_by_ticket
+    }
+    sibling_links = []
+    if primary_ids:
+        sibling_links = (
+            db.query(TicketLink)
+            .filter(TicketLink.link_type == tickets_service.RELATED_OUTAGE_LINK_TYPE)
+            .filter(TicketLink.to_ticket_id.in_(primary_ids))
+            .all()
+        )
+
+    related_ticket_ids = {
+        link.to_ticket_id
+        for link in direct_outage_links
+        if link.from_ticket_id in details_by_ticket
+    } | {
+        link.from_ticket_id
+        for link in direct_outage_links
+        if link.to_ticket_id in details_by_ticket
+    } | {
+        link.from_ticket_id
+        for link in sibling_links
+    }
+    related_ticket_by_id: dict[UUID, Ticket] = {}
+    if related_ticket_ids:
+        related_ticket_by_id = {
+            related_ticket.id: related_ticket
+            for related_ticket in db.query(Ticket).filter(Ticket.id.in_(related_ticket_ids)).all()
+        }
+
+    outgoing_link_by_ticket = {
+        link.from_ticket_id: link
+        for link in direct_outage_links
+        if link.from_ticket_id in details_by_ticket
+    }
+    child_ticket_ids_by_primary: dict[UUID, list[UUID]] = defaultdict(list)
+    for link in direct_outage_links:
+        if link.to_ticket_id in details_by_ticket:
+            child_ticket_ids_by_primary[link.to_ticket_id].append(link.from_ticket_id)
+    for link in sibling_links:
+        child_ticket_ids_by_primary[link.to_ticket_id].append(link.from_ticket_id)
+
+    material_requests_by_ticket: dict[UUID, list[MaterialRequest]] = defaultdict(list)
+    material_requests = (
+        db.query(MaterialRequest)
+        .options(selectinload(MaterialRequest.items))
+        .filter(MaterialRequest.ticket_id.in_(ticket_ids))
+        .order_by(MaterialRequest.created_at.desc())
+        .all()
+    )
+    for material_request in material_requests:
+        if material_request.ticket_id:
+            material_requests_by_ticket[material_request.ticket_id].append(material_request)
+
+    for ticket in tickets:
+        customer = ticket.customer
+        subscriber = ticket.subscriber
+        merged_into_ticket = ticket.merged_into_ticket
+        merged_sources_for_ticket = merged_sources_by_target.get(ticket.id, [])
+        outgoing_link = outgoing_link_by_ticket.get(ticket.id)
+        primary_ticket = related_ticket_by_id.get(outgoing_link.to_ticket_id) if outgoing_link else None
+        linked_tickets = sorted(
+            [
+                related_ticket_by_id[ticket_id]
+                for ticket_id in child_ticket_ids_by_primary.get(ticket.id, [])
+                if ticket_id in related_ticket_by_id
+            ],
+            key=lambda related_ticket: related_ticket.created_at or datetime.min.replace(tzinfo=UTC),
+        )
+        sibling_tickets = []
+        if primary_ticket:
+            sibling_tickets = sorted(
+                [
+                    related_ticket_by_id[ticket_id]
+                    for ticket_id in child_ticket_ids_by_primary.get(primary_ticket.id, [])
+                    if ticket_id != ticket.id and ticket_id in related_ticket_by_id
+                ],
+                key=lambda related_ticket: related_ticket.created_at or datetime.min.replace(tzinfo=UTC),
+            )
+        ticket_material_requests = material_requests_by_ticket.get(ticket.id, [])
+        details_by_ticket[ticket.id] = {
+            "title": str(ticket.title or ""),
+            "description": str(ticket.description or ""),
+            "customer_organization": str(customer.organization.name if customer and customer.organization else ""),
+            "subscriber_number": str(subscriber.subscriber_number or "") if subscriber else "",
+            "subscriber_account_number": str(subscriber.account_number or "") if subscriber else "",
+            "subscriber_status": str(subscriber.status.value if subscriber and subscriber.status else ""),
+            "subscriber_service_plan": str(subscriber.service_plan or "") if subscriber else "",
+            "subscriber_service_speed": str(subscriber.service_speed or "") if subscriber else "",
+            "subscriber_service_address": str(subscriber.service_address or "") if subscriber else "",
+            "merged_into_ticket": _ticket_ref(merged_into_ticket),
+            "merged_into_ticket_title": str(merged_into_ticket.title or "") if merged_into_ticket else "",
+            "merged_ticket_refs": "; ".join(_ticket_ref(merge.source_ticket) for merge in merged_sources_for_ticket if merge.source_ticket),
+            "merged_ticket_titles": "; ".join(
+                str(merge.source_ticket.title or "") for merge in merged_sources_for_ticket if merge.source_ticket
+            ),
+            "merge_reasons": "; ".join(str(merge.reason or "") for merge in merged_sources_for_ticket if merge.reason),
+            "primary_outage_ticket": _ticket_ref(primary_ticket),
+            "primary_outage_ticket_title": str(primary_ticket.title or "") if primary_ticket else "",
+            "linked_outage_ticket_refs": "; ".join(_ticket_ref(related_ticket) for related_ticket in linked_tickets),
+            "linked_outage_ticket_titles": "; ".join(str(related_ticket.title or "") for related_ticket in linked_tickets),
+            "sibling_outage_ticket_refs": "; ".join(_ticket_ref(related_ticket) for related_ticket in sibling_tickets),
+            "sibling_outage_ticket_titles": "; ".join(str(related_ticket.title or "") for related_ticket in sibling_tickets),
+            "base_station_details": str(
+                ticket.metadata_.get("base_station_details")
+                if isinstance(ticket.metadata_, dict) and ticket.metadata_.get("base_station_details")
+                else ""
+            ),
+            "account_name": str(getattr(getattr(ticket, "account", None), "name", "") or ""),
+            "created_by": _person_name(ticket.created_by),
+            "assigned_group": str(ticket.service_team.name if ticket.service_team else ""),
+            "closed": _fmt_dt(ticket.closed_at),
+            "material_request_refs": "; ".join(
+                str(material_request.number or material_request.id) for material_request in ticket_material_requests
+            ),
+            "material_request_item_counts": "; ".join(
+                str(len(material_request.items or [])) for material_request in ticket_material_requests
+            ),
+            "material_request_statuses": "; ".join(
+                str(material_request.status.value if material_request.status else "") for material_request in ticket_material_requests
+            ),
+        }
+
+    return details_by_ticket
+
+
+def _ticket_export_column_map() -> dict[str, tuple[str, Callable[[Ticket], str]]]:
+    def _customer_name(ticket: Ticket) -> str:
+        return _person_name(ticket.customer)
+
+    def _customer_id(ticket: Ticket) -> str:
+        value = ticket.customer_person_id or (ticket.customer.id if ticket.customer else None)
+        return str(value or "")
+
+    def _customer_address(ticket: Ticket) -> str:
+        return _format_person_address(ticket.customer)
+
+    def _customer_email(ticket: Ticket) -> str:
+        return str(ticket.customer.email or "") if ticket.customer else ""
+
+    def _customer_phone(ticket: Ticket) -> str:
+        return str(ticket.customer.phone or "") if ticket.customer else ""
+
+    def _subscriber_name(ticket: Ticket) -> str:
+        if not ticket.subscriber:
+            return ""
+        if ticket.subscriber.subscriber_number:
+            return f"{ticket.subscriber.display_name or 'Subscriber'} ({ticket.subscriber.subscriber_number})"
+        return str(ticket.subscriber.display_name or "Subscriber")
+
+    def _status_value(ticket: Ticket) -> str:
+        return ticket.status.value if hasattr(ticket.status, "value") else str(ticket.status or "")
+
+    def _priority_value(ticket: Ticket) -> str:
+        return ticket.priority.value if hasattr(ticket.priority, "value") else str(ticket.priority or "")
+
+    def _channel_value(ticket: Ticket) -> str:
+        raw = ticket.channel.value if hasattr(ticket.channel, "value") else str(ticket.channel or "")
+        labels = {
+            "email": "Email",
+            "phone": "Phone",
+            "chat": "Chat",
+            "api": "API",
+            "web": "Web",
+        }
+        return labels.get(raw, raw.title() if raw else "")
+
+    def _assigned_value(ticket: Ticket) -> str:
+        names: list[str] = []
+        for assignee in list(ticket.assignees or []):
+            name = _person_name(assignee.person)
+            if not name and assignee.person_id:
+                name = str(assignee.person_id)
+            if name:
+                names.append(name)
+        if names:
+            return ", ".join(names)
+        return _person_name(ticket.assigned_to)
+
+    return {
+        "ticket": ("Ticket ID", _ticket_ref),
+        "type": ("Type", lambda ticket: str(ticket.ticket_type or "")),
+        "priority": ("Priority", _priority_value),
+        "status": ("Status", _status_value),
+        "title": ("Title", lambda ticket: str(ticket.title or "")),
+        "description": ("Description", lambda ticket: str(ticket.description or "")),
+        "customer": ("Customer", _customer_name),
+        "customer_id": ("Customer ID", _customer_id),
+        "customer_address": ("Customer Address", _customer_address),
+        "customer_email": ("Customer Email", _customer_email),
+        "customer_phone": ("Customer Phone", _customer_phone),
+        "subscriber": ("Subscriber", _subscriber_name),
+        "subscriber_number": ("Subscriber Number", lambda ticket: str(ticket.subscriber.subscriber_number or "") if ticket.subscriber else ""),
+        "subscriber_account_number": ("Account Number", lambda ticket: str(ticket.subscriber.account_number or "") if ticket.subscriber else ""),
+        "subscriber_status": ("Subscriber Status", lambda ticket: str(ticket.subscriber.status.value if ticket.subscriber and ticket.subscriber.status else "")),
+        "subscriber_service_plan": ("Service Plan", lambda ticket: str(ticket.subscriber.service_plan or "") if ticket.subscriber else ""),
+        "subscriber_service_speed": ("Service Speed", lambda ticket: str(ticket.subscriber.service_speed or "") if ticket.subscriber else ""),
+        "subscriber_service_address": ("Service Address", lambda ticket: str(ticket.subscriber.service_address or "") if ticket.subscriber else ""),
+        "region": ("Region", lambda ticket: str(ticket.region or "")),
+        "assigned": ("Assigned", _assigned_value),
+        "project_manager": ("Project Manager", lambda ticket: _person_name(ticket.ticket_manager)),
+        "site_coordinator": ("Site Coordinator", lambda ticket: _person_name(ticket.assistant_manager)),
+        "channel": ("Channel", _channel_value),
+        "due_at": ("Due Date", lambda ticket: _fmt_dt(ticket.due_at)),
+        "created": ("Opened", lambda ticket: _fmt_dt(ticket.created_at)),
+        "customer_organization": ("Customer Organization", lambda ticket: str(ticket.customer.organization.name if ticket.customer and ticket.customer.organization else "")),
+        "base_station_details": (
+            "Base Station Details",
+            lambda ticket: str(ticket.metadata_.get("base_station_details") if isinstance(ticket.metadata_, dict) and ticket.metadata_.get("base_station_details") else ""),
+        ),
+        "account_name": ("Account", lambda ticket: str(getattr(getattr(ticket, "account", None), "name", "") or "")),
+        "created_by": ("Created By", lambda ticket: _person_name(ticket.created_by)),
+        "assigned_group": ("Assigned Group", lambda ticket: str(ticket.service_team.name if ticket.service_team else "")),
+        "closed": ("Closed", lambda ticket: _fmt_dt(ticket.closed_at)),
+        "merged_into_ticket": ("Merged Into Ticket", lambda ticket: _ticket_ref(ticket.merged_into_ticket)),
+        "merged_into_ticket_title": ("Merged Into Ticket Title", lambda ticket: str(ticket.merged_into_ticket.title or "") if ticket.merged_into_ticket else ""),
+        "merged_ticket_refs": ("Merged Ticket IDs", lambda _ticket: ""),
+        "merged_ticket_titles": ("Merged Ticket Titles", lambda _ticket: ""),
+        "merge_reasons": ("Merge Reasons", lambda _ticket: ""),
+        "primary_outage_ticket": ("Primary Outage Ticket", lambda _ticket: ""),
+        "primary_outage_ticket_title": ("Primary Outage Ticket Title", lambda _ticket: ""),
+        "linked_outage_ticket_refs": ("Linked Outage Ticket IDs", lambda _ticket: ""),
+        "linked_outage_ticket_titles": ("Linked Outage Ticket Titles", lambda _ticket: ""),
+        "sibling_outage_ticket_refs": ("Other Outage Ticket IDs", lambda _ticket: ""),
+        "sibling_outage_ticket_titles": ("Other Outage Ticket Titles", lambda _ticket: ""),
+        "material_request_refs": ("Material Request IDs", lambda _ticket: ""),
+        "material_request_item_counts": ("Material Request Item Counts", lambda _ticket: ""),
+        "material_request_statuses": ("Material Request Statuses", lambda _ticket: ""),
+    }
 
 
 def _first_nonempty_form_value(form_data, *keys: str) -> str | None:
@@ -661,6 +1100,48 @@ def _apply_ticket_status_filter(
     return query.by_status(effective_status)
 
 
+def _build_ticket_list_query(
+    db: Session,
+    *,
+    status: str | None,
+    default_status: str,
+    search: str | None,
+    ticket_type: str | None,
+    assigned: str | None,
+    assigned_to_person_id: str | None,
+    region_filter: str | None,
+    group_id: UUID | None,
+    selected_date_from: date | None,
+    selected_date_to: date | None,
+    pm_person_id: str | None,
+    spc_person_id: str | None,
+    subscriber_id: UUID | None,
+    filters_payload: list[dict[str, Any]] | None,
+) -> TicketQuery:
+    base_query = TicketQuery(db).by_subscriber(subscriber_id)
+    base_query = _apply_ticket_status_filter(base_query, status, default=default_status)
+    base_query = (
+        base_query.by_ticket_type(ticket_type if ticket_type else None)
+        .search(search if search else None)
+        .by_region(region_filter)
+        .by_service_team(group_id)
+        .by_created_range(selected_date_from, selected_date_to)
+        .by_ticket_manager(pm_person_id)
+        .by_assistant_manager(spc_person_id)
+        .active_only()
+    )
+    if assigned_to_person_id:
+        if assigned == "me":
+            base_query = base_query.by_assigned_to_or_team_member(assigned_to_person_id)
+        else:
+            base_query = base_query.by_assigned_to(assigned_to_person_id)
+    if filters_payload:
+        from app.services.filter_engine import apply_filter_payload
+
+        base_query._query = apply_filter_payload(base_query._query, "Ticket", filters_payload)
+    return base_query
+
+
 @router.get(
     "/tickets",
     response_class=HTMLResponse,
@@ -674,6 +1155,8 @@ def tickets_list(
     assigned: str | None = None,
     region: str | None = None,
     group: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     pm: str | None = None,
     spc: str | None = None,
     subscriber: str | None = None,
@@ -693,6 +1176,14 @@ def tickets_list(
         order_by = "created_at"
     if order_dir not in {"asc", "desc"}:
         order_dir = "desc"
+    selected_date_from = _resolve_date(date_from)
+    selected_date_to = _resolve_date(date_to)
+    if date_from and not selected_date_from:
+        raise HTTPException(status_code=400, detail="Invalid from date")
+    if date_to and not selected_date_to:
+        raise HTTPException(status_code=400, detail="Invalid to date")
+    if selected_date_from and selected_date_to and selected_date_from > selected_date_to:
+        raise HTTPException(status_code=400, detail="From date must be before or equal to To date")
     offset = (page - 1) * per_page
     default_status = "" if status is None and (search or "").strip() else DEFAULT_TICKET_STATUS_FILTER
     effective_status = _normalize_ticket_status_filter(status, default=default_status)
@@ -810,26 +1301,23 @@ def tickets_list(
         total = 0
         total_pages = 1
     else:
-        base_query = TicketQuery(db).by_subscriber(subscriber_id)
-        base_query = _apply_ticket_status_filter(base_query, status, default=default_status)
-        base_query = (
-            base_query.by_ticket_type(ticket_type if ticket_type else None)
-            .search(search if search else None)
-            .by_region(region_filter)
-            .by_service_team(group_id)
-            .by_ticket_manager(pm_person_id)
-            .by_assistant_manager(spc_person_id)
-            .active_only()
+        base_query = _build_ticket_list_query(
+            db,
+            status=status,
+            default_status=default_status,
+            search=search,
+            ticket_type=ticket_type,
+            assigned=assigned,
+            assigned_to_person_id=assigned_to_person_id,
+            region_filter=region_filter,
+            group_id=group_id,
+            selected_date_from=selected_date_from,
+            selected_date_to=selected_date_to,
+            pm_person_id=pm_person_id,
+            spc_person_id=spc_person_id,
+            subscriber_id=subscriber_id,
+            filters_payload=filters_payload,
         )
-        if assigned_to_person_id:
-            if assigned == "me":
-                base_query = base_query.by_assigned_to_or_team_member(assigned_to_person_id)
-            else:
-                base_query = base_query.by_assigned_to(assigned_to_person_id)
-        if filters_payload:
-            from app.services.filter_engine import apply_filter_payload
-
-            base_query._query = apply_filter_payload(base_query._query, "Ticket", filters_payload)
         total = base_query.count()
         total_pages = max(1, ceil(total / per_page)) if per_page else 1
 
@@ -862,6 +1350,8 @@ def tickets_list(
                 "assigned": assigned,
                 "region": region_filter,
                 "group": group,
+                "date_from": date_from or "",
+                "date_to": date_to or "",
                 "pm": pm,
                 "spc": spc,
                 "subscriber": subscriber,
@@ -893,6 +1383,8 @@ def tickets_list(
             "assigned": assigned,
             "region": region_filter,
             "group": group,
+            "date_from": date_from or "",
+            "date_to": date_to or "",
             "region_options": region_options,
             "group_options": group_options,
             "pm": pm,
@@ -912,6 +1404,128 @@ def tickets_list(
             "active_page": "tickets",
         },
     )
+
+
+@router.get(
+    "/tickets/export.csv",
+    dependencies=[Depends(require_permission("support:ticket:read"))],
+)
+def tickets_export_csv(
+    request: Request,
+    search: str | None = None,
+    status: str | None = None,
+    ticket_type: str | None = None,
+    assigned: str | None = None,
+    region: str | None = None,
+    group: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    pm: str | None = None,
+    spc: str | None = None,
+    subscriber: str | None = None,
+    filters: str | None = None,
+    order_by: str = Query("created_at"),
+    order_dir: str = Query("desc"),
+    columns: str | None = None,
+    db: Session = Depends(get_db),
+):
+    if order_by not in {"created_at", "updated_at", "status", "priority"}:
+        order_by = "created_at"
+    if order_dir not in {"asc", "desc"}:
+        order_dir = "desc"
+    selected_date_from = _resolve_date(date_from)
+    selected_date_to = _resolve_date(date_to)
+    if date_from and not selected_date_from:
+        raise HTTPException(status_code=400, detail="Invalid from date")
+    if date_to and not selected_date_to:
+        raise HTTPException(status_code=400, detail="Invalid to date")
+    if selected_date_from and selected_date_to and selected_date_from > selected_date_to:
+        raise HTTPException(status_code=400, detail="From date must be before or equal to To date")
+
+    filters_payload = None
+    try:
+        filters_payload = parse_filter_payload_json(filters)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    from app.web.admin._auth_helpers import get_current_user
+
+    current_user = get_current_user(request)
+    current_person_id = current_user.get("person_id") if current_user else None
+    assigned_to_person_id = current_person_id if assigned == "me" and current_person_id else None
+    region_filter = (region or "").strip() or None
+
+    group_id = None
+    if group:
+        try:
+            group_id = coerce_uuid(group)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid group filter") from exc
+
+    pm_person_id = None
+    if pm == "me":
+        pm_person_id = current_person_id
+    elif pm:
+        try:
+            pm_person_id = coerce_uuid(pm)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid PM filter") from exc
+
+    spc_person_id = None
+    if spc == "me":
+        spc_person_id = current_person_id
+    elif spc:
+        try:
+            spc_person_id = coerce_uuid(spc)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid SPC filter") from exc
+
+    subscriber_id = None
+    if subscriber:
+        try:
+            subscriber_id = coerce_uuid(subscriber)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid subscriber") from exc
+
+    default_status = "" if status is None and (search or "").strip() else DEFAULT_TICKET_STATUS_FILTER
+    query = _build_ticket_list_query(
+        db,
+        status=status,
+        default_status=default_status,
+        search=search,
+        ticket_type=ticket_type,
+        assigned=assigned,
+        assigned_to_person_id=assigned_to_person_id,
+        region_filter=region_filter,
+        group_id=group_id,
+        selected_date_from=selected_date_from,
+        selected_date_to=selected_date_to,
+        pm_person_id=pm_person_id,
+        spc_person_id=spc_person_id,
+        subscriber_id=subscriber_id,
+        filters_payload=filters_payload,
+    )
+    tickets = query.with_relations().order_by(order_by, order_dir).all()
+
+    export_columns = _normalize_ticket_export_columns(columns)
+    for detail_key in DETAIL_TICKET_EXPORT_COLUMNS:
+        if detail_key not in export_columns:
+            export_columns.append(detail_key)
+    column_map = _ticket_export_column_map()
+    detail_values_by_ticket = _collect_ticket_export_details(db, tickets)
+    rows: list[dict[str, str]] = []
+    for ticket in tickets:
+        row: dict[str, str] = {}
+        for key in export_columns:
+            header, getter = column_map[key]
+            value = getter(ticket)
+            if key in detail_values_by_ticket.get(ticket.id, {}) and detail_values_by_ticket[ticket.id][key]:
+                value = detail_values_by_ticket[ticket.id][key]
+            row[header] = value
+        rows.append(row)
+
+    filename = f"tickets_export_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
+    return _csv_response(rows, filename)
 
 
 @router.get(

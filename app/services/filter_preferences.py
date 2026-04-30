@@ -24,6 +24,8 @@ TICKETS_PAGE = FilterPreferencePage(
         "assigned",
         "region",
         "group",
+        "date_from",
+        "date_to",
         "subscriber",
         "filters",
         "order_by",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from sqlalchemy import String, cast, exists, or_
@@ -184,6 +185,19 @@ class TicketQuery(BaseQuery[Ticket]):
         clone._query = clone._query.filter(Ticket.ticket_type == ticket_type.strip())
         return clone
 
+    def by_created_range(self, created_from: date | None, created_to: date | None) -> TicketQuery:
+        """Filter tickets by created_at inclusive date range."""
+        if not created_from and not created_to:
+            return self
+        clone = self._clone()
+        if created_from:
+            range_start = datetime.combine(created_from, time.min, tzinfo=UTC)
+            clone._query = clone._query.filter(Ticket.created_at >= range_start)
+        if created_to:
+            range_end_exclusive = datetime.combine(created_to + timedelta(days=1), time.min, tzinfo=UTC)
+            clone._query = clone._query.filter(Ticket.created_at < range_end_exclusive)
+        return clone
+
     def unassigned(self) -> TicketQuery:
         """Filter to only unassigned tickets."""
         clone = self._clone()
@@ -270,13 +284,14 @@ class TicketQuery(BaseQuery[Ticket]):
         clone = self._clone()
         clone._query = clone._query.options(
             selectinload(Ticket.subscriber),
-            selectinload(Ticket.customer),
+            selectinload(Ticket.customer).selectinload(Person.organization),
             selectinload(Ticket.created_by),
             selectinload(Ticket.assigned_to),
             selectinload(Ticket.assignees).selectinload(TicketAssignee.person),
             selectinload(Ticket.ticket_manager),
             selectinload(Ticket.assistant_manager),
             selectinload(Ticket.lead),
+            selectinload(Ticket.service_team),
             selectinload(Ticket.merged_into_ticket),
         )
         return clone

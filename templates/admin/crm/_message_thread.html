@@ -1018,6 +1018,13 @@
                   $event.preventDefault();
                   return;
               }
+              if (isMessageAttachmentUploading) {
+                  $event.preventDefault();
+                  if ($refs.messageError) {
+                      $refs.messageError.textContent = 'Attachment is still uploading. Please wait.';
+                  }
+                  return;
+              }
               const text = ($refs.messageInput?.value || '').trim();
               const hasAttachments = pendingMessageAttachments && pendingMessageAttachments.length > 0;
               if (!text && !hasAttachments) {
@@ -1135,6 +1142,7 @@
             <!-- Send button -->
             <button type="submit"
                     aria-label="Send message"
+                    :disabled="isMessageAttachmentUploading || $el.closest('form')?.dataset.submitting === '1'"
                     class="flex-shrink-0 p-3 rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 text-white hover:from-primary-400 hover:to-primary-500 transition-all shadow-lg shadow-primary-500/20 hover:shadow-primary-500/30">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
@@ -1165,6 +1173,11 @@
                 </span>
             </template>
         </div>
+
+        <p x-show="isMessageAttachmentUploading"
+           class="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+            Uploading attachment...
+        </p>
 
         <div x-show="pendingMessageAttachments.length" class="mt-2 flex flex-wrap gap-2">
             <template x-for="(att, idx) in pendingMessageAttachments" :key="att.stored_name || idx">
