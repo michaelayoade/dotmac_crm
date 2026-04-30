@@ -23,6 +23,7 @@ from app.models.service_team import ServiceTeam, ServiceTeamMember
 from app.models.subscriber import Subscriber
 from app.services import billing_risk_reports as billing_risk_service
 from app.services.common import coerce_uuid
+from app.services.crm.web_campaigns import create_billing_risk_outreach_campaign, outreach_channel_target_options
 from app.tasks.subscribers import sync_subscribers_from_splynx
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.auth.rbac import require_web_role
@@ -725,9 +726,9 @@ def _pipeline_stage_from_engagement(engagement: dict[str, str | None] | None, ro
         return "Contacted"
     outcome = str(engagement.get("outcome") or "").strip()
     follow_up = str(engagement.get("followUp") or "").strip()
-    if outcome == "Renewing":
+    if outcome in {"Renewing", "Paid", "Resolved"}:
         return "Resolved"
-    if outcome == "Churning":
+    if outcome in {"Churning", "Do Not Reach Out"}:
         return "Lost"
     if outcome == "Promised to Pay":
         return "Promised to Pay"
@@ -1122,6 +1123,7 @@ def subscriber_billing_risk(
             "has_next": has_next,
             "rep_options": _retention_rep_options(db),
             "enterprise_mrr_threshold": ENTERPRISE_MRR_THRESHOLD,
+            "outreach_channel_targets": outreach_channel_target_options(db),
         },
     )
 
@@ -1194,6 +1196,8 @@ def customer_retention_tracker(
             "days_past_due": query_days_past_due or days_past_due,
             "filter_query": filter_query,
             "last_synced_at": _latest_subscriber_sync_at(db),
+            "outreach_channel_targets": outreach_channel_target_options(db),
+            "outreach_error": request.query_params.get("outreach_error"),
         },
     )
 
@@ -1318,6 +1322,95 @@ def customer_retention_tracker_detail(
     )
 
 
+@customer_retention_router.post("/customer-retention/outreach")
+def customer_retention_create_outreach(
+    request: Request,
+    db: Session = Depends(get_db),
+    name: str = Form("Retention Outreach"),
+    channel: str = Form("whatsapp"),
+    channel_target_id: str = Form(""),
+    subscriber_id: list[str] = Form(default=[]),
+    retention_customer_id: list[str] = Form(default=[]),
+    due_soon_days: int = Form(7),
+    high_balance_only: bool = Form(False),
+    segments: list[str] = Form(default=[]),
+    days_past_due: str = Form(""),
+    next_url: str = Form("/admin/customer-retention"),
+):
+    user = get_current_user(request)
+    if not next_url.startswith("/admin/customer-retention"):
+        next_url = "/admin/customer-retention"
+
+    selected_customer_ids = [str(value).strip() for value in retention_customer_id if str(value).strip()]
+    if not selected_customer_ids:
+        return RedirectResponse(
+            url=_append_query_flag(next_url, "outreach_error", "no_selection"),
+            status_code=303,
+        )
+
+    selected_segments = _normalize_segment_filters(segments, None)
+    churn_rows = billing_risk_service.get_billing_risk_table(
+        db,
+        due_soon_days=due_soon_days,
+        high_balance_only=high_balance_only,
+        segment=None,
+        segments=selected_segments,
+        days_past_due=days_past_due or None,
+        limit=6000,
+        enrich_visible_rows=False,
+    )
+    tracker_rows = _retention_tracker_rows(churn_rows, limit=6000)
+    engagement_history = _retention_engagements_by_customer(db, [_retention_customer_id(row) for row in tracker_rows])
+    tracker_rows = [row for row in tracker_rows if engagement_history.get(_retention_customer_id(row))]
+    tracker_rows = _retention_rows_with_pipeline(tracker_rows, engagement_history)
+    tracker_rows = _filter_excluded_retention_rows(tracker_rows)
+    row_by_customer_id = {_retention_customer_id(row): row for row in tracker_rows}
+
+    selected_subscriber_ids: list[str] = []
+    filtered_retention_customer_ids: list[str] = []
+    for customer_id in selected_customer_ids:
+        row = row_by_customer_id.get(customer_id)
+        if not row:
+            continue
+        subscriber_value = str(row.get("subscriber_id") or "").strip()
+        if not subscriber_value:
+            continue
+        selected_subscriber_ids.append(subscriber_value)
+        filtered_retention_customer_ids.append(customer_id)
+
+    if not selected_subscriber_ids:
+        return RedirectResponse(
+            url=_append_query_flag(next_url, "outreach_error", "No valid subscribers in selection"),
+            status_code=303,
+        )
+
+    try:
+        campaign = create_billing_risk_outreach_campaign(
+            db,
+            name=name,
+            channel=channel,
+            channel_target_id=channel_target_id,
+            subscriber_ids=selected_subscriber_ids,
+            retention_customer_ids=filtered_retention_customer_ids,
+            created_by_id=_person_id_from_user(user),
+            source_filters={
+                "retention_queue": True,
+                "selected_count": len(selected_subscriber_ids),
+                "due_soon_days": due_soon_days,
+                "high_balance_only": bool(high_balance_only),
+                "days_past_due": days_past_due or None,
+                "query": str(request.url),
+            },
+        )
+    except HTTPException as exc:
+        return RedirectResponse(
+            url=_append_query_flag(next_url, "outreach_error", str(exc.detail)),
+            status_code=303,
+        )
+
+    return RedirectResponse(url=f"/admin/crm/campaigns/{campaign.id}", status_code=303)
+
+
 @router.post("/subscribers/billing-risk/refresh")
 def subscriber_billing_risk_refresh(
     request: Request,
@@ -1333,6 +1426,53 @@ def subscriber_billing_risk_refresh(
     except Exception:
         logger.exception("Failed to enqueue Splynx subscriber sync")
         return RedirectResponse(url=_append_query_flag(next_url, "refresh_error", "queue_unavailable"), status_code=303)
+
+
+@router.post("/subscribers/billing-risk/outreach")
+def subscriber_billing_risk_create_outreach(
+    request: Request,
+    db: Session = Depends(get_db),
+    name: str = Form("Billing Risk Outreach"),
+    channel: str = Form("whatsapp"),
+    channel_target_id: str = Form(""),
+    subscriber_id: list[str] = Form(default=[]),
+    retention_customer_id: list[str] = Form(default=[]),
+    next_url: str = Form("/admin/reports/subscribers/billing-risk"),
+):
+    user = get_current_user(request)
+    if not next_url.startswith("/admin/reports/subscribers/billing-risk") or next_url.startswith(
+        "/admin/reports/subscribers/billing-risk/rows"
+    ):
+        next_url = "/admin/reports/subscribers/billing-risk"
+
+    selected_subscriber_ids = [str(value).strip() for value in subscriber_id if str(value).strip()]
+    if not selected_subscriber_ids:
+        return RedirectResponse(
+            url=_append_query_flag(next_url, "outreach_error", "no_selection"),
+            status_code=303,
+        )
+
+    try:
+        campaign = create_billing_risk_outreach_campaign(
+            db,
+            name=name,
+            channel=channel,
+            channel_target_id=channel_target_id,
+            subscriber_ids=selected_subscriber_ids,
+            retention_customer_ids=retention_customer_id,
+            created_by_id=_person_id_from_user(user),
+            source_filters={
+                "query": request.headers.get("referer", ""),
+                "selected_count": len(selected_subscriber_ids),
+            },
+        )
+    except HTTPException as exc:
+        return RedirectResponse(
+            url=_append_query_flag(next_url, "outreach_error", str(exc.detail)),
+            status_code=303,
+        )
+
+    return RedirectResponse(url=f"/admin/crm/campaigns/{campaign.id}", status_code=303)
 
 
 @router.get("/subscribers/billing-risk/blocked-dates")
@@ -1416,6 +1556,7 @@ def subscriber_billing_risk_rows(
             "has_prev": page > 1,
             "has_next": has_next,
             "enterprise_mrr_threshold": ENTERPRISE_MRR_THRESHOLD,
+            "outreach_channel_targets": outreach_channel_target_options(db),
         },
     )
 

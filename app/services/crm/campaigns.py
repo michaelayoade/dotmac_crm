@@ -5,6 +5,8 @@ Handles audience segmentation, variable substitution, and
 campaign lifecycle (draft -> scheduled -> sending -> completed).
 """
 
+from __future__ import annotations
+
 import contextlib
 import logging
 import re
@@ -17,18 +19,34 @@ from sqlalchemy.orm import Session, joinedload
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.campaign import Campaign, CampaignRecipient, CampaignStep
 from app.models.crm.campaign_smtp import CampaignSmtpConfig
-from app.models.crm.enums import CampaignChannel, CampaignRecipientStatus, CampaignStatus, CampaignType
+from app.models.crm.conversation import ConversationTag, Message
+from app.models.crm.enums import (
+    CampaignChannel,
+    CampaignRecipientStatus,
+    CampaignStatus,
+    CampaignType,
+    ChannelType,
+    MessageDirection,
+    MessageStatus,
+)
 from app.models.crm.sales import Lead
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
-from app.models.person import PartyStatus, Person
-from app.models.subscriber import Organization
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import PartyStatus, Person, PersonChannel
+from app.models.subscriber import Organization, Subscriber
+from app.schemas.crm.conversation import ConversationCreate
+from app.schemas.crm.inbox import InboxSendRequest
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+from app.services.crm import conversation as conversation_service
+from app.services.crm.inbox import outbound as inbox_outbound_service
 from app.services.response import ListResponseMixin
 
 logger = logging.getLogger(__name__)
 
 # Variable pattern for template substitution
 _VAR_PATTERN = re.compile(r"\{\{(\w+)\}\}")
+_MANUAL_AUDIENCE_MODE = "manual_snapshot"
+_OUTREACH_KIND = "outreach"
 
 
 def _substitute_variables(template: str | None, person: Person, org_map: dict | None = None) -> str | None:
@@ -60,9 +78,148 @@ def _normalize_whatsapp_address(phone: str | None) -> str | None:
     if not phone:
         return None
     digits = "".join(ch for ch in phone if ch.isdigit())
-    if len(digits) < 7:  # E.164 minimum: country code + subscriber number
+    if len(digits) < 8 or len(digits) > 15:
         return None
     return f"+{digits}"
+
+
+def _resolve_or_create_whatsapp_channel(db: Session, person: Person) -> PersonChannel | None:
+    for channel in person.channels or []:
+        if channel.channel_type == PersonChannelType.whatsapp and channel.address:
+            normalized = _normalize_whatsapp_address(channel.address)
+            if normalized and channel.address != normalized:
+                channel.address = normalized
+            return channel if normalized else None
+
+    normalized_phone = _normalize_whatsapp_address(person.phone)
+    if not normalized_phone:
+        return None
+
+    existing = (
+        db.query(PersonChannel)
+        .filter(
+            PersonChannel.person_id == person.id,
+            PersonChannel.channel_type == PersonChannelType.whatsapp,
+            PersonChannel.address == normalized_phone,
+        )
+        .first()
+    )
+    if existing:
+        return existing
+
+    channel = PersonChannel(
+        person_id=person.id,
+        channel_type=PersonChannelType.whatsapp,
+        address=normalized_phone,
+        label="Primary WhatsApp",
+        is_primary=True,
+        metadata_={
+            "whatsapp_validation": {
+                "status": "unknown",
+                "source": "billing_risk_outreach",
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        },
+    )
+    db.add(channel)
+    db.flush()
+    person.channels.append(channel)
+    return channel
+
+
+def _whatsapp_channel_validation_status(channel: PersonChannel | None) -> str:
+    if not channel or not isinstance(channel.metadata_, dict):
+        return ""
+    validation = channel.metadata_.get("whatsapp_validation")
+    if not isinstance(validation, dict):
+        return ""
+    return str(validation.get("status") or "").strip().lower()
+
+
+def _whatsapp_preflight_failure_reason(db: Session, person: Person) -> str | None:
+    channel = _resolve_or_create_whatsapp_channel(db, person)
+    if not channel or not _normalize_whatsapp_address(channel.address):
+        return "Invalid WhatsApp number format"
+    validation_status = _whatsapp_channel_validation_status(channel)
+    if validation_status == "invalid":
+        return "Previously rejected by WhatsApp"
+    return None
+
+
+def _ensure_conversation_tag(db: Session, *, conversation_id, tag: str) -> None:
+    clean_tag = str(tag or "").strip()
+    if not clean_tag:
+        return
+    exists = (
+        db.query(ConversationTag)
+        .filter(
+            ConversationTag.conversation_id == conversation_id,
+            ConversationTag.tag == clean_tag,
+        )
+        .first()
+    )
+    if not exists:
+        db.add(ConversationTag(conversation_id=conversation_id, tag=clean_tag))
+
+
+def _whatsapp_address_for_person(db: Session, person: Person) -> str | None:
+    channel = _resolve_or_create_whatsapp_channel(db, person)
+    if channel and channel.address:
+        return _normalize_whatsapp_address(channel.address)
+    return _normalize_whatsapp_address(person.phone)
+
+
+def _campaign_metadata(campaign: Campaign | None) -> dict:
+    metadata = getattr(campaign, "metadata_", None)
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _campaign_audience_mode(campaign: Campaign | None) -> str:
+    return str(_campaign_metadata(campaign).get("audience_mode") or "").strip().lower()
+
+
+def _is_manual_snapshot_campaign(campaign: Campaign | None) -> bool:
+    return _campaign_audience_mode(campaign) == _MANUAL_AUDIENCE_MODE
+
+
+def _is_outreach_campaign(campaign: Campaign | None) -> bool:
+    return str(_campaign_metadata(campaign).get("kind") or "").strip().lower() == _OUTREACH_KIND
+
+
+def _outreach_channel_target_id(campaign: Campaign | None) -> str | None:
+    value = str(_campaign_metadata(campaign).get("channel_target_id") or "").strip()
+    return value or None
+
+
+def _audience_snapshot_row_for_person(campaign: Campaign | None, person_id: str) -> dict | None:
+    snapshot = _campaign_metadata(campaign).get("audience_snapshot")
+    if not isinstance(snapshot, list):
+        return None
+    normalized_person_id = str(person_id or "").strip()
+    if not normalized_person_id:
+        return None
+    for row in snapshot:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("person_id") or "").strip() == normalized_person_id:
+            return row
+    return None
+
+
+def _outreach_message_campaign_id(message: Message | None) -> str | None:
+    metadata = getattr(message, "metadata_", None)
+    if not isinstance(metadata, dict):
+        return None
+    value = str(metadata.get("campaign_id") or "").strip()
+    return value or None
+
+
+def _outreach_message_campaign_recipient_id(message: Message | None) -> str | None:
+    metadata = getattr(message, "metadata_", None)
+    if not isinstance(metadata, dict):
+        return None
+    value = str(metadata.get("campaign_recipient_id") or "").strip()
+    return value or None
 
 
 def _build_segment_query(db: Session, segment_filter: dict | None, channel: CampaignChannel):
@@ -305,6 +462,8 @@ class Campaigns(ListResponseMixin):
         campaign = db.get(Campaign, coerce_uuid(campaign_id))
         if not campaign:
             raise HTTPException(status_code=404, detail="Campaign not found")
+        if _is_manual_snapshot_campaign(campaign):
+            return 0
 
         persons = _build_segment_query(db, campaign.segment_filter, campaign.channel).all()
 
@@ -323,7 +482,9 @@ class Campaigns(ListResponseMixin):
         for person in persons:
             address = person.email
             if campaign.channel == CampaignChannel.whatsapp:
-                address = _normalize_whatsapp_address(person.phone)
+                if _whatsapp_preflight_failure_reason(db, person):
+                    continue
+                address = _whatsapp_address_for_person(db, person)
             if not address:
                 continue
             if person.id in existing_person_ids:
@@ -344,6 +505,114 @@ class Campaigns(ListResponseMixin):
         return count
 
     @staticmethod
+    def seed_manual_snapshot_recipients(
+        db: Session,
+        *,
+        campaign_id: str,
+        subscriber_ids: list[str],
+        snapshot_context_by_subscriber_id: dict[str, dict] | None = None,
+    ) -> dict[str, int]:
+        campaign = db.get(Campaign, coerce_uuid(campaign_id))
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+
+        normalized_subscriber_ids = [coerce_uuid(subscriber_id) for subscriber_id in subscriber_ids if subscriber_id]
+        normalized_subscriber_ids = [subscriber_id for subscriber_id in normalized_subscriber_ids if subscriber_id]
+        if not normalized_subscriber_ids:
+            return {"selected": 0, "seeded": 0, "skipped": 0}
+
+        subscribers = (
+            db.query(Subscriber)
+            .options(joinedload(Subscriber.person))
+            .filter(Subscriber.id.in_(normalized_subscriber_ids))
+            .all()
+        )
+        subscriber_by_id = {subscriber.id: subscriber for subscriber in subscribers}
+        existing_person_ids = set(
+            pid
+            for (pid,) in db.query(CampaignRecipient.person_id)
+            .filter(
+                CampaignRecipient.campaign_id == campaign.id,
+                CampaignRecipient.step_id.is_(None),
+            )
+            .all()
+        )
+
+        seeded = 0
+        skipped = 0
+        whatsapp_validation_skipped = 0
+        snapshot_rows: list[dict[str, str]] = []
+        for subscriber_id in normalized_subscriber_ids:
+            subscriber = subscriber_by_id.get(subscriber_id)
+            if not subscriber or not subscriber.person:
+                skipped += 1
+                continue
+
+            person = subscriber.person
+            address = person.email
+            if campaign.channel == CampaignChannel.whatsapp:
+                if _whatsapp_preflight_failure_reason(db, person):
+                    whatsapp_validation_skipped += 1
+                    skipped += 1
+                    continue
+                address = _whatsapp_address_for_person(db, person)
+            if not address or person.id in existing_person_ids:
+                skipped += 1
+                continue
+
+            db.add(
+                CampaignRecipient(
+                    campaign_id=campaign.id,
+                    person_id=person.id,
+                    address=address,
+                    email=person.email if campaign.channel == CampaignChannel.email else None,
+                    status=CampaignRecipientStatus.pending,
+                )
+            )
+            existing_person_ids.add(person.id)
+            seeded += 1
+            snapshot_rows.append(
+                {
+                    "subscriber_id": str(subscriber.id),
+                    "person_id": str(person.id),
+                    "name": (
+                        person.display_name
+                        or f"{person.first_name or ''} {person.last_name or ''}".strip()
+                        or subscriber.subscriber_number
+                        or str(subscriber.id)
+                    ),
+                    "subscriber_number": subscriber.subscriber_number or "",
+                    "email": person.email or "",
+                    "phone": person.phone or "",
+                    **(
+                        snapshot_context_by_subscriber_id.get(str(subscriber.id), {})
+                        if snapshot_context_by_subscriber_id
+                        else {}
+                    ),
+                }
+            )
+
+        metadata = _campaign_metadata(campaign)
+        metadata["audience_mode"] = _MANUAL_AUDIENCE_MODE
+        metadata["kind"] = metadata.get("kind") or _OUTREACH_KIND
+        if campaign.channel == CampaignChannel.whatsapp:
+            metadata["whatsapp_validation_summary"] = {
+                "selected": len(normalized_subscriber_ids),
+                "seeded": seeded,
+                "skipped": skipped,
+                "quarantined_or_invalid": whatsapp_validation_skipped,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        snapshot = metadata.get("audience_snapshot")
+        existing_snapshot_rows = snapshot if isinstance(snapshot, list) else []
+        metadata["audience_snapshot"] = existing_snapshot_rows + snapshot_rows
+        metadata["audience_snapshot_count"] = len(metadata["audience_snapshot"])
+        campaign.metadata_ = metadata
+        campaign.total_recipients = len(metadata["audience_snapshot"])
+        db.commit()
+        return {"selected": len(normalized_subscriber_ids), "seeded": seeded, "skipped": skipped}
+
+    @staticmethod
     def preview_audience(db: Session, segment_filter: dict | None, channel: CampaignChannel):
         query = _build_segment_query(db, segment_filter, channel)
         total = query.count()
@@ -354,9 +623,46 @@ class Campaigns(ListResponseMixin):
                 {
                     "id": str(p.id),
                     "name": p.display_name or f"{p.first_name or ''} {p.last_name or ''}".strip(),
-                    "address": _normalize_whatsapp_address(p.phone) if channel == CampaignChannel.whatsapp else p.email,
+                    "address": _whatsapp_address_for_person(db, p) if channel == CampaignChannel.whatsapp else p.email,
                 }
                 for p in sample
+            ],
+        }
+
+    @staticmethod
+    def preview_seeded_audience(db: Session, *, campaign_id: str):
+        campaign = db.get(Campaign, coerce_uuid(campaign_id))
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+
+        recipients = (
+            db.query(CampaignRecipient)
+            .options(joinedload(CampaignRecipient.person))
+            .filter(CampaignRecipient.campaign_id == campaign.id)
+            .filter(CampaignRecipient.step_id.is_(None))
+            .order_by(CampaignRecipient.created_at.asc())
+            .limit(10)
+            .all()
+        )
+        snapshot_count = int(_campaign_metadata(campaign).get("audience_snapshot_count") or campaign.total_recipients or 0)
+        return {
+            "total": snapshot_count,
+            "sample": [
+                {
+                    "id": str(recipient.person_id),
+                    "name": (
+                        recipient.person.display_name
+                        if recipient.person
+                        else None
+                    )
+                    or (
+                        f"{recipient.person.first_name or ''} {recipient.person.last_name or ''}".strip()
+                        if recipient.person
+                        else ""
+                    ),
+                    "address": recipient.address,
+                }
+                for recipient in recipients
             ],
         }
 
@@ -377,6 +683,7 @@ class Campaigns(ListResponseMixin):
             if status_val:
                 counts[status_val.value] = count
 
+        metadata = _campaign_metadata(campaign)
         return {
             "campaign_id": str(campaign.id),
             "status": campaign.status.value,
@@ -386,6 +693,8 @@ class Campaigns(ListResponseMixin):
             "failed_count": campaign.failed_count,
             "opened_count": campaign.opened_count,
             "clicked_count": campaign.clicked_count,
+            "replied_conversations_count": int(metadata.get("replied_conversations_count") or 0),
+            "inbound_replies_count": int(metadata.get("inbound_replies_count") or 0),
             "recipient_status_breakdown": counts,
         }
 
@@ -489,6 +798,103 @@ class CampaignRecipients(ListResponseMixin):
         return apply_pagination(query, limit, offset).all()
 
 
+def reconcile_outreach_tracking(db: Session, *, campaign_id: str) -> None:
+    campaign = db.get(Campaign, coerce_uuid(campaign_id))
+    if not campaign or not _is_outreach_campaign(campaign):
+        return
+
+    recipients = (
+        db.query(CampaignRecipient)
+        .filter(CampaignRecipient.campaign_id == campaign.id)
+        .filter(CampaignRecipient.step_id.is_(None))
+        .all()
+    )
+    outbound_messages = (
+        db.query(Message)
+        .filter(
+            Message.direction == MessageDirection.outbound,
+            Message.metadata_["campaign_id"].astext == str(campaign.id),
+        )
+        .all()
+    )
+    conversation_ids = sorted({message.conversation_id for message in outbound_messages if message.conversation_id})
+    inbound_messages = []
+    if conversation_ids:
+        inbound_messages = (
+            db.query(Message)
+            .filter(
+                Message.direction == MessageDirection.inbound,
+                Message.conversation_id.in_(conversation_ids),
+            )
+            .all()
+        )
+
+    campaign.total_recipients = len(recipients)
+    campaign.sent_count = sum(
+        1 for recipient in recipients if recipient.status in {CampaignRecipientStatus.sent, CampaignRecipientStatus.delivered}
+    )
+    campaign.delivered_count = sum(
+        1 for recipient in recipients if recipient.status == CampaignRecipientStatus.delivered
+    )
+    campaign.failed_count = sum(1 for recipient in recipients if recipient.status == CampaignRecipientStatus.failed)
+    campaign.opened_count = sum(1 for message in outbound_messages if message.status == MessageStatus.read)
+    metadata = _campaign_metadata(campaign)
+    metadata["replied_conversations_count"] = len(
+        {message.conversation_id for message in inbound_messages if message.conversation_id}
+    )
+    metadata["inbound_replies_count"] = len(inbound_messages)
+    metadata["tracking_updated_at"] = datetime.now(UTC).isoformat()
+    campaign.metadata_ = metadata
+    db.commit()
+
+
+def reconcile_outreach_message_status(db: Session, *, message_id: str) -> None:
+    message = db.get(Message, coerce_uuid(message_id))
+    if not message:
+        return
+    campaign_id = _outreach_message_campaign_id(message)
+    if not campaign_id:
+        return
+    recipient_id = _outreach_message_campaign_recipient_id(message)
+    if recipient_id:
+        recipient = db.get(CampaignRecipient, coerce_uuid(recipient_id))
+        if recipient:
+            if message.status == MessageStatus.failed:
+                recipient.status = CampaignRecipientStatus.failed
+                recipient.failed_reason = "Inbox delivery failed"
+            elif message.status in {MessageStatus.delivered, MessageStatus.read}:
+                recipient.status = CampaignRecipientStatus.delivered
+                recipient.delivered_at = message.read_at or message.sent_at or datetime.now(UTC)
+            elif message.status == MessageStatus.sent:
+                recipient.status = CampaignRecipientStatus.sent
+                recipient.sent_at = message.sent_at or datetime.now(UTC)
+            db.flush()
+    reconcile_outreach_tracking(db, campaign_id=campaign_id)
+
+
+def reconcile_outreach_inbound_reply(db: Session, *, message_id: str) -> None:
+    message = db.get(Message, coerce_uuid(message_id))
+    if not message or message.direction != MessageDirection.inbound:
+        return
+
+    outbound_context = (
+        db.query(Message)
+        .filter(
+            Message.conversation_id == message.conversation_id,
+            Message.direction == MessageDirection.outbound,
+            Message.metadata_["campaign_id"].astext.isnot(None),
+        )
+        .order_by(func.coalesce(Message.sent_at, Message.created_at).desc())
+        .first()
+    )
+    if not outbound_context:
+        return
+    campaign_id = _outreach_message_campaign_id(outbound_context)
+    if not campaign_id:
+        return
+    reconcile_outreach_tracking(db, campaign_id=campaign_id)
+
+
 def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> int:
     """Send a batch of pending recipients for a campaign.
 
@@ -523,7 +929,7 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
 
     # Batch load persons for variable substitution
     person_ids = [r.person_id for r in pending]
-    persons = db.query(Person).filter(Person.id.in_(person_ids)).all()
+    persons = db.query(Person).options(joinedload(Person.channels)).filter(Person.id.in_(person_ids)).all()
     person_map = {p.id: p for p in persons}
 
     # Batch load organizations for variable substitution
@@ -559,6 +965,113 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
         # Variable substitution
         subject = _substitute_variables(subject, person, org_map)
         body = _substitute_variables(body_html or body_text, person, org_map)
+
+        if campaign.channel == CampaignChannel.whatsapp:
+            preflight_failure = _whatsapp_preflight_failure_reason(db, person)
+            if preflight_failure:
+                recipient.status = CampaignRecipientStatus.failed
+                recipient.failed_reason = preflight_failure
+                campaign.failed_count += 1
+                processed += 1
+                continue
+
+        if _is_outreach_campaign(campaign) and _is_manual_snapshot_campaign(campaign):
+            try:
+                snapshot_row = _audience_snapshot_row_for_person(campaign, str(person.id)) or {}
+                retention_customer_id = str(
+                    snapshot_row.get("retention_customer_id") or snapshot_row.get("subscriber_id") or ""
+                ).strip()
+                campaign_source_report = str(_campaign_metadata(campaign).get("source_report") or "").strip() or None
+                conversation = conversation_service.resolve_open_conversation_for_channel(
+                    db,
+                    str(person.id),
+                    ChannelType(campaign.channel.value),
+                )
+                if conversation:
+                    existing_metadata = conversation.metadata_ if isinstance(conversation.metadata_, dict) else {}
+                    existing_kind = str(existing_metadata.get("campaign_kind") or "").strip().lower()
+                    existing_source_report = str(existing_metadata.get("source_report") or "").strip().lower()
+                    existing_retention_customer_id = str(existing_metadata.get("retention_customer_id") or "").strip()
+                    if (
+                        existing_kind != _OUTREACH_KIND
+                        or existing_source_report != str(campaign_source_report or "").strip().lower()
+                        or (retention_customer_id and existing_retention_customer_id != retention_customer_id)
+                    ):
+                        conversation = None
+                if not conversation:
+                    conversation = conversation_service.Conversations.create(
+                        db,
+                        ConversationCreate(
+                            person_id=person.id,
+                            subject=subject if campaign.channel == CampaignChannel.email else None,
+                            metadata_={
+                                "campaign_id": str(campaign.id),
+                                "campaign_kind": _OUTREACH_KIND,
+                                "source_report": campaign_source_report,
+                                "retention_customer_id": retention_customer_id or None,
+                            },
+                        ),
+                    )
+                    _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Retention")
+                    _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Billing Risk")
+                else:
+                    metadata = conversation.metadata_ if isinstance(conversation.metadata_, dict) else {}
+                    metadata["campaign_id"] = str(campaign.id)
+                    metadata["campaign_kind"] = _OUTREACH_KIND
+                    if campaign_source_report:
+                        metadata["source_report"] = campaign_source_report
+                    if retention_customer_id:
+                        metadata["retention_customer_id"] = retention_customer_id
+                    if _outreach_channel_target_id(campaign):
+                        metadata["preferred_channel_target_id"] = _outreach_channel_target_id(campaign)
+                    conversation.metadata_ = metadata
+                    _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Retention")
+                    _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Billing Risk")
+                    db.flush()
+                message = inbox_outbound_service.send_message(
+                    db,
+                    InboxSendRequest(
+                        conversation_id=conversation.id,
+                        channel_type=ChannelType(campaign.channel.value),
+                        channel_target_id=coerce_uuid(_outreach_channel_target_id(campaign)),
+                        subject=subject,
+                        body=body,
+                        whatsapp_template_name=campaign.whatsapp_template_name,
+                        whatsapp_template_language=campaign.whatsapp_template_language,
+                        whatsapp_template_components=campaign.whatsapp_template_components,
+                    ),
+                    author_id=str(campaign.created_by_id) if campaign.created_by_id else None,
+                )
+                message_metadata = message.metadata_ if isinstance(message.metadata_, dict) else {}
+                message_metadata.update(
+                    {
+                        "campaign_id": str(campaign.id),
+                        "campaign_kind": _OUTREACH_KIND,
+                        "campaign_recipient_id": str(recipient.id),
+                    }
+                )
+                message.metadata_ = message_metadata
+                if message.status == MessageStatus.failed:
+                    recipient.status = CampaignRecipientStatus.failed
+                    recipient.failed_reason = "Inbox delivery failed"
+                    campaign.failed_count += 1
+                else:
+                    recipient.status = CampaignRecipientStatus.sent
+                    recipient.sent_at = message.sent_at or datetime.now(UTC)
+                    campaign.sent_count += 1
+                    if message.status in {MessageStatus.delivered, MessageStatus.read}:
+                        campaign.delivered_count += 1
+                    if message.status == MessageStatus.read:
+                        campaign.opened_count += 1
+                processed += 1
+                continue
+            except Exception as exc:
+                logger.exception("Outreach inbox send failed for campaign %s recipient %s", campaign.id, recipient.id)
+                recipient.status = CampaignRecipientStatus.failed
+                recipient.failed_reason = str(exc)
+                campaign.failed_count += 1
+                processed += 1
+                continue
 
         if campaign.channel == CampaignChannel.whatsapp:
             # Store WhatsApp template name in subject for delivery lookup

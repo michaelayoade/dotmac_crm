@@ -6,6 +6,7 @@
             <tr class="border-b border-slate-100 dark:border-slate-700/50">
                 <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Recipient</th>
                 <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Address</th>
+                <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Retention State</th>
                 <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Status</th>
                 <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Sent At</th>
             </tr>
@@ -14,6 +15,8 @@
             {% if recipients %}
             {% for r in recipients %}
             {% set person = person_map.get(r.person_id|string) %}
+            {% set retention_state = retention_by_person_id.get(r.person_id|string) if retention_by_person_id is defined else none %}
+            {% set retention_profile_url = retention_profile_by_person_id.get(r.person_id|string) if retention_profile_by_person_id is defined else '' %}
             {% call table_row(color="slate") %}
                 <td class="{{ pad }} text-sm text-slate-900 dark:text-white">
                     {% if person %}
@@ -23,6 +26,23 @@
                     {% endif %}
                 </td>
                 <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ r.address }}</td>
+                <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                    {% if retention_state %}
+                    <div>{{ retention_state.outcome }}</div>
+                    <div class="text-xs text-slate-400 dark:text-slate-500">{{ retention_state.follow_up_date or 'No follow-up date' }}</div>
+                    {% if retention_profile_url %}
+                    <div class="mt-1">
+                        <a href="{{ retention_profile_url }}" class="text-xs font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-300 dark:hover:text-rose-200">Open retention profile</a>
+                    </div>
+                    {% endif %}
+                    {% else %}
+                    {% if retention_profile_url %}
+                    <a href="{{ retention_profile_url }}" class="text-xs font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-300 dark:hover:text-rose-200">Open retention profile</a>
+                    {% else %}
+                    —
+                    {% endif %}
+                    {% endif %}
+                </td>
                 <td class="{{ pad }}">
                     {% set rs_colors = {
                         'pending': 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
@@ -46,7 +66,7 @@
             {% endfor %}
             {% else %}
             <tr>
-                <td colspan="4" class="px-6 py-12">
+                <td colspan="5" class="px-6 py-12">
                     {{ empty_state("No recipients yet", "Send the campaign to populate this list.") }}
                 </td>
             </tr>

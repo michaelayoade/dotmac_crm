@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from uuid import UUID
 
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorConfig, ConnectorType
+from app.models.customer_retention import CustomerRetentionEngagement
+from app.models.crm.conversation import Message
+from app.models.integration import IntegrationTarget
 from app.models.crm.campaign_sender import CampaignSender
 from app.models.crm.campaign_smtp import CampaignSmtpConfig
-from app.models.crm.enums import CampaignChannel, CampaignType
+from app.models.crm.enums import CampaignChannel, CampaignType, MessageDirection, MessageStatus
 from app.models.crm.sales import Pipeline, PipelineStage
 from app.models.person import PartyStatus, Person
 from app.schemas.crm.campaign import CampaignCreate, CampaignStepCreate, CampaignStepUpdate, CampaignUpdate
@@ -24,6 +28,10 @@ from app.services.crm.campaigns import Campaigns
 from app.services.crm.campaigns import campaign_recipients as recipients_service
 from app.services.crm.campaigns import campaign_steps as steps_service
 from app.services.crm.campaigns import campaigns as campaigns_service
+from app.services.crm.inbox.inboxes import list_channel_targets
+
+OUTREACH_KIND = "outreach"
+OUTREACH_SOURCE_BILLING_RISK = "billing_risk"
 
 
 @dataclass(slots=True)
@@ -68,6 +76,94 @@ class CampaignUpsertResolution:
 def _form_str_opt(value: str) -> str | None:
     value_str = (value or "").strip()
     return value_str or None
+
+
+def _campaign_metadata(campaign) -> dict:
+    metadata = getattr(campaign, "metadata_", None)
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _campaign_kind(campaign) -> str:
+    return str(_campaign_metadata(campaign).get("kind") or "campaign").strip().lower()
+
+
+def _is_outreach(campaign) -> bool:
+    return _campaign_kind(campaign) == OUTREACH_KIND
+
+
+def _source_report(campaign) -> str:
+    return str(_campaign_metadata(campaign).get("source_report") or "").strip()
+
+
+def _is_billing_risk_outreach(campaign) -> bool:
+    return _is_outreach(campaign) and _source_report(campaign) == OUTREACH_SOURCE_BILLING_RISK
+
+
+def _normalize_retention_outcome(value: str | None) -> str:
+    return str(value or "").strip().casefold()
+
+
+def _is_do_not_reach_out_outcome(value: str | None) -> bool:
+    outcome = _normalize_retention_outcome(value)
+    return outcome in {"do not reach out", "do_not_reach_out", "do not contact"}
+
+
+def _is_paid_or_resolved_outcome(value: str | None) -> bool:
+    outcome = _normalize_retention_outcome(value)
+    return outcome in {"paid", "renewing", "resolved"}
+
+
+def _is_promised_outcome(value: str | None) -> bool:
+    outcome = _normalize_retention_outcome(value)
+    return "promise" in outcome or "promised" in outcome
+
+
+def outreach_channel_target_options(db: Session) -> dict[str, list[dict[str, str]]]:
+    def _serialize_target(target: dict) -> dict[str, str]:
+        return {
+            "target_id": str(target.get("target_id") or "").strip(),
+            "name": str(target.get("name") or "").strip(),
+            "channel": str(target.get("channel") or "").strip(),
+            "kind": str(target.get("kind") or "").strip(),
+            "is_active": bool(target.get("is_active")),
+            "connector_active": bool(target.get("connector_active")),
+        }
+
+    email_targets = [
+        _serialize_target(target)
+        for target in list_channel_targets(db, ConnectorType.email)
+        if target.get("is_active") and target.get("connector_active")
+    ]
+    whatsapp_targets = [
+        _serialize_target(target)
+        for target in list_channel_targets(db, ConnectorType.whatsapp)
+        if target.get("is_active") and target.get("connector_active")
+    ]
+    return {
+        "email": email_targets,
+        "whatsapp": whatsapp_targets,
+    }
+
+
+def _resolve_outreach_channel_target(
+    db: Session,
+    *,
+    channel: CampaignChannel,
+    channel_target_id: str | None,
+) -> tuple[str | None, str | None]:
+    target_id_value = str(channel_target_id or "").strip()
+    if not target_id_value:
+        return None, None
+    target = db.get(IntegrationTarget, UUID(target_id_value))
+    if not target or not target.is_active:
+        raise HTTPException(status_code=400, detail="Selected inbox target is unavailable.")
+    connector = target.connector_config
+    if not connector or not connector.is_active:
+        raise HTTPException(status_code=400, detail="Selected inbox connector is inactive.")
+    expected = ConnectorType.whatsapp if channel == CampaignChannel.whatsapp else ConnectorType.email
+    if connector.connector_type != expected:
+        raise HTTPException(status_code=400, detail="Selected inbox target does not match the chosen channel.")
+    return str(target.id), target.name or connector.name
 
 
 def _build_segment_filter(
@@ -297,12 +393,33 @@ def campaign_detail_page_data(db: Session, *, campaign_id: str) -> dict:
     persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
     person_map = {str(person.id): person for person in persons}
     steps = steps_service.list(db, campaign_id) if campaign.campaign_type == CampaignType.nurture else []
+    metadata = _campaign_metadata(campaign)
+    audience_snapshot = metadata.get("audience_snapshot")
+    audience_snapshot_rows = audience_snapshot if isinstance(audience_snapshot, list) else []
+    follow_up_hint = None
+    if _is_billing_risk_outreach(campaign):
+        follow_up_hint = summarize_billing_risk_follow_up_candidates(
+            db,
+            snapshot_rows=audience_snapshot_rows,
+        )
+    inbox_metrics = outreach_inbox_metrics(db, campaign_id=campaign_id) if _is_outreach(campaign) else None
     return {
         "campaign": campaign,
         "stats": stats,
         "recipients": recipients,
         "person_map": person_map,
         "steps": steps,
+        "campaign_kind": _campaign_kind(campaign),
+        "is_outreach": _is_outreach(campaign),
+        "campaign_source": _source_report(campaign),
+        "follow_up_hint": follow_up_hint,
+        "outreach_channel_target_name": str(metadata.get("channel_target_name") or "").strip(),
+        "whatsapp_validation_summary": (
+            metadata.get("whatsapp_validation_summary")
+            if isinstance(metadata.get("whatsapp_validation_summary"), dict)
+            else None
+        ),
+        "outreach_inbox_metrics": inbox_metrics,
     }
 
 
@@ -313,25 +430,64 @@ def campaign_recipients_table_data(
     status: str | None,
     offset: int,
 ) -> dict:
+    campaign = campaigns_service.get(db, campaign_id)
     recipients = recipients_service.list(db, campaign_id, status=status, limit=50, offset=offset)
     person_ids = [recipient.person_id for recipient in recipients]
     persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
     person_map = {str(person.id): person for person in persons}
+    retention_by_person_id: dict[str, dict[str, str]] = {}
+    retention_profile_by_person_id: dict[str, str] = {}
+    if _is_billing_risk_outreach(campaign):
+        snapshot = _campaign_metadata(campaign).get("audience_snapshot")
+        snapshot_rows = snapshot if isinstance(snapshot, list) else []
+        retention_customer_by_person_id = {
+            str(row.get("person_id") or ""): str(row.get("retention_customer_id") or row.get("subscriber_id") or "").strip()
+            for row in snapshot_rows
+            if isinstance(row, dict)
+        }
+        retention_profile_by_person_id = {
+            person_id: f"/admin/customer-retention/{customer_id}"
+            for person_id, customer_id in retention_customer_by_person_id.items()
+            if customer_id
+        }
+        retention_customer_ids = [
+            retention_customer_by_person_id.get(str(recipient.person_id), "")
+            for recipient in recipients
+            if retention_customer_by_person_id.get(str(recipient.person_id), "")
+        ]
+        latest_engagements = _latest_retention_engagement_by_customer_id(db, customer_ids=retention_customer_ids)
+        for recipient in recipients:
+            person_key = str(recipient.person_id)
+            customer_id = retention_customer_by_person_id.get(person_key, "")
+            engagement = latest_engagements.get(customer_id)
+            if not engagement:
+                continue
+            retention_by_person_id[person_key] = {
+                "outcome": engagement.outcome,
+                "follow_up_date": engagement.follow_up_date.isoformat() if engagement.follow_up_date else "",
+            }
     return {
         "recipients": recipients,
         "person_map": person_map,
         "campaign_id": campaign_id,
+        "retention_by_person_id": retention_by_person_id,
+        "retention_profile_by_person_id": retention_profile_by_person_id,
     }
 
 
 def campaign_preview_audience_data(db: Session, *, campaign_id: str) -> dict:
     campaign = campaigns_service.get(db, campaign_id)
-    audience = Campaigns.preview_audience(db, campaign.segment_filter, campaign.channel)
+    is_manual_snapshot = str(_campaign_metadata(campaign).get("audience_mode") or "").strip().lower() == "manual_snapshot"
+    if is_manual_snapshot:
+        audience = Campaigns.preview_seeded_audience(db, campaign_id=campaign_id)
+    else:
+        audience = Campaigns.preview_audience(db, campaign.segment_filter, campaign.channel)
     audience_address_label = "Phone" if campaign.channel == CampaignChannel.whatsapp else "Email"
     return {
         "audience": audience,
         "campaign": campaign,
         "audience_address_label": audience_address_label,
+        "is_manual_snapshot": is_manual_snapshot,
     }
 
 
@@ -423,8 +579,19 @@ def campaign_list_page_data(
         order_dir=normalized_order_dir,
     )
     status_counts = Campaigns.count_by_status(db)
+    campaign_rows = []
+    for campaign in campaigns:
+        campaign_rows.append(
+            {
+                "campaign": campaign,
+                "kind": _campaign_kind(campaign),
+                "is_outreach": _is_outreach(campaign),
+                "source_report": str(_campaign_metadata(campaign).get("source_report") or "").strip(),
+            }
+        )
     return {
         "campaigns": campaigns,
+        "campaign_rows": campaign_rows,
         "status_counts": status_counts,
         "filter_status": status or "",
         "search": search or "",
@@ -578,6 +745,251 @@ def create_campaign(
         resolved=resolved,
     )
     return campaigns_service.create(db, payload, created_by_id=created_by_id)
+
+
+def create_billing_risk_outreach_campaign(
+    db: Session,
+    *,
+    name: str,
+    channel: str,
+    channel_target_id: str | None,
+    subscriber_ids: list[str],
+    retention_customer_ids: list[str] | None,
+    created_by_id: str | None,
+    source_filters: dict | None = None,
+):
+    try:
+        selected_channel = CampaignChannel(channel)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid outreach channel")
+
+    clean_name = (name or "").strip() or "Billing Risk Outreach"
+    resolved_target_id, resolved_target_name = _resolve_outreach_channel_target(
+        db,
+        channel=selected_channel,
+        channel_target_id=channel_target_id,
+    )
+    metadata = {
+        "kind": OUTREACH_KIND,
+        "source_report": OUTREACH_SOURCE_BILLING_RISK,
+        "audience_mode": "manual_snapshot",
+        "source_filters": source_filters or {},
+        "channel_target_id": resolved_target_id,
+        "channel_target_name": resolved_target_name,
+    }
+    payload = CampaignCreate(
+        name=clean_name,
+        campaign_type=CampaignType.one_time,
+        channel=selected_channel,
+        metadata_=metadata,
+    )
+    campaign = campaigns_service.create(db, payload, created_by_id=created_by_id)
+    snapshot_context_by_subscriber_id: dict[str, dict] = {}
+    for index, subscriber_id in enumerate(subscriber_ids):
+        normalized_subscriber_id = str(subscriber_id).strip()
+        if not normalized_subscriber_id:
+            continue
+        retention_customer_id = ""
+        if retention_customer_ids and index < len(retention_customer_ids):
+            retention_customer_id = str(retention_customer_ids[index] or "").strip()
+        snapshot_context_by_subscriber_id[normalized_subscriber_id] = {
+            "retention_customer_id": retention_customer_id or normalized_subscriber_id,
+        }
+    Campaigns.seed_manual_snapshot_recipients(
+        db,
+        campaign_id=str(campaign.id),
+        subscriber_ids=subscriber_ids,
+        snapshot_context_by_subscriber_id=snapshot_context_by_subscriber_id,
+    )
+    return campaign
+
+
+def _latest_retention_engagement_by_customer_id(
+    db: Session,
+    *,
+    customer_ids: list[str],
+) -> dict[str, CustomerRetentionEngagement]:
+    normalized_ids = [str(customer_id).strip() for customer_id in customer_ids if str(customer_id).strip()]
+    if not normalized_ids:
+        return {}
+    rows = db.execute(
+        select(CustomerRetentionEngagement)
+        .where(
+            CustomerRetentionEngagement.customer_external_id.in_(normalized_ids),
+            CustomerRetentionEngagement.is_active.is_(True),
+        )
+        .order_by(CustomerRetentionEngagement.created_at.desc())
+    ).scalars()
+    latest_by_customer_id: dict[str, CustomerRetentionEngagement] = {}
+    for row in rows:
+        if row.customer_external_id not in latest_by_customer_id:
+            latest_by_customer_id[row.customer_external_id] = row
+    return latest_by_customer_id
+
+
+def summarize_billing_risk_follow_up_candidates(
+    db: Session,
+    *,
+    snapshot_rows: list[dict],
+) -> dict[str, int]:
+    today = datetime.now(UTC).date()
+    customer_ids = [
+        str(row.get("retention_customer_id") or row.get("subscriber_id") or "").strip()
+        for row in snapshot_rows
+        if isinstance(row, dict)
+    ]
+    latest_engagements = _latest_retention_engagement_by_customer_id(db, customer_ids=customer_ids)
+    suppressed = 0
+    eligible = 0
+    for row in snapshot_rows:
+        if not isinstance(row, dict):
+            continue
+        customer_id = str(row.get("retention_customer_id") or row.get("subscriber_id") or "").strip()
+        engagement = latest_engagements.get(customer_id)
+        follow_up_date = engagement.follow_up_date if engagement else None
+        outcome = engagement.outcome if engagement else ""
+        if _is_do_not_reach_out_outcome(outcome) or _is_paid_or_resolved_outcome(outcome):
+            suppressed += 1
+        elif follow_up_date and follow_up_date >= today and (
+            _is_promised_outcome(outcome)
+            or "follow-up" in _normalize_retention_outcome(outcome)
+            or "follow up" in _normalize_retention_outcome(outcome)
+        ):
+            suppressed += 1
+        else:
+            eligible += 1
+    return {"total": len(snapshot_rows), "eligible": eligible, "suppressed": suppressed}
+
+
+def outreach_inbox_metrics(
+    db: Session,
+    *,
+    campaign_id: str,
+) -> dict[str, int]:
+    outbound_messages = (
+        db.query(Message)
+        .filter(
+            Message.direction == MessageDirection.outbound,
+            Message.metadata_["campaign_id"].astext == str(campaign_id),
+        )
+        .all()
+    )
+    conversation_ids = sorted({message.conversation_id for message in outbound_messages if message.conversation_id})
+    delivered_messages = sum(
+        1 for message in outbound_messages if message.status in {MessageStatus.delivered, MessageStatus.read}
+    )
+    read_messages = sum(1 for message in outbound_messages if message.status == MessageStatus.read)
+    inbound_replies = []
+    if conversation_ids:
+        inbound_replies = (
+            db.query(Message)
+            .filter(
+                Message.conversation_id.in_(conversation_ids),
+                Message.direction == MessageDirection.inbound,
+            )
+            .all()
+        )
+    return {
+        "outbound_messages": len(outbound_messages),
+        "delivered_messages": delivered_messages,
+        "read_messages": read_messages,
+        "replied_conversations": len({message.conversation_id for message in inbound_replies if message.conversation_id}),
+        "inbound_replies": len(inbound_replies),
+    }
+
+
+def create_billing_risk_follow_up_campaign(
+    db: Session,
+    *,
+    source_campaign_id: str,
+    name: str | None,
+    exclude_promised: bool = True,
+    exclude_future_followups: bool = True,
+    created_by_id: str | None,
+):
+    source_campaign = campaigns_service.get(db, source_campaign_id)
+    if not _is_billing_risk_outreach(source_campaign):
+        raise HTTPException(status_code=400, detail="Follow-up waves are only supported for billing risk outreach.")
+
+    source_metadata = _campaign_metadata(source_campaign)
+    audience_snapshot = source_metadata.get("audience_snapshot")
+    snapshot_rows = audience_snapshot if isinstance(audience_snapshot, list) else []
+    if not snapshot_rows:
+        raise HTTPException(status_code=400, detail="Source outreach has no audience snapshot.")
+
+    today = datetime.now(UTC).date()
+    customer_ids = [
+        str(row.get("retention_customer_id") or row.get("subscriber_id") or "").strip()
+        for row in snapshot_rows
+        if isinstance(row, dict)
+    ]
+    latest_engagements = _latest_retention_engagement_by_customer_id(db, customer_ids=customer_ids)
+
+    filtered_subscriber_ids: list[str] = []
+    filtered_retention_customer_ids: list[str] = []
+    suppressed_count = 0
+    for row in snapshot_rows:
+        if not isinstance(row, dict):
+            continue
+        subscriber_id = str(row.get("subscriber_id") or "").strip()
+        if not subscriber_id:
+            continue
+        customer_id = str(row.get("retention_customer_id") or subscriber_id).strip()
+        engagement = latest_engagements.get(customer_id)
+        follow_up_date = engagement.follow_up_date if engagement else None
+        outcome = engagement.outcome if engagement else ""
+
+        suppressed = False
+        if _is_do_not_reach_out_outcome(outcome) or _is_paid_or_resolved_outcome(outcome):
+            suppressed = True
+        if exclude_future_followups and follow_up_date and follow_up_date >= today:
+            suppressed = True
+        if exclude_promised and follow_up_date and follow_up_date >= today and _is_promised_outcome(outcome):
+            suppressed = True
+
+        if suppressed:
+            suppressed_count += 1
+            continue
+        filtered_subscriber_ids.append(subscriber_id)
+        filtered_retention_customer_ids.append(customer_id)
+
+    if not filtered_subscriber_ids:
+        raise HTTPException(status_code=400, detail="No eligible recipients remain after follow-up exclusions.")
+
+    source_filters = source_metadata.get("source_filters")
+    filters_payload = source_filters if isinstance(source_filters, dict) else {}
+    follow_up_name = (name or "").strip() or f"{source_campaign.name} Follow-up"
+    follow_up_campaign = create_billing_risk_outreach_campaign(
+        db,
+        name=follow_up_name,
+        channel=source_campaign.channel.value,
+        channel_target_id=str(source_metadata.get("channel_target_id") or "").strip() or None,
+        subscriber_ids=filtered_subscriber_ids,
+        retention_customer_ids=filtered_retention_customer_ids,
+        created_by_id=created_by_id,
+        source_filters={
+            **filters_payload,
+            "source_campaign_id": str(source_campaign.id),
+            "suppressed_count": suppressed_count,
+            "follow_up_created_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    update_payload = CampaignUpdate(
+        subject=source_campaign.subject,
+        body_html=source_campaign.body_html,
+        body_text=source_campaign.body_text,
+        campaign_sender_id=source_campaign.campaign_sender_id,
+        campaign_smtp_config_id=source_campaign.campaign_smtp_config_id,
+        connector_config_id=source_campaign.connector_config_id,
+        from_name=source_campaign.from_name,
+        from_email=source_campaign.from_email,
+        reply_to=source_campaign.reply_to,
+        whatsapp_template_name=source_campaign.whatsapp_template_name,
+        whatsapp_template_language=source_campaign.whatsapp_template_language,
+        whatsapp_template_components=source_campaign.whatsapp_template_components,
+    )
+    campaigns_service.update(db, str(follow_up_campaign.id), update_payload)
+    return follow_up_campaign
 
 
 def update_campaign(

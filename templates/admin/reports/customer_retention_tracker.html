@@ -23,6 +23,12 @@
         {{ stats_card("Revenue At Risk", "₦" ~ "{:,.2f}".format(kpis.revenue_at_risk|default(0)), color="slate", color2="gray", value_style="font-size: clamp(1.25rem, 2.5vw, 1.575rem);") }}
     {% endcall %}
 
+    {% if outreach_error %}
+    <div class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200">
+        {{ outreach_error }}
+    </div>
+    {% endif %}
+
     <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
             <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Follow-ups Due</h2>
@@ -67,10 +73,67 @@
         </div>
     </div>
 
+    <form method="post" action="/admin/customer-retention/outreach" id="customer-retention-outreach-form" class="space-y-4">
+    <input type="hidden" name="next_url" value="/admin/customer-retention?{{ filter_query }}">
+    <input type="hidden" name="due_soon_days" value="{{ due_soon_days }}">
+    <input type="hidden" name="high_balance_only" value="{{ 'true' if high_balance_only else 'false' }}">
+    <input type="hidden" name="days_past_due" value="{{ days_past_due or '' }}">
+    {% for selected_segment in selected_segments %}
+    <input type="hidden" name="segments" value="{{ selected_segment }}">
+    {% endfor %}
+
+    <div class="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60 lg:flex-row lg:items-end lg:justify-between">
+        <div class="grid flex-1 grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Outreach Name</label>
+                <input
+                    type="text"
+                    name="name"
+                    value="Retention Outreach"
+                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                >
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Channel</label>
+                <select
+                    name="channel"
+                    id="customer-retention-outreach-channel"
+                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                >
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="email">Email</option>
+                </select>
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Send From</label>
+                <select
+                    name="channel_target_id"
+                    id="customer-retention-channel-target-id"
+                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                ></select>
+            </div>
+            <div class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <span class="font-semibold" id="customer-retention-selected-count">0</span>
+                <span>selected from retention queue</span>
+            </div>
+        </div>
+        <button
+            type="submit"
+            id="customer-retention-create-outreach-button"
+            disabled
+            class="inline-flex h-10 items-center justify-center rounded-xl bg-rose-600 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 hover:bg-rose-700"
+        >
+            Create Retention Outreach
+        </button>
+    </div>
+
     {% call table_shell(table_id="customer-retention-tracker", title="Retention Queue", color="rose", count=tracker_rows|length, bulk_selectable=False) %}
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
         <thead>
             <tr>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <input type="checkbox" id="customer-retention-select-all" class="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800">
+                </th>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Customer</th>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pipeline Stage</th>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Risk</th>
@@ -85,6 +148,14 @@
             {% set customer_key = customer_id|string if customer_id else "" %}
             {% set latest_engagement = (engagement_history.get(customer_key) or [none])[0] if customer_key else none %}
             {% call table_row(color="rose") %}
+                <td class="px-4 py-4 align-top">
+                    {% if customer_id %}
+                    <input type="checkbox"
+                           name="retention_customer_id"
+                           value="{{ customer_id }}"
+                           class="customer-retention-recipient h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800">
+                    {% endif %}
+                </td>
                 <td class="px-6 py-4 align-top">
                     <div class="text-sm font-semibold text-slate-900 dark:text-white">{{ row.name or "Unknown Customer" }}</div>
                     <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ row.phone or row.email or "No contact on file" }}</div>
@@ -125,10 +196,83 @@
                 </td>
             {% endcall %}
             {% else %}
-            {{ empty_state(title="No retention accounts", message="No customers matched the current Billing Risk filters.", color="rose", color2="pink", colspan=6) }}
+            {{ empty_state(title="No retention accounts", message="No customers matched the current Billing Risk filters.", color="rose", color2="pink", colspan=7) }}
             {% endfor %}
         </tbody>
     </table>
     {% endcall %}
+    </form>
 </div>
+
+<script>
+(() => {
+    const form = document.getElementById('customer-retention-outreach-form');
+    if (!form) return;
+    const selectAll = document.getElementById('customer-retention-select-all');
+    const recipientCheckboxes = () => Array.from(form.querySelectorAll('.customer-retention-recipient'));
+    const selectedCount = document.getElementById('customer-retention-selected-count');
+    const submitButton = document.getElementById('customer-retention-create-outreach-button');
+    const channelSelect = document.getElementById('customer-retention-outreach-channel');
+    const channelTargetSelect = document.getElementById('customer-retention-channel-target-id');
+    const targetOptions = {{ outreach_channel_targets|default({}, true)|tojson }};
+
+    function selectedRecipients() {
+        return recipientCheckboxes().filter((checkbox) => checkbox.checked);
+    }
+
+    function syncSubmitState() {
+        const selected = selectedRecipients().length;
+        if (selectedCount) selectedCount.textContent = String(selected);
+        const hasTarget = !!(channelTargetSelect && channelTargetSelect.value);
+        if (submitButton) submitButton.disabled = selected === 0 || !hasTarget;
+        if (selectAll) {
+            const all = recipientCheckboxes();
+            selectAll.checked = all.length > 0 && selected === all.length;
+            selectAll.indeterminate = selected > 0 && selected < all.length;
+        }
+    }
+
+    function renderChannelTargets() {
+        if (!channelTargetSelect || !channelSelect) return;
+        const selectedChannel = channelSelect.value || 'whatsapp';
+        const options = Array.isArray(targetOptions?.[selectedChannel]) ? targetOptions[selectedChannel] : [];
+        channelTargetSelect.innerHTML = '';
+        if (!options.length) {
+            const empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = `No active ${selectedChannel === 'whatsapp' ? 'WhatsApp lines' : 'email mailboxes'} available`;
+            channelTargetSelect.appendChild(empty);
+            syncSubmitState();
+            return;
+        }
+        options.forEach((option, index) => {
+            const node = document.createElement('option');
+            node.value = option.target_id || '';
+            node.textContent = option.name || option.target_id || 'Inbox target';
+            if (index === 0) node.selected = true;
+            channelTargetSelect.appendChild(node);
+        });
+        syncSubmitState();
+    }
+
+    if (selectAll) {
+        selectAll.addEventListener('change', () => {
+            const checked = selectAll.checked;
+            recipientCheckboxes().forEach((checkbox) => {
+                checkbox.checked = checked;
+            });
+            syncSubmitState();
+        });
+    }
+
+    recipientCheckboxes().forEach((checkbox) => {
+        checkbox.addEventListener('change', syncSubmitState);
+    });
+    if (channelSelect) channelSelect.addEventListener('change', renderChannelTargets);
+    if (channelTargetSelect) channelTargetSelect.addEventListener('change', syncSubmitState);
+
+    renderChannelTargets();
+    syncSubmitState();
+})();
+</script>
 {% endblock %}

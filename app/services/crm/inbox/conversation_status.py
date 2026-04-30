@@ -25,6 +25,7 @@ from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
 SNOOZE_METADATA_KEY = "snooze"
+RESOLUTION_METADATA_KEY = "resolution"
 RESOLVED_CLOSING_METADATA_KEY = "resolved_closing_message"
 FEEDBACK_URL = "https://crm.dotmac.io/s/t/FP3WThiNslFHUnPHR4FObkOeeoWwe8rMc9CIftn2-tc"
 RESOLVED_CLOSING_EMAIL_SUBJECT = "Support Request Resolved"
@@ -68,6 +69,15 @@ EMAIL_FEEDBACK_TEMPLATE = (
     "Kind regards,\n"
     "DOTMAC Support Team"
 )
+HANDOFF_RESOLUTION_MODE = "ticket_handoff"
+
+
+@dataclass(frozen=True)
+class ResolutionContext:
+    mode: str
+    label: str
+    ticket_id: str | None = None
+    ticket_reference: str | None = None
 
 
 def _metadata_dict(conversation: Conversation) -> dict:
@@ -94,6 +104,34 @@ def _extract_resolved_closing_message(conversation: Conversation) -> dict | None
         return None
     raw = conversation.metadata_.get(RESOLVED_CLOSING_METADATA_KEY)
     return raw if isinstance(raw, dict) else None
+
+
+def _extract_resolution(conversation: Conversation) -> dict | None:
+    if not isinstance(conversation.metadata_, dict):
+        return None
+    raw = conversation.metadata_.get(RESOLUTION_METADATA_KEY)
+    return raw if isinstance(raw, dict) else None
+
+
+def _apply_resolution_metadata(
+    conversation: Conversation,
+    *,
+    actor_id: str | None,
+    resolution_context: ResolutionContext | None,
+) -> None:
+    metadata = _metadata_dict(conversation)
+    if resolution_context is None:
+        metadata.pop(RESOLUTION_METADATA_KEY, None)
+    else:
+        metadata[RESOLUTION_METADATA_KEY] = {
+            "mode": resolution_context.mode,
+            "label": resolution_context.label,
+            "ticket_id": resolution_context.ticket_id,
+            "ticket_reference": resolution_context.ticket_reference,
+            "resolved_by": actor_id,
+            "resolved_at": datetime.now(UTC).isoformat(),
+        }
+    conversation.metadata_ = metadata
 
 
 def _parse_iso_utc(value: object) -> datetime | None:
@@ -239,9 +277,31 @@ def _resolve_latest_channel_type(db: Session, conversation_id: str) -> ChannelTy
 def _build_resolved_closing_message(
     db: Session,
     *,
+    conversation: Conversation,
     channel_type: ChannelType,
     variant: Literal["social", "feedback"],
 ) -> tuple[str | None, str]:
+    resolution = _extract_resolution(conversation)
+    if isinstance(resolution, dict) and resolution.get("mode") == HANDOFF_RESOLUTION_MODE:
+        ticket_reference = str(
+            resolution.get("ticket_reference") or resolution.get("ticket_id") or "the linked support ticket"
+        ).strip()
+        if channel_type == ChannelType.email:
+            return (
+                RESOLVED_CLOSING_EMAIL_SUBJECT,
+                "Hello,\n\n"
+                "Your conversation has been escalated to our internal team.\n\n"
+                f"We are working on fixing your issue and will communicate with you via ticket {ticket_reference}.\n\n"
+                f"How was your experience? Rate us here: {FEEDBACK_URL}\n\n"
+                "Kind regards,\n"
+                "DOTMAC Support Team",
+            )
+        return (
+            None,
+            "Your conversation has been escalated to our internal team.\n\n"
+            f"We are working on fixing your issue and will communicate with you via ticket {ticket_reference}.\n\n"
+            f"How was your experience? Rate us here: {FEEDBACK_URL}",
+        )
     if variant == "social":
         configured = resolve_value(db, SettingDomain.notification, "crm_inbox_resolved_social_outro_message")
         configured_text = str(configured).strip() if configured is not None else ""
@@ -260,6 +320,7 @@ def _send_resolved_closing_message(
     db: Session,
     *,
     conversation_id: str,
+    conversation: Conversation,
     channel_type: ChannelType,
     variant: Literal["social", "feedback"],
     actor_id: str | None,
@@ -268,6 +329,7 @@ def _send_resolved_closing_message(
 
     subject, message_text = _build_resolved_closing_message(
         db,
+        conversation=conversation,
         channel_type=channel_type,
         variant=variant,
     )
@@ -361,6 +423,7 @@ def update_conversation_status(
     actor_id: str | None = None,
     roles: list[str] | None = None,
     scopes: list[str] | None = None,
+    resolution_context: ResolutionContext | None = None,
 ) -> UpdateStatusResult:
     try:
         if (roles is not None or scopes is not None) and not can_update_conversation_status(roles, scopes):
@@ -388,6 +451,11 @@ def update_conversation_status(
         if conversation:
             if status_enum == ConversationStatus.resolved:
                 now = datetime.now(UTC)
+                _apply_resolution_metadata(
+                    conversation,
+                    actor_id=actor_id,
+                    resolution_context=resolution_context,
+                )
                 conversation.resolved_at = now
                 created = conversation.created_at
                 if created is not None and created.tzinfo is None:
@@ -409,7 +477,19 @@ def update_conversation_status(
             action="update_status",
             conversation_id=conversation_id,
             actor_id=actor_id,
-            metadata={"status": status_enum.value},
+            metadata={
+                "status": status_enum.value,
+                **(
+                    {
+                        "resolution_mode": resolution_context.mode,
+                        "resolution_label": resolution_context.label,
+                        "ticket_id": resolution_context.ticket_id,
+                        "ticket_reference": resolution_context.ticket_reference,
+                    }
+                    if resolution_context is not None
+                    else {}
+                ),
+            },
         )
         if (
             db is not None
@@ -444,6 +524,7 @@ def update_conversation_status(
                     sent, message_id, _, error_detail = _send_resolved_closing_message(
                         db,
                         conversation_id=conversation_id,
+                        conversation=conversation,
                         channel_type=resolved_channel_type,
                         variant=variant,
                         actor_id=actor_id,
