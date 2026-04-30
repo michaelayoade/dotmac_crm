@@ -569,6 +569,25 @@ def _prepare_email_attachments(attachments: list[dict] | None) -> list[dict] | N
     return prepared or None
 
 
+def _prepare_stored_message_attachment(item: dict[str, Any]) -> dict[str, Any] | None:
+    stored_name = item.get("stored_name")
+    if not isinstance(stored_name, str) or not stored_name:
+        return None
+    try:
+        content = storage.get(f"uploads/messages/{stored_name}")
+    except Exception:
+        logger.debug("Failed to read attachment bytes: uploads/messages/%s", stored_name, exc_info=True)
+        return None
+    if content is None:
+        return None
+    return {
+        "stored_name": stored_name,
+        "file_name": item.get("file_name") or stored_name,
+        "mime_type": item.get("mime_type") or "application/octet-stream",
+        "content": content,
+    }
+
+
 def _set_message_send_error(
     message: Message,
     channel: str,
@@ -577,7 +596,7 @@ def _set_message_send_error(
     response_text: str | None = None,
 ) -> None:
     """Set error metadata on a failed message."""
-    metadata = message.metadata_ if isinstance(message.metadata_, dict) else {}
+    metadata = dict(message.metadata_) if isinstance(message.metadata_, dict) else {}
     error_payload: dict[str, object] = {
         "channel": channel,
         "error": error,
@@ -976,6 +995,31 @@ def _send_facebook_message(
     if (datetime.now(UTC) - last_inbound.received_at).total_seconds() > 24 * 3600:
         raise InboxValidationError("meta_reply_window_expired", "Meta reply window expired")
 
+    attachments = payload.attachments or []
+    image_url = None
+    image_attachment: dict[str, Any] | None = None
+    file_links: list[str] = []
+    if isinstance(attachments, list):
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            mime_type = (attachment.get("mime_type") or "").lower()
+            resolved_url = _resolve_meta_public_attachment_url(db, attachment)
+            if not resolved_url:
+                continue
+            if mime_type.startswith("image/") and not image_url:
+                image_url = resolved_url
+                image_attachment = _prepare_stored_message_attachment(attachment)
+                continue
+            file_links.append(resolved_url)
+
+    outbound_body = _append_attachment_links_to_body(rendered_body, file_links)
+    message_metadata = _merge_reply_metadata(reply_context) or {}
+    if image_url:
+        message_metadata["outbound_image_url"] = image_url
+    if file_links:
+        message_metadata["outbound_file_links"] = file_links
+
     message = conversation_service.Messages.create(
         db,
         MessageCreate(
@@ -986,8 +1030,8 @@ def _send_facebook_message(
             channel_type=payload.channel_type,
             direction=MessageDirection.outbound,
             status=MessageStatus.queued,
-            body=rendered_body,
-            metadata_=_merge_reply_metadata(reply_context),
+            body=outbound_body,
+            metadata_=message_metadata or None,
             author_id=coerce_uuid(author_id) if author_id else None,
             sent_at=_now(),
         ),
@@ -999,9 +1043,13 @@ def _send_facebook_message(
             meta_messaging.send_facebook_message_sync,
             db,
             person_channel.address,
-            rendered_body,
+            outbound_body,
             target,
             account_id=account_id,
+            image_url=image_url,
+            image_bytes=image_attachment.get("content") if image_attachment else None,
+            image_filename=image_attachment.get("file_name") if image_attachment else None,
+            image_content_type=image_attachment.get("mime_type") if image_attachment else None,
         )
         message.status = MessageStatus.sent
         _store_external_message_id(message, result.get("message_id"))
@@ -1011,15 +1059,21 @@ def _send_facebook_message(
         if raise_on_failure:
             retry_error = TransientOutboundError("Facebook circuit open")
     except Exception as exc:
-        logger.error(
-            "facebook_messenger_send_failed conversation_id=%s error=%s",
-            conversation.id,
-            exc,
-        )
+        status_code = None
+        response_text = None
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+            status_code = exc.response.status_code
+            response_text = exc.response.text
         message.status = MessageStatus.failed
-        _set_message_send_error(message, "facebook_messenger", str(exc))
+        _set_message_send_error(
+            message,
+            "facebook_messenger",
+            str(exc),
+            status_code=status_code,
+            response_text=response_text,
+        )
         if raise_on_failure:
-            if _is_transient_exception(exc):
+            if _is_transient_exception(exc, status_code=status_code):
                 retry_error = TransientOutboundError("Facebook send failed")
             else:
                 retry_error = PermanentOutboundError("Facebook send failed")

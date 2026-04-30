@@ -1388,6 +1388,74 @@ def test_send_instagram_message_with_image_attachment_passes_image_url(db_sessio
     assert "sig=" in kwargs["image_url"]
 
 
+def test_send_facebook_message_with_image_attachment_passes_image_url(db_session, crm_contact):
+    from app.models.crm.conversation import Message
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
+    from app.schemas.crm.conversation import ConversationCreate
+    from app.services.crm import conversation as conversation_service
+
+    fb_channel = PersonChannel(
+        person_id=crm_contact.id,
+        channel_type=PersonChannelType.facebook_messenger,
+        address="fb_user_123",
+    )
+    db_session.add(fb_channel)
+    db_session.commit()
+
+    conversation = conversation_service.Conversations.create(
+        db_session,
+        ConversationCreate(person_id=crm_contact.id),
+    )
+    inbound_message = Message(
+        conversation_id=conversation.id,
+        person_channel_id=fb_channel.id,
+        channel_type=ChannelType.facebook_messenger,
+        direction=MessageDirection.inbound,
+        status=MessageStatus.received,
+        body="Inbound",
+        received_at=datetime.now(UTC),
+    )
+    db_session.add(inbound_message)
+    db_session.flush()
+
+    payload = InboxSendRequest(
+        conversation_id=conversation.id,
+        channel_type=ChannelType.facebook_messenger,
+        body="Please see image",
+        attachments=[
+            {
+                "url": "/static/uploads/messages/test-image.jpg",
+                "mime_type": "image/jpeg",
+                "file_name": "test-image.jpg",
+                "file_size": 1234,
+                "stored_name": "test-image.jpg",
+            }
+        ],
+    )
+
+    with (
+        patch("app.services.email.get_app_url", return_value="https://crm.dotmac.io"),
+        patch("app.services.crm.inbox.outbound.storage.get", return_value=b"image-bytes"),
+        patch("app.services.crm.inbox.outbound._broadcast_outbound_summary"),
+        patch("app.websocket.broadcaster.broadcast_message_status"),
+        patch(
+            "app.services.meta_messaging.send_facebook_message_sync",
+            return_value={"message_id": "fb-msg-1", "recipient_id": "fb-user-1"},
+        ) as mock_send,
+    ):
+        message = inbox_service.send_message(db_session, payload)
+
+    assert message.status == MessageStatus.sent
+    kwargs = mock_send.call_args.kwargs
+    assert kwargs["image_url"].startswith("https://crm.dotmac.io/public/media/messages/test-image.jpg")
+    assert "exp=" in kwargs["image_url"]
+    assert "sig=" in kwargs["image_url"]
+    assert kwargs["image_bytes"] == b"image-bytes"
+    assert kwargs["image_filename"] == "test-image.jpg"
+    assert kwargs["image_content_type"] == "image/jpeg"
+
+
 def test_send_email_missing_recipient(db_session, crm_contact):
     """Test sending email with empty recipient address raises 400."""
     from app.models.person import ChannelType as PersonChannelType

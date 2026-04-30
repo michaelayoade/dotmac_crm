@@ -5,7 +5,9 @@ Handles outbound messaging via Facebook Messenger and Instagram DMs.
 
 import asyncio
 import json
+import mimetypes
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy.orm import Session
@@ -137,6 +139,81 @@ def _build_instagram_login_message_payload(message_text: str, image_url: str | N
     return {"text": text}
 
 
+def _guess_media_filename(image_url: str, content_type: str | None) -> str:
+    parsed = urlparse(image_url)
+    candidate = parsed.path.rsplit("/", 1)[-1].strip()
+    if candidate:
+        return candidate
+    extension = mimetypes.guess_extension(content_type or "") or ".bin"
+    return f"attachment{extension}"
+
+
+async def _upload_facebook_attachment(
+    client: httpx.AsyncClient,
+    *,
+    base_url: str,
+    access_token: str,
+    image_url: str | None = None,
+    image_bytes: bytes | None = None,
+    image_filename: str | None = None,
+    image_content_type: str | None = None,
+) -> str:
+    if image_bytes is not None:
+        content_type = image_content_type or "application/octet-stream"
+        filename = image_filename or _guess_media_filename(image_url or "", content_type)
+        media_bytes = image_bytes
+    else:
+        if not image_url:
+            raise ValueError("Facebook attachment upload requires image bytes or image URL")
+        media_response = await client.get(image_url, timeout=30, follow_redirects=True)
+        media_response.raise_for_status()
+        content_type = media_response.headers.get("content-type") or "application/octet-stream"
+        filename = image_filename or _guess_media_filename(image_url, content_type)
+        media_bytes = media_response.content
+    upload_response = await client.post(
+        f"{base_url.rstrip('/')}/me/message_attachments",
+        params={"access_token": access_token},
+        data={
+            "message": json.dumps(
+                {
+                    "attachment": {
+                        "type": "image",
+                        "payload": {"is_reusable": True},
+                    }
+                },
+                separators=(",", ":"),
+            )
+        },
+        files={"filedata": (filename, media_bytes, content_type)},
+        timeout=30,
+    )
+    status_code = _safe_status_code(upload_response)
+    if status_code is not None and status_code >= 400:
+        logger.error(
+            "facebook_attachment_upload_failed source_url=%s status=%s body=%s",
+            image_url,
+            status_code,
+            upload_response.text,
+        )
+    upload_response.raise_for_status()
+    upload_payload = upload_response.json()
+    attachment_id = None
+    if isinstance(upload_payload, dict):
+        attachment_id = upload_payload.get("attachment_id")
+        if not attachment_id:
+            attachment = upload_payload.get("attachment")
+            if isinstance(attachment, dict):
+                attachment_id = attachment.get("attachment_id")
+    if not attachment_id:
+        logger.error(
+            "facebook_attachment_upload_missing_attachment_id source_url=%s payload=%s",
+            image_url,
+            upload_payload,
+        )
+        raise ValueError("Facebook attachment upload did not return an attachment_id")
+    return str(attachment_id)
+
+
 def get_token_for_channel(
     db: Session,
     channel_type: ChannelType,
@@ -220,6 +297,10 @@ async def send_facebook_message(
     message_text: str,
     target: IntegrationTarget | None = None,
     account_id: str | None = None,
+    image_url: str | None = None,
+    image_bytes: bytes | None = None,
+    image_filename: str | None = None,
+    image_content_type: str | None = None,
 ) -> dict:
     """Send a message via Facebook Messenger.
 
@@ -229,6 +310,10 @@ async def send_facebook_message(
         message_text: Message text to send
         target: Optional IntegrationTarget (auto-resolved if not provided)
         account_id: Optional Facebook Page ID to send from
+        image_url: Optional public image URL to send as media attachment
+        image_bytes: Optional raw image bytes to upload directly to Meta
+        image_filename: Optional attachment filename for direct uploads
+        image_content_type: Optional attachment MIME type for direct uploads
 
     Returns:
         Dict with 'message_id' and 'recipient_id' from Meta API
@@ -254,17 +339,36 @@ async def send_facebook_message(
     if override_token and not token:
         raise ValueError("No linked Facebook Page token found for override send")
 
-    payload = {
-        "recipient": {"id": recipient_psid},
-        "messaging_type": "RESPONSE",
-        "message": {"text": message_text},
-    }
-
     base_url = _get_meta_graph_base_url(db)
     access_token = override_token or (token.access_token if token else None)
     if not access_token:
         raise ValueError("No access token available for Facebook message send")
     async with httpx.AsyncClient() as client:
+        message_payload: dict[str, Any]
+        if image_url:
+            attachment_id = await _upload_facebook_attachment(
+                client,
+                base_url=base_url,
+                access_token=access_token,
+                image_url=image_url,
+                image_bytes=image_bytes,
+                image_filename=image_filename,
+                image_content_type=image_content_type,
+            )
+            message_payload = {
+                "attachment": {
+                    "type": "image",
+                    "payload": {"attachment_id": attachment_id},
+                }
+            }
+        else:
+            message_payload = {"text": message_text}
+
+        payload = {
+            "recipient": {"id": recipient_psid},
+            "messaging_type": "RESPONSE",
+            "message": message_payload,
+        }
         response = await _post_with_retry(
             client,
             f"{base_url.rstrip('/')}/{page_id}/messages",
@@ -462,6 +566,10 @@ def send_facebook_message_sync(
     message_text: str,
     target: IntegrationTarget | None = None,
     account_id: str | None = None,
+    image_url: str | None = None,
+    image_bytes: bytes | None = None,
+    image_filename: str | None = None,
+    image_content_type: str | None = None,
 ) -> dict:
     """Synchronous wrapper for send_facebook_message.
 
@@ -473,6 +581,10 @@ def send_facebook_message_sync(
         message_text: Message text to send
         target: Optional IntegrationTarget
         account_id: Optional Facebook Page ID to send from
+        image_url: Optional public image URL to send as media attachment
+        image_bytes: Optional raw image bytes to upload directly to Meta
+        image_filename: Optional attachment filename for direct uploads
+        image_content_type: Optional attachment MIME type for direct uploads
 
     Returns:
         Dict with 'message_id' and 'recipient_id'
@@ -486,6 +598,10 @@ def send_facebook_message_sync(
         message_text,
         target,
         account_id=account_id,
+        image_url=image_url,
+        image_bytes=image_bytes,
+        image_filename=image_filename,
+        image_content_type=image_content_type,
     )
     try:
         asyncio.get_running_loop()

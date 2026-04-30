@@ -61,6 +61,70 @@ def test_send_facebook_message_success(db_session):
     assert result["message_id"] == "m1"
 
 
+def test_send_facebook_message_uploads_image_bytes_and_sends_attachment_id(db_session):
+    config, target = _create_target(db_session)
+    token = OAuthToken(
+        connector_config_id=config.id,
+        provider="meta",
+        account_type="page",
+        external_account_id="page_123",
+        access_token="token",
+        scopes=["pages_messaging"],
+        token_expires_at=datetime.now(UTC) + timedelta(days=30),
+        is_active=True,
+    )
+    db_session.add(token)
+    db_session.commit()
+
+    upload_response = MagicMock()
+    upload_response.status_code = 200
+    upload_response.json.return_value = {"attachment_id": "att_123"}
+    upload_response.raise_for_status = MagicMock()
+
+    send_response = MagicMock()
+    send_response.status_code = 200
+    send_response.json.return_value = {"message_id": "m2", "recipient_id": "u1"}
+    send_response.raise_for_status = MagicMock()
+
+    with patch("app.services.meta_messaging.httpx.AsyncClient") as mock_client:
+        mock_instance = AsyncMock()
+        mock_instance.post = AsyncMock(side_effect=[upload_response, send_response])
+        mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_client.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        result = _run_async(
+            meta_messaging.send_facebook_message(
+                db_session,
+                "u1",
+                "Hello",
+                target=target,
+                image_url="https://crm.dotmac.io/public/media/messages/test.jpg?exp=1&sig=2",
+                image_bytes=b"image-bytes",
+                image_filename="test.jpg",
+                image_content_type="image/jpeg",
+            )
+        )
+
+    assert result["message_id"] == "m2"
+    assert mock_instance.post.await_count == 2
+
+    upload_call_kwargs = mock_instance.post.await_args_list[0].kwargs
+    assert upload_call_kwargs["data"] == {
+        "message": '{"attachment":{"type":"image","payload":{"is_reusable":true}}}'
+    }
+    assert upload_call_kwargs["files"] == {
+        "filedata": ("test.jpg", b"image-bytes", "image/jpeg")
+    }
+
+    send_call_kwargs = mock_instance.post.await_args_list[1].kwargs
+    assert send_call_kwargs["json"]["message"] == {
+        "attachment": {
+            "type": "image",
+            "payload": {"attachment_id": "att_123"},
+        }
+    }
+
+
 def test_get_token_for_channel(db_session):
     config, target = _create_target(db_session)
     token = OAuthToken(
