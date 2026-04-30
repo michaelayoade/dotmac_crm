@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import html
+import json
 import os
 import secrets
 import time
@@ -609,6 +610,46 @@ def _set_message_send_error(
     message.metadata_ = metadata
 
 
+def _extract_meta_error_code(response_text: str | None) -> int | None:
+    if not response_text:
+        return None
+    try:
+        payload = json.loads(response_text)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        return None
+    try:
+        return int(error.get("code"))
+    except Exception:
+        return None
+
+
+def _update_whatsapp_channel_validation(
+    person_channel: PersonChannel,
+    *,
+    status: str,
+    source: str,
+    reason: str | None = None,
+    error_code: int | None = None,
+) -> None:
+    metadata = person_channel.metadata_ if isinstance(person_channel.metadata_, dict) else {}
+    validation = metadata.get("whatsapp_validation")
+    validation_payload = validation if isinstance(validation, dict) else {}
+    validation_payload["status"] = status
+    validation_payload["source"] = source
+    validation_payload["updated_at"] = datetime.now(UTC).isoformat()
+    if reason:
+        validation_payload["reason"] = reason[:255]
+    if error_code is not None:
+        validation_payload["error_code"] = int(error_code)
+    metadata["whatsapp_validation"] = validation_payload
+    person_channel.metadata_ = metadata
+
+
 def _get_last_inbound_message(db: Session, conversation_id) -> Message | None:
     """Get the last inbound message for a conversation."""
     return (
@@ -910,6 +951,11 @@ def _send_whatsapp_message(
         data = response.json() if response.content else {}
         message.status = MessageStatus.sent
         _store_external_message_id(message, data.get("messages", [{}])[0].get("id"))
+        _update_whatsapp_channel_validation(
+            person_channel,
+            status="valid",
+            source="meta_send_accept",
+        )
     except CircuitOpenError as exc:
         message.status = MessageStatus.failed
         _set_message_send_error(message, "whatsapp", str(exc))
@@ -929,6 +975,16 @@ def _send_whatsapp_message(
             status_code=status_code,
             response_text=response_text,
         )
+        meta_error_code = _extract_meta_error_code(response_text)
+        lowered_response = (response_text or "").lower()
+        if meta_error_code == 131026 or "not a whatsapp phone number" in lowered_response:
+            _update_whatsapp_channel_validation(
+                person_channel,
+                status="invalid",
+                source="meta_undeliverable",
+                reason="Meta rejected this number as undeliverable",
+                error_code=meta_error_code,
+            )
         if status_code in (401, 403):
             logger.error(
                 "whatsapp_send_auth_failed conversation_id=%s status=%s body=%s",

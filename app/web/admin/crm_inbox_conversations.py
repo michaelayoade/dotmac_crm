@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, time
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
@@ -180,15 +180,118 @@ async def inbox_contact_detail(
 ):
     """Partial template for contact details sidebar (HTMX)."""
     from app.services.crm.inbox.page_context import build_inbox_contact_detail_context
+    from app.web.admin._auth_helpers import get_current_user
 
+    current_user = get_current_user(request)
     detail_context = build_inbox_contact_detail_context(
         db,
         contact_id=contact_id,
         conversation_id=conversation_id,
+        current_user=current_user,
     )
     if not detail_context:
         return HTMLResponse("<div class='p-8 text-center text-slate-500'>Contact not found</div>")
     from app.logic import private_note_logic
+
+    return templates.TemplateResponse(
+        "admin/crm/_contact_details.html",
+        {
+            "request": request,
+            "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
+            **detail_context,
+        },
+    )
+
+
+@router.post("/inbox/conversation/{conversation_id}/retention-outcome", response_class=HTMLResponse)
+async def inbox_conversation_retention_outcome(
+    request: Request,
+    conversation_id: str,
+    contact_id: str = Form(...),
+    customer_id: str = Form(...),
+    customer_name: str | None = Form(default=None),
+    outcome: str = Form(...),
+    note: str | None = Form(default=None),
+    follow_up: str | None = Form(default=None),
+    rep_person_id: str | None = Form(default=None),
+    rep: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    from app.logic import private_note_logic
+    from app.models.customer_retention import CustomerRetentionEngagement
+    from app.models.person import Person
+    from app.services.common import coerce_uuid
+    from app.services.crm.inbox.page_context import build_inbox_contact_detail_context
+    from app.web.admin._auth_helpers import get_current_user
+    from app.web.admin.billing_risk import _parse_follow_up_date
+
+    current_user = get_current_user(request)
+    try:
+        normalized_customer_id = str(customer_id or "").strip()
+        normalized_outcome = str(outcome or "").strip()
+        if not normalized_customer_id or not normalized_outcome:
+            raise HTTPException(status_code=400, detail="Customer and outcome are required")
+
+        rep_person_uuid = None
+        rep_label = str(rep or "").strip() or None
+        if rep_person_id:
+            try:
+                rep_person_uuid = coerce_uuid(str(rep_person_id).strip())
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid person reference") from exc
+            rep_person = db.get(Person, rep_person_uuid)
+            if rep_person is not None:
+                rep_label = (
+                    str(
+                        rep_person.display_name
+                        or f"{rep_person.first_name or ''} {rep_person.last_name or ''}".strip()
+                        or rep_person.email
+                        or ""
+                    ).strip()
+                    or rep_label
+                )
+
+        created_by_person_id = None
+        created_by_raw = str(current_user.get("person_id") or current_user.get("id") or "").strip()
+        if created_by_raw:
+            try:
+                created_by_person_id = coerce_uuid(created_by_raw)
+            except ValueError:
+                created_by_person_id = None
+
+        engagement = CustomerRetentionEngagement(
+            customer_external_id=normalized_customer_id,
+            customer_name=str(customer_name or "").strip() or None,
+            outcome=normalized_outcome,
+            note=str(note or "").strip() or None,
+            follow_up_date=_parse_follow_up_date(follow_up),
+            rep_person_id=rep_person_uuid,
+            rep_label=rep_label,
+            created_by_person_id=created_by_person_id,
+            is_active=True,
+        )
+        db.add(engagement)
+        db.commit()
+        detail_context = build_inbox_contact_detail_context(
+            db,
+            contact_id=contact_id,
+            conversation_id=conversation_id,
+            current_user=current_user,
+            retention_flash_message="Retention outcome saved.",
+            open_retention_panel=True,
+        )
+    except HTTPException as exc:
+        db.rollback()
+        detail_context = build_inbox_contact_detail_context(
+            db,
+            contact_id=contact_id,
+            conversation_id=conversation_id,
+            current_user=current_user,
+            retention_error_message=str(exc.detail),
+            open_retention_panel=True,
+        )
+    if not detail_context:
+        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Contact not found</div>")
 
     return templates.TemplateResponse(
         "admin/crm/_contact_details.html",

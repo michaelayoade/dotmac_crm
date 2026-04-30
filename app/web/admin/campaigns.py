@@ -18,6 +18,7 @@ from app.services.crm.web_campaigns import (
     campaign_steps_page_data,
     campaign_whatsapp_templates_payload,
     cancel_campaign,
+    create_billing_risk_follow_up_campaign,
     create_campaign,
     create_campaign_step,
     delete_campaign,
@@ -398,6 +399,28 @@ def campaign_cancel(
         return _forbidden_html()
     cancel_campaign(db, campaign_id=campaign_id)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
+
+
+@router.post("/{campaign_id}/follow-up")
+def campaign_follow_up(
+    request: Request,
+    campaign_id: str,
+    db: Session = Depends(_get_db),
+    name: str = Form(""),
+    exclude_promised: str | None = Form(None),
+    exclude_future_followups: str | None = Form(None),
+):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
+    campaign = create_billing_risk_follow_up_campaign(
+        db,
+        source_campaign_id=campaign_id,
+        name=name,
+        exclude_promised=bool(exclude_promised),
+        exclude_future_followups=bool(exclude_future_followups),
+        created_by_id=get_current_user(request).get("person_id"),
+    )
+    return RedirectResponse(url=f"/admin/crm/campaigns/{campaign.id}", status_code=303)
 
 
 # ── Preview ───────────────────────────────────────────────────────────────────

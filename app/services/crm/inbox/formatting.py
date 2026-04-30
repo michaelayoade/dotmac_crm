@@ -18,6 +18,7 @@ from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.integration import IntegrationTarget
 from app.models.person import Person
 from app.models.subscriber import Organization
+from app.models.tickets import Ticket
 from app.services import time_preferences
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
@@ -95,6 +96,26 @@ def get_initials(name: str | None) -> str:
     if len(parts) >= 2:
         return (parts[0][0] + parts[-1][0]).upper()
     return name[0:2].upper() if len(name) >= 2 else name[0].upper()
+
+
+def format_conversation_ticket(conv: Conversation, db: Session) -> dict | None:
+    """Return linked ticket details for inbox templates when available."""
+    if not getattr(conv, "ticket_id", None):
+        return None
+    ticket = db.get(Ticket, conv.ticket_id)
+    if not ticket:
+        ticket_ref = str(conv.ticket_id)
+        return {
+            "id": ticket_ref,
+            "reference": ticket_ref,
+            "href": f"/admin/support/tickets/{ticket_ref}",
+        }
+    ticket_ref = ticket.number or str(ticket.id)
+    return {
+        "id": str(ticket.id),
+        "reference": ticket_ref,
+        "href": f"/admin/support/tickets/{ticket_ref}",
+    }
 
 
 def _safe_message_metadata(message: Message) -> dict:
@@ -617,6 +638,16 @@ def format_conversation_for_template(
             }
 
     rendered_last_message_at = conv.last_message_at or latest_message_at or conv.updated_at
+    resolution = None
+    if isinstance(conv.metadata_, dict):
+        raw_resolution = conv.metadata_.get("resolution")
+        if isinstance(raw_resolution, dict):
+            resolution = {
+                "mode": str(raw_resolution.get("mode") or "").strip() or None,
+                "label": str(raw_resolution.get("label") or "").strip() or None,
+                "ticket_reference": str(raw_resolution.get("ticket_reference") or "").strip() or None,
+            }
+    ticket = format_conversation_ticket(conv, db)
 
     return {
         "id": str(conv.id),
@@ -644,6 +675,8 @@ def format_conversation_for_template(
         "assigned_agent_id": assigned_agent_id,
         "assigned_agent_name": assigned_agent_name,
         "tags": sorted({tag.tag for tag in (conv.tags or []) if tag.tag})[:5],
+        "ticket": ticket,
+        "resolution": resolution,
         "inbox": {
             "id": str(channel_target_id) if channel_target_id else None,
             "label": inbox_label,

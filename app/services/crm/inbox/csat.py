@@ -274,7 +274,7 @@ def queue_for_resolved_conversation(
             channel_type=channel_type,
             channel_target_id=coerce_uuid(target_id) if target_id else None,
             reply_to_message_id=last_inbound.id if last_inbound else None,
-            body=_build_csat_body(channel_type, survey_url),
+            body=_build_csat_body(channel_type, survey_url, conversation=conversation),
         )
         # Capture log context before any commit/rollback so we don't trip over
         # expired attributes if the session state changes.
@@ -314,7 +314,23 @@ def queue_for_resolved_conversation(
         return CsatQueueResult(kind="error", detail=str(exc))
 
 
-def _build_csat_body(channel_type: ChannelType, survey_url: str) -> str:
+def _build_csat_body(channel_type: ChannelType, survey_url: str, *, conversation: Conversation | None = None) -> str:
+    resolution = conversation.metadata_.get("resolution") if conversation and isinstance(conversation.metadata_, dict) else None
+    if isinstance(resolution, dict) and resolution.get("mode") == "ticket_handoff":
+        ticket_reference = str(
+            resolution.get("ticket_reference") or resolution.get("ticket_id") or "the linked support ticket"
+        ).strip()
+        if channel_type == ChannelType.email:
+            return (
+                "Your conversation has been escalated to our internal team.\n\n"
+                f"We are working on fixing your issue and will communicate with you via ticket {ticket_reference}.\n\n"
+                f"How was your experience? Rate us here: {survey_url}"
+            )
+        return (
+            "Your conversation has been escalated to our internal team. "
+            f"We are working on fixing your issue and will communicate with you via ticket {ticket_reference}. "
+            f"How was your experience? Rate us here: {survey_url}"
+        )
     if channel_type == ChannelType.email:
         return (
             "Your conversation has been resolved. We'd love to hear how we did!\n\n"
@@ -362,7 +378,7 @@ def retry_pending_invitation(
         channel_type=channel_type,
         channel_target_id=coerce_uuid(target_id),
         reply_to_message_id=last_inbound.id if last_inbound else None,
-        body=_build_csat_body(channel_type, survey_url),
+        body=_build_csat_body(channel_type, survey_url, conversation=conversation),
     )
     log_channel = channel_type.value
     invitation_id = invitation.id

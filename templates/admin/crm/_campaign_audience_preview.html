@@ -20,6 +20,8 @@
         <p class="mt-2 text-xs text-slate-400 dark:text-slate-500">and {{ audience.total - 10 }} more...</p>
         {% endif %}
     </div>
+    {% elif audience.total == 0 and is_manual_snapshot %}
+    <p class="text-sm text-slate-500 dark:text-slate-400">No sendable recipients were captured in this outreach snapshot yet.</p>
     {% elif audience.total == 0 %}
     <p class="text-sm text-slate-500 dark:text-slate-400">No contacts match the current segment filter. All contacts with a {{ audience_address_label|lower }} will be targeted by default.</p>
     {% endif %}

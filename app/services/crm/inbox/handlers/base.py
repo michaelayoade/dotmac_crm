@@ -107,6 +107,12 @@ class InboundHandler:
                     message_id=message_id,
                     channel_target_id=channel_target_id,
                 )
+                try:
+                    from app.services.crm.campaigns import reconcile_outreach_inbound_reply
+
+                    reconcile_outreach_inbound_reply(followup_db, message_id=message_id)
+                except Exception:
+                    logger.debug("inbound_outreach_reconcile_failed message_id=%s", message_id, exc_info=True)
             finally:
                 followup_db.close()
 

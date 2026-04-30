@@ -46,10 +46,59 @@
 </div>
 
 <div class="mt-6">
+<form method="post" action="/admin/reports/subscribers/billing-risk/outreach" id="billing-risk-outreach-form" class="space-y-4">
+    <input type="hidden" name="next_url" id="billing-risk-next-url" value="/admin/reports/subscribers/billing-risk">
+    <div class="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60 lg:flex-row lg:items-end lg:justify-between">
+        <div class="grid flex-1 grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Outreach Name</label>
+                <input
+                    type="text"
+                    name="name"
+                    value="Billing Risk Outreach"
+                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                >
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Channel</label>
+                <select
+                    name="channel"
+                    id="billing-risk-outreach-channel"
+                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                >
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="email">Email</option>
+                </select>
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Send From</label>
+                <select
+                    name="channel_target_id"
+                    id="billing-risk-channel-target-id"
+                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                ></select>
+            </div>
+            <div class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <span class="font-semibold" id="billing-risk-selected-count">0</span>
+                <span>selected on this page</span>
+            </div>
+        </div>
+        <button
+            type="submit"
+            id="billing-risk-create-outreach-button"
+            disabled
+            class="inline-flex h-10 items-center justify-center rounded-xl bg-rose-600 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 hover:bg-rose-700"
+        >
+            Create Outreach Draft
+        </button>
+    </div>
 {% call table_shell(table_id="billing-risk-churn-rows", title="Computed Billing-Risk Rows", color="rose", count=churn_rows|length, actions=page_size_control, bulk_selectable=False) %}
 <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
     <thead>
         <tr>
+            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <input type="checkbox" id="billing-risk-select-all" class="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800">
+            </th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
             <th class="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Phone</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">City</th>
@@ -74,6 +123,17 @@
         {% set engagement_customer_id = row.get('_external_id') or row.subscriber_id or row.get('_subscriber_number') or '' %}
         {% set ticket_subscriber_id = row.ticket_subscriber_id or '' %}
         {% call table_row(color="rose") %}
+            <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                <input
+                    type="checkbox"
+                    name="subscriber_id"
+                    value="{{ row.subscriber_id or '' }}"
+                    data-billing-risk-select-row
+                    data-retention-customer-id="{{ engagement_customer_id }}"
+                    {% if not row.subscriber_id %}disabled{% endif %}
+                    class="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500/20 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800"
+                >
+            </td>
             <td
                 class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white"
                 data-billing-risk-row="1"
@@ -162,11 +222,12 @@
             </td>
         {% endcall %}
         {% else %}
-        {{ empty_state(title="No billing-risk rows", message="No subscribers matched the current computed billing-risk rules and filters.", color="rose", color2="red", colspan=16) }}
+        {{ empty_state(title="No billing-risk rows", message="No subscribers matched the current computed billing-risk rules and filters.", color="rose", color2="red", colspan=17) }}
         {% endfor %}
     </tbody>
 </table>
 {% endcall %}
+</form>
 </div>
 
 <div class="flex items-center justify-between gap-3">
@@ -184,3 +245,93 @@
         {% if not show_next %}disabled{% endif %}
     >Next</button>
 </div>
+
+<script>
+(() => {
+    const form = document.getElementById('billing-risk-outreach-form');
+    if (!form) return;
+    const rowCheckboxes = Array.from(form.querySelectorAll('[data-billing-risk-select-row]'));
+    const selectAll = document.getElementById('billing-risk-select-all');
+    const selectedCount = document.getElementById('billing-risk-selected-count');
+    const submitButton = document.getElementById('billing-risk-create-outreach-button');
+    const nextUrlInput = document.getElementById('billing-risk-next-url');
+    const channelSelect = document.getElementById('billing-risk-outreach-channel');
+    const targetSelect = document.getElementById('billing-risk-channel-target-id');
+    const retentionInputName = 'retention_customer_id';
+    const targetOptions = {{ outreach_channel_targets|default({}, true)|tojson }};
+
+    const syncSelection = () => {
+        const enabled = rowCheckboxes.filter((checkbox) => !checkbox.disabled);
+        const checked = enabled.filter((checkbox) => checkbox.checked);
+        if (selectedCount) selectedCount.textContent = String(checked.length);
+        const hasTarget = targetSelect ? Boolean(targetSelect.value) : true;
+        if (submitButton) submitButton.disabled = checked.length === 0 || !hasTarget;
+        if (selectAll) {
+            selectAll.checked = enabled.length > 0 && checked.length === enabled.length;
+            selectAll.indeterminate = checked.length > 0 && checked.length < enabled.length;
+        }
+    };
+
+    const renderTargetOptions = () => {
+        if (!channelSelect || !targetSelect) return;
+        const selectedChannel = channelSelect.value || 'whatsapp';
+        const options = Array.isArray(targetOptions?.[selectedChannel]) ? targetOptions[selectedChannel] : [];
+        targetSelect.innerHTML = '';
+        if (!options.length) {
+            const empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = `No active ${selectedChannel === 'whatsapp' ? 'WhatsApp lines' : 'email mailboxes'} available`;
+            targetSelect.appendChild(empty);
+            targetSelect.disabled = true;
+            syncSelection();
+            return;
+        }
+        for (const option of options) {
+            const item = document.createElement('option');
+            item.value = option.target_id || '';
+            item.textContent = option.name || option.target_id || 'Inbox target';
+            targetSelect.appendChild(item);
+        }
+        targetSelect.disabled = false;
+        syncSelection();
+    };
+
+    if (selectAll) {
+        selectAll.addEventListener('change', () => {
+            for (const checkbox of rowCheckboxes) {
+                if (checkbox.disabled) continue;
+                checkbox.checked = selectAll.checked;
+            }
+            syncSelection();
+        });
+    }
+    for (const checkbox of rowCheckboxes) {
+        checkbox.addEventListener('change', syncSelection);
+    }
+    if (channelSelect) {
+        channelSelect.addEventListener('change', () => {
+            renderTargetOptions();
+        });
+    }
+    if (targetSelect) {
+        targetSelect.addEventListener('change', syncSelection);
+    }
+    form.addEventListener('submit', () => {
+        for (const input of Array.from(form.querySelectorAll(`input[name="${retentionInputName}"]`))) {
+            input.remove();
+        }
+        for (const checkbox of rowCheckboxes.filter((item) => item.checked && !item.disabled)) {
+            const hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = retentionInputName;
+            hidden.value = checkbox.getAttribute('data-retention-customer-id') || checkbox.value || '';
+            form.appendChild(hidden);
+        }
+    });
+    if (nextUrlInput && window.location) {
+        nextUrlInput.value = `${window.location.pathname}${window.location.search || ''}`;
+    }
+    renderTargetOptions();
+    syncSelection();
+})();
+</script>

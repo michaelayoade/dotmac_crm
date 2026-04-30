@@ -141,6 +141,34 @@ def _normalize_phone_address(value: str | None) -> str | None:
     return f"+{digits}"
 
 
+def _mark_whatsapp_channel_invalid_from_status(
+    person_channel: PersonChannel | None,
+    errors: list[dict] | None,
+) -> None:
+    if person_channel is None or not errors:
+        return
+    error_code = None
+    for item in errors:
+        if not isinstance(item, dict):
+            continue
+        try:
+            error_code = int(item.get("code"))
+        except Exception:
+            error_code = None
+        if error_code == 131026:
+            metadata = person_channel.metadata_ if isinstance(person_channel.metadata_, dict) else {}
+            validation = metadata.get("whatsapp_validation")
+            payload = validation if isinstance(validation, dict) else {}
+            payload["status"] = "invalid"
+            payload["source"] = "meta_status_failed"
+            payload["reason"] = "Meta later marked this WhatsApp number undeliverable"
+            payload["error_code"] = 131026
+            payload["updated_at"] = datetime.now(UTC).isoformat()
+            metadata["whatsapp_validation"] = payload
+            person_channel.metadata_ = metadata
+            return
+
+
 def _fetch_profile_name(
     access_token: str | None,
     user_id: str,
@@ -1039,8 +1067,15 @@ def process_whatsapp_webhook(
                     meta = message.metadata_ if isinstance(message.metadata_, dict) else {}
                     meta["whatsapp_errors"] = status_update.errors
                     message.metadata_ = meta
+                    _mark_whatsapp_channel_invalid_from_status(message.person_channel, status_update.errors)
 
                 db.commit()
+                try:
+                    from app.services.crm.campaigns import reconcile_outreach_message_status
+
+                    reconcile_outreach_message_status(db, message_id=str(message.id))
+                except Exception:
+                    logger.debug("whatsapp_status_outreach_reconcile_failed message_id=%s", message.id, exc_info=True)
 
                 # Broadcast status change to UI via WebSocket
                 try:

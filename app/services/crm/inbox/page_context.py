@@ -11,9 +11,11 @@ from sqlalchemy.orm import Session, aliased
 
 from app.logic import private_note_logic
 from app.models.connector import ConnectorType
+from app.models.crm.campaign import Campaign
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
-from app.models.crm.enums import ChannelType
+from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.crm.team import CrmAgent, CrmTeam
+from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.services import crm as crm_service
@@ -112,6 +114,124 @@ def _load_assignment_activity(
     return events, latest_manual
 
 
+def _conversation_retention_context(
+    db: Session,
+    *,
+    conversation_id: str,
+    contact: Person | None,
+    current_user: dict | None = None,
+    flash_message: str | None = None,
+    error_message: str | None = None,
+    open_panel: bool = False,
+) -> dict | None:
+    conversation = db.get(Conversation, coerce_uuid(conversation_id))
+    if not conversation:
+        return None
+
+    conversation_metadata = conversation.metadata_ if isinstance(conversation.metadata_, dict) else {}
+    campaign_id = str(conversation_metadata.get("campaign_id") or "").strip()
+    campaign_kind = str(conversation_metadata.get("campaign_kind") or "").strip().lower()
+    source_report = str(conversation_metadata.get("source_report") or "").strip().lower()
+    retention_customer_id = str(conversation_metadata.get("retention_customer_id") or "").strip()
+
+    campaign = None
+    if campaign_id:
+        campaign = db.get(Campaign, coerce_uuid(campaign_id))
+        if campaign and not source_report:
+            campaign_metadata = campaign.metadata_ if isinstance(campaign.metadata_, dict) else {}
+            source_report = str(campaign_metadata.get("source_report") or "").strip().lower()
+            if not retention_customer_id and isinstance(campaign_metadata.get("audience_snapshot"), list):
+                target_person_id = str(getattr(contact, "id", "") or "").strip()
+                for row in campaign_metadata.get("audience_snapshot") or []:
+                    if not isinstance(row, dict):
+                        continue
+                    if str(row.get("person_id") or "").strip() != target_person_id:
+                        continue
+                    retention_customer_id = str(
+                        row.get("retention_customer_id") or row.get("subscriber_id") or ""
+                    ).strip()
+                    break
+
+    if not retention_customer_id and contact and isinstance(contact.metadata_, dict):
+        retention_customer_id = str(contact.metadata_.get("splynx_id") or "").strip()
+
+    is_billing_risk_retention = (
+        campaign_kind == "outreach"
+        and source_report == "billing_risk"
+        and bool(retention_customer_id)
+    )
+    if not is_billing_risk_retention:
+        return None
+
+    latest_engagement = (
+        db.query(CustomerRetentionEngagement)
+        .filter(
+            CustomerRetentionEngagement.customer_external_id == retention_customer_id,
+            CustomerRetentionEngagement.is_active.is_(True),
+        )
+        .order_by(CustomerRetentionEngagement.created_at.desc())
+        .first()
+    )
+    recent_engagements = (
+        db.query(CustomerRetentionEngagement)
+        .filter(
+            CustomerRetentionEngagement.customer_external_id == retention_customer_id,
+            CustomerRetentionEngagement.is_active.is_(True),
+        )
+        .order_by(CustomerRetentionEngagement.created_at.desc())
+        .limit(3)
+        .all()
+    )
+    inbound_reply_count = (
+        db.query(func.count(Message.id))
+        .filter(
+            Message.conversation_id == conversation.id,
+            Message.direction == MessageDirection.inbound,
+        )
+        .scalar()
+        or 0
+    )
+    has_inbound_reply = inbound_reply_count > 0
+
+    rep_person_id = ""
+    if latest_engagement and latest_engagement.rep_person_id:
+        rep_person_id = str(latest_engagement.rep_person_id)
+    elif current_user:
+        rep_person_id = str(current_user.get("person_id") or current_user.get("id") or "").strip()
+
+    from app.web.admin.billing_risk import RETENTION_PIPELINE_STEPS, _retention_engagement_payload, _retention_rep_options
+
+    button_label = "Retention outcome"
+    if latest_engagement:
+        button_label = "Update retention outcome"
+    elif has_inbound_reply:
+        button_label = "Customer replied, log outcome"
+
+    return {
+        "enabled": True,
+        "campaign_id": campaign_id or None,
+        "customer_id": retention_customer_id,
+        "customer_name": (
+            getattr(contact, "display_name", None)
+            or getattr(contact, "email", None)
+            or getattr(contact, "phone", None)
+            or retention_customer_id
+        ),
+        "has_inbound_reply": has_inbound_reply,
+        "inbound_reply_count": int(inbound_reply_count),
+        "latest_engagement": _retention_engagement_payload(latest_engagement) if latest_engagement else None,
+        "engagement_history": [_retention_engagement_payload(row) for row in recent_engagements],
+        "pipeline_steps": list(RETENTION_PIPELINE_STEPS),
+        "rep_options": _retention_rep_options(db),
+        "default_rep_person_id": rep_person_id,
+        "button_label": button_label,
+        "button_emphasis": bool(has_inbound_reply and not latest_engagement),
+        "flash_message": flash_message,
+        "error_message": error_message,
+        "open": bool(open_panel),
+    }
+
+
 async def build_inbox_page_context(
     db: Session,
     *,
@@ -170,7 +290,15 @@ async def build_inbox_page_context(
                 conv = conversation_service.Conversations.get(db, conversation_id)
                 selected_conversation = format_conversation_for_template(conv, db, include_inbox_label=True)
                 if conv.contact:
-                    contact_details = format_contact_for_template(conv.contact, db)
+                    contact_detail_context = build_inbox_contact_detail_context(
+                        db,
+                        contact_id=str(conv.contact.id),
+                        conversation_id=conversation_id,
+                        current_user=current_user,
+                    )
+                    contact_details = (contact_detail_context or {}).get("contact") or format_contact_for_template(
+                        conv.contact, db
+                    )
             except Exception:
                 logger.debug("Failed to format contact details for inbox context.", exc_info=True)
 
@@ -474,6 +602,10 @@ def build_inbox_contact_detail_context(
     *,
     contact_id: str,
     conversation_id: str | None = None,
+    current_user: dict | None = None,
+    retention_flash_message: str | None = None,
+    retention_error_message: str | None = None,
+    open_retention_panel: bool = False,
 ) -> dict | None:
     try:
         contact_service.Contacts.get(db, contact_id)
@@ -514,6 +646,19 @@ def build_inbox_contact_detail_context(
         "teams": assignment_options.get("teams"),
         "agent_labels": assignment_options.get("agent_labels"),
         "private_notes": private_notes,
+        "retention_card": (
+            _conversation_retention_context(
+                db,
+                conversation_id=conversation_id,
+                contact=contact,
+                current_user=current_user,
+                flash_message=retention_flash_message,
+                error_message=retention_error_message,
+                open_panel=open_retention_panel,
+            )
+            if conversation_id
+            else None
+        ),
     }
 
 

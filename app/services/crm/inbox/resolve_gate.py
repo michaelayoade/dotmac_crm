@@ -15,8 +15,9 @@ from sqlalchemy.orm import Session
 
 from app.models.crm.conversation import Conversation
 from app.models.crm.sales import Lead
+from app.models.tickets import Ticket
 from app.services.common import coerce_uuid
-from app.services.crm.inbox.conversation_status import update_conversation_status
+HANDOFF_RESOLUTION_MODE = "ticket_handoff"
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,7 @@ def resolve_with_lead(
 ) -> Literal["updated", "forbidden", "not_found", "error"]:
     """Create a Lead for the conversation's person, then resolve."""
     from app.schemas.crm.sales import LeadCreate
+    from app.services.crm.inbox.conversation_status import update_conversation_status
     from app.services.crm.sales.service import leads
 
     try:
@@ -101,6 +103,8 @@ def resolve_without_lead(
     scopes: list[str] | None = None,
 ) -> Literal["updated", "forbidden", "not_found", "error"]:
     """Resolve the conversation without creating a lead."""
+    from app.services.crm.inbox.conversation_status import update_conversation_status
+
     result = update_conversation_status(
         db,
         conversation_id=conversation_id,
@@ -108,6 +112,49 @@ def resolve_without_lead(
         actor_id=actor_id,
         roles=roles,
         scopes=scopes,
+    )
+    if result.kind == "forbidden":
+        return "forbidden"
+    if result.kind in ("not_found", "invalid_status", "invalid_transition"):
+        return "error"
+    return "updated"
+
+
+def resolve_with_ticket_handoff(
+    db: Session,
+    *,
+    conversation_id: str,
+    actor_id: str | None = None,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> Literal["updated", "forbidden", "not_found", "error"]:
+    """Resolve the conversation with ticket-handoff metadata."""
+    from app.services.crm.inbox.conversation_status import ResolutionContext, update_conversation_status
+
+    try:
+        conv_uuid = coerce_uuid(conversation_id)
+    except Exception:
+        return "not_found"
+
+    conversation = db.get(Conversation, conv_uuid)
+    if not conversation or not conversation.ticket_id:
+        return "not_found"
+
+    ticket = db.get(Ticket, conversation.ticket_id)
+    ticket_reference = ticket.number if ticket and ticket.number else str(conversation.ticket_id)
+    result = update_conversation_status(
+        db,
+        conversation_id=conversation_id,
+        new_status="resolved",
+        actor_id=actor_id,
+        roles=roles,
+        scopes=scopes,
+        resolution_context=ResolutionContext(
+            mode=HANDOFF_RESOLUTION_MODE,
+            label="Resolved with ticket handoff",
+            ticket_id=str(conversation.ticket_id),
+            ticket_reference=ticket_reference,
+        ),
     )
     if result.kind == "forbidden":
         return "forbidden"

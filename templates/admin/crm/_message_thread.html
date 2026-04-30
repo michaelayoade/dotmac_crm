@@ -46,6 +46,12 @@
                     </span>
                     {% endfor %}
                     {% endif %}
+                    {% if conversation.resolution and conversation.resolution.mode == 'ticket_handoff' and conversation.ticket %}
+                    <a href="{{ conversation.ticket.href }}"
+                       class="inline-flex items-center rounded-full border border-sky-500/20 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold text-sky-700 hover:text-sky-600 dark:text-sky-300 dark:hover:text-sky-200">
+                        Ticket handoff: {{ conversation.ticket.reference }}
+                    </a>
+                    {% endif %}
                 </div>
                 {% if conversation.channel == 'whatsapp' %}
                 <p class="text-xs text-slate-500 font-mono-tight dark:text-slate-400">

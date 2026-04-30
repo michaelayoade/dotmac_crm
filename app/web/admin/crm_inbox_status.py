@@ -15,6 +15,7 @@ from app.services.crm.inbox.csat import get_conversation_csat_event
 from app.services.crm.inbox.formatting import (
     filter_messages_for_user,
     format_conversation_for_template,
+    format_conversation_ticket,
     format_message_for_template,
 )
 from app.web.admin.crm_support import _get_current_roles, _get_current_scopes
@@ -112,6 +113,19 @@ def _render_thread_or_error(
     )
 
 
+def _get_conversation_ticket_context(db: Session, conversation_id: str) -> dict | None:
+    from app.models.crm.conversation import Conversation
+    from app.services.common import coerce_uuid
+
+    try:
+        conversation = db.get(Conversation, coerce_uuid(conversation_id))
+    except Exception:
+        return None
+    if not conversation:
+        return None
+    return format_conversation_ticket(conversation, db)
+
+
 @router.post("/inbox/conversation/{conversation_id}/status", response_class=HTMLResponse)
 async def update_conversation_status(
     request: Request,
@@ -133,6 +147,7 @@ async def update_conversation_status(
 
     if new_status == "resolved" and request.headers.get("HX-Target") == "message-thread":
         skip_tag_check = request.query_params.get("skip_tag_check") == "1"
+        ticket_context = _get_conversation_ticket_context(db, conversation_id)
 
         # Tag nudge: soft warning if no tags
         if not skip_tag_check:
@@ -157,13 +172,16 @@ async def update_conversation_status(
         from app.services.crm.inbox.resolve_gate import check_resolve_gate
 
         gate = check_resolve_gate(db, conversation_id)
-        if gate.kind == "needs_gate":
+        if gate.kind == "needs_gate" or ticket_context is not None:
             return templates.TemplateResponse(
                 "admin/crm/_resolve_gate.html",
                 {
                     "request": request,
                     "conversation_id": conversation_id,
                     "csrf_token": get_csrf_token(request),
+                    "show_lead_actions": gate.kind == "needs_gate",
+                    "ticket_handoff_available": ticket_context is not None,
+                    "ticket": ticket_context,
                 },
             )
 
@@ -433,6 +451,32 @@ async def inbox_resolve_without_lead(
     current_user = get_current_user(request)
     actor_id = (current_user or {}).get("person_id")
     outcome = resolve_without_lead(
+        db,
+        conversation_id=conversation_id,
+        actor_id=actor_id,
+        roles=_get_current_roles(request),
+        scopes=_get_current_scopes(request),
+    )
+    if outcome == "forbidden":
+        return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)
+    if outcome == "not_found":
+        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>", status_code=404)
+    return _render_thread_or_error(request, db, conversation_id, current_user)
+
+
+@router.post("/inbox/conversation/{conversation_id}/resolve-with-ticket-handoff", response_class=HTMLResponse)
+async def inbox_resolve_with_ticket_handoff(
+    request: Request,
+    conversation_id: str,
+    db: Session = Depends(get_db),
+):
+    """Resolve the conversation and mark it as a ticket handoff."""
+    from app.services.crm.inbox.resolve_gate import resolve_with_ticket_handoff
+    from app.web.admin._auth_helpers import get_current_user
+
+    current_user = get_current_user(request)
+    actor_id = (current_user or {}).get("person_id")
+    outcome = resolve_with_ticket_handoff(
         db,
         conversation_id=conversation_id,
         actor_id=actor_id,
