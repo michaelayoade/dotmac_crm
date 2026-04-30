@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import importlib
 import os
 import sys
 from collections.abc import Iterable
@@ -20,9 +21,9 @@ from app.services.crm import inbox as inbox_service
 from app.services.crm.inbox.normalizers import _normalize_email_address
 from app.services.webhook_dead_letter import write_dead_letter
 
-SMTPController: Any
+SMTPController: Any = None
 try:
-    from aiosmtpd.controller import Controller as SMTPController
+    SMTPController = importlib.import_module("aiosmtpd.controller").Controller
 except ModuleNotFoundError:
     SMTPController = None
 
