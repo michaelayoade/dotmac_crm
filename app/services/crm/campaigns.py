@@ -10,7 +10,10 @@ from __future__ import annotations
 import contextlib
 import logging
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
+from typing import cast as type_cast
 
 from fastapi import HTTPException
 from sqlalchemy import String, cast, false, func, or_, select
@@ -81,6 +84,16 @@ def _normalize_whatsapp_address(phone: str | None) -> str | None:
     if len(digits) < 8 or len(digits) > 15:
         return None
     return f"+{digits}"
+
+
+def _coerce_whatsapp_template_components(value: object) -> list[dict[Any, Any]] | None:
+    if not isinstance(value, list):
+        return None
+    components: list[dict[Any, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            components.append(item)
+    return components or None
 
 
 def _resolve_or_create_whatsapp_channel(db: Session, person: Person) -> PersonChannel | None:
@@ -509,7 +522,7 @@ class Campaigns(ListResponseMixin):
         db: Session,
         *,
         campaign_id: str,
-        subscriber_ids: list[str],
+        subscriber_ids: Sequence[str],
         snapshot_context_by_subscriber_id: dict[str, dict] | None = None,
     ) -> dict[str, int]:
         campaign = db.get(Campaign, coerce_uuid(campaign_id))
@@ -1038,7 +1051,9 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
                         body=body,
                         whatsapp_template_name=campaign.whatsapp_template_name,
                         whatsapp_template_language=campaign.whatsapp_template_language,
-                        whatsapp_template_components=campaign.whatsapp_template_components,
+                        whatsapp_template_components=_coerce_whatsapp_template_components(
+                            type_cast(object, campaign.whatsapp_template_components)
+                        ),
                     ),
                     author_id=str(campaign.created_by_id) if campaign.created_by_id else None,
                 )

@@ -151,10 +151,14 @@ def _mark_whatsapp_channel_invalid_from_status(
     for item in errors:
         if not isinstance(item, dict):
             continue
-        try:
-            error_code = int(item.get("code"))
-        except Exception:
+        code = item.get("code")
+        if code is None:
             error_code = None
+        else:
+            try:
+                error_code = int(code)
+            except (TypeError, ValueError):
+                error_code = None
         if error_code == 131026:
             metadata = person_channel.metadata_ if isinstance(person_channel.metadata_, dict) else {}
             validation = metadata.get("whatsapp_validation")

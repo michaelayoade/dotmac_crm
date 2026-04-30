@@ -53,15 +53,16 @@ billing_service = _StubBillingService()
 
 def _ensure_pydyf_compat() -> None:
     try:
-        import pydyf  # type: ignore[import-untyped]
+        import pydyf  # type: ignore[import-not-found]
     except Exception:
         return
+    pydyf_module = pydyf
     try:
-        init_args = pydyf.PDF.__init__.__code__.co_argcount
+        init_args = pydyf_module.PDF.__init__.__code__.co_argcount
     except Exception:
         return
     if init_args == 1:
-        original_init = pydyf.PDF.__init__
+        original_init = pydyf_module.PDF.__init__
 
         def _compat_init(self, *args, **kwargs):
             original_init(self)
@@ -77,19 +78,19 @@ def _ensure_pydyf_compat() -> None:
                 self.identifier = None
             return None
 
-        pydyf.PDF.__init__ = _compat_init
-    if not hasattr(pydyf.Stream, "transform"):
+        pydyf_module.PDF.__init__ = _compat_init
+    if not hasattr(pydyf_module.Stream, "transform"):
 
         def _compat_transform(self, a=1, b=0, c=0, d=1, e=0, f=0):
             return self.set_matrix(a, b, c, d, e, f)
 
-        pydyf.Stream.transform = _compat_transform
-    if not hasattr(pydyf.Stream, "text_matrix"):
+        pydyf_module.Stream.transform = _compat_transform
+    if not hasattr(pydyf_module.Stream, "text_matrix"):
 
         def _compat_text_matrix(self, a=1, b=0, c=0, d=1, e=0, f=0):
             return self.set_matrix(a, b, c, d, e, f)
 
-        pydyf.Stream.text_matrix = _compat_text_matrix
+        pydyf_module.Stream.text_matrix = _compat_text_matrix
 
 
 def _crm_base_context(request: Request, db: Session, active_page: str) -> dict:

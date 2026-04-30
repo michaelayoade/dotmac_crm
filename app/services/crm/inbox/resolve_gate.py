@@ -17,6 +17,7 @@ from app.models.crm.conversation import Conversation
 from app.models.crm.sales import Lead
 from app.models.tickets import Ticket
 from app.services.common import coerce_uuid
+
 HANDOFF_RESOLUTION_MODE = "ticket_handoff"
 
 

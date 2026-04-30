@@ -622,9 +622,12 @@ def _extract_meta_error_code(response_text: str | None) -> int | None:
     error = payload.get("error")
     if not isinstance(error, dict):
         return None
+    code = error.get("code")
+    if code is None:
+        return None
     try:
-        return int(error.get("code"))
-    except Exception:
+        return int(code)
+    except (TypeError, ValueError):
         return None
 
 

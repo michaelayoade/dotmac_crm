@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -13,13 +13,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorConfig, ConnectorType
-from app.models.customer_retention import CustomerRetentionEngagement
-from app.models.crm.conversation import Message
-from app.models.integration import IntegrationTarget
 from app.models.crm.campaign_sender import CampaignSender
 from app.models.crm.campaign_smtp import CampaignSmtpConfig
+from app.models.crm.conversation import Message
 from app.models.crm.enums import CampaignChannel, CampaignType, MessageDirection, MessageStatus
 from app.models.crm.sales import Pipeline, PipelineStage
+from app.models.customer_retention import CustomerRetentionEngagement
+from app.models.integration import IntegrationTarget
 from app.models.person import PartyStatus, Person
 from app.schemas.crm.campaign import CampaignCreate, CampaignStepCreate, CampaignStepUpdate, CampaignUpdate
 from app.services.crm.campaign_senders import campaign_senders
@@ -118,8 +118,8 @@ def _is_promised_outcome(value: str | None) -> bool:
     return "promise" in outcome or "promised" in outcome
 
 
-def outreach_channel_target_options(db: Session) -> dict[str, list[dict[str, str]]]:
-    def _serialize_target(target: dict) -> dict[str, str]:
+def outreach_channel_target_options(db: Session) -> dict[str, list[dict[str, str | bool]]]:
+    def _serialize_target(target: dict) -> dict[str, str | bool]:
         return {
             "target_id": str(target.get("target_id") or "").strip(),
             "name": str(target.get("name") or "").strip(),
@@ -848,13 +848,11 @@ def summarize_billing_risk_follow_up_candidates(
         engagement = latest_engagements.get(customer_id)
         follow_up_date = engagement.follow_up_date if engagement else None
         outcome = engagement.outcome if engagement else ""
-        if _is_do_not_reach_out_outcome(outcome) or _is_paid_or_resolved_outcome(outcome):
-            suppressed += 1
-        elif follow_up_date and follow_up_date >= today and (
+        if _is_do_not_reach_out_outcome(outcome) or _is_paid_or_resolved_outcome(outcome) or (follow_up_date and follow_up_date >= today and (
             _is_promised_outcome(outcome)
             or "follow-up" in _normalize_retention_outcome(outcome)
             or "follow up" in _normalize_retention_outcome(outcome)
-        ):
+        )):
             suppressed += 1
         else:
             eligible += 1
