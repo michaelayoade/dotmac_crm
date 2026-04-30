@@ -199,11 +199,7 @@ def _normalize_ticket_export_columns(columns: str | None) -> list[str]:
 def _person_name(person: Person | None) -> str:
     if not person:
         return ""
-    return (
-        person.display_name
-        or f"{person.first_name or ''} {person.last_name or ''}".strip()
-        or ""
-    )
+    return person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip() or ""
 
 
 def _ticket_ref(ticket: Ticket | None) -> str:
@@ -255,11 +251,7 @@ def _collect_ticket_export_details(db: Session, tickets: list[Ticket]) -> dict[U
         .filter(or_(TicketLink.from_ticket_id.in_(ticket_ids), TicketLink.to_ticket_id.in_(ticket_ids)))
         .all()
     )
-    primary_ids = {
-        link.to_ticket_id
-        for link in direct_outage_links
-        if link.from_ticket_id in details_by_ticket
-    }
+    primary_ids = {link.to_ticket_id for link in direct_outage_links if link.from_ticket_id in details_by_ticket}
     sibling_links = []
     if primary_ids:
         sibling_links = (
@@ -269,18 +261,11 @@ def _collect_ticket_export_details(db: Session, tickets: list[Ticket]) -> dict[U
             .all()
         )
 
-    related_ticket_ids = {
-        link.to_ticket_id
-        for link in direct_outage_links
-        if link.from_ticket_id in details_by_ticket
-    } | {
-        link.from_ticket_id
-        for link in direct_outage_links
-        if link.to_ticket_id in details_by_ticket
-    } | {
-        link.from_ticket_id
-        for link in sibling_links
-    }
+    related_ticket_ids = (
+        {link.to_ticket_id for link in direct_outage_links if link.from_ticket_id in details_by_ticket}
+        | {link.from_ticket_id for link in direct_outage_links if link.to_ticket_id in details_by_ticket}
+        | {link.from_ticket_id for link in sibling_links}
+    )
     related_ticket_by_id: dict[UUID, Ticket] = {}
     if related_ticket_ids:
         related_ticket_by_id = {
@@ -289,9 +274,7 @@ def _collect_ticket_export_details(db: Session, tickets: list[Ticket]) -> dict[U
         }
 
     outgoing_link_by_ticket = {
-        link.from_ticket_id: link
-        for link in direct_outage_links
-        if link.from_ticket_id in details_by_ticket
+        link.from_ticket_id: link for link in direct_outage_links if link.from_ticket_id in details_by_ticket
     }
     child_ticket_ids_by_primary: dict[UUID, list[UUID]] = defaultdict(list)
     for link in direct_outage_links:
@@ -350,7 +333,9 @@ def _collect_ticket_export_details(db: Session, tickets: list[Ticket]) -> dict[U
             "subscriber_service_address": str(subscriber.service_address or "") if subscriber else "",
             "merged_into_ticket": _ticket_ref(merged_into_ticket),
             "merged_into_ticket_title": str(merged_into_ticket.title or "") if merged_into_ticket else "",
-            "merged_ticket_refs": "; ".join(_ticket_ref(merge.source_ticket) for merge in merged_sources_for_ticket if merge.source_ticket),
+            "merged_ticket_refs": "; ".join(
+                _ticket_ref(merge.source_ticket) for merge in merged_sources_for_ticket if merge.source_ticket
+            ),
             "merged_ticket_titles": "; ".join(
                 str(merge.source_ticket.title or "") for merge in merged_sources_for_ticket if merge.source_ticket
             ),
@@ -358,9 +343,13 @@ def _collect_ticket_export_details(db: Session, tickets: list[Ticket]) -> dict[U
             "primary_outage_ticket": _ticket_ref(primary_ticket),
             "primary_outage_ticket_title": str(primary_ticket.title or "") if primary_ticket else "",
             "linked_outage_ticket_refs": "; ".join(_ticket_ref(related_ticket) for related_ticket in linked_tickets),
-            "linked_outage_ticket_titles": "; ".join(str(related_ticket.title or "") for related_ticket in linked_tickets),
+            "linked_outage_ticket_titles": "; ".join(
+                str(related_ticket.title or "") for related_ticket in linked_tickets
+            ),
             "sibling_outage_ticket_refs": "; ".join(_ticket_ref(related_ticket) for related_ticket in sibling_tickets),
-            "sibling_outage_ticket_titles": "; ".join(str(related_ticket.title or "") for related_ticket in sibling_tickets),
+            "sibling_outage_ticket_titles": "; ".join(
+                str(related_ticket.title or "") for related_ticket in sibling_tickets
+            ),
             "base_station_details": str(
                 ticket.metadata_.get("base_station_details")
                 if isinstance(ticket.metadata_, dict) and ticket.metadata_.get("base_station_details")
@@ -377,7 +366,8 @@ def _collect_ticket_export_details(db: Session, tickets: list[Ticket]) -> dict[U
                 str(len(material_request.items or [])) for material_request in ticket_material_requests
             ),
             "material_request_statuses": "; ".join(
-                str(material_request.status.value if material_request.status else "") for material_request in ticket_material_requests
+                str(material_request.status.value if material_request.status else "")
+                for material_request in ticket_material_requests
             ),
         }
 
@@ -450,12 +440,32 @@ def _ticket_export_column_map() -> dict[str, tuple[str, Callable[[Ticket], str]]
         "customer_email": ("Customer Email", _customer_email),
         "customer_phone": ("Customer Phone", _customer_phone),
         "subscriber": ("Subscriber", _subscriber_name),
-        "subscriber_number": ("Subscriber Number", lambda ticket: str(ticket.subscriber.subscriber_number or "") if ticket.subscriber else ""),
-        "subscriber_account_number": ("Account Number", lambda ticket: str(ticket.subscriber.account_number or "") if ticket.subscriber else ""),
-        "subscriber_status": ("Subscriber Status", lambda ticket: str(ticket.subscriber.status.value if ticket.subscriber and ticket.subscriber.status else "")),
-        "subscriber_service_plan": ("Service Plan", lambda ticket: str(ticket.subscriber.service_plan or "") if ticket.subscriber else ""),
-        "subscriber_service_speed": ("Service Speed", lambda ticket: str(ticket.subscriber.service_speed or "") if ticket.subscriber else ""),
-        "subscriber_service_address": ("Service Address", lambda ticket: str(ticket.subscriber.service_address or "") if ticket.subscriber else ""),
+        "subscriber_number": (
+            "Subscriber Number",
+            lambda ticket: str(ticket.subscriber.subscriber_number or "") if ticket.subscriber else "",
+        ),
+        "subscriber_account_number": (
+            "Account Number",
+            lambda ticket: str(ticket.subscriber.account_number or "") if ticket.subscriber else "",
+        ),
+        "subscriber_status": (
+            "Subscriber Status",
+            lambda ticket: str(
+                ticket.subscriber.status.value if ticket.subscriber and ticket.subscriber.status else ""
+            ),
+        ),
+        "subscriber_service_plan": (
+            "Service Plan",
+            lambda ticket: str(ticket.subscriber.service_plan or "") if ticket.subscriber else "",
+        ),
+        "subscriber_service_speed": (
+            "Service Speed",
+            lambda ticket: str(ticket.subscriber.service_speed or "") if ticket.subscriber else "",
+        ),
+        "subscriber_service_address": (
+            "Service Address",
+            lambda ticket: str(ticket.subscriber.service_address or "") if ticket.subscriber else "",
+        ),
         "region": ("Region", lambda ticket: str(ticket.region or "")),
         "assigned": ("Assigned", _assigned_value),
         "project_manager": ("Project Manager", lambda ticket: _person_name(ticket.ticket_manager)),
@@ -463,17 +473,32 @@ def _ticket_export_column_map() -> dict[str, tuple[str, Callable[[Ticket], str]]
         "channel": ("Channel", _channel_value),
         "due_at": ("Due Date", lambda ticket: _fmt_dt(ticket.due_at)),
         "created": ("Opened", lambda ticket: _fmt_dt(ticket.created_at)),
-        "customer_organization": ("Customer Organization", lambda ticket: str(ticket.customer.organization.name if ticket.customer and ticket.customer.organization else "")),
+        "customer_organization": (
+            "Customer Organization",
+            lambda ticket: str(
+                ticket.customer.organization.name if ticket.customer and ticket.customer.organization else ""
+            ),
+        ),
         "base_station_details": (
             "Base Station Details",
-            lambda ticket: str(ticket.metadata_.get("base_station_details") if isinstance(ticket.metadata_, dict) and ticket.metadata_.get("base_station_details") else ""),
+            lambda ticket: str(
+                ticket.metadata_.get("base_station_details")
+                if isinstance(ticket.metadata_, dict) and ticket.metadata_.get("base_station_details")
+                else ""
+            ),
         ),
         "account_name": ("Account", lambda ticket: str(getattr(getattr(ticket, "account", None), "name", "") or "")),
         "created_by": ("Created By", lambda ticket: _person_name(ticket.created_by)),
-        "assigned_group": ("Assigned Group", lambda ticket: str(ticket.service_team.name if ticket.service_team else "")),
+        "assigned_group": (
+            "Assigned Group",
+            lambda ticket: str(ticket.service_team.name if ticket.service_team else ""),
+        ),
         "closed": ("Closed", lambda ticket: _fmt_dt(ticket.closed_at)),
         "merged_into_ticket": ("Merged Into Ticket", lambda ticket: _ticket_ref(ticket.merged_into_ticket)),
-        "merged_into_ticket_title": ("Merged Into Ticket Title", lambda ticket: str(ticket.merged_into_ticket.title or "") if ticket.merged_into_ticket else ""),
+        "merged_into_ticket_title": (
+            "Merged Into Ticket Title",
+            lambda ticket: str(ticket.merged_into_ticket.title or "") if ticket.merged_into_ticket else "",
+        ),
         "merged_ticket_refs": ("Merged Ticket IDs", lambda _ticket: ""),
         "merged_ticket_titles": ("Merged Ticket Titles", lambda _ticket: ""),
         "merge_reasons": ("Merge Reasons", lambda _ticket: ""),

@@ -109,12 +109,8 @@ def test_send_facebook_message_uploads_image_bytes_and_sends_attachment_id(db_se
     assert mock_instance.post.await_count == 2
 
     upload_call_kwargs = mock_instance.post.await_args_list[0].kwargs
-    assert upload_call_kwargs["data"] == {
-        "message": '{"attachment":{"type":"image","payload":{"is_reusable":true}}}'
-    }
-    assert upload_call_kwargs["files"] == {
-        "filedata": ("test.jpg", b"image-bytes", "image/jpeg")
-    }
+    assert upload_call_kwargs["data"] == {"message": '{"attachment":{"type":"image","payload":{"is_reusable":true}}}'}
+    assert upload_call_kwargs["files"] == {"filedata": ("test.jpg", b"image-bytes", "image/jpeg")}
 
     send_call_kwargs = mock_instance.post.await_args_list[1].kwargs
     assert send_call_kwargs["json"]["message"] == {
