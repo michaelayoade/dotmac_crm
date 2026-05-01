@@ -315,7 +315,9 @@ def queue_for_resolved_conversation(
 
 
 def _build_csat_body(channel_type: ChannelType, survey_url: str, *, conversation: Conversation | None = None) -> str:
-    resolution = conversation.metadata_.get("resolution") if conversation and isinstance(conversation.metadata_, dict) else None
+    resolution = (
+        conversation.metadata_.get("resolution") if conversation and isinstance(conversation.metadata_, dict) else None
+    )
     if isinstance(resolution, dict) and resolution.get("mode") == "ticket_handoff":
         ticket_reference = str(
             resolution.get("ticket_reference") or resolution.get("ticket_id") or "the linked support ticket"

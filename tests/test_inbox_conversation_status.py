@@ -195,7 +195,9 @@ def test_update_conversation_status_ticket_handoff_stores_metadata_and_audit_con
         patch("app.services.crm.inbox.conversation_status._resolve_latest_channel_type") as mock_resolve_channel,
         patch("app.services.crm.inbox.conversation_status._select_resolved_closing_variant") as mock_select_variant,
         patch("app.services.crm.inbox.conversation_status._claim_resolved_closing_message_send") as mock_claim_send,
-        patch("app.services.crm.inbox.conversation_status._send_resolved_closing_message") as mock_send_resolved_closing,
+        patch(
+            "app.services.crm.inbox.conversation_status._send_resolved_closing_message"
+        ) as mock_send_resolved_closing,
         patch("app.services.crm.inbox.conversation_status._persist_resolved_closing_message_metadata"),
         patch("app.services.crm.inbox.summaries.recompute_conversation_summary"),
     ):

@@ -45,6 +45,16 @@ from app.services.time_preferences import resolve_company_time_prefs
 logger = logging.getLogger(__name__)
 
 
+def _load_retention_billing_risk_helpers():
+    from app.web.admin.billing_risk import (
+        RETENTION_PIPELINE_STEPS,
+        _retention_engagement_payload,
+        _retention_rep_options,
+    )
+
+    return RETENTION_PIPELINE_STEPS, _retention_engagement_payload, _retention_rep_options
+
+
 def _person_label(person: Person | None) -> str | None:
     if not person:
         return None
@@ -156,9 +166,7 @@ def _conversation_retention_context(
         retention_customer_id = str(contact.metadata_.get("splynx_id") or "").strip()
 
     is_billing_risk_retention = (
-        campaign_kind == "outreach"
-        and source_report == "billing_risk"
-        and bool(retention_customer_id)
+        campaign_kind == "outreach" and source_report == "billing_risk" and bool(retention_customer_id)
     )
     if not is_billing_risk_retention:
         return None
@@ -199,7 +207,9 @@ def _conversation_retention_context(
     elif current_user:
         rep_person_id = str(current_user.get("person_id") or current_user.get("id") or "").strip()
 
-    from app.web.admin.billing_risk import RETENTION_PIPELINE_STEPS, _retention_engagement_payload, _retention_rep_options
+    retention_pipeline_steps, retention_engagement_payload, retention_rep_options = (
+        _load_retention_billing_risk_helpers()
+    )
 
     button_label = "Retention outcome"
     if latest_engagement:
@@ -219,10 +229,10 @@ def _conversation_retention_context(
         ),
         "has_inbound_reply": has_inbound_reply,
         "inbound_reply_count": int(inbound_reply_count),
-        "latest_engagement": _retention_engagement_payload(latest_engagement) if latest_engagement else None,
-        "engagement_history": [_retention_engagement_payload(row) for row in recent_engagements],
-        "pipeline_steps": list(RETENTION_PIPELINE_STEPS),
-        "rep_options": _retention_rep_options(db),
+        "latest_engagement": retention_engagement_payload(latest_engagement) if latest_engagement else None,
+        "engagement_history": [retention_engagement_payload(row) for row in recent_engagements],
+        "pipeline_steps": list(retention_pipeline_steps),
+        "rep_options": retention_rep_options(db),
         "default_rep_person_id": rep_person_id,
         "button_label": button_label,
         "button_emphasis": bool(has_inbound_reply and not latest_engagement),
