@@ -1,6 +1,6 @@
-import asyncio
 from unittest.mock import Mock, patch
 
+import pytest
 from starlette.requests import Request
 
 from app.services.crm.inbox.resolve_gate import GateCheckResult
@@ -18,7 +18,8 @@ def _hx_request(*, query_string: str = "") -> Request:
     return Request(scope)
 
 
-def test_resolve_gate_shows_ticket_handoff_option_when_ticket_exists():
+@pytest.mark.asyncio
+async def test_resolve_gate_shows_ticket_handoff_option_when_ticket_exists():
     request = _hx_request(query_string="skip_tag_check=1")
     db = Mock()
 
@@ -31,13 +32,11 @@ def test_resolve_gate_shows_ticket_handoff_option_when_ticket_exists():
             return_value={"reference": "TCK-1001", "href": "/admin/support/tickets/TCK-1001"},
         ),
     ):
-        response = asyncio.run(
-            update_conversation_status(
-                request,
-                conversation_id="conv-1",
-                new_status="resolved",
-                db=db,
-            )
+        response = await update_conversation_status(
+            request,
+            conversation_id="conv-1",
+            new_status="resolved",
+            db=db,
         )
 
     body = response.body.decode()
@@ -45,7 +44,8 @@ def test_resolve_gate_shows_ticket_handoff_option_when_ticket_exists():
     assert "TCK-1001" in body
 
 
-def test_resolve_gate_hides_ticket_handoff_option_without_linked_ticket():
+@pytest.mark.asyncio
+async def test_resolve_gate_hides_ticket_handoff_option_without_linked_ticket():
     request = _hx_request(query_string="skip_tag_check=1")
     db = Mock()
 
@@ -58,13 +58,11 @@ def test_resolve_gate_hides_ticket_handoff_option_without_linked_ticket():
         ),
         patch("app.web.admin.crm_inbox_status._get_conversation_ticket_context", return_value=None),
     ):
-        response = asyncio.run(
-            update_conversation_status(
-                request,
-                conversation_id="conv-1",
-                new_status="resolved",
-                db=db,
-            )
+        response = await update_conversation_status(
+            request,
+            conversation_id="conv-1",
+            new_status="resolved",
+            db=db,
         )
 
     body = response.body.decode()
