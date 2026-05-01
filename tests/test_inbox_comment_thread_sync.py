@@ -1,9 +1,10 @@
 """Tests for social comment thread refresh behavior in the inbox."""
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from starlette.requests import Request
 
 from app.services.crm.inbox.comments_context import CommentsContext
@@ -36,8 +37,13 @@ async def _build_page_context(*, channel=None, comment_id=None):
     )
 
 
-@pytest.mark.asyncio
-async def test_inbox_comments_thread_route_fetches_latest_comment_data():
+def _run_async(coro):
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(asyncio.run, coro)
+        return future.result(timeout=10)
+
+
+def test_inbox_comments_thread_route_fetches_latest_comment_data():
     mock_context = CommentsContext(
         grouped_comments=[],
         selected_comment=None,
@@ -58,20 +64,21 @@ async def test_inbox_comments_thread_route_fetches_latest_comment_data():
             return_value=SimpleNamespace(),
         ),
     ):
-        await inbox_comments_thread(
-            request=_request(),
-            db=None,
-            search="alice",
-            comment_id="comment-1",
-            target_id="ig:123",
+        _run_async(
+            inbox_comments_thread(
+                request=_request(),
+                db=None,
+                search="alice",
+                comment_id="comment-1",
+                target_id="ig:123",
+            )
         )
 
     assert mock_load.await_count == 1
     assert mock_load.await_args.kwargs["fetch"] is True
 
 
-@pytest.mark.asyncio
-async def test_build_inbox_page_context_fetches_comments_in_comments_mode():
+def test_build_inbox_page_context_fetches_comments_in_comments_mode():
     mock_context = CommentsContext(
         grouped_comments=[],
         selected_comment=None,
@@ -124,14 +131,13 @@ async def test_build_inbox_page_context_fetches_comments_in_comments_mode():
             return_value=[],
         ),
     ):
-        await _build_page_context(channel="comments", comment_id="comment-1")
+        _run_async(_build_page_context(channel="comments", comment_id="comment-1"))
 
     assert mock_load.await_count == 1
     assert mock_load.await_args.kwargs["fetch"] is True
 
 
-@pytest.mark.asyncio
-async def test_build_inbox_page_context_fetches_selected_comment_thread_outside_comments_mode():
+def test_build_inbox_page_context_fetches_selected_comment_thread_outside_comments_mode():
     mock_listing = SimpleNamespace(
         conversations_raw=[],
         comment_items=[],
@@ -199,7 +205,7 @@ async def test_build_inbox_page_context_fetches_selected_comment_thread_outside_
             return_value=[],
         ),
     ):
-        await _build_page_context(comment_id="comment-1")
+        _run_async(_build_page_context(comment_id="comment-1"))
 
     assert mock_load.await_count == 1
     assert mock_load.await_args.kwargs["fetch"] is True
