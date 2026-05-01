@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from starlette.requests import Request
 
 from app.services.crm.inbox.comments_context import CommentsContext
@@ -35,6 +36,7 @@ async def _build_page_context(*, channel=None, comment_id=None):
     )
 
 
+@pytest.mark.asyncio
 async def test_inbox_comments_thread_route_fetches_latest_comment_data():
     mock_context = CommentsContext(
         grouped_comments=[],
@@ -68,6 +70,7 @@ async def test_inbox_comments_thread_route_fetches_latest_comment_data():
     assert mock_load.await_args.kwargs["fetch"] is True
 
 
+@pytest.mark.asyncio
 async def test_build_inbox_page_context_fetches_comments_in_comments_mode():
     mock_context = CommentsContext(
         grouped_comments=[],
@@ -127,6 +130,7 @@ async def test_build_inbox_page_context_fetches_comments_in_comments_mode():
     assert mock_load.await_args.kwargs["fetch"] is True
 
 
+@pytest.mark.asyncio
 async def test_build_inbox_page_context_fetches_selected_comment_thread_outside_comments_mode():
     mock_listing = SimpleNamespace(
         conversations_raw=[],
