@@ -657,17 +657,15 @@ class Campaigns(ListResponseMixin):
             .limit(10)
             .all()
         )
-        snapshot_count = int(_campaign_metadata(campaign).get("audience_snapshot_count") or campaign.total_recipients or 0)
+        snapshot_count = int(
+            _campaign_metadata(campaign).get("audience_snapshot_count") or campaign.total_recipients or 0
+        )
         return {
             "total": snapshot_count,
             "sample": [
                 {
                     "id": str(recipient.person_id),
-                    "name": (
-                        recipient.person.display_name
-                        if recipient.person
-                        else None
-                    )
+                    "name": (recipient.person.display_name if recipient.person else None)
                     or (
                         f"{recipient.person.first_name or ''} {recipient.person.last_name or ''}".strip()
                         if recipient.person
@@ -844,7 +842,9 @@ def reconcile_outreach_tracking(db: Session, *, campaign_id: str) -> None:
 
     campaign.total_recipients = len(recipients)
     campaign.sent_count = sum(
-        1 for recipient in recipients if recipient.status in {CampaignRecipientStatus.sent, CampaignRecipientStatus.delivered}
+        1
+        for recipient in recipients
+        if recipient.status in {CampaignRecipientStatus.sent, CampaignRecipientStatus.delivered}
     )
     campaign.delivered_count = sum(
         1 for recipient in recipients if recipient.status == CampaignRecipientStatus.delivered

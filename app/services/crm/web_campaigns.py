@@ -119,6 +119,9 @@ def _is_promised_outcome(value: str | None) -> bool:
 
 
 def outreach_channel_target_options(db: Session) -> dict[str, list[dict[str, str | bool]]]:
+    if not callable(getattr(db, "query", None)):
+        return {"email": [], "whatsapp": []}
+
     def _serialize_target(target: dict) -> dict[str, str | bool]:
         return {
             "target_id": str(target.get("target_id") or "").strip(),
@@ -441,7 +444,9 @@ def campaign_recipients_table_data(
         snapshot = _campaign_metadata(campaign).get("audience_snapshot")
         snapshot_rows = snapshot if isinstance(snapshot, list) else []
         retention_customer_by_person_id = {
-            str(row.get("person_id") or ""): str(row.get("retention_customer_id") or row.get("subscriber_id") or "").strip()
+            str(row.get("person_id") or ""): str(
+                row.get("retention_customer_id") or row.get("subscriber_id") or ""
+            ).strip()
             for row in snapshot_rows
             if isinstance(row, dict)
         }
@@ -477,7 +482,9 @@ def campaign_recipients_table_data(
 
 def campaign_preview_audience_data(db: Session, *, campaign_id: str) -> dict:
     campaign = campaigns_service.get(db, campaign_id)
-    is_manual_snapshot = str(_campaign_metadata(campaign).get("audience_mode") or "").strip().lower() == "manual_snapshot"
+    is_manual_snapshot = (
+        str(_campaign_metadata(campaign).get("audience_mode") or "").strip().lower() == "manual_snapshot"
+    )
     if is_manual_snapshot:
         audience = Campaigns.preview_seeded_audience(db, campaign_id=campaign_id)
     else:
@@ -848,11 +855,19 @@ def summarize_billing_risk_follow_up_candidates(
         engagement = latest_engagements.get(customer_id)
         follow_up_date = engagement.follow_up_date if engagement else None
         outcome = engagement.outcome if engagement else ""
-        if _is_do_not_reach_out_outcome(outcome) or _is_paid_or_resolved_outcome(outcome) or (follow_up_date and follow_up_date >= today and (
-            _is_promised_outcome(outcome)
-            or "follow-up" in _normalize_retention_outcome(outcome)
-            or "follow up" in _normalize_retention_outcome(outcome)
-        )):
+        if (
+            _is_do_not_reach_out_outcome(outcome)
+            or _is_paid_or_resolved_outcome(outcome)
+            or (
+                follow_up_date
+                and follow_up_date >= today
+                and (
+                    _is_promised_outcome(outcome)
+                    or "follow-up" in _normalize_retention_outcome(outcome)
+                    or "follow up" in _normalize_retention_outcome(outcome)
+                )
+            )
+        ):
             suppressed += 1
         else:
             eligible += 1
@@ -891,7 +906,9 @@ def outreach_inbox_metrics(
         "outbound_messages": len(outbound_messages),
         "delivered_messages": delivered_messages,
         "read_messages": read_messages,
-        "replied_conversations": len({message.conversation_id for message in inbound_replies if message.conversation_id}),
+        "replied_conversations": len(
+            {message.conversation_id for message in inbound_replies if message.conversation_id}
+        ),
         "inbound_replies": len(inbound_replies),
     }
 
