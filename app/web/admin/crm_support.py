@@ -1,6 +1,7 @@
 """Shared support helpers for CRM admin routes."""
 
 import base64
+import importlib
 import mimetypes
 from urllib.parse import urljoin, urlparse
 
@@ -53,7 +54,7 @@ billing_service = _StubBillingService()
 
 def _ensure_pydyf_compat() -> None:
     try:
-        import pydyf  # type: ignore[import-not-found]
+        pydyf = importlib.import_module("pydyf")
     except Exception:
         return
     pydyf_module = pydyf

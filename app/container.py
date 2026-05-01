@@ -27,9 +27,12 @@ Usage:
 
 from __future__ import annotations
 
+from importlib import import_module
 from typing import TYPE_CHECKING
 
-from dependency_injector import containers, providers  # type: ignore[import-not-found]
+containers = import_module("dependency_injector.containers")
+providers = import_module("dependency_injector.providers")
+WiringConfiguration = containers.WiringConfiguration
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -83,7 +86,7 @@ def _get_project_tasks_service():
     return project_tasks
 
 
-class Container(containers.DeclarativeContainer):
+class Container(containers.DeclarativeContainer):  # type: ignore[name-defined]
     """Application dependency injection container.
 
     Provides:
@@ -97,7 +100,7 @@ class Container(containers.DeclarativeContainer):
     """
 
     # Wiring configuration - modules that can use @inject decorator
-    wiring_config = containers.WiringConfiguration(
+    wiring_config = WiringConfiguration(
         modules=[
             "app.api.tickets",
             "app.api.workforce",

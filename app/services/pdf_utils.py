@@ -6,6 +6,7 @@ so we patch the minimal compatibility surface before generating PDFs.
 
 from __future__ import annotations
 
+import importlib
 from typing import Any
 
 
@@ -16,7 +17,7 @@ def ensure_pydyf_compat() -> None:
     """
 
     try:
-        import pydyf  # type: ignore[import-not-found]
+        pydyf = importlib.import_module("pydyf")
     except Exception:
         return
     pydyf_module: Any = pydyf
