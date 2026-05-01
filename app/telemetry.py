@@ -1,11 +1,21 @@
 import logging
 import os
+from importlib import import_module
+from typing import Any
 
 from opentelemetry import trace
 
 logger = logging.getLogger(__name__)
 
 _TRACER_NAME = "dotmac_crm"
+
+
+def _optional_attr(module_name: str, attr_name: str) -> Any | None:
+    try:
+        module = import_module(module_name)
+    except Exception:
+        return None
+    return getattr(module, attr_name, None)
 
 
 def get_tracer(name: str | None = None) -> trace.Tracer:
@@ -53,29 +63,44 @@ def setup_otel(app) -> None:
 
     # --- FastAPI ---
     try:
-        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # type: ignore[import-not-found]
+        fastapi_instrumentor = _optional_attr(
+            "opentelemetry.instrumentation.fastapi",
+            "FastAPIInstrumentor",
+        )
+        if fastapi_instrumentor is None:
+            raise ImportError("FastAPI instrumentor unavailable")
 
-        FastAPIInstrumentor.instrument_app(app)
+        fastapi_instrumentor.instrument_app(app)
         logger.info("OTel: FastAPI instrumented")
     except Exception:
         logger.warning("OTel: FastAPI instrumentation unavailable", exc_info=True)
 
     # --- SQLAlchemy (uses cached engine singleton) ---
     try:
-        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor  # type: ignore[import-not-found]
+        sqlalchemy_instrumentor = _optional_attr(
+            "opentelemetry.instrumentation.sqlalchemy",
+            "SQLAlchemyInstrumentor",
+        )
+        if sqlalchemy_instrumentor is None:
+            raise ImportError("SQLAlchemy instrumentor unavailable")
 
         from app.db import get_engine
 
-        SQLAlchemyInstrumentor().instrument(engine=get_engine())
+        sqlalchemy_instrumentor().instrument(engine=get_engine())
         logger.info("OTel: SQLAlchemy instrumented")
     except Exception:
         logger.warning("OTel: SQLAlchemy instrumentation unavailable", exc_info=True)
 
     # --- Celery ---
     try:
-        from opentelemetry.instrumentation.celery import CeleryInstrumentor  # type: ignore[import-not-found]
+        celery_instrumentor = _optional_attr(
+            "opentelemetry.instrumentation.celery",
+            "CeleryInstrumentor",
+        )
+        if celery_instrumentor is None:
+            raise ImportError("Celery instrumentor unavailable")
 
-        CeleryInstrumentor().instrument()
+        celery_instrumentor().instrument()
         logger.info("OTel: Celery instrumented")
     except Exception:
         logger.warning("OTel: Celery instrumentation unavailable", exc_info=True)
