@@ -99,18 +99,51 @@
         </section>
 
         <aside class="space-y-4">
-            <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
-                <label for="retention-rep" class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Rep</label>
-                <select id="retention-rep" name="rep_id" class="mt-3 block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
-                    <option value="">Select rep</option>
-                    {% for rep in rep_options %}
-                    <option value="{{ rep.value }}">{{ rep.label }}{% if rep.team %} - {{ rep.team }}{% endif %}</option>
-                    {% endfor %}
-                </select>
-                {% if not rep_options %}
-                <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">No active Helpdesk or Enterprise Sales reps found.</p>
-                {% endif %}
+            {% if saved %}
+            <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-200">
+                Retention update saved.
             </div>
+            {% endif %}
+            <form method="post" action="/admin/customer-retention/{{ customer_id }}/engagements" class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
+                <input type="hidden" name="customer_name" value="{{ customer.name or '' }}">
+                <input type="hidden" name="due_soon_days" value="{{ request.query_params.get('due_soon_days', 7) }}">
+                <div>
+                    <label for="retention-outcome" class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Outcome</label>
+                    <select id="retention-outcome" name="outcome" class="mt-3 block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                        {% for step in pipeline_steps %}
+                        <option value="{{ step }}" {% if latest_engagement and latest_engagement.outcome == step %}selected{% endif %}>{{ step }}</option>
+                        {% endfor %}
+                        {% for extra_outcome in ['Paid', 'Do Not Reach Out', 'No Response', 'Unreachable', 'Renewing', 'Churning'] %}
+                        <option value="{{ extra_outcome }}" {% if latest_engagement and latest_engagement.outcome == extra_outcome %}selected{% endif %}>{{ extra_outcome }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mt-4">
+                    <label for="retention-rep" class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Rep</label>
+                    <select id="retention-rep" name="rep_person_id" class="mt-3 block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                        <option value="">Select rep</option>
+                        {% for rep in rep_options %}
+                        <option value="{{ rep.person_id or rep.value }}" {% if latest_engagement and latest_engagement.repPersonId == (rep.person_id or rep.value) %}selected{% endif %}>{{ rep.label }}{% if rep.team %} - {{ rep.team }}{% endif %}</option>
+                        {% endfor %}
+                    </select>
+                    {% if not rep_options %}
+                    <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">No active Helpdesk or Enterprise Sales reps found.</p>
+                    {% endif %}
+                </div>
+                <div class="mt-4">
+                    <label for="retention-follow-up" class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Follow-up Date</label>
+                    <input id="retention-follow-up" type="date" name="follow_up" value="{{ latest_engagement.followUp if latest_engagement else '' }}" class="mt-3 block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                </div>
+                <div class="mt-4">
+                    <label for="retention-note" class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Note</label>
+                    <textarea id="retention-note" name="note" rows="4" class="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">{{ latest_engagement.note if latest_engagement else '' }}</textarea>
+                </div>
+                <div class="mt-4 flex justify-end">
+                    <button type="submit" class="inline-flex h-10 items-center justify-center rounded-xl bg-rose-600 px-4 text-sm font-semibold text-white hover:bg-rose-700">
+                        Save Retention Update
+                    </button>
+                </div>
+            </form>
             <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
                 <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Pipeline</h2>
                 <ol class="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
