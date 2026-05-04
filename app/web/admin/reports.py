@@ -8,6 +8,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 from urllib.parse import quote, urlencode
 from uuid import UUID
+from xml.sax.saxutils import escape
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import APIRouter, Depends, Form, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -16,9 +18,11 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.csrf import get_csrf_token
 from app.db import get_db
+from app.models.crm.conversation import Conversation
 from app.models.dispatch import TechnicianProfile
-from app.models.person import Person
+from app.models.person import Person, PersonChannel
 from app.models.subscriber import Subscriber, SubscriberStatus
+from app.models.tickets import Ticket, TicketComment
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services import operations_sla_reports as operations_sla_reports_service
 from app.services.auth_dependencies import require_any_permission
@@ -33,6 +37,38 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
 templates = Jinja2Templates(directory="templates")
+
+_NCC_DEFAULT_START_DATE = "2026-04-28"
+_NCC_DEFAULT_END_DATE = "2026-05-04"
+_NCC_EXPORT_FILENAME = "NCC REPORTS (DOTMAC).xlsx"
+_NCC_COLUMNS = [
+    "MSISDN",
+    "First Name",
+    "Last Name",
+    "Email",
+    "Age",
+    "Gender",
+    "created date time",
+    "Subject",
+    "Category",
+    "category code (auto)",
+    "sub category code",
+    "Description (auto)",
+    "Ticket ID",
+    "Complaint type",
+    "Status",
+    "Resolved date",
+    "Resolution Note",
+    "User Note",
+    "user notes datetime",
+    "Language",
+    "Ticket source",
+    "alt phone number",
+    "created by",
+    "State",
+    "LGA",
+    "Town",
+]
 
 _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS = [
     {"value": "all", "label": "All ticket states"},
@@ -172,6 +208,273 @@ def _csv_response(data: list[dict], filename: str) -> StreamingResponse:
     )
 
 
+def _excel_column_letter(index: int) -> str:
+    result = ""
+    current = index
+    while current > 0:
+        current, remainder = divmod(current - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
+
+def _excel_serial_from_display_timestamp(value: str) -> float | None:
+    cleaned = " ".join((value or "").strip().split())
+    if not cleaned:
+        return None
+    try:
+        timestamp = datetime.strptime(cleaned, "%Y-%m-%d %H:%M:%S UTC").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+    excel_epoch = datetime(1899, 12, 30, tzinfo=UTC)
+    delta = timestamp - excel_epoch
+    return delta.days + (delta.seconds / 86400)
+
+
+def _xlsx_response(content: bytes, filename: str) -> Response:
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _ncc_export_column_widths(records: list[dict[str, str]], columns: list[str]) -> list[float]:
+    fixed_widths = {
+        "MSISDN": 18,
+        "First Name": 22,
+        "Last Name": 22,
+        "Email": 28,
+        "Age": 10,
+        "Gender": 12,
+        "created date time": 22,
+        "Subject": 28,
+        "Category": 24,
+        "category code (auto)": 20,
+        "sub category code": 22,
+        "Description (auto)": 42,
+        "Ticket ID": 16,
+        "Complaint type": 24,
+        "Status": 18,
+        "Resolved date": 22,
+        "Resolution Note": 36,
+        "User Note": 36,
+        "user notes datetime": 22,
+        "Language": 14,
+        "Ticket source": 18,
+        "alt phone number": 20,
+        "created by": 24,
+        "State": 14,
+        "LGA": 14,
+        "Town": 18,
+    }
+    widths: list[float] = []
+    for column in columns:
+        width = fixed_widths.get(column, max(len(column) + 2, 14))
+        if column not in fixed_widths:
+            max_value_length = max((len(str(row.get(column) or "")) for row in records), default=0)
+            width = min(max(max_value_length + 2, len(column) + 2, 14), 24)
+        widths.append(float(width))
+    return widths
+
+
+def _ncc_status_style_id(status_variant: str) -> int:
+    mapping = {
+        "success": 5,
+        "warning": 6,
+        "error": 7,
+        "info": 8,
+    }
+    return mapping.get(status_variant, 9)
+
+
+def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> bytes:
+    long_text_columns = {"Description (auto)", "Resolution Note", "User Note"}
+    date_columns = {"created date time", "Resolved date", "user notes datetime"}
+    widths = _ncc_export_column_widths(records, columns)
+    output = io.BytesIO()
+
+    def cell_xml(ref: str, value: str, style_id: int) -> str:
+        return (
+            f'<c r="{ref}" s="{style_id}" t="inlineStr"><is><t xml:space="preserve">'
+            f"{escape(str(value or ''))}</t></is></c>"
+        )
+
+    with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>""",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>""",
+        )
+        generated_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        archive.writestr(
+            "docProps/core.xml",
+            f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:title>{escape(_NCC_EXPORT_FILENAME)}</dc:title>
+  <dc:creator>Dotmac CRM</dc:creator>
+  <cp:lastModifiedBy>Dotmac CRM</cp:lastModifiedBy>
+  <dcterms:created xsi:type="dcterms:W3CDTF">{generated_at}</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">{generated_at}</dcterms:modified>
+</cp:coreProperties>""",
+        )
+        archive.writestr(
+            "docProps/app.xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>Dotmac CRM</Application>
+</Properties>""",
+        )
+        archive.writestr(
+            "xl/_rels/workbook.xml.rels",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>""",
+        )
+        archive.writestr(
+            "xl/workbook.xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="NCC Reports" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>""",
+        )
+        archive.writestr(
+            "xl/styles.xml",
+            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <numFmts count="1">
+    <numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm:ss"/>
+  </numFmts>
+  <fonts count="2">
+    <font>
+      <sz val="11"/>
+      <color theme="1"/>
+      <name val="Calibri"/>
+      <family val="2"/>
+    </font>
+    <font>
+      <b/>
+      <sz val="11"/>
+      <color rgb="FFFFFFFF"/>
+      <name val="Calibri"/>
+      <family val="2"/>
+    </font>
+  </fonts>
+  <fills count="7">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF16A34A"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFDCFCE7"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFEF3C7"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFEE2E2"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFDBEAFE"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border>
+      <left/><right/><top/><bottom/><diagonal/>
+    </border>
+    <border>
+      <left style="thin"><color rgb="FFD1D5DB"/></left>
+      <right style="thin"><color rgb="FFD1D5DB"/></right>
+      <top style="thin"><color rgb="FFD1D5DB"/></top>
+      <bottom style="thin"><color rgb="FFD1D5DB"/></bottom>
+      <diagonal/>
+    </border>
+  </borders>
+  <cellStyleXfs count="1">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+  </cellStyleXfs>
+  <cellXfs count="10">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="top"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="top" wrapText="1"/></xf>
+    <xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="5" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="6" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>
+  </cellXfs>
+  <cellStyles count="1">
+    <cellStyle name="Normal" xfId="0" builtinId="0"/>
+  </cellStyles>
+</styleSheet>""",
+        )
+
+        last_column_letter = _excel_column_letter(len(columns))
+        last_row_number = len(records) + 1
+        cols_xml = "".join(
+            f'<col min="{index}" max="{index}" width="{width}" customWidth="1"/>'
+            for index, width in enumerate(widths, start=1)
+        )
+        rows_xml: list[str] = []
+        header_cells = [
+            cell_xml(f"{_excel_column_letter(index)}1", column, 1)
+            for index, column in enumerate(columns, start=1)
+        ]
+        rows_xml.append(f'<row r="1" ht="24" customHeight="1">{"".join(header_cells)}</row>')
+        for row_number, row in enumerate(records, start=2):
+            cells: list[str] = []
+            for column_index, column in enumerate(columns, start=1):
+                value = " ".join(str(row.get(column) or "").strip().split())
+                if not value:
+                    continue
+                cell_ref = f"{_excel_column_letter(column_index)}{row_number}"
+                if column in date_columns:
+                    serial_value = _excel_serial_from_display_timestamp(value)
+                    if serial_value is not None:
+                        cells.append(f'<c r="{cell_ref}" s="4"><v>{serial_value}</v></c>')
+                        continue
+                if column == "Status":
+                    style_id = _ncc_status_style_id(str(row.get("_status_variant") or ""))
+                elif column in long_text_columns:
+                    style_id = 3
+                else:
+                    style_id = 2
+                cells.append(cell_xml(cell_ref, value, style_id))
+            rows_xml.append(f'<row r="{row_number}">{"".join(cells)}</row>')
+
+        archive.writestr(
+            "xl/worksheets/sheet1.xml",
+            f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <dimension ref="A1:{last_column_letter}{last_row_number}"/>
+  <sheetViews>
+    <sheetView workbookViewId="0">
+      <pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
+      <selection pane="bottomLeft" activeCell="A2" sqref="A2"/>
+    </sheetView>
+  </sheetViews>
+  <sheetFormatPr defaultRowHeight="18"/>
+  <cols>{cols_xml}</cols>
+  <sheetData>{''.join(rows_xml)}</sheetData>
+  <autoFilter ref="A1:{last_column_letter}{last_row_number}"/>
+</worksheet>""",
+        )
+    return output.getvalue()
+
+
 def _append_query_flag(url: str, key: str, value: str) -> str:
     separator = "&" if "?" in url else "?"
     return f"{url}{separator}{quote(key)}={quote(value)}"
@@ -225,6 +528,568 @@ def _resolve_lifecycle_date_range(
     return inception, now
 
 
+def _display_timestamp(value: datetime | None) -> str:
+    if value is None:
+        return ""
+    normalized = value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+    return normalized.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _display_enum(value: object | None) -> str:
+    if value is None:
+        return ""
+    raw = getattr(value, "value", value)
+    text = str(raw).strip()
+    if not text:
+        return ""
+    return text.replace("_", " ").title()
+
+
+def _person_name(person: Person | None) -> str:
+    if person is None:
+        return ""
+    full_name = " ".join(part for part in [person.first_name, person.last_name] if part).strip()
+    return full_name or (person.display_name or "")
+
+
+def _calculate_age(date_of_birth, reference_at: datetime | None) -> str:
+    if not date_of_birth:
+        return "N/A"
+    reference_date = (reference_at.astimezone(UTC).date() if reference_at and reference_at.tzinfo else reference_at.date()) if reference_at else datetime.now(UTC).date()
+    years = reference_date.year - date_of_birth.year
+    if (reference_date.month, reference_date.day) < (date_of_birth.month, date_of_birth.day):
+        years -= 1
+    return str(max(years, 0))
+
+
+def _ticket_primary_person(ticket: Ticket) -> Person | None:
+    if ticket.customer is not None:
+        return ticket.customer
+    if ticket.subscriber is not None and ticket.subscriber.person is not None:
+        return ticket.subscriber.person
+    return None
+
+
+def _ticket_alt_phone(person: Person | None, channels: list[PersonChannel]) -> str:
+    if person is None:
+        return ""
+    normalized_primary = (person.phone or "").strip()
+    for channel in channels:
+        address = (channel.address or "").strip()
+        if not address or address == normalized_primary:
+            continue
+        return address
+    return ""
+
+
+def _split_name(value: str) -> tuple[str, str]:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return "", ""
+    parts = cleaned.split()
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], " ".join(parts[1:])
+
+
+def _title_case_name(value: str) -> str:
+    cleaned = " ".join((value or "").strip().split())
+    if not cleaned:
+        return ""
+    if "@" in cleaned:
+        return cleaned
+    return cleaned.title()
+
+
+def _clean_text(value: object) -> str:
+    return " ".join(str(value or "").strip().split())
+
+
+def _title_case_report_value(value: object) -> str:
+    cleaned = _clean_text(value)
+    if not cleaned or "@" in cleaned:
+        return cleaned.lower() if "@" in cleaned else cleaned
+    titled = cleaned.title()
+    replacements = {
+        "Ap/": "AP/",
+        "Ap ": "AP ",
+        "Sla": "SLA",
+        "Ncc": "NCC",
+        "Fct": "FCT",
+        "Lga": "LGA",
+        "Id": "ID",
+    }
+    for source, target in replacements.items():
+        titled = titled.replace(source, target)
+    return titled
+
+
+def _normalize_msisdn(value: str | None) -> str:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return ""
+    if cleaned.startswith("+"):
+        digits = "".join(char for char in cleaned[1:] if char.isdigit())
+        return f"+{digits}" if digits else ""
+    digits = "".join(char for char in cleaned if char.isdigit())
+    if not digits:
+        return ""
+    if digits.startswith("234") and len(digits) >= 13:
+        return f"+{digits}"
+    if digits.startswith("0"):
+        return digits
+    if len(digits) == 10:
+        return f"0{digits}"
+    if digits.startswith("234"):
+        return f"+{digits}"
+    return digits
+
+
+def _normalize_person_name_parts(first_name: str, last_name: str) -> tuple[str, str]:
+    honorifics = {
+        "mr",
+        "mr.",
+        "mrs",
+        "mrs.",
+        "miss",
+        "ms",
+        "ms.",
+        "dr",
+        "dr.",
+        "prof",
+        "prof.",
+        "chief",
+        "chief.",
+        "alhaji",
+        "alh.",
+        "pastor",
+        "pastor.",
+    }
+    normalized_first = (first_name or "").strip()
+    normalized_last = (last_name or "").strip()
+    if normalized_first.lower() not in honorifics or not normalized_last:
+        return normalized_first, normalized_last
+
+    last_parts = normalized_last.split()
+    normalized_first = f"{normalized_first} {last_parts[0]}".strip()
+    normalized_last = " ".join(last_parts[1:]).strip()
+    return normalized_first, normalized_last
+
+
+def _looks_like_business_name(value: str) -> bool:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return False
+    lowered = cleaned.lower()
+    business_markers = {
+        "ltd",
+        "limited",
+        "enterprise",
+        "enterprises",
+        "services",
+        "service",
+        "global",
+        "company",
+        "ventures",
+        "ventues",
+        "nigeria",
+        "school",
+        "bank",
+        "hotel",
+        "clinic",
+        "hospital",
+        "church",
+        "mosque",
+        "foundation",
+        "group",
+        "logistics",
+        "network",
+        "networks",
+        "technologies",
+        "technology",
+        "tech",
+        "interior",
+        "concept",
+        "plaza",
+        "mart",
+        "stores",
+        "apartments",
+        "estate",
+        "hub",
+        "resort",
+        "resorts",
+        "suite",
+        "suites",
+        "integrated",
+        "royal",
+        "events",
+    }
+    words = {
+        token
+        for token in "".join(char if char.isalnum() or char.isspace() else " " for char in lowered).split()
+        if token
+    }
+    return any(marker in words for marker in business_markers)
+
+
+def _label_to_name_parts(value: str, *, treat_as_business: bool = False) -> tuple[str, str]:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return "", ""
+    if treat_as_business or _looks_like_business_name(cleaned):
+        return cleaned, ""
+    return _split_name(cleaned)
+
+
+def _ticket_name_parts(ticket: Ticket, person: Person | None) -> tuple[str, str]:
+    first_name = (person.first_name or "").strip() if person else ""
+    last_name = (person.last_name or "").strip() if person else ""
+    if first_name or last_name:
+        combined_name = " ".join(part for part in [first_name, last_name] if part).strip()
+        if _looks_like_business_name(combined_name):
+            return _title_case_name(combined_name), ""
+        first_name, last_name = _normalize_person_name_parts(first_name, last_name)
+        return _title_case_name(first_name), _title_case_name(last_name)
+
+    fallback_values: list[str] = []
+    if person and person.display_name:
+        fallback_values.append(person.display_name)
+    if person and person.email:
+        fallback_values.append(person.email)
+    if ticket.subscriber and ticket.subscriber.person and ticket.subscriber.person.display_name:
+        fallback_values.append(ticket.subscriber.person.display_name)
+    if ticket.subscriber and ticket.subscriber.person and ticket.subscriber.person.email:
+        fallback_values.append(ticket.subscriber.person.email)
+    if ticket.subscriber and ticket.subscriber.display_name:
+        fallback_values.append(ticket.subscriber.display_name)
+    if ticket.subscriber and ticket.subscriber.organization and ticket.subscriber.organization.name:
+        fallback_values.append(ticket.subscriber.organization.name)
+    if ticket.subscriber and ticket.subscriber.subscriber_number:
+        fallback_values.append(ticket.subscriber.subscriber_number)
+
+    for fallback in fallback_values:
+        first_name, last_name = _label_to_name_parts(fallback)
+        if first_name or last_name:
+            return _title_case_name(first_name), _title_case_name(last_name)
+    return "", ""
+
+
+def _ncc_status_variant(ticket: Ticket) -> str:
+    status_value = getattr(ticket.status, "value", ticket.status)
+    normalized = str(status_value or "").strip().lower()
+    if normalized in {"closed"}:
+        return "success"
+    if normalized in {"canceled"}:
+        return "error"
+    if normalized in {"pending", "waiting_on_customer", "lastmile_rerun", "site_under_construction", "on_hold"}:
+        return "warning"
+    if normalized in {"merged"}:
+        return "inactive"
+    return "info"
+
+
+def _normalized_ticket_type_code(ticket_type: str | None) -> str:
+    raw = (ticket_type or "").strip()
+    if not raw:
+        return ""
+    cleaned = "".join(char if char.isalnum() else "_" for char in raw.upper())
+    while "__" in cleaned:
+        cleaned = cleaned.replace("__", "_")
+    return cleaned.strip("_")
+
+
+def _subcategory_code(ticket_type: str | None) -> str:
+    normalized = _normalized_ticket_type_code(ticket_type)
+    mapping = {
+        "AP_AIR_FIBER_OUTAGE": "OUTAGE_AP_AIR_FIBER",
+        "AP_LAN_TROUBLESHOOTING": "TROUBLESHOOTING_AP_LAN",
+        "CABINET_DISCONNECTION": "DISCONNECTION_CABINET",
+        "CALL_DOWN_SUPPORT": "SUPPORT_CALL_DOWN",
+        "CORE_LINK_DISCONNECTION": "DISCONNECTION_CORE_LINK",
+        "CUSTOMER_LINK_DISCONNECTION": "DISCONNECTION_CUSTOMER_LINK",
+        "CUSTOMER_REALIGNMENT": "REALIGNMENT_CUSTOMER",
+        "LAN_TROUBLESHOOTING": "TROUBLESHOOTING_LAN",
+        "MULTIPLE_CABINET_DISCONNECTION": "DISCONNECTION_CABINET_MULTIPLE",
+        "MULTIPLE_CORE_LINK_DISCONNECTION": "DISCONNECTION_CORE_LINK_MULTIPLE",
+        "MULTIPLE_CUSTOMER_LINK_DISCONNECTION": "DISCONNECTION_CUSTOMER_LINK_MULTIPLE",
+        "POWER_OPTIMIZATION": "OPTIMIZATION_POWER",
+        "ROUTER_TROUBLESHOOTING": "TROUBLESHOOTING_ROUTER",
+        "SLOW_BROWSING_INTERMITTENT_CONNECTIVITY": "PERFORMANCE_SLOW_INTERMITTENT",
+    }
+    return mapping.get(normalized, normalized)
+
+
+def _normalize_ncc_region(value: str | None) -> str:
+    cleaned = (value or "").strip().lower()
+    if not cleaned:
+        return ""
+    normalized = "".join(char if char.isalnum() or char.isspace() else " " for char in cleaned)
+    return " ".join(normalized.split())
+
+
+def _map_ncc_location(ticket_region: str | None) -> tuple[str, str, str]:
+    town = (ticket_region or "").strip() or "-"
+    normalized = _normalize_ncc_region(ticket_region)
+    if not normalized:
+        return "-", town, "-"
+
+    area_council_aliases = {
+        "AMAC": {
+            "wuse",
+            "maitama",
+            "asokoro",
+            "garki",
+            "jabi",
+            "gudu",
+            "apo",
+            "durumi",
+            "utako",
+            "mabushi",
+            "gwarimpa",
+            "lugbe",
+            "lokogoma",
+            "life camp",
+            "lifecamp",
+            "katampe",
+            "katampe extension",
+            "kado",
+            "dakibiyu",
+            "wuye",
+            "wuye district",
+            "games village",
+            "guzape",
+            "guzape district",
+            "galadimawa",
+            "kabusa",
+            "wumba",
+            "wumba district",
+            "kyami",
+            "karmo",
+            "karmo district",
+            "jikwoyi",
+            "karshi",
+            "nyanya",
+            "orozo",
+            "kurudu",
+            "kpeyegyi",
+            "dakwo",
+            "duboyi",
+            "kaura",
+            "idu",
+            "idu industrial",
+            "jahi",
+            "jahi district",
+            "utako district",
+            "garki district",
+            "gudu district",
+            "jabi district",
+            "asokoro district",
+            "maitama district",
+            "wuse 2",
+            "wuse ii",
+            "wuse zone 1",
+            "wuse zone 2",
+            "wuse zone 3",
+            "wuse zone 4",
+            "wuse zone 5",
+            "wuse zone 6",
+            "wuse zone 7",
+        },
+        "Bwari": {
+            "kubwa",
+            "dutse",
+            "dutse alhaji",
+            "bwari",
+            "dei dei",
+            "mpape",
+            "dawaki",
+            "ushafa",
+            "byazhin",
+        },
+        "Gwagwalada": {
+            "gwagwalada",
+            "zuba",
+            "paiko",
+            "tunga maje",
+            "ibwa",
+        },
+        "Kuje": {
+            "kuje",
+            "chukuku",
+            "piyanko",
+            "rubochi",
+        },
+        "Abaji": {
+            "abaji",
+            "yaba",
+        },
+        "Kwali": {
+            "kwali",
+            "sheda",
+            "pai",
+            "yangoji",
+            "dafa",
+        },
+    }
+
+    for lga, aliases in area_council_aliases.items():
+        if normalized in aliases:
+            return lga, town, "FCT"
+
+    for lga, aliases in area_council_aliases.items():
+        for alias in aliases:
+            if alias in normalized or normalized in alias:
+                return lga, town, "FCT"
+
+    return "-", town, "-"
+
+
+def _ticket_notes(ticket: Ticket) -> tuple[str, str, str]:
+    latest_public: TicketComment | None = None
+    latest_internal: TicketComment | None = None
+
+    for comment in sorted(ticket.comments or [], key=lambda item: item.created_at or datetime.min.replace(tzinfo=UTC)):
+        if comment.is_internal:
+            latest_internal = comment
+        else:
+            latest_public = comment
+
+    resolution_note = (latest_internal.body or "").strip() if latest_internal else ""
+    user_note = (latest_public.body or "").strip() if latest_public else ""
+    user_note_dt = _display_timestamp(latest_public.created_at) if latest_public else ""
+    return resolution_note, user_note, user_note_dt
+
+
+def _parse_ncc_window(start_date: str | None, end_date: str | None) -> tuple[datetime, datetime, str, str]:
+    start_value = (start_date or _NCC_DEFAULT_START_DATE).strip() or _NCC_DEFAULT_START_DATE
+    end_value = (end_date or _NCC_DEFAULT_END_DATE).strip() or _NCC_DEFAULT_END_DATE
+
+    try:
+        start_dt = datetime.fromisoformat(start_value).replace(tzinfo=UTC)
+    except ValueError:
+        start_value = _NCC_DEFAULT_START_DATE
+        start_dt = datetime.fromisoformat(start_value).replace(tzinfo=UTC)
+
+    try:
+        end_dt = datetime.fromisoformat(end_value).replace(tzinfo=UTC)
+    except ValueError:
+        end_value = _NCC_DEFAULT_END_DATE
+        end_dt = datetime.fromisoformat(end_value).replace(tzinfo=UTC)
+
+    end_dt = end_dt.replace(hour=23, minute=59, second=59)
+    if end_dt < start_dt:
+        end_value = start_value
+        end_dt = start_dt.replace(hour=23, minute=59, second=59)
+
+    return start_dt, end_dt, start_value, end_value
+
+
+def _build_ncc_records(db: Session, start_dt: datetime, end_dt: datetime) -> list[dict[str, str]]:
+    tickets = (
+        db.scalars(
+            select(Ticket)
+            .options(
+                joinedload(Ticket.customer),
+                joinedload(Ticket.created_by),
+                joinedload(Ticket.subscriber).joinedload(Subscriber.person),
+                joinedload(Ticket.subscriber).joinedload(Subscriber.organization),
+                joinedload(Ticket.comments).joinedload(TicketComment.author),
+            )
+            .where(Ticket.created_at >= start_dt, Ticket.created_at <= end_dt)
+            .order_by(Ticket.created_at.asc())
+        )
+        .unique()
+        .all()
+    )
+
+    ticket_ids = [ticket.id for ticket in tickets]
+    conversation_subjects: dict[UUID, str] = {}
+    if ticket_ids:
+        conversations = db.scalars(
+            select(Conversation)
+            .where(Conversation.ticket_id.in_(ticket_ids))
+            .order_by(Conversation.created_at.desc())
+        ).all()
+        for conversation in conversations:
+            if conversation.ticket_id and conversation.subject and conversation.ticket_id not in conversation_subjects:
+                conversation_subjects[conversation.ticket_id] = conversation.subject.strip()
+
+    people: list[Person] = []
+    for ticket in tickets:
+        person = _ticket_primary_person(ticket)
+        if person is not None:
+            people.append(person)
+
+    person_ids = {person.id for person in people}
+    channels_by_person: dict[UUID, list[PersonChannel]] = {}
+    if person_ids:
+        person_channels = db.scalars(
+            select(PersonChannel)
+            .where(PersonChannel.person_id.in_(person_ids))
+            .order_by(PersonChannel.created_at.asc())
+        ).all()
+        for channel in person_channels:
+            channels_by_person.setdefault(channel.person_id, []).append(channel)
+
+    records: list[dict[str, str]] = []
+    for ticket in tickets:
+        status_value = str(getattr(ticket.status, "value", ticket.status) or "").strip().lower()
+        ticket_type = _clean_text(ticket.ticket_type)
+        if status_value == "canceled":
+            continue
+        if "core link disconnection" in ticket_type.lower():
+            continue
+
+        person = _ticket_primary_person(ticket)
+        first_name, last_name = _ticket_name_parts(ticket, person)
+        person_channels = channels_by_person.get(person.id, []) if person is not None else []
+        resolution_note, user_note, user_note_dt = _ticket_notes(ticket)
+        lga, town, state = _map_ncc_location(ticket.region)
+
+        records.append(
+            {
+                "MSISDN": _normalize_msisdn(person.phone if person else None),
+                "First Name": first_name,
+                "Last Name": last_name,
+                "Email": _clean_text(person.email).lower() if person and person.email else "",
+                "Age": _calculate_age(person.date_of_birth if person else None, ticket.created_at),
+                "Gender": _display_enum(person.gender)
+                if person and getattr(person.gender, "value", "unknown") != "unknown"
+                else "N/A",
+                "created date time": _display_timestamp(ticket.created_at),
+                "Subject": _title_case_report_value(conversation_subjects.get(ticket.id, "")) or _title_case_report_value(ticket.title),
+                "Category": _title_case_report_value(ticket_type),
+                "category code (auto)": "",
+                "sub category code": "",
+                "Description (auto)": _clean_text(ticket.description),
+                "Ticket ID": ticket.number or str(ticket.id),
+                "Complaint type": _title_case_report_value(ticket_type),
+                "Status": _display_enum(ticket.status),
+                "Resolved date": _display_timestamp(ticket.resolved_at),
+                "Resolution Note": _clean_text(resolution_note),
+                "User Note": _clean_text(user_note),
+                "user notes datetime": user_note_dt,
+                "Language": "English",
+                "Ticket source": _title_case_report_value(_display_enum(ticket.channel)),
+                "alt phone number": _normalize_msisdn(_ticket_alt_phone(person, person_channels)),
+                "created by": _title_case_report_value(_person_name(ticket.created_by)),
+                "State": state,
+                "LGA": lga,
+                "Town": _title_case_report_value(town) if town != "-" else town,
+                "_ticket_url": f"/admin/support/tickets/{ticket.number or ticket.id}",
+                "_status_variant": _ncc_status_variant(ticket),
+            }
+        )
+    return records
+
+
+def _ncc_export_rows(records: list[dict[str, str]]) -> list[dict[str, str]]:
+    export_rows: list[dict[str, str]] = []
+    for record in records:
+        export_rows.append({key: value for key, value in record.items() if not key.startswith("_")})
+    return export_rows
+
+
 @router.get("/operations")
 def operations_report_alias():
     return RedirectResponse(url="/admin/operations/work-orders", status_code=302)
@@ -266,6 +1131,54 @@ def quarterly_report(
             "load_error": load_error,
         },
     )
+
+
+@router.get(
+    "/ncc",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("reports:operations", "reports"))],
+)
+def ncc_reports_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    start_date: str | None = Query(_NCC_DEFAULT_START_DATE),
+    end_date: str | None = Query(_NCC_DEFAULT_END_DATE),
+):
+    user = get_current_user(request)
+    start_dt, end_dt, start_value, end_value = _parse_ncc_window(start_date, end_date)
+    records = _build_ncc_records(db, start_dt, end_dt)
+
+    return templates.TemplateResponse(
+        "admin/reports/ncc_reports.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "ncc-reports",
+            "active_menu": "reports",
+            "columns": _NCC_COLUMNS,
+            "records": records,
+            "window_start": start_value,
+            "window_end": end_value,
+        },
+    )
+
+
+@router.get(
+    "/ncc/export",
+    response_class=StreamingResponse,
+    dependencies=[Depends(require_any_permission("reports:operations", "reports"))],
+)
+def ncc_reports_export(
+    db: Session = Depends(get_db),
+    start_date: str | None = Query(_NCC_DEFAULT_START_DATE),
+    end_date: str | None = Query(_NCC_DEFAULT_END_DATE),
+):
+    start_dt, end_dt, _start_value, _end_value = _parse_ncc_window(start_date, end_date)
+    records = _ncc_export_rows(_build_ncc_records(db, start_dt, end_dt))
+    workbook = _build_ncc_workbook(records, _NCC_COLUMNS)
+    return _xlsx_response(workbook, _NCC_EXPORT_FILENAME)
 
 
 @router.get("/operations-sla-violations", response_class=HTMLResponse)
