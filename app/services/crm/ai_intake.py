@@ -40,6 +40,7 @@ from app.services.crm.presence import agent_presence as presence_service
 logger = logging.getLogger(__name__)
 
 AI_INTAKE_METADATA_KEY = "ai_intake"
+AI_INTAKE_HANDOFF_SENT_KEY = "handoff_sent"
 AI_INTAKE_PENDING_STATES = {"pending", "awaiting_customer", "awaiting_timeout"}
 AI_INTAKE_TERMINAL_STATES = {"resolved", "escalated", "excluded"}
 AI_INTAKE_ALLOWED_DEPARTMENTS = {"billing", "support", "sales"}
@@ -571,6 +572,45 @@ def _send_followup(
     db.commit()
 
 
+def _handoff_message_for_department(department: str) -> str | None:
+    messages = {
+        "billing": "A billing specialist will be with you shortly",
+        "support": "A member of our support team will be with you shortly",
+        "sales": "A sales representative will be with you shortly",
+    }
+    return messages.get(department)
+
+
+def _send_handoff_message(
+    db: Session,
+    *,
+    conversation: Conversation,
+    message: Message,
+    department: str,
+) -> bool:
+    body = _handoff_message_for_department(department)
+    if not body:
+        return False
+    state = _state(conversation)
+    if state.get(AI_INTAKE_HANDOFF_SENT_KEY):
+        return False
+
+    _send_followup(
+        db,
+        conversation=conversation,
+        message=message,
+        body=body,
+    )
+
+    latest_state = _state(conversation)
+    latest_state[AI_INTAKE_HANDOFF_SENT_KEY] = True
+    latest_state["handoff_message"] = body
+    latest_state["handoff_sent_at"] = _serialize_timestamp(_now())
+    _set_state(conversation, latest_state)
+    db.commit()
+    return True
+
+
 def _eligible_channel(message: Message) -> bool:
     return bool(message.channel_type in SUPPORTED_CHANNELS and message.direction == MessageDirection.inbound)
 
@@ -758,6 +798,22 @@ def process_pending_intake(
         next_state["resolved_at"] = _serialize_timestamp(now)
         _set_state(conversation, next_state)
         db.commit()
+        try:
+            _send_handoff_message(
+                db,
+                conversation=conversation,
+                message=message,
+                department=department,
+            )
+        except Exception as exc:
+            logger.warning(
+                "ai_intake_handoff_send_failed scope_key=%s conversation_id=%s department=%s error=%s",
+                config.scope_key,
+                conversation.id,
+                department,
+                exc,
+            )
+            db.rollback()
         inbox_cache.invalidate_inbox_list()
         return AiIntakeResult(handled=True, resolved=True)
 
