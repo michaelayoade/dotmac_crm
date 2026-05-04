@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -35,7 +36,7 @@ class CampaignBase(BaseModel):
     reply_to: str | None = Field(default=None, max_length=255)
     whatsapp_template_name: str | None = Field(default=None, max_length=200)
     whatsapp_template_language: str | None = Field(default=None, max_length=10)
-    whatsapp_template_components: dict | None = None
+    whatsapp_template_components: list[dict[str, Any]] | None = None
     segment_filter: dict | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
@@ -59,7 +60,7 @@ class CampaignUpdate(BaseModel):
     reply_to: str | None = Field(default=None, max_length=255)
     whatsapp_template_name: str | None = Field(default=None, max_length=200)
     whatsapp_template_language: str | None = Field(default=None, max_length=10)
-    whatsapp_template_components: dict | None = None
+    whatsapp_template_components: list[dict[str, Any]] | None = None
     segment_filter: dict | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
     is_active: bool | None = None

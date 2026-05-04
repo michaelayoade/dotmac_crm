@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -66,7 +67,7 @@ class CampaignUpsertResolution:
     whatsapp_connector_id_value: str
     whatsapp_template_name: str | None
     whatsapp_template_language: str | None
-    whatsapp_template_components: dict | None
+    whatsapp_template_components: list[dict[str, Any]] | None
     sender: CampaignSender | None
     smtp_profile: CampaignSmtpConfig | None
     whatsapp_connector: ConnectorConfig | None
@@ -218,10 +219,12 @@ def resolve_campaign_upsert(db: Session, *, form: CampaignUpsertInput) -> Campai
 
     wa_template_name = _form_str_opt(form.whatsapp_template_name)
     wa_template_lang = _form_str_opt(form.whatsapp_template_language)
-    wa_template_components: dict | None = None
+    wa_template_components: list[dict[str, Any]] | None = None
     if (form.whatsapp_template_components or "").strip():
         try:
-            wa_template_components = json.loads(form.whatsapp_template_components)
+            parsed_components = json.loads(form.whatsapp_template_components)
+            if isinstance(parsed_components, list):
+                wa_template_components = [item for item in parsed_components if isinstance(item, dict)]
         except (json.JSONDecodeError, TypeError):
             wa_template_components = None
 
@@ -883,7 +886,7 @@ def outreach_inbox_metrics(
         db.query(Message)
         .filter(
             Message.direction == MessageDirection.outbound,
-            Message.metadata_["campaign_id"].astext == str(campaign_id),
+            Message.metadata_["campaign_id"].as_string() == str(campaign_id),
         )
         .all()
     )

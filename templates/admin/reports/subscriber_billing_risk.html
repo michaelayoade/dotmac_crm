@@ -769,6 +769,104 @@
                 loadEngagementsForVisibleRows();
                 refreshBlockedDatesForVisibleRows();
                 applyCustomerTierFilter();
+                hydrateOutreachForm();
+            }
+
+            function hydrateOutreachForm() {
+                const form = document.getElementById('billing-risk-outreach-form');
+                if (!form || form.dataset.bound === '1') return;
+                form.dataset.bound = '1';
+
+                const rowCheckboxes = Array.from(form.querySelectorAll('[data-billing-risk-select-row]'));
+                const selectAll = form.querySelector('#billing-risk-select-all');
+                const selectedCount = form.querySelector('#billing-risk-selected-count');
+                const submitButton = form.querySelector('#billing-risk-create-outreach-button');
+                const nextUrlInput = form.querySelector('#billing-risk-next-url');
+                const channelSelect = form.querySelector('#billing-risk-outreach-channel');
+                const targetSelect = form.querySelector('#billing-risk-channel-target-id');
+                const retentionInputName = 'retention_customer_id';
+                let targetOptions = {};
+
+                try {
+                    targetOptions = JSON.parse(form.dataset.outreachChannelTargets || '{}');
+                } catch (_error) {
+                    targetOptions = {};
+                }
+
+                const syncSelection = () => {
+                    const enabled = rowCheckboxes.filter((checkbox) => !checkbox.disabled);
+                    const checked = enabled.filter((checkbox) => checkbox.checked);
+                    if (selectedCount) selectedCount.textContent = String(checked.length);
+                    const hasTarget = targetSelect ? Boolean(targetSelect.value) : true;
+                    if (submitButton) submitButton.disabled = checked.length === 0 || !hasTarget;
+                    if (selectAll) {
+                        selectAll.checked = enabled.length > 0 && checked.length === enabled.length;
+                        selectAll.indeterminate = checked.length > 0 && checked.length < enabled.length;
+                    }
+                };
+
+                const renderTargetOptions = () => {
+                    if (!channelSelect || !targetSelect) return;
+                    const selectedChannel = channelSelect.value || 'whatsapp';
+                    const options = Array.isArray(targetOptions?.[selectedChannel]) ? targetOptions[selectedChannel] : [];
+                    const previousValue = targetSelect.value || '';
+                    targetSelect.innerHTML = '';
+                    if (!options.length) {
+                        const empty = document.createElement('option');
+                        empty.value = '';
+                        empty.textContent = `No active ${selectedChannel === 'whatsapp' ? 'WhatsApp lines' : 'email mailboxes'} available`;
+                        targetSelect.appendChild(empty);
+                        targetSelect.disabled = true;
+                        syncSelection();
+                        return;
+                    }
+                    for (const option of options) {
+                        const item = document.createElement('option');
+                        item.value = option.target_id || '';
+                        item.textContent = option.name || option.target_id || 'Inbox target';
+                        targetSelect.appendChild(item);
+                    }
+                    targetSelect.disabled = false;
+                    if (previousValue && options.some((option) => (option.target_id || '') === previousValue)) {
+                        targetSelect.value = previousValue;
+                    }
+                    syncSelection();
+                };
+
+                selectAll?.addEventListener('change', () => {
+                    for (const checkbox of rowCheckboxes) {
+                        if (checkbox.disabled) continue;
+                        checkbox.checked = selectAll.checked;
+                    }
+                    syncSelection();
+                });
+
+                for (const checkbox of rowCheckboxes) {
+                    checkbox.addEventListener('change', syncSelection);
+                }
+
+                channelSelect?.addEventListener('change', renderTargetOptions);
+                targetSelect?.addEventListener('change', syncSelection);
+
+                form.addEventListener('submit', () => {
+                    for (const input of Array.from(form.querySelectorAll(`input[name="${retentionInputName}"]`))) {
+                        input.remove();
+                    }
+                    for (const checkbox of rowCheckboxes.filter((item) => item.checked && !item.disabled)) {
+                        const hidden = document.createElement('input');
+                        hidden.type = 'hidden';
+                        hidden.name = retentionInputName;
+                        hidden.value = checkbox.getAttribute('data-retention-customer-id') || checkbox.value || '';
+                        form.appendChild(hidden);
+                    }
+                });
+
+                if (nextUrlInput && window.location) {
+                    nextUrlInput.value = `${window.location.pathname}${window.location.search || ''}`;
+                }
+
+                renderTargetOptions();
+                syncSelection();
             }
 
             async function loadEngagementsForVisibleRows() {

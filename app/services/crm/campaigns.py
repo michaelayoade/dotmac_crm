@@ -81,6 +81,14 @@ def _normalize_whatsapp_address(phone: str | None) -> str | None:
     if not phone:
         return None
     digits = "".join(ch for ch in phone if ch.isdigit())
+    if not digits:
+        return None
+    if digits.startswith("234") and len(digits) == 13:
+        return f"+{digits}"
+    if digits.startswith("0") and len(digits) == 11:
+        return f"+234{digits[1:]}"
+    if len(digits) == 10:
+        return f"+234{digits}"
     if len(digits) < 8 or len(digits) > 15:
         return None
     return f"+{digits}"
@@ -824,7 +832,7 @@ def reconcile_outreach_tracking(db: Session, *, campaign_id: str) -> None:
         db.query(Message)
         .filter(
             Message.direction == MessageDirection.outbound,
-            Message.metadata_["campaign_id"].astext == str(campaign.id),
+            Message.metadata_["campaign_id"].as_string() == str(campaign.id),
         )
         .all()
     )
@@ -895,7 +903,7 @@ def reconcile_outreach_inbound_reply(db: Session, *, message_id: str) -> None:
         .filter(
             Message.conversation_id == message.conversation_id,
             Message.direction == MessageDirection.outbound,
-            Message.metadata_["campaign_id"].astext.isnot(None),
+            Message.metadata_["campaign_id"].as_string().isnot(None),
         )
         .order_by(func.coalesce(Message.sent_at, Message.created_at).desc())
         .first()

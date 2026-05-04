@@ -1445,10 +1445,24 @@ def subscriber_billing_risk_create_outreach(
     ):
         next_url = "/admin/reports/subscribers/billing-risk"
 
-    selected_subscriber_ids = [str(value).strip() for value in subscriber_id if str(value).strip()]
+    selected_subscriber_ids: list[str] = []
+    invalid_subscriber_ids = 0
+    for value in subscriber_id:
+        raw_value = str(value).strip()
+        if not raw_value:
+            continue
+        try:
+            selected_subscriber_ids.append(str(coerce_uuid(raw_value)))
+        except Exception:
+            invalid_subscriber_ids += 1
+
     if not selected_subscriber_ids:
         return RedirectResponse(
-            url=_append_query_flag(next_url, "outreach_error", "no_selection"),
+            url=_append_query_flag(
+                next_url,
+                "outreach_error",
+                "Selected rows are missing internal subscriber IDs." if invalid_subscriber_ids else "no_selection",
+            ),
             status_code=303,
         )
 
@@ -1557,6 +1571,7 @@ def subscriber_billing_risk_rows(
             "has_next": has_next,
             "enterprise_mrr_threshold": ENTERPRISE_MRR_THRESHOLD,
             "outreach_channel_targets": outreach_channel_target_options(db),
+            "csrf_token": get_csrf_token(request),
         },
     )
 

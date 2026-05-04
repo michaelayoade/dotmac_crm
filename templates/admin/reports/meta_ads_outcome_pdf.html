@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{{ report.title }}</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 18mm 16mm 18mm 16mm;
+        }
+
+        :root {
+            --ink: #132238;
+            --muted: #5c6978;
+            --line: #d9e1ea;
+            --panel: #f4f7fb;
+            --panel-strong: #e7f0fb;
+            --accent: #0f4c81;
+            --accent-soft: #d8ebfb;
+            --good: #155724;
+            --warn: #8a5a00;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            color: var(--ink);
+            font-family: "DejaVu Sans", sans-serif;
+            font-size: 11px;
+            line-height: 1.45;
+        }
+
+        h1, h2, h3 {
+            margin: 0;
+            font-weight: 700;
+        }
+
+        h1 {
+            font-size: 24px;
+            letter-spacing: 0.2px;
+        }
+
+        h2 {
+            margin-top: 18px;
+            font-size: 14px;
+            color: var(--accent);
+            padding-bottom: 5px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        h3 {
+            font-size: 12px;
+            margin-top: 10px;
+            color: var(--ink);
+        }
+
+        p {
+            margin: 8px 0 0;
+        }
+
+        ul {
+            margin: 8px 0 0 18px;
+            padding: 0;
+        }
+
+        li {
+            margin: 0 0 4px;
+        }
+
+        .header {
+            padding: 18px;
+            border-radius: 18px;
+            background: linear-gradient(135deg, #0f4c81 0%, #163a63 100%);
+            color: #fff;
+        }
+
+        .header-meta {
+            margin-top: 10px;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.88);
+        }
+
+        .ad-list {
+            margin-top: 10px;
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.92);
+        }
+
+        .metric-grid {
+            margin-top: 14px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .metric-card {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: var(--panel);
+            padding: 12px;
+        }
+
+        .metric-card strong {
+            display: block;
+            font-size: 22px;
+            line-height: 1.1;
+            margin-bottom: 4px;
+            color: var(--accent);
+        }
+
+        .metric-card span {
+            display: block;
+            font-weight: 600;
+        }
+
+        .metric-card small {
+            display: block;
+            margin-top: 5px;
+            color: var(--muted);
+            font-size: 9px;
+        }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-top: 10px;
+        }
+
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px;
+            background: #fff;
+        }
+
+        .panel table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 6px;
+        }
+
+        .panel td {
+            padding: 6px 0;
+            border-bottom: 1px solid var(--line);
+            vertical-align: top;
+        }
+
+        .panel td:last-child {
+            text-align: right;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .panel tr:last-child td {
+            border-bottom: 0;
+        }
+
+        .summary-box {
+            margin-top: 12px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px 14px;
+            background: var(--panel-strong);
+        }
+
+        .summary-box p:first-child {
+            margin-top: 0;
+        }
+
+        .section-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-top: 10px;
+        }
+
+        .section-grid .panel {
+            break-inside: avoid;
+        }
+
+        .ad-breakdown {
+            margin-top: 10px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }
+
+        .ad-item {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px;
+            background: #fff;
+        }
+
+        .ad-item .ad-id {
+            color: var(--accent);
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .examples {
+            margin-top: 10px;
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 8px;
+        }
+
+        .example {
+            border-left: 4px solid var(--accent);
+            background: var(--panel);
+            border-radius: 10px;
+            padding: 10px 12px;
+        }
+
+        .example-title {
+            font-weight: 700;
+        }
+
+        .example-outcome {
+            color: var(--good);
+            font-size: 10px;
+            margin-top: 2px;
+        }
+
+        .footer {
+            margin-top: 18px;
+            color: var(--muted);
+            font-size: 9px;
+            border-top: 1px solid var(--line);
+            padding-top: 8px;
+        }
+    </style>
+</head>
+<body>
+    <section class="header">
+        <h1>{{ report.title }}</h1>
+        <p>{{ report.subtitle }}</p>
+        <div class="header-meta">
+            <div><strong>Campaign Window:</strong> {{ report.date_range_label }}</div>
+            <div><strong>Generated:</strong> {{ report.generated_at.strftime("%Y-%m-%d %H:%M UTC") }}</div>
+        </div>
+        <div class="ad-list">
+            <strong>Reviewed Ad IDs:</strong>
+            {{ report.ad_ids | join(", ") }}
+        </div>
+    </section>
+
+    <section>
+        <h2>Topline</h2>
+        <div class="metric-grid">
+            {% for metric in report.headline_metrics %}
+            <div class="metric-card">
+                <strong>{{ metric.value }}</strong>
+                <span>{{ metric.label }}</span>
+                {% if metric.note %}
+                <small>{{ metric.note }}</small>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section>
+        <h2>Executive Summary</h2>
+        <div class="summary-box">
+            {% for paragraph in report.executive_summary %}
+            <p>{{ paragraph }}</p>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="two-col">
+        <div class="panel">
+            <h3>Lead Outcome</h3>
+            <table>
+                {% for metric in report.lead_metrics %}
+                <tr>
+                    <td>{{ metric.label }}</td>
+                    <td>{{ metric.value }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        <div class="panel">
+            <h3>Conversation Outcome</h3>
+            <table>
+                {% for metric in report.conversation_metrics %}
+                <tr>
+                    <td>{{ metric.label }}</td>
+                    <td>{{ metric.value }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </section>
+
+    <section class="two-col">
+        <div class="panel">
+            <h3>Prospect Outcome</h3>
+            <table>
+                {% for metric in report.prospect_metrics %}
+                <tr>
+                    <td>{{ metric.label }}</td>
+                    <td>{{ metric.value }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        <div class="panel">
+            <h3>Channel And Lead Mix</h3>
+            <table>
+                {% for metric in report.channel_mix %}
+                <tr>
+                    <td>{{ metric.label }}</td>
+                    <td>{{ metric.value }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </section>
+
+    <section>
+        <h2>Attribution Note</h2>
+        <div class="panel">
+            <ul>
+                {% for item in report.attribution_summary %}
+                <li>{{ item }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </section>
+
+    <section>
+        <h2>Ad Breakdown</h2>
+        <div class="ad-breakdown">
+            {% for item in report.ad_breakdown %}
+            <div class="ad-item">
+                <div class="ad-id">{{ item.ad_id }}</div>
+                <div><strong>{{ item.summary }}</strong></div>
+                <ul>
+                    {% for point in item.highlights %}
+                    <li>{{ point }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="section-grid">
+        {% for section in report.finding_sections %}
+        <div class="panel">
+            <h3>{{ section.title }}</h3>
+            <ul>
+                {% for point in section.points %}
+                <li>{{ point }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endfor %}
+    </section>
+
+    <section>
+        <h2>Conversation Examples</h2>
+        <div class="examples">
+            {% for item in report.example_threads %}
+            <div class="example">
+                <div class="example-title">{{ item.title }}</div>
+                <div class="example-outcome">{{ item.outcome }}</div>
+                <p>{{ item.detail }}</p>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section>
+        <h2>Recommendations</h2>
+        <div class="panel">
+            <ul>
+                {% for item in report.recommendations %}
+                <li>{{ item }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </section>
+
+    <div class="footer">
+        {{ report.footer_note }}
+    </div>
+</body>
+</html>
