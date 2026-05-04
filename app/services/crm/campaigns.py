@@ -613,7 +613,7 @@ class Campaigns(ListResponseMixin):
                 }
             )
 
-        metadata = _campaign_metadata(campaign)
+        metadata = dict(_campaign_metadata(campaign))
         metadata["audience_mode"] = _MANUAL_AUDIENCE_MODE
         metadata["kind"] = metadata.get("kind") or _OUTREACH_KIND
         if campaign.channel == CampaignChannel.whatsapp:
