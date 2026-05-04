@@ -18,6 +18,7 @@ from app.models.crm.team import CrmAgent, CrmTeam
 from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.domain_settings import SettingDomain
 from app.models.person import Person
+from app.models.subscriber import Subscriber
 from app.services import crm as crm_service
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
@@ -164,6 +165,10 @@ def _conversation_retention_context(
 
     if not retention_customer_id and contact and isinstance(contact.metadata_, dict):
         retention_customer_id = str(contact.metadata_.get("splynx_id") or "").strip()
+    if not retention_customer_id and contact:
+        subscriber = db.query(Subscriber).filter(Subscriber.person_id == contact.id).first()
+        if subscriber:
+            retention_customer_id = str(subscriber.external_id or subscriber.id or "").strip()
 
     is_billing_risk_retention = (
         campaign_kind == "outreach" and source_report == "billing_risk" and bool(retention_customer_id)
