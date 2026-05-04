@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
@@ -30,7 +31,7 @@ class Campaign(Base):
     # WhatsApp template fields
     whatsapp_template_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     whatsapp_template_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    whatsapp_template_components: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    whatsapp_template_components: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
 
     # Targeting
     segment_filter: Mapped[dict | None] = mapped_column(JSON)

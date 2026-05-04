@@ -202,6 +202,12 @@ def list_quotes_page_data(
     )
     lead_map = {str(item.id): item for item in leads}
     contacts_map = {str(contact.id): contact for contact in contacts}
+    quote_person_ids = {quote.person_id for quote in quotes if getattr(quote, "person_id", None)}
+    missing_person_ids = [person_id for person_id in quote_person_ids if str(person_id) not in contacts_map]
+    if missing_person_ids:
+        quote_contacts = db.query(Person).filter(Person.id.in_(missing_person_ids)).all()
+        for contact in quote_contacts:
+            contacts_map[str(contact.id)] = contact
     stats = crm_service.quotes.count_by_status(db)
 
     return {

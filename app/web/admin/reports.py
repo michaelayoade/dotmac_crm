@@ -24,6 +24,8 @@ from app.services import operations_sla_reports as operations_sla_reports_servic
 from app.services.auth_dependencies import require_any_permission
 from app.services.crm import reports as crm_reports_service
 from app.services.crm import team as crm_team_service
+from app.services.meta_ads_reporting import build_meta_ads_outcome_report
+from app.services.pdf_utils import ensure_pydyf_compat
 from app.services.quarterly_reports import build_quarterly_report
 from app.tasks.subscribers import sync_subscribers_from_splynx
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
@@ -191,6 +193,30 @@ def _toast_redirect(url: str, *, message: str, toast_type: str = "success", stat
     return RedirectResponse(url=url, status_code=status_code, headers=headers)
 
 
+def _meta_ads_outcome_pdf_response(request: Request) -> Response:
+    report = build_meta_ads_outcome_report()
+    template = templates.get_template("admin/reports/meta_ads_outcome_pdf.html")
+    html = template.render({"request": request, "report": report})
+    if request.query_params.get("debug") == "1":
+        return HTMLResponse(content=html)
+    try:
+        from weasyprint import HTML
+    except ImportError as exc:
+        raise RuntimeError("WeasyPrint is required to generate the Meta ads outcome PDF.") from exc
+    ensure_pydyf_compat()
+    pdf_bytes = HTML(string=html, base_url=str(request.base_url)).write_pdf()
+    disposition = "inline" if request.query_params.get("inline") == "1" else "attachment"
+    return Response(
+        pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'{disposition}; filename="meta_ads_outcome_report_2026-04-28_to_2026-05-04.pdf"',
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
 def _latest_subscriber_sync_at(db: Session) -> datetime | None:
     latest = db.scalar(select(func.max(Subscriber.last_synced_at)))
     if latest is None:
@@ -228,6 +254,14 @@ def _resolve_lifecycle_date_range(
 @router.get("/operations")
 def operations_report_alias():
     return RedirectResponse(url="/admin/operations/work-orders", status_code=302)
+
+
+@router.get(
+    "/meta-ads/outcome.pdf",
+    dependencies=[Depends(require_any_permission("reports:operations", "reports"))],
+)
+def meta_ads_outcome_pdf(request: Request):
+    return _meta_ads_outcome_pdf_response(request)
 
 
 @router.get(

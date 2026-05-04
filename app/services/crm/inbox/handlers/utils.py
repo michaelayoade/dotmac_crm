@@ -11,7 +11,13 @@ from app.models.crm.conversation import Conversation, ConversationAssignment, Me
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.models.person import Person
-from app.services.crm.ai_intake import make_scope_key, process_pending_intake
+from app.services.crm.ai_intake import (
+    AI_INTAKE_METADATA_KEY,
+    AiIntakeResult,
+    _send_handoff_message,
+    make_scope_key,
+    process_pending_intake,
+)
 from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.context import get_inbox_logger
 from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
@@ -78,6 +84,40 @@ def _extract_call_event_metadata(message: Message) -> dict[str, str] | None:
         "phone_number_id": normalized_phone_number_id or "",
         "call_to": normalized_call_to or "",
     }
+
+
+def _send_resolved_ai_handoff_if_missing(
+    db: Session,
+    *,
+    conversation: Conversation,
+    message: Message,
+    intake_result: Any,
+) -> None:
+    if not intake_result or not getattr(intake_result, "resolved", False):
+        return
+    state = conversation.metadata_.get(AI_INTAKE_METADATA_KEY) if isinstance(conversation.metadata_, dict) else None
+    if not isinstance(state, dict):
+        return
+    if state.get("handoff_sent"):
+        return
+    department = state.get("department")
+    if not isinstance(department, str) or not department.strip():
+        return
+    _send_handoff_message(
+        db,
+        conversation=conversation,
+        message=message,
+        department=department.strip().lower(),
+    )
+
+
+def _resolved_ai_result_from_state(conversation: Conversation) -> AiIntakeResult | None:
+    state = conversation.metadata_.get(AI_INTAKE_METADATA_KEY) if isinstance(conversation.metadata_, dict) else None
+    if not isinstance(state, dict):
+        return None
+    if state.get("status") != "resolved":
+        return None
+    return AiIntakeResult(handled=True, resolved=True)
 
 
 def _build_call_notification_actions(call_status: str) -> list[str]:
@@ -152,11 +192,30 @@ def post_process_inbound_message(
                     else None
                 ),
             )
-            intake_result = process_pending_intake(
+            try:
+                intake_result = process_pending_intake(
+                    db,
+                    conversation=conversation,
+                    message=message,
+                    scope_key=scope_key,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "inbound_ai_intake_failed conversation_id=%s message_id=%s error=%s",
+                    conversation.id,
+                    message.id,
+                    exc,
+                )
+                db.rollback()
+                db.expire_all()
+                conversation = db.get(Conversation, conversation_id) or conversation
+                message = db.get(Message, message_id) or message
+                intake_result = _resolved_ai_result_from_state(conversation)
+            _send_resolved_ai_handoff_if_missing(
                 db,
                 conversation=conversation,
                 message=message,
-                scope_key=scope_key,
+                intake_result=intake_result,
             )
             if not intake_result.handled:
                 apply_routing_rules(db, conversation=conversation, message=message)
