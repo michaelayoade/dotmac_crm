@@ -430,8 +430,7 @@ def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> by
         )
         rows_xml: list[str] = []
         header_cells = [
-            cell_xml(f"{_excel_column_letter(index)}1", column, 1)
-            for index, column in enumerate(columns, start=1)
+            cell_xml(f"{_excel_column_letter(index)}1", column, 1) for index, column in enumerate(columns, start=1)
         ]
         rows_xml.append(f'<row r="1" ht="24" customHeight="1">{"".join(header_cells)}</row>')
         for row_number, row in enumerate(records, start=2):
@@ -468,7 +467,7 @@ def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> by
   </sheetViews>
   <sheetFormatPr defaultRowHeight="18"/>
   <cols>{cols_xml}</cols>
-  <sheetData>{''.join(rows_xml)}</sheetData>
+  <sheetData>{"".join(rows_xml)}</sheetData>
   <autoFilter ref="A1:{last_column_letter}{last_row_number}"/>
 </worksheet>""",
         )
@@ -555,7 +554,11 @@ def _person_name(person: Person | None) -> str:
 def _calculate_age(date_of_birth, reference_at: datetime | None) -> str:
     if not date_of_birth:
         return "N/A"
-    reference_date = (reference_at.astimezone(UTC).date() if reference_at and reference_at.tzinfo else reference_at.date()) if reference_at else datetime.now(UTC).date()
+    reference_date = (
+        (reference_at.astimezone(UTC).date() if reference_at and reference_at.tzinfo else reference_at.date())
+        if reference_at
+        else datetime.now(UTC).date()
+    )
     years = reference_date.year - date_of_birth.year
     if (reference_date.month, reference_date.day) < (date_of_birth.month, date_of_birth.day):
         years -= 1
@@ -1006,9 +1009,7 @@ def _build_ncc_records(db: Session, start_dt: datetime, end_dt: datetime) -> lis
     conversation_subjects: dict[UUID, str] = {}
     if ticket_ids:
         conversations = db.scalars(
-            select(Conversation)
-            .where(Conversation.ticket_id.in_(ticket_ids))
-            .order_by(Conversation.created_at.desc())
+            select(Conversation).where(Conversation.ticket_id.in_(ticket_ids)).order_by(Conversation.created_at.desc())
         ).all()
         for conversation in conversations:
             if conversation.ticket_id and conversation.subject and conversation.ticket_id not in conversation_subjects:
@@ -1057,7 +1058,8 @@ def _build_ncc_records(db: Session, start_dt: datetime, end_dt: datetime) -> lis
                 if person and getattr(person.gender, "value", "unknown") != "unknown"
                 else "N/A",
                 "created date time": _display_timestamp(ticket.created_at),
-                "Subject": _title_case_report_value(conversation_subjects.get(ticket.id, "")) or _title_case_report_value(ticket.title),
+                "Subject": _title_case_report_value(conversation_subjects.get(ticket.id, ""))
+                or _title_case_report_value(ticket.title),
                 "Category": _title_case_report_value(ticket_type),
                 "category code (auto)": "",
                 "sub category code": "",
