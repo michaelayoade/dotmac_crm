@@ -217,7 +217,7 @@ def post_process_inbound_message(
                 message=message,
                 intake_result=intake_result,
             )
-            if not intake_result.handled:
+            if not intake_result or not intake_result.handled:
                 apply_routing_rules(db, conversation=conversation, message=message)
         broadcast_new_message(message, conversation)
         pending_ai_intake = bool(
