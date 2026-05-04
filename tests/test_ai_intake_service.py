@@ -151,6 +151,23 @@ def test_process_pending_intake_resolves_and_assigns_team(db_session, monkeypatc
             {"endpoint": "primary", "fallback_used": False},
         ),
     )
+    sent = {}
+
+    def _fake_send_message(db, payload, author_id=None, trace_id=None):
+        sent["body"] = payload.body
+        outbound = Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+        )
+        db.add(outbound)
+        db.commit()
+        db.refresh(outbound)
+        return outbound
+
+    monkeypatch.setattr("app.services.crm.ai_intake.send_message", _fake_send_message)
 
     result = process_pending_intake(
         db_session,
@@ -172,6 +189,8 @@ def test_process_pending_intake_resolves_and_assigns_team(db_session, monkeypatc
     assert conversation.status == ConversationStatus.open
     assert assignment is not None
     assert assignment.team_id == team.id
+    assert sent["body"] == "A member of our support team will be with you shortly"
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["handoff_sent"] is True
 
 
 def test_process_pending_intake_assigns_agents_round_robin(db_session, monkeypatch):
@@ -193,6 +212,16 @@ def test_process_pending_intake_assigns_agents_round_robin(db_session, monkeypat
                 content='{"department":"support","confidence":0.93,"reason":"service issue","needs_followup":false,"followup_question":""}'
             ),
             {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.send_message",
+        lambda db, payload, author_id=None, trace_id=None: Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
         ),
     )
 
@@ -253,6 +282,16 @@ def test_process_pending_intake_ignores_offline_agents_for_round_robin(db_sessio
                 content='{"department":"support","confidence":0.93,"reason":"service issue","needs_followup":false,"followup_question":""}'
             ),
             {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.send_message",
+        lambda db, payload, author_id=None, trace_id=None: Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
         ),
     )
 
