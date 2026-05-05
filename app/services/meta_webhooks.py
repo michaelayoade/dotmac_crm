@@ -1420,7 +1420,7 @@ def process_messenger_webhook(
                 _, channel = _resolve_meta_person_and_channel(
                     db,
                     ChannelType.facebook_messenger,
-                    sender_id,
+                    sender_id_str,
                     contact_name,
                     metadata if isinstance(metadata, dict) else None,
                 )
@@ -1438,10 +1438,10 @@ def process_messenger_webhook(
             contact_name = (
                 contact_name
                 or (message.get("from", {}) if isinstance(message.get("from"), dict) else {}).get("name")
-                or f"Facebook User {sender_id}"
+                or f"Facebook User {sender_id_str}"
             )
             parsed = FacebookMessengerWebhookPayload(
-                contact_address=sender_id,
+                contact_address=sender_id_str,
                 contact_name=contact_name,
                 message_id=external_id,
                 page_id=page_id,
