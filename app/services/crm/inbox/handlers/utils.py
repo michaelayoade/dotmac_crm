@@ -87,6 +87,7 @@ def _extract_call_event_metadata(message: Message) -> dict[str, str] | None:
         "call_to": normalized_call_to or "",
     }
 
+
 def _send_resolved_ai_handoff_if_missing(
     db: Session,
     *,

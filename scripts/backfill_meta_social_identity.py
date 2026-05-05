@@ -35,7 +35,6 @@ from app.models.person import ChannelType as PersonChannelType
 from app.models.person import Person, PersonChannel
 from app.services.meta_webhooks import (
     _fetch_profile_name,
-    _find_token_for_account,
     _get_facebook_access_token_override,
     _get_meta_graph_base_url,
     _persist_meta_attribution_to_conversation,
