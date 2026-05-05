@@ -430,7 +430,10 @@ def _persist_meta_attribution_to_conversation(
 ) -> None:
     if not _is_meta_ad_attribution(attribution):
         return
-    _upsert_entity_attribution_metadata(conversation, attribution=attribution, channel=channel)
+    clean_attribution = attribution if isinstance(attribution, dict) else None
+    if not clean_attribution:
+        return
+    _upsert_entity_attribution_metadata(conversation, attribution=clean_attribution, channel=channel)
     _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Meta Ad")
     if channel == ChannelType.instagram_dm:
         _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Instagram Ad")
@@ -1265,10 +1268,11 @@ def process_messenger_webhook(
         for messaging_event in entry.messaging:
             sender = messaging_event.sender or {}
             sender_id = sender.get("id")
+            sender_id_str = str(sender_id).strip() if isinstance(sender_id, str) and sender_id.strip() else None
             contact_name = (
                 sender.get("name")
-                or _fetch_profile_name(page_token, sender_id, "name", base_url)
-                or (f"Facebook User {sender_id}" if sender_id else None)
+                or (_fetch_profile_name(page_token, sender_id_str, "name", base_url) if sender_id_str else None)
+                or (f"Facebook User {sender_id_str}" if sender_id_str else None)
             )
             event_attribution = _extract_meta_attribution(
                 messaging_event.referral,
@@ -1276,50 +1280,50 @@ def process_messenger_webhook(
                 messaging_event.postback.get("payload") if messaging_event.postback else None,
             )
             if messaging_event.postback and not messaging_event.message:
-                if sender_id and _capture_pending_messenger_attribution(
+                if sender_id_str and _capture_pending_messenger_attribution(
                     db,
                     page_id=page_id,
-                    sender_id=sender_id,
+                    sender_id=sender_id_str,
                     contact_name=contact_name,
                     attribution=event_attribution,
                 ):
                     logger.info(
                         "messenger_webhook_postback_attribution_captured page_id=%s sender_id=%s",
                         page_id,
-                        sender_id,
+                        sender_id_str,
                     )
                 else:
                     logger.info(
                         "messenger_webhook_postback_ignored page_id=%s sender_id=%s",
                         page_id,
-                        sender_id,
+                        sender_id_str,
                     )
                 continue
             if messaging_event.referral and not messaging_event.message:
-                if sender_id and _capture_pending_messenger_attribution(
+                if sender_id_str and _capture_pending_messenger_attribution(
                     db,
                     page_id=page_id,
-                    sender_id=sender_id,
+                    sender_id=sender_id_str,
                     contact_name=contact_name,
                     attribution=event_attribution,
                 ):
                     logger.info(
                         "messenger_webhook_referral_attribution_captured page_id=%s sender_id=%s",
                         page_id,
-                        sender_id,
+                        sender_id_str,
                     )
                 continue
             if messaging_event.delivery and not messaging_event.message:
                 logger.info(
                     "messenger_webhook_delivery_ignored page_id=%s sender_id=%s",
                     page_id,
-                    sender_id,
+                    sender_id_str,
                 )
                 continue
             if messaging_event.read and not messaging_event.message:
                 recipient_id = (messaging_event.recipient or {}).get("id")
-                contact_id = sender_id
-                if sender_id == page_id:
+                contact_id = sender_id_str
+                if sender_id_str == page_id:
                     contact_id = recipient_id
                 _apply_meta_read_receipt(
                     db,
@@ -1338,14 +1342,14 @@ def process_messenger_webhook(
             if message.get("is_echo"):
                 continue
 
-            if not sender_id:
+            if not sender_id_str:
                 logger.warning("messenger_webhook_missing_sender page_id=%s", page_id)
                 continue
-            if sender_id == page_id:
+            if sender_id_str == page_id:
                 logger.info(
                     "messenger_webhook_skip_self page_id=%s sender_id=%s",
                     page_id,
-                    sender_id,
+                    sender_id_str,
                 )
                 continue
 
