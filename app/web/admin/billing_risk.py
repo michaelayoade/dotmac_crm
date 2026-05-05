@@ -11,7 +11,7 @@ from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
@@ -383,6 +383,79 @@ def _retention_engagements_by_customer(db: Session, customer_ids: list[str]) -> 
     for row in rows:
         grouped.setdefault(row.customer_external_id, []).append(_retention_engagement_payload(row))
     return grouped
+
+
+def _retention_search_customer_ids(db: Session, search: str) -> list[str]:
+    term = str(search or "").strip()
+    if not term:
+        return []
+    if not hasattr(db, "query"):
+        return []
+    like_term = f"%{term}%"
+    rows = (
+        db.query(CustomerRetentionEngagement.customer_external_id)
+        .filter(CustomerRetentionEngagement.is_active.is_(True))
+        .filter(
+            or_(
+                CustomerRetentionEngagement.customer_external_id.ilike(like_term),
+                CustomerRetentionEngagement.customer_name.ilike(like_term),
+                CustomerRetentionEngagement.note.ilike(like_term),
+                CustomerRetentionEngagement.rep_label.ilike(like_term),
+            )
+        )
+        .order_by(CustomerRetentionEngagement.created_at.desc())
+        .all()
+    )
+    customer_ids: list[str] = []
+    seen: set[str] = set()
+    for (customer_id,) in rows:
+        normalized = str(customer_id or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        customer_ids.append(normalized)
+    return customer_ids
+
+
+def _retention_saved_only_rows(
+    db: Session,
+    *,
+    customer_ids: list[str],
+    existing_customer_ids: set[str],
+) -> list[dict]:
+    rows: list[dict] = []
+    can_query_subscribers = hasattr(db, "query")
+    for customer_id in customer_ids:
+        normalized = str(customer_id or "").strip()
+        if not normalized or normalized in existing_customer_ids:
+            continue
+        subscriber = None
+        if can_query_subscribers:
+            subscriber = db.query(Subscriber).filter(Subscriber.external_id == normalized).first()
+        person = subscriber.person if subscriber and subscriber.person else None
+        rows.append(
+            {
+                "_external_id": normalized,
+                "subscriber_id": str(subscriber.id) if subscriber else "",
+                "_subscriber_number": subscriber.subscriber_number if subscriber else "",
+                "name": (
+                    (person.display_name if person else None)
+                    or (f"{person.first_name or ''} {person.last_name or ''}".strip() if person else "")
+                    or normalized
+                ),
+                "phone": (person.phone if person else "") or "",
+                "email": (person.email if person else "") or "",
+                "city": (person.city if person else "") or "",
+                "area": "",
+                "balance": 0,
+                "risk_segment": "Saved Only",
+                "days_past_due": 0,
+                "blocked_for_days": None,
+                "retention_stage": "Saved retention history",
+                "recommended_action": "Open profile and continue follow-up from saved retention history.",
+            }
+        )
+    return rows
 
 
 def _retention_customer_id(row: dict) -> str:
@@ -1137,6 +1210,7 @@ def customer_retention_tracker(
     segment: str | None = Query(None),
     segments: list[str] = Query(default=[]),
     days_past_due: str | None = Query(None),
+    search: str | None = Query(None),
 ):
     user = get_current_user(request)
     query_segments = request.query_params.getlist("segments")
@@ -1160,11 +1234,65 @@ def customer_retention_tracker(
     tracker_customer_ids = [_retention_customer_id(row) for row in tracker_rows]
     engagement_history = _retention_engagements_by_customer(db, tracker_customer_ids)
     tracker_rows = [row for row in tracker_rows if engagement_history.get(_retention_customer_id(row))]
+    tracker_rows.extend(
+        _retention_saved_only_rows(
+            db,
+            customer_ids=list(engagement_history.keys()),
+            existing_customer_ids={_retention_customer_id(row) for row in tracker_rows},
+        )
+    )
+    raw_search = request.query_params.get("search")
+    search_term = (
+        raw_search.strip() if isinstance(raw_search, str) else (search.strip() if isinstance(search, str) else "")
+    )
+    if search_term:
+        matched_customer_ids = _retention_search_customer_ids(db, search_term)
+        engagement_history.update(_retention_engagements_by_customer(db, matched_customer_ids))
+        tracker_rows.extend(
+            _retention_saved_only_rows(
+                db,
+                customer_ids=matched_customer_ids,
+                existing_customer_ids={_retention_customer_id(row) for row in tracker_rows},
+            )
+        )
+        search_casefold = search_term.casefold()
+        filtered_rows: list[dict] = []
+        for row in tracker_rows:
+            customer_id = _retention_customer_id(row)
+            latest_engagements = engagement_history.get(customer_id) or []
+            haystacks = [
+                str(row.get("name") or ""),
+                str(row.get("phone") or ""),
+                str(row.get("email") or ""),
+                customer_id,
+            ]
+            if latest_engagements:
+                latest = latest_engagements[0]
+                haystacks.extend(
+                    [
+                        str(latest.get("outcome") or ""),
+                        str(latest.get("note") or ""),
+                        str(latest.get("rep") or ""),
+                    ]
+                )
+            if any(search_casefold in value.casefold() for value in haystacks if value):
+                filtered_rows.append(row)
+        tracker_rows = filtered_rows
     tracker_rows = _retention_rows_with_pipeline(tracker_rows, engagement_history)
     tracker_rows = _filter_excluded_retention_rows(tracker_rows)
     follow_up_reminders = _retention_follow_up_reminders(tracker_rows, engagement_history)
     segment_breakdown = billing_risk_service.get_billing_risk_segment_breakdown(tracker_rows)
     filter_query = urlencode(
+        {
+            "due_soon_days": due_soon_days,
+            "high_balance_only": str(high_balance_only).lower(),
+            "segments": selected_segments,
+            "days_past_due": query_days_past_due or days_past_due,
+            "search": search_term,
+        },
+        doseq=True,
+    )
+    clear_search_query = urlencode(
         {
             "due_soon_days": due_soon_days,
             "high_balance_only": str(high_balance_only).lower(),
@@ -1194,7 +1322,9 @@ def customer_retention_tracker(
             "high_balance_only": high_balance_only,
             "selected_segments": selected_segments,
             "days_past_due": query_days_past_due or days_past_due,
+            "search": search_term,
             "filter_query": filter_query,
+            "clear_search_query": clear_search_query,
             "last_synced_at": _latest_subscriber_sync_at(db),
             "outreach_channel_targets": outreach_channel_target_options(db),
             "outreach_error": request.query_params.get("outreach_error"),
@@ -1252,6 +1382,60 @@ async def customer_retention_engagement_create(
     db.commit()
     db.refresh(engagement)
     return JSONResponse({"engagement": _retention_engagement_payload(engagement)})
+
+
+@customer_retention_router.post("/customer-retention/{customer_id}/engagements")
+def customer_retention_profile_engagement_create(
+    customer_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    customer_name: str | None = Form(default=None),
+    outcome: str = Form(...),
+    note: str | None = Form(default=None),
+    follow_up: str | None = Form(default=None),
+    rep_person_id: str | None = Form(default=None),
+    rep: str | None = Form(default=None),
+    due_soon_days: int = Form(7),
+):
+    user = get_current_user(request)
+    normalized_customer_id = str(customer_id or "").strip()
+    normalized_outcome = str(outcome or "").strip()
+    if not normalized_customer_id or not normalized_outcome:
+        raise HTTPException(status_code=400, detail="Customer and outcome are required")
+
+    rep_label = str(rep or "").strip() or None
+    rep_person_id_value = _optional_uuid(rep_person_id)
+    if rep_person_id_value is not None:
+        rep_person = db.get(Person, rep_person_id_value)
+        if rep_person is not None:
+            rep_label = (
+                str(
+                    rep_person.display_name
+                    or f"{rep_person.first_name or ''} {rep_person.last_name or ''}".strip()
+                    or rep_person.email
+                    or ""
+                ).strip()
+                or rep_label
+            )
+
+    engagement = CustomerRetentionEngagement(
+        customer_external_id=normalized_customer_id,
+        customer_name=str(customer_name or "").strip() or None,
+        outcome=normalized_outcome,
+        note=str(note or "").strip() or None,
+        follow_up_date=_parse_follow_up_date(follow_up),
+        rep_person_id=rep_person_id_value,
+        rep_label=rep_label,
+        created_by_person_id=_optional_uuid(_person_id_from_user(user)),
+        is_active=True,
+    )
+    db.add(engagement)
+    db.commit()
+
+    return RedirectResponse(
+        url=f"/admin/customer-retention/{customer_id}?due_soon_days={due_soon_days}&saved=1",
+        status_code=303,
+    )
 
 
 @customer_retention_router.get("/customer-retention/{customer_id}", response_class=HTMLResponse)
@@ -1317,6 +1501,7 @@ def customer_retention_tracker_detail(
             "pipeline_stage": pipeline_stage,
             "follow_up_due_label": follow_up_due_label,
             "rep_options": _retention_rep_options(db),
+            "saved": request.query_params.get("saved"),
             "back_url": "/admin/reports/subscribers/billing-risk",
         },
     )
