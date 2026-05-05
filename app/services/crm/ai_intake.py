@@ -43,7 +43,26 @@ AI_INTAKE_METADATA_KEY = "ai_intake"
 AI_INTAKE_HANDOFF_SENT_KEY = "handoff_sent"
 AI_INTAKE_PENDING_STATES = {"pending", "awaiting_customer", "awaiting_timeout"}
 AI_INTAKE_TERMINAL_STATES = {"resolved", "escalated", "excluded"}
-AI_INTAKE_ALLOWED_DEPARTMENTS = {"billing", "support", "sales"}
+AI_INTAKE_ALLOWED_DEPARTMENTS = {
+    "billing",
+    "billing_payment",
+    "billing_renewal",
+    "billing_reactivation",
+    "billing_adjustment",
+    "billing_general",
+    "support",
+    "sales",
+}
+AI_INTAKE_DEPARTMENT_HINTS = {
+    "billing": "General billing intent when the business uses a single billing queue.",
+    "billing_payment": "Payment confirmations, payment failures, overpayment, account reactivation after payment.",
+    "billing_renewal": "Subscription renewal, plan extension, multi-month renewal, purchase-style renewal decisions.",
+    "billing_reactivation": "Restore or reactivate service after payment or billing hold.",
+    "billing_adjustment": "Refunds, credits, compensation, invoice correction, billing adjustments.",
+    "billing_general": "Other billing questions that do not clearly fit payment, renewal, reactivation, or adjustment.",
+    "support": "Technical issues, outages, slow speed, engineer follow-up, existing service fault.",
+    "sales": "New connection, coverage, pricing for new service, package inquiry, upgrade, new order.",
+}
 SUPPORTED_CHANNELS = {
     ChannelType.whatsapp,
     ChannelType.facebook_messenger,
@@ -400,7 +419,8 @@ def _build_prompt(
     department_lines = []
     for mapping in mappings:
         tags = ", ".join(mapping.tags or [])
-        department_lines.append(f"- key={mapping.key}; label={mapping.label}; tags={tags or 'none'}")
+        hint = AI_INTAKE_DEPARTMENT_HINTS.get(mapping.key, "No extra routing hint.")
+        department_lines.append(f"- key={mapping.key}; label={mapping.label}; tags={tags or 'none'}; intent={hint}")
     transcript = []
     for item in history:
         role = "customer" if item.direction == MessageDirection.inbound else "assistant"
@@ -413,7 +433,8 @@ def _build_prompt(
     )
     system = (
         "You manage conversational CRM intake for inbound conversations.\n"
-        "Read the full transcript and decide whether the customer intent is billing, support, or sales.\n"
+        "Read the full transcript and decide the most precise configured intent bucket for this customer.\n"
+        "Prefer a billing subtype over generic billing when the transcript clearly fits payment, renewal, reactivation, or adjustment.\n"
         f"{followup_policy}\n"
         "Return strict JSON only with keys: department, confidence, reason, needs_followup, followup_question.\n"
         "department must be one of the configured keys or null.\n"
@@ -575,6 +596,11 @@ def _send_followup(
 def _handoff_message_for_department(department: str) -> str | None:
     messages = {
         "billing": "A billing specialist will be with you shortly",
+        "billing_payment": "A helpdesk agent will be with you shortly",
+        "billing_renewal": "A sales representative will be with you shortly",
+        "billing_reactivation": "A helpdesk agent will be with you shortly",
+        "billing_adjustment": "A helpdesk agent will be with you shortly",
+        "billing_general": "A helpdesk agent will be with you shortly",
         "support": "A member of our support team will be with you shortly",
         "sales": "A sales representative will be with you shortly",
     }

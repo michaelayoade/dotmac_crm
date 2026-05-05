@@ -447,7 +447,7 @@
                                       rows="6"
                                       class="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-900 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-white">{{ (cfg.department_mappings if cfg else []) | tojson(indent=2) }}</textarea>
                             <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                                Use only `billing`, `support`, and `sales` keys. When enabled, each mapping must include a `team_id`, and a fallback live team is also required.
+                                Use `support`, `sales`, legacy `billing`, or the billing split keys: `billing_payment`, `billing_renewal`, `billing_reactivation`, `billing_adjustment`, `billing_general`. When enabled, each mapping must include a `team_id`, and a fallback live team is also required.
                             </p>
                         </div>
                     </div>
