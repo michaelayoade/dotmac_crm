@@ -8,6 +8,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 from urllib.parse import quote, urlencode
 from uuid import UUID
+from xml.sax.saxutils import escape
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import APIRouter, Depends, Form, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -16,9 +18,11 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.csrf import get_csrf_token
 from app.db import get_db
+from app.models.crm import Conversation
 from app.models.dispatch import TechnicianProfile
-from app.models.person import Person
+from app.models.person import Person, PersonChannel
 from app.models.subscriber import Subscriber, SubscriberStatus
+from app.models.tickets import Ticket, TicketComment
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services import operations_sla_reports as operations_sla_reports_service
 from app.services.auth_dependencies import require_any_permission
@@ -35,6 +39,38 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
 templates = Jinja2Templates(directory="templates")
+
+_NCC_DEFAULT_START_DATE = "2026-04-28"
+_NCC_DEFAULT_END_DATE = "2026-05-04"
+_NCC_EXPORT_FILENAME = "NCC REPORTS (DOTMAC).xlsx"
+_NCC_COLUMNS = [
+    "MSISDN",
+    "First Name",
+    "Last Name",
+    "Email",
+    "Age",
+    "Gender",
+    "created date time",
+    "Subject",
+    "Category",
+    "category code (auto)",
+    "sub category code",
+    "Description (auto)",
+    "Ticket ID",
+    "Complaint type",
+    "Status",
+    "Resolved date",
+    "Resolution Note",
+    "User Note",
+    "user notes datetime",
+    "Language",
+    "Ticket source",
+    "alt phone number",
+    "created by",
+    "State",
+    "LGA",
+    "Town",
+]
 
 _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS = [
     {"value": "all", "label": "All ticket states"},
