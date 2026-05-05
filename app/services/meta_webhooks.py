@@ -430,6 +430,8 @@ def _persist_meta_attribution_to_conversation(
 ) -> None:
     if not _is_meta_ad_attribution(attribution):
         return
+    if not isinstance(attribution, dict):
+        return
     _upsert_entity_attribution_metadata(conversation, attribution=attribution, channel=channel)
     _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Meta Ad")
     if channel == ChannelType.instagram_dm:
@@ -1264,12 +1266,10 @@ def process_messenger_webhook(
 
         for messaging_event in entry.messaging:
             sender = messaging_event.sender or {}
-            sender_id = sender.get("id")
-            contact_name = (
-                sender.get("name")
-                or _fetch_profile_name(page_token, sender_id, "name", base_url)
-                or (f"Facebook User {sender_id}" if sender_id else None)
-            )
+            sender_id_value = sender.get("id")
+            sender_id = str(sender_id_value).strip() if sender_id_value is not None else None
+            profile_name = _fetch_profile_name(page_token, sender_id, "name", base_url) if sender_id else None
+            contact_name = sender.get("name") or profile_name or (f"Facebook User {sender_id}" if sender_id else None)
             event_attribution = _extract_meta_attribution(
                 messaging_event.referral,
                 messaging_event.postback,
