@@ -435,11 +435,7 @@ def _retention_saved_only_rows(
                 "_subscriber_number": subscriber.subscriber_number if subscriber else "",
                 "name": (
                     (person.display_name if person else None)
-                    or (
-                        f"{person.first_name or ''} {person.last_name or ''}".strip()
-                        if person
-                        else ""
-                    )
+                    or (f"{person.first_name or ''} {person.last_name or ''}".strip() if person else "")
                     or normalized
                 ),
                 "phone": (person.phone if person else "") or "",
