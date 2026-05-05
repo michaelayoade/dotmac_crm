@@ -98,6 +98,72 @@ def _make_config(db_session, *, scope_key, team_id=None, exclude_campaign_attrib
     return config
 
 
+def _make_split_billing_config(
+    db_session,
+    *,
+    scope_key,
+    helpdesk_team_id,
+    sales_team_id,
+    fallback_team_id,
+):
+    config = AiIntakeConfig(
+        scope_key=scope_key,
+        channel_type=ChannelType.chat_widget,
+        is_enabled=True,
+        confidence_threshold=0.75,
+        allow_followup_questions=True,
+        max_clarification_turns=1,
+        escalate_after_minutes=5,
+        exclude_campaign_attribution=True,
+        fallback_team_id=fallback_team_id,
+        department_mappings=[
+            {
+                "key": "billing_payment",
+                "label": "Billing Payment",
+                "team_id": str(helpdesk_team_id),
+                "tags": ["billing-payment"],
+                "priority": "medium",
+                "notify_email": "",
+            },
+            {
+                "key": "billing_renewal",
+                "label": "Billing Renewal",
+                "team_id": str(sales_team_id),
+                "tags": ["billing-renewal"],
+                "priority": "medium",
+                "notify_email": "",
+            },
+            {
+                "key": "billing_reactivation",
+                "label": "Billing Reactivation",
+                "team_id": str(helpdesk_team_id),
+                "tags": ["billing-reactivation"],
+                "priority": "medium",
+                "notify_email": "",
+            },
+            {
+                "key": "billing_adjustment",
+                "label": "Billing Adjustment",
+                "team_id": str(helpdesk_team_id),
+                "tags": ["billing-adjustment"],
+                "priority": "medium",
+                "notify_email": "",
+            },
+            {
+                "key": "billing_general",
+                "label": "Billing General",
+                "team_id": str(helpdesk_team_id),
+                "tags": ["billing-general"],
+                "priority": "medium",
+                "notify_email": "",
+            },
+        ],
+    )
+    db_session.add(config)
+    db_session.commit()
+    return config
+
+
 def test_make_scope_key_for_widget():
     widget_id = str(uuid.uuid4())
     assert make_scope_key(channel_type=ChannelType.chat_widget, widget_config_id=widget_id) == f"widget:{widget_id}"
@@ -258,6 +324,138 @@ def test_process_pending_intake_assigns_agents_round_robin(db_session, monkeypat
     assert assignments[1].team_id == team.id
     assert assignments[0].agent_id == first_agent.id
     assert assignments[1].agent_id == second_agent.id
+
+
+def test_process_pending_intake_routes_billing_payment_to_helpdesk(db_session, monkeypatch):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+    helpdesk_team = CrmTeam(name="Helpdesk", is_active=True)
+    sales_team = CrmTeam(name="Sales", is_active=True)
+    db_session.add_all([helpdesk_team, sales_team])
+    db_session.commit()
+    _make_split_billing_config(
+        db_session,
+        scope_key=f"widget:{widget_id}",
+        helpdesk_team_id=helpdesk_team.id,
+        sales_team_id=sales_team.id,
+        fallback_team_id=helpdesk_team.id,
+    )
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
+        lambda db, **kwargs: (
+            SimpleNamespace(
+                content='{"department":"billing_payment","confidence":0.96,"reason":"payment confirmation","needs_followup":false,"followup_question":""}'
+            ),
+            {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+    sent = {}
+
+    def _fake_send_message(db, payload, author_id=None, trace_id=None):
+        sent["body"] = payload.body
+        outbound = Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+        )
+        db.add(outbound)
+        db.commit()
+        db.refresh(outbound)
+        return outbound
+
+    monkeypatch.setattr("app.services.crm.ai_intake.send_message", _fake_send_message)
+
+    result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    assignment = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .first()
+    )
+    assert result.resolved is True
+    assert assignment is not None
+    assert assignment.team_id == helpdesk_team.id
+    assert sent["body"] == "A helpdesk agent will be with you shortly"
+
+
+def test_process_pending_intake_routes_billing_renewal_to_sales(db_session, monkeypatch):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+    helpdesk_team = CrmTeam(name="Helpdesk", is_active=True)
+    sales_team = CrmTeam(name="Sales", is_active=True)
+    db_session.add_all([helpdesk_team, sales_team])
+    db_session.commit()
+    _make_split_billing_config(
+        db_session,
+        scope_key=f"widget:{widget_id}",
+        helpdesk_team_id=helpdesk_team.id,
+        sales_team_id=sales_team.id,
+        fallback_team_id=helpdesk_team.id,
+    )
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
+        lambda db, **kwargs: (
+            SimpleNamespace(
+                content='{"department":"billing_renewal","confidence":0.96,"reason":"subscription renewal","needs_followup":false,"followup_question":""}'
+            ),
+            {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+    sent = {}
+
+    def _fake_send_message(db, payload, author_id=None, trace_id=None):
+        sent["body"] = payload.body
+        outbound = Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+        )
+        db.add(outbound)
+        db.commit()
+        db.refresh(outbound)
+        return outbound
+
+    monkeypatch.setattr("app.services.crm.ai_intake.send_message", _fake_send_message)
+
+    result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    assignment = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .first()
+    )
+    assert result.resolved is True
+    assert assignment is not None
+    assert assignment.team_id == sales_team.id
+    assert sent["body"] == "A sales representative will be with you shortly"
 
 
 def test_process_pending_intake_ignores_offline_agents_for_round_robin(db_session, monkeypatch):
@@ -463,3 +661,29 @@ def test_save_ai_intake_config_requires_fallback_team_when_enabled(db_session):
             instructions="Ask enough to identify intent.",
             department_mappings_json='[{"key":"support","label":"Support","team_id":null}]',
         )
+
+
+def test_save_ai_intake_config_accepts_split_billing_keys(db_session):
+    config = save_ai_intake_config(
+        db_session,
+        scope_key="widget:split-billing",
+        channel_type=ChannelType.chat_widget,
+        enabled=True,
+        confidence_threshold="0.75",
+        allow_followup_questions=True,
+        max_clarification_turns="1",
+        escalate_after_minutes="5",
+        exclude_campaign_attribution=True,
+        fallback_team_id=str(uuid.uuid4()),
+        instructions="Route billing precisely.",
+        department_mappings_json=(
+            '[{"key":"billing_payment","label":"Billing Payment","team_id":"'
+            + str(uuid.uuid4())
+            + '"},{"key":"billing_renewal","label":"Billing Renewal","team_id":"'
+            + str(uuid.uuid4())
+            + '"}]'
+        ),
+    )
+
+    keys = {item["key"] for item in config.department_mappings or []}
+    assert keys == {"billing_payment", "billing_renewal"}
