@@ -38,8 +38,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
 templates = Jinja2Templates(directory="templates")
 
-_NCC_DEFAULT_START_DATE = "2026-04-28"
-_NCC_DEFAULT_END_DATE = "2026-05-04"
 _NCC_EXPORT_FILENAME = "NCC REPORTS (DOTMAC).xlsx"
 _NCC_COLUMNS = [
     "MSISDN",
@@ -90,6 +88,34 @@ _ONLINE_LAST_24H_NOTIFICATION_STATE_OPTIONS = [
     {"value": "unnotified", "label": "Not Notified"},
 ]
 
+_ONLINE_LAST_24H_ACTIVITY_SEGMENT_OPTIONS = [
+    {"value": "last_24h", "label": "Last online within 24h"},
+    {"value": "active_last24_not_online", "label": "Active, last online within 24h, not currently online"},
+]
+_ONLINE_LAST_24H_WHATSAPP_TARGET_NAMES = {"dotmac fiber helpdesk"}
+_ONLINE_LAST_24H_EMAIL_TARGET_NAMES = {"sales mail", "noc mail", "support mail"}
+
+
+def _online_last_24h_allowed_target_ids(db: Session, channel: str) -> set[str]:
+    from app.services.crm.web_campaigns import outreach_channel_target_options
+
+    selected_channel = (channel or "").strip().lower()
+    allowed_names = (
+        _ONLINE_LAST_24H_WHATSAPP_TARGET_NAMES
+        if selected_channel == "whatsapp"
+        else _ONLINE_LAST_24H_EMAIL_TARGET_NAMES
+        if selected_channel == "email"
+        else set()
+    )
+    if not allowed_names:
+        return set()
+    options = outreach_channel_target_options(db).get(selected_channel, [])
+    return {
+        str(option.get("target_id") or "").strip()
+        for option in options
+        if str(option.get("name") or "").strip().lower() in allowed_names
+    }
+
 
 def _ticket_status_kpi_label(status_value: str) -> str:
     if not status_value:
@@ -123,6 +149,11 @@ def _filter_online_last_24h_notification_state(rows: list[dict], notification_st
     if normalized == "unnotified":
         return [row for row in rows if str(row.get("notification_state") or "").strip().lower() == "unnotified"]
     return rows
+
+
+def _sort_online_last_24h_rows(rows: list[dict]) -> list[dict]:
+    """Sort report rows by last seen, newest first."""
+    return sorted(rows, key=lambda row: str(row.get("last_seen_at_iso") or row.get("last_seen_at") or ""), reverse=True)
 
 
 def _normalize_segment_filters(segments: list[str] | str | None, segment: str | None) -> list[str]:
@@ -621,6 +652,20 @@ def _title_case_report_value(value: object) -> str:
         "Fct": "FCT",
         "Lga": "LGA",
         "Id": "ID",
+        "Lan": "LAN",
+        "Wan": "WAN",
+        "Wifi": "WiFi",
+        "Ip": "IP",
+        "Dns": "DNS",
+        "Onu": "ONU",
+        "Ont": "ONT",
+        "Olt": "OLT",
+        "Los": "LOS",
+        "Cpe": "CPE",
+        "Noc": "NOC",
+        "Crm": "CRM",
+        "Sms": "SMS",
+        "Whatsapp": "WhatsApp",
     }
     for source, target in replacements.items():
         titled = titled.replace(source, target)
@@ -646,6 +691,104 @@ def _normalize_msisdn(value: str | None) -> str:
     if digits.startswith("234"):
         return f"+{digits}"
     return digits
+
+
+def _complete_ncc_msisdn_or_empty(value: str | None) -> str:
+    normalized = _normalize_msisdn(value)
+    if not normalized:
+        return ""
+    digits = "".join(char for char in normalized if char.isdigit())
+    if normalized.startswith("+234"):
+        return normalized if len(digits) == 13 else ""
+    if normalized.startswith("0"):
+        return normalized if len(digits) == 11 else ""
+    return normalized if 10 <= len(digits) <= 15 else ""
+
+
+_NCC_EMPTY_MARKERS = {
+    "-",
+    "--",
+    "---",
+    "n/a",
+    "na",
+    "nil",
+    "none",
+    "null",
+    "unknown",
+    "not available",
+    "not applicable",
+    "not specified",
+}
+
+
+def _ncc_clean_basic_text(value: object) -> str:
+    cleaned = _clean_text(value)
+    if cleaned.lower() in _NCC_EMPTY_MARKERS:
+        return ""
+    return cleaned
+
+
+def _ncc_clean_email(value: object) -> str:
+    email = _ncc_clean_basic_text(value).lower()
+    if not email or "@" not in email:
+        return ""
+    local_part, _separator, domain = email.partition("@")
+    if not local_part or "." not in domain:
+        return ""
+    return email
+
+
+def _ncc_clean_title_text(value: object) -> str:
+    cleaned = _ncc_clean_basic_text(value)
+    if not cleaned:
+        return ""
+    return _title_case_report_value(cleaned)
+
+
+def _ncc_clean_name(value: object) -> str:
+    cleaned = _ncc_clean_basic_text(value)
+    if not cleaned:
+        return ""
+    return _title_case_name(cleaned)
+
+
+def _ncc_clean_long_text(value: object) -> str:
+    cleaned = _ncc_clean_basic_text(value)
+    if not cleaned:
+        return ""
+    if cleaned.isupper():
+        cleaned = cleaned.lower()
+    return cleaned[:1].upper() + cleaned[1:]
+
+
+def _clean_ncc_record(record: dict[str, str]) -> dict[str, str]:
+    cleaned = {key: _ncc_clean_basic_text(value) for key, value in record.items()}
+
+    cleaned["MSISDN"] = _complete_ncc_msisdn_or_empty(cleaned.get("MSISDN"))
+    cleaned["alt phone number"] = _complete_ncc_msisdn_or_empty(cleaned.get("alt phone number"))
+    cleaned["First Name"] = _ncc_clean_name(cleaned.get("First Name"))
+    cleaned["Last Name"] = _ncc_clean_name(cleaned.get("Last Name"))
+    cleaned["Email"] = _ncc_clean_email(cleaned.get("Email"))
+
+    for column in (
+        "Subject",
+        "Category",
+        "Complaint type",
+        "Status",
+        "Ticket source",
+        "created by",
+        "State",
+        "LGA",
+        "Town",
+        "Gender",
+        "Language",
+    ):
+        cleaned[column] = _ncc_clean_title_text(cleaned.get(column))
+
+    for column in ("Description (auto)", "Resolution Note", "User Note"):
+        cleaned[column] = _ncc_clean_long_text(cleaned.get(column))
+
+    return cleaned
 
 
 def _normalize_person_name_parts(first_name: str, last_name: str) -> tuple[str, str]:
@@ -963,20 +1106,27 @@ def _ticket_notes(ticket: Ticket) -> tuple[str, str, str]:
     return resolution_note, user_note, user_note_dt
 
 
+def _default_ncc_date_values() -> tuple[str, str]:
+    end_date = datetime.now(UTC).date()
+    start_date = end_date - timedelta(days=7)
+    return start_date.isoformat(), end_date.isoformat()
+
+
 def _parse_ncc_window(start_date: str | None, end_date: str | None) -> tuple[datetime, datetime, str, str]:
-    start_value = (start_date or _NCC_DEFAULT_START_DATE).strip() or _NCC_DEFAULT_START_DATE
-    end_value = (end_date or _NCC_DEFAULT_END_DATE).strip() or _NCC_DEFAULT_END_DATE
+    default_start, default_end = _default_ncc_date_values()
+    start_value = (start_date or default_start).strip() or default_start
+    end_value = (end_date or default_end).strip() or default_end
 
     try:
         start_dt = datetime.fromisoformat(start_value).replace(tzinfo=UTC)
     except ValueError:
-        start_value = _NCC_DEFAULT_START_DATE
+        start_value = default_start
         start_dt = datetime.fromisoformat(start_value).replace(tzinfo=UTC)
 
     try:
         end_dt = datetime.fromisoformat(end_value).replace(tzinfo=UTC)
     except ValueError:
-        end_value = _NCC_DEFAULT_END_DATE
+        end_value = default_end
         end_dt = datetime.fromisoformat(end_value).replace(tzinfo=UTC)
 
     end_dt = end_dt.replace(hour=23, minute=59, second=59)
@@ -1043,13 +1193,15 @@ def _build_ncc_records(db: Session, start_dt: datetime, end_dt: datetime) -> lis
 
         person = _ticket_primary_person(ticket)
         first_name, last_name = _ticket_name_parts(ticket, person)
+        if not first_name and not last_name:
+            continue
         person_channels = channels_by_person.get(person.id, []) if person is not None else []
         resolution_note, user_note, user_note_dt = _ticket_notes(ticket)
         lga, town, state = _map_ncc_location(ticket.region)
 
-        records.append(
+        record = _clean_ncc_record(
             {
-                "MSISDN": _normalize_msisdn(person.phone if person else None),
+                "MSISDN": _complete_ncc_msisdn_or_empty(person.phone if person else None),
                 "First Name": first_name,
                 "Last Name": last_name,
                 "Email": _clean_text(person.email).lower() if person and person.email else "",
@@ -1073,7 +1225,7 @@ def _build_ncc_records(db: Session, start_dt: datetime, end_dt: datetime) -> lis
                 "user notes datetime": user_note_dt,
                 "Language": "English",
                 "Ticket source": _title_case_report_value(_display_enum(ticket.channel)),
-                "alt phone number": _normalize_msisdn(_ticket_alt_phone(person, person_channels)),
+                "alt phone number": _complete_ncc_msisdn_or_empty(_ticket_alt_phone(person, person_channels)),
                 "created by": _title_case_report_value(_person_name(ticket.created_by)),
                 "State": state,
                 "LGA": lga,
@@ -1082,6 +1234,9 @@ def _build_ncc_records(db: Session, start_dt: datetime, end_dt: datetime) -> lis
                 "_status_variant": _ncc_status_variant(ticket),
             }
         )
+        if not record["First Name"] and not record["Last Name"]:
+            continue
+        records.append(record)
     return records
 
 
@@ -1143,8 +1298,8 @@ def quarterly_report(
 def ncc_reports_page(
     request: Request,
     db: Session = Depends(get_db),
-    start_date: str | None = Query(_NCC_DEFAULT_START_DATE),
-    end_date: str | None = Query(_NCC_DEFAULT_END_DATE),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
 ):
     user = get_current_user(request)
     start_dt, end_dt, start_value, end_value = _parse_ncc_window(start_date, end_date)
@@ -1174,8 +1329,8 @@ def ncc_reports_page(
 )
 def ncc_reports_export(
     db: Session = Depends(get_db),
-    start_date: str | None = Query(_NCC_DEFAULT_START_DATE),
-    end_date: str | None = Query(_NCC_DEFAULT_END_DATE),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
 ):
     start_dt, end_dt, _start_value, _end_value = _parse_ncc_window(start_date, end_date)
     records = _ncc_export_rows(_build_ncc_records(db, start_dt, end_dt))
@@ -1455,10 +1610,12 @@ def subscriber_online_last_24h(
     search: str | None = Query(None),
     ticket_status: str | None = Query("all"),
     notification_state: str | None = Query("all"),
+    activity_segment: str | None = Query("active_last24_not_online"),
 ):
     """Subscribers with online/session activity in the last 24 hours."""
     from app.services import subscriber_notifications as subscriber_notifications_service
     from app.services import subscriber_reports as sr
+    from app.services.crm.web_campaigns import outreach_channel_target_options
 
     user = get_current_user(request)
     filter_opts = sr.overview_filter_options(db)
@@ -1476,6 +1633,10 @@ def subscriber_online_last_24h(
     valid_notification_values = {item["value"] for item in _ONLINE_LAST_24H_NOTIFICATION_STATE_OPTIONS}
     if selected_notification_state not in valid_notification_values:
         selected_notification_state = "all"
+    selected_activity_segment = (activity_segment or "active_last24_not_online").strip().lower()
+    valid_activity_segments = {item["value"] for item in _ONLINE_LAST_24H_ACTIVITY_SEGMENT_OPTIONS}
+    if selected_activity_segment not in valid_activity_segments:
+        selected_activity_segment = "active_last24_not_online"
     search_value = (search or "").strip()
 
     online_customers = sr.online_customers_last_24h_rows(
@@ -1484,10 +1645,12 @@ def subscriber_online_last_24h(
         search=search_value,
         ticket_status=selected_ticket_status,
         notification_state=selected_notification_state,
+        activity_segment=selected_activity_segment,
         limit=None,
     )
     online_customers = subscriber_notifications_service.enrich_notification_rows(online_customers, db)
     online_customers = _filter_online_last_24h_notification_state(online_customers, selected_notification_state)
+    online_customers = _sort_online_last_24h_rows(online_customers)
 
     return templates.TemplateResponse(
         "admin/reports/subscriber_online_last_24h.html",
@@ -1510,6 +1673,9 @@ def subscriber_online_last_24h(
             "ticket_status_options": _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS,
             "selected_notification_state": selected_notification_state,
             "notification_state_options": _ONLINE_LAST_24H_NOTIFICATION_STATE_OPTIONS,
+            "selected_activity_segment": selected_activity_segment,
+            "activity_segment_options": _ONLINE_LAST_24H_ACTIVITY_SEGMENT_OPTIONS,
+            "outreach_channel_targets": outreach_channel_target_options(db),
             "current_query": request.url.path + (f"?{request.url.query}" if request.url.query else ""),
         },
     )
@@ -1595,12 +1761,154 @@ def subscriber_online_last_24h_notify(
 
     channel_label = channel.strip().lower()
     if channel_label == "both":
-        message = "Email and SMS notifications saved in test queue. No customer message was sent."
-    elif channel_label == "sms":
-        message = "SMS notification saved in test queue. No customer message was sent."
+        message = "Email and WhatsApp notifications saved in test queue. No customer message was sent."
+    elif channel_label == "whatsapp":
+        message = "WhatsApp notification saved in test queue. No customer message was sent."
     else:
         message = "Email notification saved in test queue. No customer message was sent."
     return _toast_redirect(next_url, message=message)
+
+
+@router.post("/subscribers/online-last-24h/notify/bulk")
+def subscriber_online_last_24h_bulk_notify(
+    request: Request,
+    subscriber_ids: str = Form(...),
+    channel: str = Form(...),
+    email_subject: str | None = Form(None),
+    email_body: str | None = Form(None),
+    sms_body: str | None = Form(None),
+    scheduled_local_at: str | None = Form(None),
+    next_url: str = Form("/admin/reports/subscribers/online-last-24h"),
+    db: Session = Depends(get_db),
+):
+    from app.services import subscriber_notifications as subscriber_notifications_service
+
+    if not next_url.startswith("/admin/reports/subscribers/online-last-24h"):
+        next_url = "/admin/reports/subscribers/online-last-24h"
+
+    parsed_ids: list[UUID] = []
+    for raw_id in subscriber_ids.split(","):
+        try:
+            parsed_ids.append(UUID(raw_id.strip()))
+        except (TypeError, ValueError):
+            continue
+    if not parsed_ids:
+        return _toast_redirect(next_url, message="Select at least one CRM-linked customer.", toast_type="error")
+
+    user = get_current_user(request)
+    raw_user_id = user.get("id")
+    raw_person_id = user.get("person_id")
+    result = subscriber_notifications_service.queue_bulk_subscriber_notifications(
+        db,
+        subscriber_ids=parsed_ids,
+        channel_value=channel,
+        email_subject=email_subject,
+        email_body=email_body,
+        sms_body=sms_body,
+        scheduled_local_text=scheduled_local_at,
+        sent_by_user_id=UUID(str(raw_user_id)) if raw_user_id else None,
+        sent_by_person_id=UUID(str(raw_person_id)) if raw_person_id else None,
+    )
+    queued = int(result.get("queued", 0))
+    skipped = int(result.get("skipped", 0))
+    selected = int(result.get("selected", 0))
+    toast_type = "success" if queued else "error"
+    message = f"Bulk notification queued {queued} draft(s) for {selected} selected customer(s)."
+    if skipped:
+        message = (
+            f"{message} Skipped {skipped} customer(s) due to missing contact details or recent duplicate notifications."
+        )
+    return _toast_redirect(next_url, message=message, toast_type=toast_type)
+
+
+@router.post("/subscribers/online-last-24h/outreach")
+def subscriber_online_last_24h_create_outreach(
+    request: Request,
+    db: Session = Depends(get_db),
+    name: str = Form("Online Last 24H Outreach"),
+    channel: str = Form("whatsapp"),
+    channel_target_id: str = Form(""),
+    subscriber_id: list[str] = Form(default=[]),
+    next_url: str = Form("/admin/reports/subscribers/online-last-24h"),
+):
+    from app.services.crm.web_campaigns import create_online_last_24h_outreach_campaign
+
+    if not next_url.startswith("/admin/reports/subscribers/online-last-24h"):
+        next_url = "/admin/reports/subscribers/online-last-24h"
+
+    selected_subscriber_ids: list[str] = []
+    for raw_id in subscriber_id:
+        try:
+            selected_subscriber_ids.append(str(UUID(str(raw_id).strip())))
+        except (TypeError, ValueError):
+            continue
+    if not selected_subscriber_ids:
+        return _toast_redirect(next_url, message="Select at least one CRM-linked customer.", toast_type="error")
+    allowed_target_ids = _online_last_24h_allowed_target_ids(db, channel)
+    if str(channel_target_id or "").strip() not in allowed_target_ids:
+        return _toast_redirect(
+            next_url,
+            message="Select an approved Send From target for this channel.",
+            toast_type="error",
+            status_code=303,
+        )
+
+    user = get_current_user(request)
+    try:
+        campaign = create_online_last_24h_outreach_campaign(
+            db,
+            name=name,
+            channel=channel,
+            channel_target_id=channel_target_id,
+            subscriber_ids=selected_subscriber_ids,
+            created_by_id=str(user.get("person_id") or "") or None,
+            source_filters={
+                "query": request.headers.get("referer", ""),
+                "selected_count": len(selected_subscriber_ids),
+                "source_report": "online_last_24h",
+            },
+        )
+    except Exception as exc:
+        db.rollback()
+        detail = getattr(exc, "detail", None) or str(exc)
+        return _toast_redirect(next_url, message=str(detail), toast_type="error", status_code=303)
+
+    return RedirectResponse(url=f"/admin/crm/campaigns/{campaign.id}", status_code=303)
+
+
+@router.post("/subscribers/online-last-24h/notify/test-send")
+def subscriber_online_last_24h_test_send(
+    request: Request,
+    subscriber_id: UUID = Form(...),
+    next_url: str = Form("/admin/reports/subscribers/online-last-24h"),
+    db: Session = Depends(get_db),
+):
+    from app.services import subscriber_notifications as subscriber_notifications_service
+
+    if not next_url.startswith("/admin/reports/subscribers/online-last-24h"):
+        next_url = "/admin/reports/subscribers/online-last-24h"
+
+    user = get_current_user(request)
+    raw_person_id = user.get("person_id")
+    try:
+        result = subscriber_notifications_service.approve_and_send_test_notifications(
+            db,
+            subscriber_id=subscriber_id,
+            approved_by_person_id=UUID(str(raw_person_id)) if raw_person_id else None,
+        )
+    except Exception as exc:
+        db.rollback()
+        detail = getattr(exc, "detail", None) or str(exc)
+        return _toast_redirect(next_url, message=str(detail), toast_type="error", status_code=303)
+
+    sent = int(result.get("sent", 0))
+    failed = int(result.get("failed", 0))
+    toast_type = "success" if sent and not failed else "error"
+    return _toast_redirect(
+        next_url,
+        message=f"Approve & Send submitted for test account: {sent} sent to outreach delivery, {failed} failed.",
+        toast_type=toast_type,
+    )
 
 
 @router.get("/subscribers/online-last-24h/export")
@@ -1611,6 +1919,7 @@ def subscriber_online_last_24h_export(
     search: str | None = Query(None),
     ticket_status: str | None = Query("all"),
     notification_state: str | None = Query("all"),
+    activity_segment: str | None = Query("active_last24_not_online"),
 ):
     """Export last-24h online subscribers report."""
     from app.services import subscriber_notifications as subscriber_notifications_service
@@ -1630,6 +1939,10 @@ def subscriber_online_last_24h_export(
     valid_notification_values = {item["value"] for item in _ONLINE_LAST_24H_NOTIFICATION_STATE_OPTIONS}
     if selected_notification_state not in valid_notification_values:
         selected_notification_state = "all"
+    selected_activity_segment = (activity_segment or "active_last24_not_online").strip().lower()
+    valid_activity_segments = {item["value"] for item in _ONLINE_LAST_24H_ACTIVITY_SEGMENT_OPTIONS}
+    if selected_activity_segment not in valid_activity_segments:
+        selected_activity_segment = "active_last24_not_online"
 
     online_customers = sr.online_customers_last_24h_rows(
         db,
@@ -1637,10 +1950,12 @@ def subscriber_online_last_24h_export(
         search=(search or "").strip(),
         ticket_status=selected_ticket_status,
         notification_state=selected_notification_state,
+        activity_segment=selected_activity_segment,
         limit=None,
     )
     online_customers = subscriber_notifications_service.enrich_notification_rows(online_customers, db)
     online_customers = _filter_online_last_24h_notification_state(online_customers, selected_notification_state)
+    online_customers = _sort_online_last_24h_rows(online_customers)
 
     export_rows = [
         {
@@ -1652,11 +1967,17 @@ def subscriber_online_last_24h_export(
             "Phone": row.get("phone", ""),
             "Last Seen At": row.get("last_seen_at", ""),
             "Last Activity": row.get("last_activity", ""),
+            "Currently Online": "Yes" if row.get("currently_online") else "No",
             "Ticket Status": row.get("ticket_status", ""),
         }
         for row in online_customers
     ]
-    filename = f"online_customers_last_24h_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
+    filename_prefix = (
+        "active_last24_not_currently_online"
+        if selected_activity_segment == "active_last24_not_online"
+        else "online_customers_last_24h"
+    )
+    filename = f"{filename_prefix}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
     return _csv_response(export_rows, filename)
 
 

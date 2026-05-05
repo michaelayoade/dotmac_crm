@@ -29,6 +29,8 @@ from app.models.workforce import WorkOrder, WorkOrderStatus
 # Report 1: Subscriber Overview
 # =====================================================================
 
+_ONLINE_REPORT_TEST_SUBSCRIBER_NUMBER = "TEST-NOTIFY-001"
+
 
 class ConversionBucket(TypedDict):
     label: str
@@ -76,20 +78,70 @@ def online_customers_last_24h_count(db: Session, subscriber_ids: list | None = N
     return _online_customers_last_24h(db, subscriber_ids=subscriber_ids)
 
 
+def _online_last_24h_test_account_row(db: Session, now: datetime) -> dict[str, Any] | None:
+    subscriber = db.scalar(
+        select(Subscriber)
+        .where(
+            Subscriber.subscriber_number == _ONLINE_REPORT_TEST_SUBSCRIBER_NUMBER,
+            Subscriber.is_active.is_(True),
+        )
+        .limit(1)
+    )
+    if subscriber is None:
+        return None
+    person = db.get(Person, subscriber.person_id) if subscriber.person_id else None
+    display_name = (
+        person.display_name
+        if person and person.display_name
+        else f"{person.first_name or ''} {person.last_name or ''}".strip()
+        if person
+        else ""
+    )
+    return {
+        "subscriber_id": str(subscriber.id),
+        "can_notify": True,
+        "id": subscriber.subscriber_number or str(subscriber.id),
+        "name": display_name or "TEST ACCOUNT - Notify Verification",
+        "subscriber_number": subscriber.subscriber_number or "",
+        "plan": subscriber.service_plan or "",
+        "status": subscriber.status.value if subscriber.status else "active",
+        "region": _first_nonempty_text(subscriber.service_region, subscriber.service_city),
+        "email": person.email if person else "",
+        "phone": person.phone if person and person.phone else "",
+        "avatar_url": person.avatar_url if person and person.avatar_url else "",
+        "timezone": person.timezone if person and person.timezone else "Africa/Lagos",
+        "last_seen_at": _format_datetime_value(now),
+        "last_seen_at_iso": now.isoformat(),
+        "last_activity": "Test notification verification account",
+        "currently_online": False,
+        "ticket_id": "",
+        "ticket_title": "",
+        "ticket_status": "",
+        "notification_channel": "",
+        "notification_status": "",
+        "notification_state": "unnotified",
+        "notification_sent_at": "",
+        "is_test_account": True,
+    }
+
+
 def online_customers_last_24h_rows(
     db: Session,
     subscriber_ids: list | None = None,
     search: str | None = None,
     ticket_status: str | None = None,
     notification_state: str | None = None,
+    activity_segment: str | None = None,
     limit: int | None = 200,
 ) -> list[dict]:
     """Return subscribers with latest online activity in the last 24 hours plus ticket/notification context."""
     now = datetime.now(UTC)
     start = now - timedelta(hours=24)
+    normalized_activity_segment = (activity_segment or "last_24h").strip().lower()
+    active_last24_not_online_only = normalized_activity_segment == "active_last24_not_online"
 
     # Primary source for this report: live Splynx customer LAST ONLINE.
-    from app.services.splynx import fetch_customers
+    from app.services.splynx import fetch_customers, fetch_online_customers
 
     def _parse_online_dt(value: object) -> datetime | None:
         text = str(value or "").strip()
@@ -283,6 +335,7 @@ def online_customers_last_24h_rows(
             serialized.append(
                 {
                     "subscriber_id": str(row.id),
+                    "can_notify": True,
                     "id": row.subscriber_number or str(row.id),
                     "name": _clean_report_name(raw_name),
                     "subscriber_number": row.subscriber_number or "",
@@ -312,7 +365,19 @@ def online_customers_last_24h_rows(
     # Use Splynx LAST ONLINE and enrich rows with local CRM ticket status.
     customers = fetch_customers(db)
     if not isinstance(customers, list) or not customers:
-        return results
+        return [] if active_last24_not_online_only else results
+
+    online_customers = fetch_online_customers(db)
+    online_customer_ids = {
+        str(row.get("customer_id") or "").strip()
+        for row in online_customers
+        if isinstance(row, Mapping) and str(row.get("customer_id") or "").strip()
+    }
+    online_customer_logins = {
+        str(row.get("login") or "").strip()
+        for row in online_customers
+        if isinstance(row, Mapping) and str(row.get("login") or "").strip()
+    }
 
     customer_online_map: dict[tuple[str, str], datetime] = {}
     customer_by_external: dict[str, dict[str, Any]] = {}
@@ -329,12 +394,19 @@ def online_customers_last_24h_rows(
         external_id = str(customer.get("id") or "").strip()
         login = str(customer.get("login") or "").strip()
         email = str(customer.get("email") or "").strip().lower()
+        currently_online = bool(
+            (external_id and external_id in online_customer_ids) or (login and login in online_customer_logins)
+        )
+        status_value = str(customer.get("status") or "").strip().lower()
+        if active_last24_not_online_only and (status_value != "active" or currently_online):
+            continue
         customer_payload = {
             "external_id": external_id,
             "login": login,
             "email": email,
             "name": str(customer.get("name") or "").strip(),
-            "status": str(customer.get("status") or "").strip().lower(),
+            "status": status_value,
+            "currently_online": currently_online,
             "last_seen_at": last_online,
         }
         if external_id:
@@ -496,6 +568,7 @@ def online_customers_last_24h_rows(
         ticket_id_value, raw_ticket_status = ticket_match
         row = {
             "subscriber_id": matched_subscriber_id or str(customer.get("external_id") or customer.get("login") or ""),
+            "can_notify": bool(matched_subscriber_id),
             "id": str(customer.get("external_id") or customer.get("login") or ""),
             "name": _clean_report_name(str(customer.get("name") or "").strip() or "Unknown"),
             "subscriber_number": str(customer.get("login") or ""),
@@ -509,6 +582,7 @@ def online_customers_last_24h_rows(
             "last_seen_at": _format_datetime_value(last_seen_value),
             "last_seen_at_iso": last_seen_value.isoformat(),
             "last_activity": _format_datetime_value(last_seen_value),
+            "currently_online": bool(customer.get("currently_online")),
             "ticket_id": ticket_id_value,
             "ticket_title": "",
             "ticket_status": raw_ticket_status.replace("_", " ").title() if raw_ticket_status else "",
@@ -537,8 +611,13 @@ def online_customers_last_24h_rows(
         ]
 
     live_rows.sort(key=lambda row: str(row.get("last_seen_at_iso") or ""), reverse=True)
+    test_row = _online_last_24h_test_account_row(db, now)
+    if test_row is not None and not search_text:
+        live_rows.insert(0, test_row)
     if limit is not None:
         live_rows = live_rows[:limit]
+    if active_last24_not_online_only:
+        return live_rows
     return live_rows if live_rows else results
 
 

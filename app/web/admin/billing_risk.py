@@ -906,6 +906,39 @@ def _optional_uuid(value: object):
         raise HTTPException(status_code=400, detail="Invalid person reference") from exc
 
 
+def _resolve_subscriber_ids(db: Session, values: list[str]) -> list[str]:
+    normalized_values = [str(value).strip() for value in values if str(value).strip()]
+    if not normalized_values:
+        return []
+
+    resolved_ids: list[str] = []
+    unresolved_values: list[str] = []
+    for value in normalized_values:
+        try:
+            resolved_ids.append(str(coerce_uuid(value)))
+        except ValueError:
+            unresolved_values.append(value)
+
+    if unresolved_values:
+        rows = db.execute(
+            select(Subscriber.external_id, Subscriber.id).where(Subscriber.external_id.in_(unresolved_values))
+        ).all()
+        id_by_external_id = {str(external_id or "").strip(): str(subscriber_id) for external_id, subscriber_id in rows}
+        for value in unresolved_values:
+            subscriber_id = id_by_external_id.get(value)
+            if subscriber_id:
+                resolved_ids.append(subscriber_id)
+
+    unique_ids: list[str] = []
+    seen: set[str] = set()
+    for value in resolved_ids:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique_ids.append(value)
+    return unique_ids
+
+
 def _retention_tracker_rows(churn_rows: list[dict], *, limit: int = 100) -> list[dict]:
     segment_priority = {
         "Suspended": 0,
@@ -1592,6 +1625,12 @@ def customer_retention_create_outreach(
             url=_append_query_flag(next_url, "outreach_error", str(exc.detail)),
             status_code=303,
         )
+    except Exception:
+        logger.exception("Failed to create billing risk outreach campaign")
+        return RedirectResponse(
+            url=_append_query_flag(next_url, "outreach_error", "Unable to create outreach draft"),
+            status_code=303,
+        )
 
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign.id}", status_code=303)
 
@@ -1630,7 +1669,7 @@ def subscriber_billing_risk_create_outreach(
     ):
         next_url = "/admin/reports/subscribers/billing-risk"
 
-    selected_subscriber_ids = [str(value).strip() for value in subscriber_id if str(value).strip()]
+    selected_subscriber_ids = _resolve_subscriber_ids(db, [str(value).strip() for value in subscriber_id if str(value).strip()])
     if not selected_subscriber_ids:
         return RedirectResponse(
             url=_append_query_flag(next_url, "outreach_error", "no_selection"),
@@ -1742,6 +1781,7 @@ def subscriber_billing_risk_rows(
             "has_next": has_next,
             "enterprise_mrr_threshold": ENTERPRISE_MRR_THRESHOLD,
             "outreach_channel_targets": outreach_channel_target_options(db),
+            "csrf_token": get_csrf_token(request),
         },
     )
 
