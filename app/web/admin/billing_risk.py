@@ -422,11 +422,14 @@ def _retention_saved_only_rows(
     existing_customer_ids: set[str],
 ) -> list[dict]:
     rows: list[dict] = []
+    can_query_subscribers = hasattr(db, "query")
     for customer_id in customer_ids:
         normalized = str(customer_id or "").strip()
         if not normalized or normalized in existing_customer_ids:
             continue
-        subscriber = db.query(Subscriber).filter(Subscriber.external_id == normalized).first()
+        subscriber = None
+        if can_query_subscribers:
+            subscriber = db.query(Subscriber).filter(Subscriber.external_id == normalized).first()
         person = subscriber.person if subscriber and subscriber.person else None
         rows.append(
             {
@@ -1229,6 +1232,13 @@ def customer_retention_tracker(
     tracker_customer_ids = [_retention_customer_id(row) for row in tracker_rows]
     engagement_history = _retention_engagements_by_customer(db, tracker_customer_ids)
     tracker_rows = [row for row in tracker_rows if engagement_history.get(_retention_customer_id(row))]
+    tracker_rows.extend(
+        _retention_saved_only_rows(
+            db,
+            customer_ids=list(engagement_history.keys()),
+            existing_customer_ids={_retention_customer_id(row) for row in tracker_rows},
+        )
+    )
     search_term = str(search or "").strip()
     if search_term:
         matched_customer_ids = _retention_search_customer_ids(db, search_term)
