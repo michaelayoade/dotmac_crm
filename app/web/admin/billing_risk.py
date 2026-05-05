@@ -1229,7 +1229,10 @@ def customer_retention_tracker(
     tracker_customer_ids = [_retention_customer_id(row) for row in tracker_rows]
     engagement_history = _retention_engagements_by_customer(db, tracker_customer_ids)
     tracker_rows = [row for row in tracker_rows if engagement_history.get(_retention_customer_id(row))]
-    search_term = str(search or "").strip()
+    query_search = request.query_params.get("search")
+    search_term = (
+        query_search.strip() if query_search is not None else (search.strip() if isinstance(search, str) else "")
+    )
     if search_term:
         matched_customer_ids = _retention_search_customer_ids(db, search_term)
         engagement_history.update(_retention_engagements_by_customer(db, matched_customer_ids))
