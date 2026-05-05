@@ -11,11 +11,11 @@ from app.models.crm.conversation import Conversation, ConversationAssignment, Me
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.models.person import Person
+from app.services.crm import ai_intake as ai_intake_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm.ai_intake import (
     AI_INTAKE_METADATA_KEY,
     AiIntakeResult,
-    _send_handoff_message,
     make_scope_key,
     process_pending_intake,
 )
@@ -105,7 +105,10 @@ def _send_resolved_ai_handoff_if_missing(
     department = state.get("department")
     if not isinstance(department, str) or not department.strip():
         return
-    _send_handoff_message(
+    send_handoff = getattr(ai_intake_service, "_send_handoff_message", None)
+    if not callable(send_handoff):
+        return
+    send_handoff(
         db,
         conversation=conversation,
         message=message,
