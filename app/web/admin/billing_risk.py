@@ -1669,7 +1669,9 @@ def subscriber_billing_risk_create_outreach(
     ):
         next_url = "/admin/reports/subscribers/billing-risk"
 
-    selected_subscriber_ids = _resolve_subscriber_ids(db, [str(value).strip() for value in subscriber_id if str(value).strip()])
+    selected_subscriber_ids = _resolve_subscriber_ids(
+        db, [str(value).strip() for value in subscriber_id if str(value).strip()]
+    )
     if not selected_subscriber_ids:
         return RedirectResponse(
             url=_append_query_flag(next_url, "outreach_error", "no_selection"),

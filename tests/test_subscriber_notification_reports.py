@@ -501,7 +501,10 @@ def test_subscriber_online_last_24h_outreach_route_creates_campaign(db_session):
     assert response.headers["location"] == f"/admin/crm/campaigns/{campaign.id}"
     assert campaign.metadata_["source_report"] == "online_last_24h"
     assert campaign.metadata_["audience_snapshot_count"] == 1
-    assert campaign.body_text == "Hi {{first_name}}, we saw activity at recent activity. If you need help, email support@dotmac.ng."
+    assert (
+        campaign.body_text
+        == "Hi {{first_name}}, we saw activity at recent activity. If you need help, email support@dotmac.ng."
+    )
 
 
 def test_approve_and_send_test_notifications_sends_only_test_account(db_session):
