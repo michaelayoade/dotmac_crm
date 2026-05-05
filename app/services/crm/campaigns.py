@@ -1030,6 +1030,8 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
                                 "campaign_kind": _OUTREACH_KIND,
                                 "source_report": campaign_source_report,
                                 "retention_customer_id": retention_customer_id or None,
+                                "outreach_owner_person_id": str(campaign.created_by_id) if campaign.created_by_id else None,
+                                "preferred_channel_target_id": _outreach_channel_target_id(campaign),
                             },
                         ),
                     )
@@ -1043,6 +1045,8 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
                         metadata["source_report"] = campaign_source_report
                     if retention_customer_id:
                         metadata["retention_customer_id"] = retention_customer_id
+                    if campaign.created_by_id:
+                        metadata["outreach_owner_person_id"] = str(campaign.created_by_id)
                     if _outreach_channel_target_id(campaign):
                         metadata["preferred_channel_target_id"] = _outreach_channel_target_id(campaign)
                     conversation.metadata_ = metadata
