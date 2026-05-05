@@ -389,6 +389,8 @@ def _retention_search_customer_ids(db: Session, search: str) -> list[str]:
     term = str(search or "").strip()
     if not term:
         return []
+    if not hasattr(db, "query"):
+        return []
     like_term = f"%{term}%"
     rows = (
         db.query(CustomerRetentionEngagement.customer_external_id)
@@ -1239,7 +1241,10 @@ def customer_retention_tracker(
             existing_customer_ids={_retention_customer_id(row) for row in tracker_rows},
         )
     )
-    search_term = str(search or "").strip()
+    raw_search = request.query_params.get("search")
+    search_term = (
+        raw_search.strip() if isinstance(raw_search, str) else (search.strip() if isinstance(search, str) else "")
+    )
     if search_term:
         matched_customer_ids = _retention_search_customer_ids(db, search_term)
         engagement_history.update(_retention_engagements_by_customer(db, matched_customer_ids))
