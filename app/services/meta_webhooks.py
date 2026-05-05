@@ -1431,7 +1431,11 @@ def process_messenger_webhook(
                 metadata["attribution"] = attribution_metadata
             if external_ref:
                 metadata["provider_message_id"] = external_ref
-            contact_name = contact_name or (message.get("from", {}) if isinstance(message.get("from"), dict) else {}).get("name") or f"Facebook User {sender_id}"
+            contact_name = (
+                contact_name
+                or (message.get("from", {}) if isinstance(message.get("from"), dict) else {}).get("name")
+                or f"Facebook User {sender_id}"
+            )
             parsed = FacebookMessengerWebhookPayload(
                 contact_address=sender_id,
                 contact_name=contact_name,
