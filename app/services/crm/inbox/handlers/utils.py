@@ -11,6 +11,7 @@ from app.models.crm.conversation import Conversation, ConversationAssignment, Me
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.crm.team import CrmAgent, CrmAgentTeam
 from app.models.person import Person
+from app.services.crm import conversation as conversation_service
 from app.services.crm.ai_intake import (
     AI_INTAKE_METADATA_KEY,
     AiIntakeResult,
@@ -19,6 +20,7 @@ from app.services.crm.ai_intake import (
     process_pending_intake,
 )
 from app.services.crm.inbox import cache as inbox_cache
+from app.services.crm.inbox.agents import get_current_agent_id
 from app.services.crm.inbox.context import get_inbox_logger
 from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
 from app.services.crm.inbox.routing import apply_routing_rules
@@ -120,6 +122,65 @@ def _resolved_ai_result_from_state(conversation: Conversation) -> AiIntakeResult
     return AiIntakeResult(handled=True, resolved=True)
 
 
+def _is_billing_risk_outreach_conversation(conversation: Conversation) -> bool:
+    metadata = conversation.metadata_ if isinstance(conversation.metadata_, dict) else {}
+    return (
+        str(metadata.get("campaign_kind") or "").strip().lower() == "outreach"
+        and str(metadata.get("source_report") or "").strip().lower() == "billing_risk"
+    )
+
+
+def _assign_billing_risk_outreach_owner(db: Session, *, conversation: Conversation) -> bool:
+    if not _is_billing_risk_outreach_conversation(conversation):
+        return False
+
+    active_assignment = (
+        db.query(ConversationAssignment.id)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .first()
+    )
+    if active_assignment:
+        return True
+
+    metadata = conversation.metadata_ if isinstance(conversation.metadata_, dict) else {}
+    owner_person_id = str(metadata.get("outreach_owner_person_id") or "").strip()
+    if not owner_person_id:
+        campaign_id = str(metadata.get("campaign_id") or "").strip()
+        if campaign_id:
+            from app.models.crm.campaign import Campaign
+
+            campaign = db.get(Campaign, campaign_id)
+            if campaign and campaign.created_by_id:
+                owner_person_id = str(campaign.created_by_id)
+                metadata["outreach_owner_person_id"] = owner_person_id
+                conversation.metadata_ = metadata
+    if not owner_person_id:
+        return False
+
+    agent_id = get_current_agent_id(db, owner_person_id)
+    if not agent_id:
+        return False
+
+    from app.models.crm.presence import AgentPresence, AgentPresenceStatus
+    from app.services.crm.presence import agent_presence as presence_service
+
+    presence = db.query(AgentPresence).filter(AgentPresence.agent_id == agent_id).first()
+    effective_status = presence_service.effective_status(presence) if presence else AgentPresenceStatus.offline
+    if effective_status not in {AgentPresenceStatus.online, AgentPresenceStatus.away}:
+        return False
+
+    conversation_service.assign_conversation(
+        db,
+        conversation_id=str(conversation.id),
+        agent_id=agent_id,
+        team_id=None,
+        assigned_by_id=None,
+        update_lead_owner=False,
+    )
+    return True
+
+
 def _build_call_notification_actions(call_status: str) -> list[str]:
     if call_status in _CALL_CONNECT_STATES:
         return ["accept"]
@@ -183,42 +244,50 @@ def post_process_inbound_message(
 
         intake_result = None
         if message.direction == MessageDirection.inbound:
-            scope_key = make_scope_key(
-                channel_type=message.channel_type,
-                target_id=str(message.channel_target_id) if message.channel_target_id else None,
-                widget_config_id=(
-                    str(message.metadata_.get("widget_config_id"))
-                    if isinstance(message.metadata_, dict) and message.metadata_.get("widget_config_id")
-                    else None
-                ),
-            )
-            try:
-                intake_result = process_pending_intake(
+            outreach_owner_assigned = _assign_billing_risk_outreach_owner(db, conversation=conversation)
+            if outreach_owner_assigned:
+                logger.info(
+                    "billing_risk_outreach_reply_bypass conversation_id=%s message_id=%s",
+                    conversation.id,
+                    message.id,
+                )
+            else:
+                scope_key = make_scope_key(
+                    channel_type=message.channel_type,
+                    target_id=str(message.channel_target_id) if message.channel_target_id else None,
+                    widget_config_id=(
+                        str(message.metadata_.get("widget_config_id"))
+                        if isinstance(message.metadata_, dict) and message.metadata_.get("widget_config_id")
+                        else None
+                    ),
+                )
+                try:
+                    intake_result = process_pending_intake(
+                        db,
+                        conversation=conversation,
+                        message=message,
+                        scope_key=scope_key,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "inbound_ai_intake_failed conversation_id=%s message_id=%s error=%s",
+                        conversation.id,
+                        message.id,
+                        exc,
+                    )
+                    db.rollback()
+                    db.expire_all()
+                    conversation = db.get(Conversation, conversation_id) or conversation
+                    message = db.get(Message, message_id) or message
+                    intake_result = _resolved_ai_result_from_state(conversation)
+                _send_resolved_ai_handoff_if_missing(
                     db,
                     conversation=conversation,
                     message=message,
-                    scope_key=scope_key,
+                    intake_result=intake_result,
                 )
-            except Exception as exc:
-                logger.warning(
-                    "inbound_ai_intake_failed conversation_id=%s message_id=%s error=%s",
-                    conversation.id,
-                    message.id,
-                    exc,
-                )
-                db.rollback()
-                db.expire_all()
-                conversation = db.get(Conversation, conversation_id) or conversation
-                message = db.get(Message, message_id) or message
-                intake_result = _resolved_ai_result_from_state(conversation)
-            _send_resolved_ai_handoff_if_missing(
-                db,
-                conversation=conversation,
-                message=message,
-                intake_result=intake_result,
-            )
-            if not intake_result or not intake_result.handled:
-                apply_routing_rules(db, conversation=conversation, message=message)
+                if not intake_result or not intake_result.handled:
+                    apply_routing_rules(db, conversation=conversation, message=message)
         broadcast_new_message(message, conversation)
         pending_ai_intake = bool(
             intake_result and intake_result.handled and conversation.status == ConversationStatus.pending

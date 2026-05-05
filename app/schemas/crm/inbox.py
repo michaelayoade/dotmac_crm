@@ -156,6 +156,7 @@ class MetaMessagingEvent(BaseModel):
     recipient: dict | None = None
     timestamp: int | None = None
     message: dict | None = None
+    referral: dict | None = None
     postback: dict | None = None
     read: dict | None = None
     delivery: dict | None = None

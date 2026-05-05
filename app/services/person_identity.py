@@ -21,6 +21,15 @@ from app.models.person import ChannelType, PartyStatus, Person, PersonChannel
 logger = logging.getLogger(__name__)
 
 
+def _is_meta_placeholder_name(value: str | None) -> bool:
+    if not value:
+        return False
+    candidate = " ".join(value.strip().split())
+    if not candidate:
+        return False
+    return candidate.startswith("Facebook User") or candidate.startswith("Instagram User")
+
+
 # ---------------------------------------------------------------------------
 # Inline normalizers — intentionally duplicated from crm.inbox.normalizers
 # to avoid circular imports (person_identity → crm → crm.inbox → contacts → person_identity).
@@ -191,8 +200,8 @@ def _enrich_person(
             person.phone = norm_phone
             changed = True
 
-    # Fill in display_name if missing
-    if display_name and not person.display_name:
+    # Fill in display_name if missing, or replace known Meta placeholders with a real profile name.
+    if display_name and (not person.display_name or _is_meta_placeholder_name(person.display_name)):
         person.display_name = display_name
         changed = True
 
