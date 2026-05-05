@@ -130,64 +130,88 @@
         </div>
 
         {% if retention_card and retention_card.enabled %}
-        <div class="mt-4 rounded-2xl border border-rose-500/20 bg-rose-500/10 p-3"
+        <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-700/70 dark:bg-slate-900"
              x-data="{ retentionOpen: {{ 'true' if retention_card.open else 'false' }} }">
-            <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                    <p class="text-[10px] font-semibold uppercase tracking-[0.24em] text-rose-200">Retention Flow</p>
-                    <p class="mt-1 text-sm font-semibold text-white">
-                        {{ retention_card.button_label }}
-                    </p>
-                    <p class="mt-1 text-[11px] text-rose-100/80">
-                        {% if retention_card.latest_engagement %}
-                        Latest outcome: {{ retention_card.latest_engagement.outcome }}{% if retention_card.latest_engagement.followUp %} · Follow-up {{ retention_card.latest_engagement.followUp }}{% endif %}
-                        {% elif retention_card.has_inbound_reply %}
-                        Customer has replied in this thread. Capture the latest promise or suppression state when you are ready.
-                        {% else %}
-                        Keep this available for later in the conversation. Save the outcome only after you have enough customer feedback.
+            <div class="border-l-4 border-amber-500 px-4 py-4 dark:border-amber-400">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <p class="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">Retention Flow</p>
+                            <span class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300">
+                            Billing Outreach
+                            </span>
+                        </div>
+                        <p class="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
+                            {{ retention_card.button_label }}
+                        </p>
+                        <p class="mt-1 max-w-[30rem] text-[11px] leading-5 text-slate-600 dark:text-slate-300">
+                            {% if retention_card.latest_engagement %}
+                            Latest outcome: {{ retention_card.latest_engagement.outcome }}{% if retention_card.latest_engagement.followUp %} · Follow-up {{ retention_card.latest_engagement.followUp }}{% endif %}
+                            {% elif retention_card.has_inbound_reply %}
+                            Customer has replied in this thread. Capture the latest promise or suppression state when you are ready.
+                            {% else %}
+                            Keep this available for later in the conversation. Save the outcome only after you have enough customer feedback.
+                            {% endif %}
+                        </p>
+                    </div>
+                    <button type="button"
+                            @click="retentionOpen = !retentionOpen"
+                            class="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-colors"
+                            :class="retentionOpen
+                                ? 'border-slate-300 bg-slate-100 text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white'
+                                : '{{ "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/60" if retention_card.button_emphasis else "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" }}'">
+                        <span>{{ retention_card.button_label }}</span>
+                        {% if retention_card.button_emphasis %}
+                        <span class="inline-flex h-2 w-2 rounded-full bg-amber-500 dark:bg-amber-400"></span>
                         {% endif %}
-                    </p>
+                    </button>
                 </div>
-                <button type="button"
-                        @click="retentionOpen = !retentionOpen"
-                        class="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-colors"
-                        :class="retentionOpen
-                            ? 'border-rose-400/40 bg-rose-400/15 text-rose-100'
-                            : '{{ "border-amber-400/40 bg-amber-400/15 text-amber-100" if retention_card.button_emphasis else "border-slate-700/50 bg-slate-900/50 text-slate-200 hover:bg-slate-800/70" }}'">
-                    <span>{{ retention_card.button_label }}</span>
-                    {% if retention_card.button_emphasis %}
-                    <span class="inline-flex h-2 w-2 rounded-full bg-amber-300"></span>
-                    {% endif %}
-                </button>
+
+                {% if retention_card.latest_engagement or retention_card.has_inbound_reply %}
+                <div class="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/60">
+                        <p class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Current State</p>
+                        <p class="mt-1 text-[12px] font-semibold text-slate-900 dark:text-white">
+                            {{ retention_card.latest_engagement.outcome if retention_card.latest_engagement else 'Awaiting outcome update' }}
+                        </p>
+                    </div>
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/60">
+                        <p class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Next Follow-up</p>
+                        <p class="mt-1 text-[12px] font-semibold text-slate-900 dark:text-white">
+                            {{ retention_card.latest_engagement.followUp if retention_card.latest_engagement and retention_card.latest_engagement.followUp else 'Not scheduled' }}
+                        </p>
+                    </div>
+                </div>
+                {% endif %}
             </div>
 
             {% if retention_card.flash_message %}
-            <div class="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-200">
+            <div class="mx-4 mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
                 {{ retention_card.flash_message }}
             </div>
             {% endif %}
             {% if retention_card.error_message %}
-            <div class="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-200">
+            <div class="mx-4 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-800 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
                 {{ retention_card.error_message }}
             </div>
             {% endif %}
 
-            <div class="mt-3 space-y-3" x-show="retentionOpen" x-collapse>
+            <div class="space-y-3 border-t border-slate-200 px-4 py-4 dark:border-slate-800" x-show="retentionOpen" x-collapse>
                 <form method="post"
                       action="/admin/crm/inbox/conversation/{{ conversation_id }}/retention-outcome"
                       hx-post="/admin/crm/inbox/conversation/{{ conversation_id }}/retention-outcome"
                       hx-target="#contact-details"
                       hx-swap="innerHTML"
-                      class="space-y-3 rounded-xl border border-slate-700/40 bg-slate-950/20 p-3">
+                      class="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/60">
                     <input type="hidden" name="contact_id" value="{{ contact.id }}">
                     <input type="hidden" name="customer_id" value="{{ retention_card.customer_id }}">
                     <input type="hidden" name="customer_name" value="{{ retention_card.customer_name }}">
 
                     <div class="grid grid-cols-1 gap-3">
                         <div>
-                            <label class="mb-1 block text-[10px] uppercase tracking-wide text-slate-300">Outcome</label>
+                            <label class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Outcome</label>
                             <select name="outcome"
-                                    class="w-full rounded-lg border border-slate-700/50 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-100 focus:border-rose-400 focus:outline-none">
+                                    class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-[11px] text-slate-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-amber-400 dark:focus:ring-amber-400/20">
                                 {% for step in retention_card.pipeline_steps %}
                                 <option value="{{ step }}" {% if retention_card.latest_engagement and retention_card.latest_engagement.outcome == step %}selected{% endif %}>{{ step }}</option>
                                 {% endfor %}
@@ -198,16 +222,16 @@
                         </div>
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="mb-1 block text-[10px] uppercase tracking-wide text-slate-300">Follow-up Date</label>
+                                <label class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Follow-up Date</label>
                                 <input type="date"
                                        name="follow_up"
                                        value="{{ retention_card.latest_engagement.followUp if retention_card.latest_engagement else '' }}"
-                                       class="w-full rounded-lg border border-slate-700/50 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-100 focus:border-rose-400 focus:outline-none">
+                                       class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-[11px] text-slate-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-amber-400 dark:focus:ring-amber-400/20">
                             </div>
                             <div>
-                                <label class="mb-1 block text-[10px] uppercase tracking-wide text-slate-300">Rep</label>
+                                <label class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Rep</label>
                                 <select name="rep_person_id"
-                                        class="w-full rounded-lg border border-slate-700/50 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-100 focus:border-rose-400 focus:outline-none">
+                                        class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-[11px] text-slate-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-amber-400 dark:focus:ring-amber-400/20">
                                     <option value="">Unassigned</option>
                                     {% for option in retention_card.rep_options %}
                                     <option value="{{ option.person_id or option.value }}" {% if (retention_card.latest_engagement and retention_card.latest_engagement.repPersonId == (option.person_id or option.value)) or retention_card.default_rep_person_id == (option.person_id or option.value) %}selected{% endif %}>
@@ -218,40 +242,40 @@
                             </div>
                         </div>
                         <div>
-                            <label class="mb-1 block text-[10px] uppercase tracking-wide text-slate-300">Note</label>
+                            <label class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Note</label>
                             <textarea name="note"
                                       rows="3"
                                       placeholder="Summarize the latest promise, refusal, or next step."
-                                      class="w-full rounded-lg border border-slate-700/50 bg-slate-900/70 px-3 py-2 text-[11px] text-slate-100 focus:border-rose-400 focus:outline-none">{{ retention_card.latest_engagement.note if retention_card.latest_engagement else '' }}</textarea>
+                                      class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-[11px] text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-amber-400 dark:focus:ring-amber-400/20">{{ retention_card.latest_engagement.note if retention_card.latest_engagement else '' }}</textarea>
                         </div>
                     </div>
 
-                    <div class="flex items-center justify-between gap-3">
-                        <p class="text-[10px] text-slate-400">
+                    <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
+                        <p class="text-[10px] leading-4 text-slate-500 dark:text-slate-400">
                             Saves to retention history and drives follow-up suppression for billing outreach.
                         </p>
                         <button type="submit"
-                                class="inline-flex items-center justify-center rounded-lg bg-rose-500 px-3 py-2 text-[11px] font-semibold text-white transition-colors hover:bg-rose-400">
+                                class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-3 py-2 text-[11px] font-semibold text-white transition-colors hover:bg-slate-700 dark:bg-amber-400 dark:text-slate-950 dark:hover:bg-amber-300">
                             Save Outcome
                         </button>
                     </div>
                 </form>
 
                 {% if retention_card.engagement_history %}
-                <div class="rounded-xl border border-slate-700/40 bg-slate-900/40 p-3">
-                    <p class="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Recent Retention History</p>
+                <div class="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/50">
+                    <p class="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Recent Retention History</p>
                     <div class="mt-2 space-y-2">
                         {% for item in retention_card.engagement_history %}
-                        <div class="rounded-lg border border-slate-700/30 bg-slate-800/40 px-3 py-2">
+                        <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
                             <div class="flex items-center justify-between gap-2 text-[11px]">
-                                <span class="font-semibold text-white">{{ item.outcome }}</span>
-                                <span class="text-slate-400">{{ item.followUp or (item.createdAt[:10] if item.createdAt else '') }}</span>
+                                <span class="font-semibold text-slate-900 dark:text-white">{{ item.outcome }}</span>
+                                <span class="text-slate-500 dark:text-slate-400">{{ item.followUp or (item.createdAt[:10] if item.createdAt else '') }}</span>
                             </div>
                             {% if item.note %}
-                            <p class="mt-1 text-[11px] text-slate-300">{{ item.note }}</p>
+                            <p class="mt-1 text-[11px] leading-5 text-slate-600 dark:text-slate-300">{{ item.note }}</p>
                             {% endif %}
                             {% if item.rep %}
-                            <p class="mt-1 text-[10px] text-slate-400">Rep: {{ item.rep }}</p>
+                            <p class="mt-1 text-[10px] text-slate-500 dark:text-slate-400">Rep: {{ item.rep }}</p>
                             {% endif %}
                         </div>
                         {% endfor %}

@@ -12,7 +12,7 @@ Environment Variables:
 import hashlib
 import hmac
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from sqlalchemy import String, cast, func, or_
@@ -23,7 +23,7 @@ from app.config import settings
 from app.logging import get_logger
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.crm.comments import SocialCommentPlatform
-from app.models.crm.conversation import Message
+from app.models.crm.conversation import Conversation, ConversationTag, Message
 from app.models.crm.enums import (
     ChannelType,
     ConversationStatus,
@@ -394,6 +394,112 @@ def _persist_meta_attribution_to_person_and_lead(
     )
     if lead:
         _upsert_entity_attribution_metadata(lead, attribution=attribution, channel=channel)
+
+
+def _is_meta_ad_attribution(attribution: dict | None) -> bool:
+    if not isinstance(attribution, dict) or not attribution:
+        return False
+    source = str(attribution.get("source") or "").strip().upper()
+    if source == "ADS":
+        return True
+    return any(attribution.get(key) for key in ("ad_id", "adset_id", "adgroup_id", "campaign_id", "ctwa_clid"))
+
+
+def _ensure_conversation_tag(db: Session, *, conversation_id, tag: str) -> None:
+    clean_tag = str(tag or "").strip()
+    if not clean_tag:
+        return
+    existing = (
+        db.query(ConversationTag)
+        .filter(
+            ConversationTag.conversation_id == conversation_id,
+            ConversationTag.tag == clean_tag,
+        )
+        .first()
+    )
+    if not existing:
+        db.add(ConversationTag(conversation_id=conversation_id, tag=clean_tag))
+
+
+def _persist_meta_attribution_to_conversation(
+    db: Session,
+    *,
+    conversation: Conversation,
+    channel: ChannelType,
+    attribution: dict | None,
+) -> None:
+    if not _is_meta_ad_attribution(attribution):
+        return
+    clean_attribution = attribution if isinstance(attribution, dict) else None
+    if not clean_attribution:
+        return
+    _upsert_entity_attribution_metadata(conversation, attribution=clean_attribution, channel=channel)
+    _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Meta Ad")
+    if channel == ChannelType.instagram_dm:
+        _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Instagram Ad")
+    elif channel == ChannelType.facebook_messenger:
+        _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Facebook Ad")
+
+
+def _capture_pending_messenger_attribution(
+    db: Session,
+    *,
+    page_id: str,
+    sender_id: str,
+    contact_name: str | None,
+    attribution: dict | None,
+) -> bool:
+    if not _is_meta_ad_attribution(attribution):
+        return False
+    person, channel = _resolve_meta_person_and_channel(
+        db,
+        ChannelType.facebook_messenger,
+        sender_id,
+        contact_name,
+        None,
+    )
+    channel_meta = dict(channel.metadata_ or {}) if isinstance(channel.metadata_, dict) else {}
+    channel_meta["pending_meta_attribution"] = {
+        "page_id": page_id,
+        "attribution": attribution,
+        "captured_at": datetime.now(UTC).isoformat(),
+    }
+    channel.metadata_ = channel_meta
+    if contact_name and (not person.display_name or person.display_name.startswith("Facebook User")):
+        person.display_name = contact_name
+    db.commit()
+    return True
+
+
+def _consume_pending_messenger_attribution(
+    db: Session,
+    *,
+    channel: PersonChannel,
+    page_id: str,
+) -> dict | None:
+    channel_meta = dict(channel.metadata_ or {}) if isinstance(channel.metadata_, dict) else {}
+    pending = channel_meta.get("pending_meta_attribution")
+    if not isinstance(pending, dict):
+        return None
+    pending_page_id = str(pending.get("page_id") or "").strip()
+    if pending_page_id and pending_page_id != str(page_id).strip():
+        return None
+    captured_at_raw = pending.get("captured_at")
+    if isinstance(captured_at_raw, str) and captured_at_raw.strip():
+        try:
+            captured_at = datetime.fromisoformat(captured_at_raw.replace("Z", "+00:00"))
+        except ValueError:
+            captured_at = None
+        if captured_at and captured_at.tzinfo is not None and captured_at < datetime.now(UTC) - timedelta(days=3):
+            channel_meta.pop("pending_meta_attribution", None)
+            channel.metadata_ = channel_meta or None
+            db.commit()
+            return None
+    attribution = pending.get("attribution")
+    channel_meta.pop("pending_meta_attribution", None)
+    channel.metadata_ = channel_meta or None
+    db.commit()
+    return attribution if isinstance(attribution, dict) else None
 
 
 def _get_meta_api_timeout_seconds(db: Session) -> int:
@@ -1160,25 +1266,64 @@ def process_messenger_webhook(
             continue
 
         for messaging_event in entry.messaging:
+            sender = messaging_event.sender or {}
+            sender_id = sender.get("id")
+            sender_id_str = str(sender_id).strip() if isinstance(sender_id, str) and sender_id.strip() else None
+            contact_name = (
+                sender.get("name")
+                or (_fetch_profile_name(page_token, sender_id_str, "name", base_url) if sender_id_str else None)
+                or (f"Facebook User {sender_id_str}" if sender_id_str else None)
+            )
+            event_attribution = _extract_meta_attribution(
+                messaging_event.referral,
+                messaging_event.postback,
+                messaging_event.postback.get("payload") if messaging_event.postback else None,
+            )
             if messaging_event.postback and not messaging_event.message:
-                logger.info(
-                    "messenger_webhook_postback_ignored page_id=%s sender_id=%s",
-                    page_id,
-                    (messaging_event.sender or {}).get("id"),
-                )
+                if sender_id_str and _capture_pending_messenger_attribution(
+                    db,
+                    page_id=page_id,
+                    sender_id=sender_id_str,
+                    contact_name=contact_name,
+                    attribution=event_attribution,
+                ):
+                    logger.info(
+                        "messenger_webhook_postback_attribution_captured page_id=%s sender_id=%s",
+                        page_id,
+                        sender_id_str,
+                    )
+                else:
+                    logger.info(
+                        "messenger_webhook_postback_ignored page_id=%s sender_id=%s",
+                        page_id,
+                        sender_id_str,
+                    )
+                continue
+            if messaging_event.referral and not messaging_event.message:
+                if sender_id_str and _capture_pending_messenger_attribution(
+                    db,
+                    page_id=page_id,
+                    sender_id=sender_id_str,
+                    contact_name=contact_name,
+                    attribution=event_attribution,
+                ):
+                    logger.info(
+                        "messenger_webhook_referral_attribution_captured page_id=%s sender_id=%s",
+                        page_id,
+                        sender_id_str,
+                    )
                 continue
             if messaging_event.delivery and not messaging_event.message:
                 logger.info(
                     "messenger_webhook_delivery_ignored page_id=%s sender_id=%s",
                     page_id,
-                    (messaging_event.sender or {}).get("id"),
+                    sender_id_str,
                 )
                 continue
             if messaging_event.read and not messaging_event.message:
-                sender_id = (messaging_event.sender or {}).get("id")
                 recipient_id = (messaging_event.recipient or {}).get("id")
-                contact_id = sender_id
-                if sender_id == page_id:
+                contact_id = sender_id_str
+                if sender_id_str == page_id:
                     contact_id = recipient_id
                 _apply_meta_read_receipt(
                     db,
@@ -1192,21 +1337,19 @@ def process_messenger_webhook(
                 continue
 
             message = messaging_event.message
-            sender = messaging_event.sender or {}
 
             # Skip echo messages (messages sent by the page)
             if message.get("is_echo"):
                 continue
 
-            sender_id = sender.get("id")
-            if not sender_id:
+            if not sender_id_str:
                 logger.warning("messenger_webhook_missing_sender page_id=%s", page_id)
                 continue
-            if sender_id == page_id:
+            if sender_id_str == page_id:
                 logger.info(
                     "messenger_webhook_skip_self page_id=%s sender_id=%s",
                     page_id,
-                    sender_id,
+                    sender_id_str,
                 )
                 continue
 
@@ -1257,6 +1400,7 @@ def process_messenger_webhook(
             if location_metadata:
                 metadata.update(location_metadata)
             identity_metadata = _extract_identity_metadata(
+                messaging_event.referral,
                 message.get("metadata"),
                 message.get("referral"),
                 (message.get("referral") or {}).get("ref") if isinstance(message.get("referral"), dict) else None,
@@ -1265,23 +1409,39 @@ def process_messenger_webhook(
             if identity_metadata:
                 metadata.update(identity_metadata)
             attribution_metadata = _extract_meta_attribution(
+                messaging_event.referral,
                 message.get("referral"),
                 message.get("metadata"),
                 messaging_event.postback,
                 messaging_event.postback.get("payload") if messaging_event.postback else None,
             )
+            if not attribution_metadata:
+                pending_attribution = None
+                _, channel = _resolve_meta_person_and_channel(
+                    db,
+                    ChannelType.facebook_messenger,
+                    sender_id_str,
+                    contact_name,
+                    metadata if isinstance(metadata, dict) else None,
+                )
+                pending_attribution = _consume_pending_messenger_attribution(
+                    db,
+                    channel=channel,
+                    page_id=page_id,
+                )
+                if pending_attribution:
+                    attribution_metadata = pending_attribution
             if attribution_metadata:
                 metadata["attribution"] = attribution_metadata
             if external_ref:
                 metadata["provider_message_id"] = external_ref
             contact_name = (
-                sender.get("name")
+                contact_name
                 or (message.get("from", {}) if isinstance(message.get("from"), dict) else {}).get("name")
-                or _fetch_profile_name(page_token, sender_id, "name", base_url)
-                or f"Facebook User {sender_id}"
+                or f"Facebook User {sender_id_str}"
             )
             parsed = FacebookMessengerWebhookPayload(
-                contact_address=sender_id,
+                contact_address=sender_id_str,
                 contact_name=contact_name,
                 message_id=external_id,
                 page_id=page_id,
@@ -1470,6 +1630,7 @@ def process_instagram_webhook(
             if location_metadata:
                 metadata.update(location_metadata)
             identity_metadata = _extract_identity_metadata(
+                messaging_event.referral,
                 message.get("metadata"),
                 message.get("referral"),
                 (message.get("referral") or {}).get("ref") if isinstance(message.get("referral"), dict) else None,
@@ -1478,6 +1639,7 @@ def process_instagram_webhook(
             if identity_metadata:
                 metadata.update(identity_metadata)
             attribution_metadata = _extract_meta_attribution(
+                messaging_event.referral,
                 message.get("referral"),
                 message.get("metadata"),
                 messaging_event.postback,
@@ -1859,11 +2021,18 @@ def receive_facebook_message(
     metadata = dict(payload.metadata or {})
     metadata["page_id"] = payload.page_id
     external_ref = _normalize_external_ref(metadata.get("provider_message_id"))
+    attribution = metadata.get("attribution") if isinstance(metadata.get("attribution"), dict) else None
     _persist_meta_attribution_to_person_and_lead(
         db,
         person=contact,
         channel=ChannelType.facebook_messenger,
-        attribution=metadata.get("attribution") if isinstance(metadata.get("attribution"), dict) else None,
+        attribution=attribution,
+    )
+    _persist_meta_attribution_to_conversation(
+        db,
+        conversation=conversation,
+        channel=ChannelType.facebook_messenger,
+        attribution=attribution,
     )
 
     # Create message
@@ -1984,11 +2153,18 @@ def receive_instagram_message(
     metadata = dict(payload.metadata or {})
     metadata["instagram_account_id"] = payload.instagram_account_id
     external_ref = _normalize_external_ref(metadata.get("provider_message_id"))
+    attribution = metadata.get("attribution") if isinstance(metadata.get("attribution"), dict) else None
     _persist_meta_attribution_to_person_and_lead(
         db,
         person=contact,
         channel=ChannelType.instagram_dm,
-        attribution=metadata.get("attribution") if isinstance(metadata.get("attribution"), dict) else None,
+        attribution=attribution,
+    )
+    _persist_meta_attribution_to_conversation(
+        db,
+        conversation=conversation,
+        channel=ChannelType.instagram_dm,
+        attribution=attribution,
     )
 
     # Create message
