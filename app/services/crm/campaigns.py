@@ -184,7 +184,7 @@ def _whatsapp_address_for_person(db: Session, person: Person) -> str | None:
 
 def _campaign_metadata(campaign: Campaign | None) -> dict:
     metadata = getattr(campaign, "metadata_", None)
-    return metadata if isinstance(metadata, dict) else {}
+    return dict(metadata) if isinstance(metadata, dict) else {}
 
 
 def _campaign_audience_mode(campaign: Campaign | None) -> str:
@@ -824,7 +824,7 @@ def reconcile_outreach_tracking(db: Session, *, campaign_id: str) -> None:
         db.query(Message)
         .filter(
             Message.direction == MessageDirection.outbound,
-            Message.metadata_["campaign_id"].astext == str(campaign.id),
+            cast(Message.metadata_["campaign_id"], String) == str(campaign.id),
         )
         .all()
     )
@@ -895,7 +895,7 @@ def reconcile_outreach_inbound_reply(db: Session, *, message_id: str) -> None:
         .filter(
             Message.conversation_id == message.conversation_id,
             Message.direction == MessageDirection.outbound,
-            Message.metadata_["campaign_id"].astext.isnot(None),
+            cast(Message.metadata_["campaign_id"], String).is_not(None),
         )
         .order_by(func.coalesce(Message.sent_at, Message.created_at).desc())
         .first()
@@ -991,6 +991,15 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
         if _is_outreach_campaign(campaign) and _is_manual_snapshot_campaign(campaign):
             try:
                 snapshot_row = _audience_snapshot_row_for_person(campaign, str(person.id)) or {}
+                snapshot_subject = str(snapshot_row.get("campaign_subject") or "").strip()
+                snapshot_body_text = str(snapshot_row.get("campaign_body_text") or "").strip()
+                snapshot_body_html = str(snapshot_row.get("campaign_body_html") or "").strip()
+                if snapshot_subject:
+                    subject = snapshot_subject
+                if campaign.channel == CampaignChannel.email and snapshot_body_html:
+                    body = snapshot_body_html
+                elif snapshot_body_text:
+                    body = snapshot_body_text
                 retention_customer_id = str(
                     snapshot_row.get("retention_customer_id") or snapshot_row.get("subscriber_id") or ""
                 ).strip()
@@ -1030,7 +1039,10 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
                         ),
                     )
                     _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Retention")
-                    _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Billing Risk")
+                    if campaign_source_report == "billing_risk":
+                        _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Billing Risk")
+                    elif campaign_source_report == "online_last_24h":
+                        _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Online Last 24h")
                 else:
                     metadata = conversation.metadata_ if isinstance(conversation.metadata_, dict) else {}
                     metadata["campaign_id"] = str(campaign.id)
@@ -1045,7 +1057,10 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
                         metadata["preferred_channel_target_id"] = _outreach_channel_target_id(campaign)
                     conversation.metadata_ = metadata
                     _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Retention")
-                    _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Billing Risk")
+                    if campaign_source_report == "billing_risk":
+                        _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Billing Risk")
+                    elif campaign_source_report == "online_last_24h":
+                        _ensure_conversation_tag(db, conversation_id=conversation.id, tag="Online Last 24h")
                     db.flush()
                 message = inbox_outbound_service.send_message(
                     db,

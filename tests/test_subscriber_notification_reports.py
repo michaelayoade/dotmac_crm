@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -8,12 +9,17 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
+from app.models.connector import ConnectorConfig, ConnectorType
+from app.models.crm.campaign import Campaign
+from app.models.crm.enums import CampaignChannel, CampaignStatus
+from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.models.notification import Notification
 from app.models.person import ChannelType, Person, PersonChannel
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.models.subscriber_notification import SubscriberNotificationLog
 from app.models.tickets import Ticket, TicketPriority, TicketStatus
 from app.services import subscriber_notifications as subscriber_notifications_service
+from app.services.crm.inbox import outbound as inbox_outbound_service
 from app.web.admin import reports as reports_web
 
 
@@ -55,7 +61,7 @@ def _subscriber(db_session, *, timezone: str = "Africa/Lagos") -> Subscriber:
     db_session.add(
         PersonChannel(
             person_id=person.id,
-            channel_type=ChannelType.sms,
+            channel_type=ChannelType.whatsapp,
             address="+2348012345678",
             is_primary=True,
         )
@@ -113,7 +119,7 @@ def test_enrich_notification_rows_uses_escalated_template_for_urgent_ticket(db_s
 
     assert enriched[0]["notification_template_key"] == "escalated_formal"
     assert "request a callback" in enriched[0]["notification_sms_body"].lower()
-    assert enriched[0]["notification_email_subject"] == "Escalated support follow-up"
+    assert enriched[0]["notification_email_subject"] == "We are still tracking your open ticket"
 
 
 def test_save_template_bundle_persists_custom_template(db_session):
@@ -145,6 +151,36 @@ def test_save_template_bundle_persists_custom_template(db_session):
     assert prepared_with_ticket.template.email_subject == "Open issue follow-up"
 
 
+def test_prepare_subscriber_notification_uses_first_name_token(db_session):
+    subscriber = _subscriber(db_session)
+    person = db_session.get(Person, subscriber.person_id)
+    assert person is not None
+    person.first_name = "Chidinma"
+    person.last_name = "Onyemachi"
+    person.display_name = "Chidinma Onyemachi Dotmac Test"
+    db_session.commit()
+
+    prepared = subscriber_notifications_service.prepare_subscriber_notification(db_session, subscriber.id)
+
+    assert prepared.token_values["{name}"] == "Chidinma"
+    rendered = subscriber_notifications_service._render_template(prepared.template.email_body, prepared.token_values)
+    assert ">Chidinma</p>" in rendered
+
+
+def test_online_last_24h_email_campaign_template_is_html(db_session):
+    template = subscriber_notifications_service.campaign_template_for_online_last_24h(db_session, channel="email")
+
+    assert template.body_html is not None
+    assert "<html>" in template.body_html
+    assert "{{first_name}}" in template.body_html
+
+
+def test_inbox_email_html_conversion_preserves_html():
+    html_body = "<html><body><p>Hello Chidinma</p></body></html>"
+
+    assert inbox_outbound_service._text_to_email_html(html_body) == html_body
+
+
 def test_effective_send_at_uses_next_local_window_when_immediate_send_is_after_hours():
     send_at, display_local = subscriber_notifications_service._effective_send_at(
         "Africa/Lagos",
@@ -169,10 +205,10 @@ def test_queue_subscriber_notification_creates_notifications_logs_and_blocks_dup
         email_body=(
             "Hi Taylor, we noticed activity on your account. "
             "Your connection looks stable from our side. "
-            "If you need help, contact support@example.com. "
+            "If you need help, contact support@dotmac.ng. "
             "Thank you for your time."
         ),
-        sms_body="Hi Taylor, your connection looks stable. Need help? support@example.com",
+        sms_body="Hi Taylor, your connection looks stable. Need help? support@dotmac.ng",
         scheduled_local_text=first_schedule,
         sent_by_user_id=uuid4(),
         sent_by_person_id=uuid4(),
@@ -191,7 +227,7 @@ def test_queue_subscriber_notification_creates_notifications_logs_and_blocks_dup
             email_body=(
                 "Hi Taylor, we noticed activity on your account. "
                 "Your connection looks stable from our side. "
-                "If you need help, contact support@example.com. "
+                "If you need help, contact support@dotmac.ng. "
                 "Thank you for your time."
             ),
             sms_body="",
@@ -201,6 +237,58 @@ def test_queue_subscriber_notification_creates_notifications_logs_and_blocks_dup
         )
 
     assert excinfo.value.status_code == 409
+
+
+def test_test_account_can_queue_repeated_notifications(db_session):
+    subscriber = _subscriber(db_session)
+    subscriber.subscriber_number = subscriber_notifications_service.TEST_NOTIFICATION_SUBSCRIBER_NUMBER
+    db_session.commit()
+
+    for _index in range(2):
+        logs = subscriber_notifications_service.queue_subscriber_notification(
+            db_session,
+            subscriber_id=subscriber.id,
+            channel_value="email",
+            email_subject="Service check-in",
+            email_body=(
+                "Hi Taylor, we noticed activity on your account. "
+                "Your connection looks stable from our side. "
+                "If you need help, contact support@dotmac.ng. "
+                "Thank you for your time."
+            ),
+            sms_body="",
+            scheduled_local_text=_future_local_text(),
+            sent_by_user_id=uuid4(),
+            sent_by_person_id=uuid4(),
+        )
+        assert len(logs) == 1
+
+    assert db_session.query(SubscriberNotificationLog).count() == 2
+
+
+def test_queue_subscriber_notification_normalizes_local_whatsapp_number(db_session):
+    subscriber = _subscriber(db_session)
+    person = db_session.get(Person, subscriber.person_id)
+    assert person is not None
+    person.phone = "08109445687"
+    for channel in person.channels:
+        if channel.channel_type == ChannelType.whatsapp:
+            channel.address = "08109445687"
+    db_session.commit()
+
+    logs = subscriber_notifications_service.queue_subscriber_notification(
+        db_session,
+        subscriber_id=subscriber.id,
+        channel_value="whatsapp",
+        email_subject=None,
+        email_body=None,
+        sms_body="Hi Taylor, your connection looks stable. Need help? support@dotmac.ng",
+        scheduled_local_text=_future_local_text(),
+        sent_by_user_id=uuid4(),
+        sent_by_person_id=uuid4(),
+    )
+
+    assert logs[0].recipient == "+2348109445687"
 
 
 def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch):
@@ -216,9 +304,10 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
     monkeypatch.setattr(
         subscriber_reports_service,
         "online_customers_last_24h_rows",
-        lambda _db, subscriber_ids=None, search=None, ticket_status=None, notification_state=None, limit=None: [
+        lambda _db, subscriber_ids=None, search=None, ticket_status=None, notification_state=None, activity_segment=None, limit=None: [
             {
                 "subscriber_id": str(uuid4()),
+                "can_notify": True,
                 "subscriber_number": "SUB-1001",
                 "name": "Taylor Subscriber",
                 "status": "active",
@@ -232,6 +321,7 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
             },
             {
                 "subscriber_id": str(uuid4()),
+                "can_notify": True,
                 "subscriber_number": "SUB-1002",
                 "name": "Jordan Open",
                 "status": "active",
@@ -245,6 +335,7 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
             },
             {
                 "subscriber_id": str(uuid4()),
+                "can_notify": True,
                 "subscriber_number": "SUB-1003",
                 "name": "Casey Closed",
                 "status": "active",
@@ -267,13 +358,13 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
                 "notification_timezone": "Africa/Lagos",
                 "notification_template_key": "friendly_check_in",
                 "notification_email_subject": "Checking in on your connection",
-                "notification_email_body": "Hi Taylor, we noticed activity on your account. If you need help, contact support@example.com.",
-                "notification_sms_body": "Hi Taylor, we saw activity on your account. Need help? support@example.com",
+                "notification_email_body": "Hi Taylor, we noticed activity on your account. If you need help, contact support@dotmac.ng.",
+                "notification_sms_body": "Hi Taylor, we saw activity on your account. Need help? support@dotmac.ng",
                 "notification_tokens": "{name}, {last_seen}, {support_email}, {last_activity}",
-                "latest_notification_channel": "sms" if index == 0 else "",
+                "latest_notification_channel": "whatsapp" if index == 0 else "",
                 "latest_notification_status": "testing_hold" if index == 0 else "",
                 "latest_notification_scheduled_for": "Apr 27, 2026 10:30 AM" if index == 0 else "",
-                "latest_notification_message_body": "Hi Taylor, we saw activity on your account. Need help? support@example.com"
+                "latest_notification_message_body": "Hi Taylor, we saw activity on your account. Need help? support@dotmac.ng"
                 if index == 0
                 else "",
             }
@@ -289,6 +380,7 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
         search=None,
         ticket_status="all",
         notification_state="all",
+        activity_segment="active_last24_not_online",
     )
 
     body = response.body.decode()
@@ -297,14 +389,19 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
     assert "Queue Notification" in body
     assert "Test mode is active" in body
     assert "Testing Hold" in body
-    assert "SMS" in body
+    assert "WhatsApp" in body
     assert "Scheduled: Apr 27, 2026 10:30 AM" in body
     assert "Queued Notification" in body
+    assert "Notification Sent" in body
+    assert "Not sent" in body
     assert "Total" in body
     assert "No Ticket" in body
     assert "Open" in body
     assert "Closed" in body
     assert "Notification State" in body
+    assert "Create Outreach" in body
+    assert "online-last-24h-channel-target-id" in body
+    assert "select-all-subscribers" in body
     assert "Priority Score" in body
     assert "Message Templates" in body
     assert "Save Template" in body
@@ -322,7 +419,7 @@ def test_enrich_notification_rows_includes_latest_queued_notification_summary(db
     subscriber_notifications_service.queue_subscriber_notification(
         db_session,
         subscriber_id=subscriber.id,
-        channel_value="sms",
+        channel_value="whatsapp",
         email_subject=None,
         email_body=None,
         sms_body="Hi Taylor, queued reminder.",
@@ -345,7 +442,7 @@ def test_enrich_notification_rows_includes_latest_queued_notification_summary(db
 
     enriched = subscriber_notifications_service.enrich_notification_rows(rows, db_session)
 
-    assert enriched[0]["latest_notification_channel"] == "sms"
+    assert enriched[0]["latest_notification_channel"] == "whatsapp"
     assert enriched[0]["latest_notification_status"] == "testing_hold"
     assert "queued reminder" in enriched[0]["latest_notification_message_body"].lower()
     assert enriched[0]["latest_notification_scheduled_for"]
@@ -357,10 +454,10 @@ def test_subscriber_online_last_24h_notify_route_queues_notification(db_session)
     response = reports_web.subscriber_online_last_24h_notify(
         request=_request("POST", "/admin/reports/subscribers/online-last-24h/notify"),
         subscriber_id=subscriber.id,
-        channel="sms",
+        channel="whatsapp",
         email_subject=None,
         email_body=None,
-        sms_body="Hi Taylor, we saw activity at 10:30 AM. Need help? support@example.com",
+        sms_body="Hi Taylor, we saw activity at 10:30 AM. Need help? support@dotmac.ng",
         scheduled_local_at=_future_local_text(),
         next_url="/admin/reports/subscribers/online-last-24h",
         db=db_session,
@@ -369,6 +466,100 @@ def test_subscriber_online_last_24h_notify_route_queues_notification(db_session)
     assert response.status_code == 303
     assert db_session.query(Notification).count() == 0
     assert db_session.query(SubscriberNotificationLog).count() == 1
+
+
+def test_subscriber_online_last_24h_outreach_route_creates_campaign(db_session):
+    subscriber = _subscriber(db_session)
+    connector = ConnectorConfig(
+        name=f"WhatsApp Outreach Connector {uuid4().hex}",
+        connector_type=ConnectorType.whatsapp,
+        is_active=True,
+    )
+    db_session.add(connector)
+    db_session.flush()
+    target = IntegrationTarget(
+        name="Dotmac Fiber HelpDesk",
+        target_type=IntegrationTargetType.crm,
+        connector_config_id=connector.id,
+        is_active=True,
+    )
+    db_session.add(target)
+    db_session.commit()
+
+    response = reports_web.subscriber_online_last_24h_create_outreach(
+        request=_request("POST", "/admin/reports/subscribers/online-last-24h/outreach"),
+        db=db_session,
+        name="Online Last 24H Outreach",
+        channel="whatsapp",
+        channel_target_id=str(target.id),
+        subscriber_id=[str(subscriber.id)],
+        next_url="/admin/reports/subscribers/online-last-24h",
+    )
+
+    campaign = db_session.query(Campaign).filter(Campaign.channel == CampaignChannel.whatsapp).one()
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/admin/crm/campaigns/{campaign.id}"
+    assert campaign.metadata_["source_report"] == "online_last_24h"
+    assert campaign.metadata_["audience_snapshot_count"] == 1
+    assert campaign.body_text == "Hi {{first_name}}, we saw activity at recent activity. If you need help, email support@dotmac.ng."
+
+
+def test_approve_and_send_test_notifications_sends_only_test_account(db_session):
+    subscriber = _subscriber(db_session)
+    subscriber.subscriber_number = subscriber_notifications_service.TEST_NOTIFICATION_SUBSCRIBER_NUMBER
+    connector = ConnectorConfig(
+        name=f"WhatsApp Test Connector {uuid4().hex}",
+        connector_type=ConnectorType.whatsapp,
+        is_active=True,
+    )
+    db_session.add(connector)
+    db_session.flush()
+    db_session.add(
+        IntegrationTarget(
+            name="WhatsApp Outreach",
+            connector_config_id=connector.id,
+            is_active=True,
+        )
+    )
+    db_session.commit()
+
+    subscriber_notifications_service.queue_subscriber_notification(
+        db_session,
+        subscriber_id=subscriber.id,
+        channel_value="both",
+        email_subject="Service check-in",
+        email_body=(
+            "Hi Taylor, we noticed activity on your account. "
+            "Your connection looks stable from our side. "
+            "If you need help, contact support@dotmac.ng. "
+            "Thank you for your time."
+        ),
+        sms_body="Hi Taylor, your connection looks stable. Need help? support@dotmac.ng",
+        scheduled_local_text=_future_local_text(),
+        sent_by_user_id=uuid4(),
+        sent_by_person_id=uuid4(),
+    )
+
+    with (
+        patch("app.services.email.send_email", return_value=(True, None)) as email_send,
+        patch("app.tasks.campaigns.execute_campaign.delay") as execute_campaign,
+    ):
+        result = subscriber_notifications_service.approve_and_send_test_notifications(
+            db_session,
+            subscriber_id=subscriber.id,
+            approved_by_person_id=None,
+        )
+
+    assert result == {"sent": 2, "failed": 0, "selected": 2}
+    assert email_send.call_args.kwargs["from_email"] == "support@dotmac.ng"
+    assert "<html>" in email_send.call_args.args[3]
+    assert "<p" in email_send.call_args.args[3]
+    assert execute_campaign.called
+    campaign = db_session.query(Campaign).filter(Campaign.channel == CampaignChannel.whatsapp).one()
+    assert campaign.status == CampaignStatus.sending
+    assert campaign.body_text == "Hi Taylor, your connection looks stable. Need help? support@dotmac.ng"
+    assert db_session.query(Notification).count() == 2
+    assert all(log.notification_id for log in db_session.query(SubscriberNotificationLog).all())
 
 
 def test_subscriber_online_last_24h_passes_notification_state_filter(monkeypatch):
@@ -382,8 +573,17 @@ def test_subscriber_online_last_24h_passes_notification_state_filter(monkeypatch
         subscriber_reports_service, "overview_filtered_subscriber_ids", lambda _db, status=None, region=None: None
     )
 
-    def _rows(_db, subscriber_ids=None, search=None, ticket_status=None, notification_state=None, limit=None):
+    def _rows(
+        _db,
+        subscriber_ids=None,
+        search=None,
+        ticket_status=None,
+        notification_state=None,
+        activity_segment=None,
+        limit=None,
+    ):
         captured["notification_state"] = notification_state
+        captured["activity_segment"] = activity_segment
         return []
 
     monkeypatch.setattr(subscriber_reports_service, "online_customers_last_24h_rows", _rows)
@@ -397,10 +597,12 @@ def test_subscriber_online_last_24h_passes_notification_state_filter(monkeypatch
         search=None,
         ticket_status="all",
         notification_state="notified",
+        activity_segment="active_last24_not_online",
     )
 
     assert response.status_code == 200
     assert captured["notification_state"] == "notified"
+    assert captured["activity_segment"] == "active_last24_not_online"
 
 
 def test_subscriber_online_last_24h_notify_context_route_returns_templates_and_activity(db_session):
@@ -435,7 +637,7 @@ def test_subscriber_online_last_24h_save_template_route_persists_bundle(db_sessi
         template_key="friendly_check_in",
         email_subject="New subject",
         email_body="Hi {name}, custom email body.",
-        sms_body="Hi {name}, custom sms body.",
+        sms_body="Hi {name}, custom WhatsApp body.",
         db=db_session,
     )
 

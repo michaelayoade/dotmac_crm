@@ -237,6 +237,35 @@ def fetch_customers(db: Session) -> list[dict[str, Any]]:
         return []
 
 
+def fetch_online_customers(db: Session) -> list[dict[str, Any]]:
+    """Fetch currently online customers from Splynx."""
+    config = _get_config(db)
+    if not config:
+        return []
+
+    import requests
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Basic {config['basic_token']}",
+    }
+    url = f"{_resolve_api_base_url(config)}/admin/customers/customers-online"
+    try:
+        response = requests.get(  # nosec B113 - timeout via config dict
+            url,
+            headers=headers,
+            timeout=config["timeout_seconds"],
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list):
+            return [row for row in payload if isinstance(row, dict)]
+        return []
+    except Exception as exc:
+        logger.error("splynx_fetch_online_customers_failed error=%s", str(exc))
+        return []
+
+
 def fetch_customer(db: Session, splynx_id: str) -> dict[str, Any] | None:
     """Fetch a single customer from Splynx by ID."""
     config = _get_config(db)
@@ -912,7 +941,7 @@ def _resolve_invoice_urls(config: dict[str, Any]) -> list[str]:
     configured = str(config.get("invoice_url") or "").strip()
     if configured:
         return [configured]
-    base_url = _resolve_api_base_for_invoices(config)
+    base_url = _resolve_api_base_url(config)
     candidates = [
         f"{base_url}/admin/finance/invoices",
         f"{base_url}/admin/finance/invoice",
@@ -924,9 +953,9 @@ def _resolve_invoice_urls(config: dict[str, Any]) -> list[str]:
     return deduped
 
 
-def _resolve_api_base_for_invoices(config: dict[str, Any]) -> str:
+def _resolve_api_base_url(config: dict[str, Any]) -> str:
     """
-    Resolve API base URL for invoice endpoints.
+    Resolve API base URL for non-customer endpoints.
 
     Handles legacy deployments where `splynx_base_url` is mistakenly set
     to the customer endpoint path.

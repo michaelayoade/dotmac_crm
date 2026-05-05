@@ -10,6 +10,7 @@ import base64
 import html
 import json
 import os
+import re
 import secrets
 import time
 from datetime import UTC, datetime
@@ -87,6 +88,20 @@ def _looks_like_meta_oauth_error(response_text: str | None) -> bool:
         or "access token has expired" in lowered
         or "access token is invalid" in lowered
     )
+
+
+def _normalize_whatsapp_recipient_address(value: str | None) -> str | None:
+    """Normalize local phone formats before sending to Meta WhatsApp."""
+    if not value:
+        return None
+    digits = "".join(ch for ch in str(value) if ch.isdigit())
+    if not digits:
+        return None
+    if digits.startswith("0") and len(digits) == 11:
+        digits = f"234{digits[1:]}"
+    if len(digits) < 8 or len(digits) > 15:
+        return None
+    return f"+{digits}"
 
 
 def _try_instagram_token_refresh_and_resend(
@@ -360,6 +375,8 @@ def _render_personalization(body: str, personalization: dict | None) -> str:
 def _text_to_email_html(text: str) -> str:
     """Convert plain text into simple, readable HTML preserving paragraph breaks."""
     normalized = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    if re.search(r"</?(?:html|body|p|div|br|table|ul|ol|li|strong|span|a)\b", normalized, flags=re.IGNORECASE):
+        return normalized
     paragraphs = [part.strip() for part in normalized.split("\n\n") if part.strip()]
     if not paragraphs:
         return ""
@@ -843,6 +860,11 @@ def _send_whatsapp_message(
         phone_number_id = config.auth_config.get("phone_number_id")
     if not phone_number_id:
         raise InboxConfigError("whatsapp_phone_number_missing", "WhatsApp phone_number_id missing")
+    recipient_address = _normalize_whatsapp_recipient_address(person_channel.address)
+    if not recipient_address:
+        raise InboxValidationError("whatsapp_recipient_invalid", "WhatsApp recipient phone number is invalid")
+    if recipient_address != person_channel.address:
+        person_channel.address = recipient_address
 
     display_body = rendered_body
     reply_metadata = _merge_reply_metadata(reply_context)
@@ -913,20 +935,20 @@ def _send_whatsapp_message(
             template_payload["components"] = payload.whatsapp_template_components
         payload_data = {
             "messaging_product": "whatsapp",
-            "to": person_channel.address,
+            "to": recipient_address,
             "type": "template",
             "template": template_payload,
         }
     elif media_payload:
         payload_data = {
             "messaging_product": "whatsapp",
-            "to": person_channel.address,
+            "to": recipient_address,
             **media_payload,
         }
     else:
         payload_data = {
             "messaging_product": "whatsapp",
-            "to": person_channel.address,
+            "to": recipient_address,
             "type": "text",
             "text": {"body": rendered_body},
         }

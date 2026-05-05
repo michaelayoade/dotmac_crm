@@ -5,17 +5,35 @@
 
 {% set rows = online_customers | default([]) %}
 {% set region_options = (filter_opts.regions if filter_opts is defined else []) %}
+{% set selected_segment = selected_activity_segment | default("active_last24_not_online") %}
 
 {% block content %}
 <div class="space-y-6">
-    {% call page_header("Online Last 24 Hours", "Subscribers with activity events in the last 24 hours.", color="emerald", color2="teal") %}
+    {% call page_header("Online Last 24 Hours", "Live Splynx data for customers seen in the last 24 hours.", color="emerald", color2="teal") %}
         {{ action_button(
             "Export CSV",
-            href="/admin/reports/subscribers/online-last-24h/export?status=" ~ (selected_status | default("")) ~ "&region=" ~ (selected_region | default("")) ~ "&search=" ~ (search | default("")) ~ "&ticket_status=" ~ (selected_ticket_status | default("all")) ~ "&notification_state=" ~ (selected_notification_state | default("all")),
+            href="/admin/reports/subscribers/online-last-24h/export?status=" ~ (selected_status | default("")) ~ "&region=" ~ (selected_region | default("")) ~ "&search=" ~ (search | default("")) ~ "&ticket_status=" ~ (selected_ticket_status | default("all")) ~ "&notification_state=" ~ (selected_notification_state | default("all")) ~ "&activity_segment=" ~ selected_segment,
             variant="secondary",
             color="emerald"
         ) }}
     {% endcall %}
+
+    <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100">
+        <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <p>
+                Current segment:
+                <span class="font-semibold">
+                    {% if selected_segment == "active_last24_not_online" %}
+                    Active customers whose last online time is within 24 hours but who are not currently online.
+                    {% else %}
+                    Customers whose last online time is within 24 hours.
+                    {% endif %}
+                </span>
+                Data is read live from Splynx on each refresh.
+            </p>
+            <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Auto-refreshes every 60s</p>
+        </div>
+    </div>
 
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
@@ -35,7 +53,15 @@
     </div>
 
     {% call dashboard_filter_panel(color="emerald", title="Filters") %}
-    <form method="get" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6 xl:items-end">
+    <form method="get" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7 xl:items-end">
+        <div>
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Segment</label>
+            <select name="activity_segment" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                {% for option in activity_segment_options %}
+                <option value="{{ option.value }}" {% if selected_segment == option.value %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+            </select>
+        </div>
         <div>
             <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
             <input type="text" name="search" value="{{ search | default('') }}" placeholder="Name, email, phone, subscriber #"
@@ -84,31 +110,94 @@
     {% endcall %}
 
     <div class="rounded-2xl border border-slate-300 bg-slate-100 p-4 text-sm text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
-        Test mode is active for these notifications. Queueing a notification only saves it for review; it does not send any email or SMS to the customer.
+        Test mode is active for these notifications. Queueing a notification only saves it for review; it does not send any email or WhatsApp message to the customer.
     </div>
 
+    <form method="post" action="/admin/reports/subscribers/online-last-24h/outreach" id="online-last-24h-outreach-form">
+    <input type="hidden" name="next_url" value="{{ current_query }}">
     {% call table_shell(table_id="subscriber-online-last-24h", title="Management Table", color="emerald", count=rows|length, bulk_selectable=False) %}
+    <div class="grid gap-3 border-b border-slate-200 px-5 py-4 dark:border-slate-700 lg:grid-cols-[1.2fr,0.8fr,1fr,auto] lg:items-end">
+        <div>
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Outreach Name</label>
+            <input type="text" name="name" value="Online Last 24H Outreach" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                <span id="bulk-selected-count" class="font-semibold text-slate-900 dark:text-white">0</span>
+                selected for outreach.
+            </p>
+        </div>
+        <div>
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Channel</label>
+            <select id="online-last-24h-outreach-channel" name="channel" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                <option value="whatsapp">WhatsApp</option>
+                <option value="email">Email</option>
+            </select>
+        </div>
+        <div>
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Send From</label>
+            <select id="online-last-24h-channel-target-id" name="channel_target_id" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"></select>
+        </div>
+        <button
+            type="submit"
+            id="bulk-notify-button"
+            disabled
+            class="inline-flex h-10 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600 dark:disabled:bg-slate-700 dark:disabled:text-slate-400"
+        >
+            Create Outreach
+        </button>
+    </div>
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
         <thead>
             <tr>
+                <th class="px-5 py-3 text-left">
+                    <input id="select-all-subscribers" type="checkbox" class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-800">
+                </th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Subscriber #</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Name</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Region</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Seen</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Currently Online</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Ticket</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Queued Notification</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Notification Sent</th>
                 <th class="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Actions</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
             {% for row in rows %}
             {% call table_row(color="emerald") %}
+            <td class="px-5 py-3 text-sm">
+                {% if row.can_notify %}
+                <input
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-800"
+                    name="subscriber_id"
+                    data-bulk-select
+                    value="{{ row.subscriber_id }}"
+                >
+                {% else %}
+                <input type="checkbox" class="h-4 w-4 rounded border-slate-300 dark:border-slate-600 dark:bg-slate-800" disabled>
+                {% endif %}
+            </td>
             <td class="px-5 py-3 text-sm font-semibold text-slate-900 dark:text-white">{{ row.subscriber_number or "-" }}</td>
-            <td class="px-5 py-3 text-sm text-slate-900 dark:text-white">{{ row.name }}</td>
+            <td class="px-5 py-3 text-sm text-slate-900 dark:text-white">
+                <div class="flex flex-col gap-1">
+                    <span>{{ row.name }}</span>
+                    {% if row.is_test_account %}
+                    <span class="inline-flex w-fit rounded-full border border-amber-700 bg-amber-500 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm dark:border-amber-300 dark:bg-amber-300 dark:text-slate-950">Test account</span>
+                    {% endif %}
+                </div>
+            </td>
             <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ row.status or "-" }}</td>
             <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ row.region or "-" }}</td>
             <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ row.last_seen_at or "-" }}</td>
+            <td class="px-5 py-3 text-sm">
+                {% if row.currently_online %}
+                <span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">Yes</span>
+                {% else %}
+                <span class="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">No</span>
+                {% endif %}
+            </td>
             <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">
                 {% if row.ticket_id %}
                 <a href="/admin/support/tickets/{{ row.ticket_id }}" class="font-medium text-emerald-700 hover:text-emerald-800 hover:underline dark:text-emerald-400 dark:hover:text-emerald-300">{{ row.ticket_status | replace('_', ' ') | title or "View Ticket" }}</a>
@@ -136,11 +225,35 @@
                     <p class="mt-1 line-clamp-2">{{ row.latest_notification_message_body }}</p>
                     <p class="mt-2 font-medium text-emerald-700 dark:text-emerald-300">View full queued draft</p>
                 </button>
+                {% if row.is_test_account %}
+                <form method="post" action="/admin/reports/subscribers/online-last-24h/notify/test-send" class="mt-2">
+                    <input type="hidden" name="subscriber_id" value="{{ row.subscriber_id }}">
+                    <input type="hidden" name="next_url" value="{{ current_query }}">
+                    <button type="submit" class="inline-flex w-full items-center justify-center rounded-xl bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-600">
+                        Approve &amp; Send Test
+                    </button>
+                </form>
+                {% endif %}
                 {% else %}
                 <span class="text-slate-400 dark:text-slate-500">None queued</span>
                 {% endif %}
             </td>
+            <td class="px-5 py-3 text-sm">
+                {% if row.latest_notification_sent_for %}
+                {% set sent_status = (row.latest_notification_sent_status or "")|lower %}
+                {% set sent_pill_class = "border-emerald-700 bg-emerald-600 text-white dark:border-emerald-300 dark:bg-emerald-300 dark:text-slate-950" if sent_status in ["delivered", "read", "sent", "queued"] else "border-rose-700 bg-rose-600 text-white dark:border-rose-300 dark:bg-rose-300 dark:text-slate-950" if sent_status == "failed" else "border-slate-600 bg-slate-700 text-white dark:border-slate-300 dark:bg-slate-300 dark:text-slate-950" %}
+                <div class="flex flex-col items-start gap-1">
+                    <span class="inline-flex rounded-full border px-2.5 py-1 text-xs font-bold shadow-sm {{ sent_pill_class }}">
+                        {{ row.latest_notification_sent_status | replace('_', ' ') | title }}
+                    </span>
+                    <span class="text-xs text-slate-500 dark:text-slate-400">{{ row.latest_notification_sent_for }}</span>
+                </div>
+                {% else %}
+                <span class="text-slate-400 dark:text-slate-500">Not sent</span>
+                {% endif %}
+            </td>
             <td class="px-5 py-3 text-right">
+                {% if row.can_notify %}
                 <button
                     type="button"
                     class="inline-flex items-center rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
@@ -160,14 +273,18 @@
                 >
                     Notify
                 </button>
+                {% else %}
+                <span class="text-sm text-slate-400 dark:text-slate-500">No CRM subscriber link</span>
+                {% endif %}
             </td>
             {% endcall %}
             {% else %}
-            {{ empty_state(title="No online customers", message="No rows match the selected filters.", color="emerald", color2="teal", colspan=8) }}
+            {{ empty_state(title="No matching customers", message="No live Splynx rows match the selected filters.", color="emerald", color2="teal", colspan=11) }}
             {% endfor %}
         </tbody>
     </table>
     {% endcall %}
+    </form>
 </div>
 
 <div id="subscriber-notification-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm" onclick="if(event.target === this) this.classList.add('hidden')">
@@ -175,7 +292,7 @@
         <div class="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5 dark:border-slate-700">
             <div>
                 <p class="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-400">Notification</p>
-                <h2 class="mt-2 text-xl font-semibold text-slate-900 dark:text-white">Send customer follow-up</h2>
+                <h2 id="notify-modal-title" class="mt-2 text-xl font-semibold text-slate-900 dark:text-white">Send customer follow-up</h2>
                 <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">
                     <span id="notify-customer-name">Customer</span>
                     <span class="mx-1 text-slate-300 dark:text-slate-600">•</span>
@@ -185,8 +302,9 @@
             <button type="button" class="rounded-xl px-3 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white" onclick="document.getElementById('subscriber-notification-modal').classList.add('hidden')">Close</button>
         </div>
 
-        <form method="post" action="/admin/reports/subscribers/online-last-24h/notify" class="space-y-5 px-6 py-6">
+        <form id="subscriber-notification-form" method="post" action="/admin/reports/subscribers/online-last-24h/notify" class="space-y-5 px-6 py-6">
             <input type="hidden" name="subscriber_id" id="notify-subscriber-id">
+            <input type="hidden" name="subscriber_ids" id="notify-bulk-subscriber-ids">
             <input type="hidden" name="next_url" value="{{ current_query }}">
 
             <div class="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 md:grid-cols-[auto,1fr] dark:border-slate-700 dark:bg-slate-800/60">
@@ -211,8 +329,8 @@
                     <label for="notify-channel" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Channel</label>
                     <select id="notify-channel" name="channel" class="block h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
                         <option value="email">Email</option>
-                        <option value="sms">SMS</option>
-                        <option value="both">Both</option>
+                        <option value="whatsapp">WhatsApp</option>
+                        <option value="both">Email + WhatsApp</option>
                     </select>
                 </div>
                 <div>
@@ -243,11 +361,11 @@
 
             <div id="notify-sms-section" class="space-y-2">
                 <div class="flex items-center justify-between gap-3">
-                    <label for="notify-sms-body" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">SMS body</label>
-                    <span id="notify-sms-count" class="text-xs font-medium text-slate-500 dark:text-slate-400">0 / 160</span>
+                    <label for="notify-sms-body" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">WhatsApp body</label>
+                    <span id="notify-sms-count" class="text-xs font-medium text-slate-500 dark:text-slate-400">0 chars</span>
                 </div>
                 <textarea id="notify-sms-body" name="sms_body" rows="3" class="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"></textarea>
-                <p class="text-xs text-slate-500 dark:text-slate-400">SMS stays under 160 characters after token values are filled in.</p>
+                <p class="text-xs text-slate-500 dark:text-slate-400">WhatsApp messages use this body after token values are filled in.</p>
             </div>
 
             <div class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/80">
@@ -278,7 +396,7 @@
                 <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">
                     <span id="queued-notification-status">Testing Hold</span>
                     <span class="mx-1 text-slate-300 dark:text-slate-600">•</span>
-                    <span id="queued-notification-channel">SMS</span>
+                    <span id="queued-notification-channel">WHATSAPP</span>
                 </p>
             </div>
             <button type="button" class="rounded-xl px-3 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white" onclick="document.getElementById('queued-notification-modal').classList.add('hidden')">Close</button>
@@ -305,6 +423,16 @@
     const queuedModal = document.getElementById('queued-notification-modal');
     if (!modal) return;
 
+    const notifyForm = document.getElementById('subscriber-notification-form');
+    const notifyModalTitle = document.getElementById('notify-modal-title');
+    const bulkSubscriberIdsInput = document.getElementById('notify-bulk-subscriber-ids');
+    const bulkButton = document.getElementById('bulk-notify-button');
+    const bulkSelectedCount = document.getElementById('bulk-selected-count');
+    const selectAllSubscribers = document.getElementById('select-all-subscribers');
+    const bulkCheckboxes = Array.from(document.querySelectorAll('[data-bulk-select]'));
+    const outreachChannelSelect = document.getElementById('online-last-24h-outreach-channel');
+    const outreachTargetSelect = document.getElementById('online-last-24h-channel-target-id');
+    const outreachTargetOptions = {{ outreach_channel_targets|default({}, true)|tojson }};
     const channelInput = document.getElementById('notify-channel');
     const emailSection = document.getElementById('notify-email-section');
     const smsSection = document.getElementById('notify-sms-section');
@@ -326,6 +454,68 @@
     let templateState = {};
     let lastFocusedField = null;
 
+    function selectedBulkCheckboxes() {
+      return bulkCheckboxes.filter((checkbox) => checkbox.checked);
+    }
+
+    function updateBulkControls() {
+      const selected = selectedBulkCheckboxes();
+      bulkSelectedCount.textContent = selected.length;
+      const hasTarget = !!(outreachTargetSelect && outreachTargetSelect.value);
+      bulkButton.disabled = selected.length === 0 || !hasTarget;
+      if (selectAllSubscribers) {
+        selectAllSubscribers.checked = selected.length > 0 && selected.length === bulkCheckboxes.length;
+        selectAllSubscribers.indeterminate = selected.length > 0 && selected.length < bulkCheckboxes.length;
+      }
+    }
+
+    function renderOutreachTargets() {
+      if (!outreachChannelSelect || !outreachTargetSelect) return;
+      const selectedChannel = outreachChannelSelect.value || 'whatsapp';
+      const allowedNames = selectedChannel === 'whatsapp'
+        ? ['dotmac fiber helpdesk']
+        : ['sales mail', 'noc mail', 'support mail'];
+      const rawOptions = Array.isArray(outreachTargetOptions?.[selectedChannel]) ? outreachTargetOptions[selectedChannel] : [];
+      const options = rawOptions
+        .filter((option) => allowedNames.includes(String(option.name || '').trim().toLowerCase()))
+        .sort((left, right) => {
+          const leftIndex = allowedNames.indexOf(String(left.name || '').trim().toLowerCase());
+          const rightIndex = allowedNames.indexOf(String(right.name || '').trim().toLowerCase());
+          return leftIndex - rightIndex;
+        });
+      outreachTargetSelect.innerHTML = '';
+      if (!options.length) {
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = selectedChannel === 'whatsapp'
+          ? 'Dotmac Fiber HelpDesk is not available'
+          : 'Sales Mail, NOC Mail, or Support Mail is not available';
+        outreachTargetSelect.appendChild(empty);
+        updateBulkControls();
+        return;
+      }
+      options.forEach((option, index) => {
+        const node = document.createElement('option');
+        node.value = option.target_id || '';
+        node.textContent = option.name || option.target_id || 'Inbox target';
+        if (index === 0) node.selected = true;
+        outreachTargetSelect.appendChild(node);
+      });
+      updateBulkControls();
+    }
+
+    function configureSingleNotifyMode() {
+      notifyForm.action = '/admin/reports/subscribers/online-last-24h/notify';
+      bulkSubscriberIdsInput.value = '';
+      notifyModalTitle.textContent = 'Send customer follow-up';
+    }
+
+    function configureBulkNotifyMode(selectedIds) {
+      notifyForm.action = '/admin/reports/subscribers/online-last-24h/notify/bulk';
+      bulkSubscriberIdsInput.value = selectedIds.join(',');
+      notifyModalTitle.textContent = `Bulk notify ${selectedIds.length} customer${selectedIds.length === 1 ? '' : 's'}`;
+    }
+
     function deriveTemplateKey(ticketStatus, providedTemplateKey) {
       if (providedTemplateKey) return providedTemplateKey;
       const status = (ticketStatus || '').trim().toLowerCase();
@@ -338,15 +528,14 @@
 
     function updateChannelVisibility() {
       const value = channelInput.value;
-      emailSection.classList.toggle('hidden', value === 'sms');
+      emailSection.classList.toggle('hidden', value === 'whatsapp');
       smsSection.classList.toggle('hidden', value === 'email');
     }
 
     function updateSmsCount() {
       const length = (smsBody.value || '').length;
-      smsCount.textContent = `${length} / 160`;
-      smsCount.classList.toggle('text-rose-600', length > 160);
-      smsCount.classList.toggle('dark:text-rose-400', length > 160);
+      smsCount.textContent = `${length} chars`;
+      smsCount.classList.remove('text-rose-600', 'dark:text-rose-400');
     }
 
     function persistActiveTemplateDraft() {
@@ -504,11 +693,28 @@
 
     document.querySelectorAll('[data-notify-button]').forEach((button) => {
       button.addEventListener('click', async () => {
+        configureSingleNotifyMode();
         await loadNotifyContext(button);
         modal.classList.remove('hidden');
         modal.classList.add('flex');
       });
     });
+
+    bulkCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener('change', updateBulkControls);
+    });
+
+    if (selectAllSubscribers) {
+      selectAllSubscribers.addEventListener('change', () => {
+        bulkCheckboxes.forEach((checkbox) => {
+          checkbox.checked = selectAllSubscribers.checked;
+        });
+        updateBulkControls();
+      });
+    }
+
+    if (outreachChannelSelect) outreachChannelSelect.addEventListener('change', renderOutreachTargets);
+    if (outreachTargetSelect) outreachTargetSelect.addEventListener('change', updateBulkControls);
 
     channelInput.addEventListener('change', updateChannelVisibility);
     smsBody.addEventListener('input', updateSmsCount);
@@ -561,6 +767,14 @@
 
     updateChannelVisibility();
     updateSmsCount();
+    renderOutreachTargets();
+    updateBulkControls();
+
+    window.setTimeout(() => {
+      if (!document.hidden && !modal.classList.contains('flex')) {
+        window.location.reload();
+      }
+    }, 60000);
   })();
 </script>
 {% endblock %}

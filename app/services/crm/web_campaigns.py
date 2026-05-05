@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import String, cast, select
 from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorConfig, ConnectorType
@@ -32,6 +32,7 @@ from app.services.crm.inbox.inboxes import list_channel_targets
 
 OUTREACH_KIND = "outreach"
 OUTREACH_SOURCE_BILLING_RISK = "billing_risk"
+OUTREACH_SOURCE_ONLINE_LAST_24H = "online_last_24h"
 
 
 @dataclass(slots=True)
@@ -80,7 +81,7 @@ def _form_str_opt(value: str) -> str | None:
 
 def _campaign_metadata(campaign) -> dict:
     metadata = getattr(campaign, "metadata_", None)
-    return metadata if isinstance(metadata, dict) else {}
+    return dict(metadata) if isinstance(metadata, dict) else {}
 
 
 def _campaign_kind(campaign) -> str:
@@ -754,7 +755,7 @@ def create_campaign(
     return campaigns_service.create(db, payload, created_by_id=created_by_id)
 
 
-def create_billing_risk_outreach_campaign(
+def create_retention_outreach_campaign(
     db: Session,
     *,
     name: str,
@@ -763,6 +764,7 @@ def create_billing_risk_outreach_campaign(
     subscriber_ids: list[str],
     retention_customer_ids: list[str] | None,
     created_by_id: str | None,
+    source_report: str,
     source_filters: dict | None = None,
 ):
     try:
@@ -770,7 +772,7 @@ def create_billing_risk_outreach_campaign(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid outreach channel")
 
-    clean_name = (name or "").strip() or "Billing Risk Outreach"
+    clean_name = (name or "").strip() or "Retention Outreach"
     resolved_target_id, resolved_target_name = _resolve_outreach_channel_target(
         db,
         channel=selected_channel,
@@ -778,7 +780,7 @@ def create_billing_risk_outreach_campaign(
     )
     metadata = {
         "kind": OUTREACH_KIND,
-        "source_report": OUTREACH_SOURCE_BILLING_RISK,
+        "source_report": source_report,
         "audience_mode": "manual_snapshot",
         "source_filters": source_filters or {},
         "channel_target_id": resolved_target_id,
@@ -791,7 +793,30 @@ def create_billing_risk_outreach_campaign(
         metadata_=metadata,
     )
     campaign = campaigns_service.create(db, payload, created_by_id=created_by_id)
+    if source_report == OUTREACH_SOURCE_ONLINE_LAST_24H:
+        from app.services.subscriber_notifications import campaign_template_for_online_last_24h
+
+        campaign_template = campaign_template_for_online_last_24h(db, channel=selected_channel.value)
+        campaign.subject = campaign_template.subject
+        campaign.body_text = campaign_template.body_text
+        campaign.body_html = campaign_template.body_html
     snapshot_context_by_subscriber_id: dict[str, dict] = {}
+    rendered_online_last_24h_messages: dict[str, object] = {}
+    if source_report == OUTREACH_SOURCE_ONLINE_LAST_24H:
+        from app.services.subscriber_notifications import render_online_last_24h_campaign_message
+
+        for subscriber_id in subscriber_ids:
+            normalized_subscriber_id = str(subscriber_id).strip()
+            if not normalized_subscriber_id:
+                continue
+            try:
+                rendered_online_last_24h_messages[normalized_subscriber_id] = render_online_last_24h_campaign_message(
+                    db,
+                    subscriber_id=UUID(normalized_subscriber_id),
+                    channel=selected_channel.value,
+                )
+            except Exception:
+                continue
     for index, subscriber_id in enumerate(subscriber_ids):
         normalized_subscriber_id = str(subscriber_id).strip()
         if not normalized_subscriber_id:
@@ -802,6 +827,16 @@ def create_billing_risk_outreach_campaign(
         snapshot_context_by_subscriber_id[normalized_subscriber_id] = {
             "retention_customer_id": retention_customer_id or normalized_subscriber_id,
         }
+        rendered_message = rendered_online_last_24h_messages.get(normalized_subscriber_id)
+        if rendered_message is not None:
+            snapshot_context_by_subscriber_id[normalized_subscriber_id].update(
+                {
+                    "notification_template_key": getattr(rendered_message, "template_key", ""),
+                    "campaign_subject": getattr(rendered_message, "subject", ""),
+                    "campaign_body_text": getattr(rendered_message, "body_text", ""),
+                    "campaign_body_html": getattr(rendered_message, "body_html", None) or "",
+                }
+            )
     Campaigns.seed_manual_snapshot_recipients(
         db,
         campaign_id=str(campaign.id),
@@ -809,6 +844,53 @@ def create_billing_risk_outreach_campaign(
         snapshot_context_by_subscriber_id=snapshot_context_by_subscriber_id,
     )
     return campaign
+
+
+def create_billing_risk_outreach_campaign(
+    db: Session,
+    *,
+    name: str,
+    channel: str,
+    channel_target_id: str | None,
+    subscriber_ids: list[str],
+    retention_customer_ids: list[str] | None,
+    created_by_id: str | None,
+    source_filters: dict | None = None,
+):
+    return create_retention_outreach_campaign(
+        db,
+        name=(name or "").strip() or "Billing Risk Outreach",
+        channel=channel,
+        channel_target_id=channel_target_id,
+        subscriber_ids=subscriber_ids,
+        retention_customer_ids=retention_customer_ids,
+        created_by_id=created_by_id,
+        source_report=OUTREACH_SOURCE_BILLING_RISK,
+        source_filters=source_filters,
+    )
+
+
+def create_online_last_24h_outreach_campaign(
+    db: Session,
+    *,
+    name: str,
+    channel: str,
+    channel_target_id: str | None,
+    subscriber_ids: list[str],
+    created_by_id: str | None,
+    source_filters: dict | None = None,
+):
+    return create_retention_outreach_campaign(
+        db,
+        name=(name or "").strip() or "Online Last 24H Outreach",
+        channel=channel,
+        channel_target_id=channel_target_id,
+        subscriber_ids=subscriber_ids,
+        retention_customer_ids=subscriber_ids,
+        created_by_id=created_by_id,
+        source_report=OUTREACH_SOURCE_ONLINE_LAST_24H,
+        source_filters=source_filters,
+    )
 
 
 def _latest_retention_engagement_by_customer_id(
@@ -883,7 +965,7 @@ def outreach_inbox_metrics(
         db.query(Message)
         .filter(
             Message.direction == MessageDirection.outbound,
-            Message.metadata_["campaign_id"].astext == str(campaign_id),
+            cast(Message.metadata_["campaign_id"], String) == str(campaign_id),
         )
         .all()
     )
