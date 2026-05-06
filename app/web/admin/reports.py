@@ -5,7 +5,7 @@ import io
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Literal, TypedDict
 from urllib.parse import quote, urlencode
 from uuid import UUID
 from xml.sax.saxutils import escape
@@ -14,13 +14,14 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from fastapi import APIRouter, Depends, Form, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.csrf import get_csrf_token
 from app.db import get_db
 from app.models.crm.conversation import Conversation
 from app.models.dispatch import TechnicianProfile
 from app.models.person import Person, PersonChannel
+from app.models.projects import ProjectTask, ProjectTaskAssignee, TaskStatus
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.models.tickets import Ticket, TicketComment
 from app.models.workforce import WorkOrder, WorkOrderStatus
@@ -37,6 +38,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
 templates = Jinja2Templates(directory="templates")
+
+
+class _ProjectTaskPersonAccumulator(TypedDict):
+    id: str
+    name: str
+    assigned_tasks: int
+    completed_tasks: int
+    open_tasks: int
+    blocked_tasks: int
+    overdue_tasks: int
+    on_time_tasks: int
+    cycle_hours_total: float
+    cycle_hours_count: int
+    effort_accuracy_total: float
+    effort_accuracy_count: int
+
 
 _NCC_EXPORT_FILENAME = "NCC REPORTS (DOTMAC).xlsx"
 _NCC_COLUMNS = [
@@ -2847,6 +2864,354 @@ def technician_report_export(
         )
 
     filename = f"technician_performance_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
+    return _csv_response(export_data, filename)
+
+
+# =============================================================================
+# Project Task People Performance Report
+# =============================================================================
+
+
+def _hours_between(start_at: datetime | None, end_at: datetime | None) -> float | None:
+    if not start_at or not end_at:
+        return None
+    if start_at.tzinfo is None and end_at.tzinfo is not None:
+        start_at = start_at.replace(tzinfo=end_at.tzinfo)
+    elif start_at.tzinfo is not None and end_at.tzinfo is None:
+        end_at = end_at.replace(tzinfo=start_at.tzinfo)
+    return max((end_at - start_at).total_seconds() / 3600, 0.0)
+
+
+def _datetime_after(left: datetime | None, right: datetime | None) -> bool:
+    if not left or not right:
+        return False
+    if left.tzinfo is None and right.tzinfo is not None:
+        left = left.replace(tzinfo=right.tzinfo)
+    elif left.tzinfo is not None and right.tzinfo is None:
+        right = right.replace(tzinfo=left.tzinfo)
+    return left > right
+
+
+def _project_task_person_name(person: Person | None) -> str:
+    if not person:
+        return "Unknown"
+    if person.display_name:
+        return person.display_name
+    return f"{person.first_name or ''} {person.last_name or ''}".strip() or "Unknown"
+
+
+def _task_assignee_ids(task: ProjectTask) -> list[UUID]:
+    assignee_ids = [assignee.person_id for assignee in task.assignees if assignee.person_id]
+    if assignee_ids:
+        return list(dict.fromkeys(assignee_ids))
+    if task.assigned_to_person_id:
+        return [task.assigned_to_person_id]
+    return []
+
+
+def _new_project_task_person_accumulator(
+    person_id: UUID,
+    people_by_id: dict[UUID, Person],
+) -> _ProjectTaskPersonAccumulator:
+    return {
+        "id": str(person_id),
+        "name": _project_task_person_name(people_by_id.get(person_id)),
+        "assigned_tasks": 0,
+        "completed_tasks": 0,
+        "open_tasks": 0,
+        "blocked_tasks": 0,
+        "overdue_tasks": 0,
+        "on_time_tasks": 0,
+        "cycle_hours_total": 0.0,
+        "cycle_hours_count": 0,
+        "effort_accuracy_total": 0.0,
+        "effort_accuracy_count": 0,
+    }
+
+
+def _metric_int(row: dict[str, object], key: str) -> int:
+    value = row.get(key, 0)
+    return int(value) if isinstance(value, int | float | str) else 0
+
+
+def _metric_float(row: dict[str, object], key: str) -> float:
+    value = row.get(key, 0.0)
+    return float(value) if isinstance(value, int | float | str) else 0.0
+
+
+def _get_project_task_people_performance(
+    db: Session,
+    start_date: datetime,
+    end_date: datetime,
+) -> tuple[list[dict[str, object]], dict[str, object], dict[str, int], list[ProjectTask]]:
+    """Aggregate people performance from project task assignment activity."""
+    tasks = (
+        db.scalars(
+            select(ProjectTask)
+            .options(
+                selectinload(ProjectTask.assignees),
+                selectinload(ProjectTask.project),
+            )
+            .where(
+                ProjectTask.is_active.is_(True),
+                ProjectTask.created_at >= start_date,
+                ProjectTask.created_at <= end_date,
+            )
+        )
+        .unique()
+        .all()
+    )
+
+    person_ids = {person_id for task in tasks for person_id in _task_assignee_ids(task)}
+    if not person_ids:
+        person_ids.update(
+            row
+            for row in db.scalars(
+                select(ProjectTask.assigned_to_person_id)
+                .where(
+                    ProjectTask.is_active.is_(True),
+                    ProjectTask.assigned_to_person_id.isnot(None),
+                    ProjectTask.completed_at >= start_date,
+                    ProjectTask.completed_at <= end_date,
+                )
+                .distinct()
+            ).all()
+            if row is not None
+        )
+        person_ids.update(
+            row
+            for row in db.scalars(
+                select(ProjectTaskAssignee.person_id)
+                .join(ProjectTask, ProjectTask.id == ProjectTaskAssignee.task_id)
+                .where(
+                    ProjectTask.is_active.is_(True),
+                    ProjectTask.completed_at >= start_date,
+                    ProjectTask.completed_at <= end_date,
+                )
+                .distinct()
+            ).all()
+            if row is not None
+        )
+
+    people_by_id: dict[UUID, Person] = {}
+    if person_ids:
+        people = db.scalars(select(Person).where(Person.id.in_(person_ids), Person.is_active.is_(True))).all()
+        people_by_id = {person.id: person for person in people}
+
+    stats_by_person: dict[UUID, _ProjectTaskPersonAccumulator] = {
+        person_id: _new_project_task_person_accumulator(person_id, people_by_id) for person_id in person_ids
+    }
+
+    project_type_breakdown: dict[str, int] = {}
+    now = datetime.now(UTC)
+
+    for task in tasks:
+        project_type = task.project.project_type.value if task.project and task.project.project_type else "unspecified"
+        project_type_breakdown[project_type] = project_type_breakdown.get(project_type, 0) + 1
+
+        assignee_ids = _task_assignee_ids(task)
+        if not assignee_ids:
+            continue
+
+        is_done = task.status == TaskStatus.done
+        is_blocked = task.status == TaskStatus.blocked
+        is_overdue = bool(task.due_at and _datetime_after(task.completed_at or now, task.due_at) and not is_done)
+        is_on_time = bool(
+            is_done and task.due_at and task.completed_at and not _datetime_after(task.completed_at, task.due_at)
+        )
+        cycle_hours = _hours_between(task.start_at or task.created_at, task.completed_at) if is_done else None
+        effort_accuracy = None
+        if cycle_hours is not None and task.effort_hours and task.effort_hours > 0:
+            effort_accuracy = max(0.0, 1 - abs(cycle_hours - float(task.effort_hours)) / float(task.effort_hours)) * 100
+
+        for person_id in assignee_ids:
+            row = stats_by_person.setdefault(
+                person_id,
+                _new_project_task_person_accumulator(person_id, people_by_id),
+            )
+            row["assigned_tasks"] += 1
+            if is_done:
+                row["completed_tasks"] += 1
+            else:
+                row["open_tasks"] += 1
+            if is_blocked:
+                row["blocked_tasks"] += 1
+            if is_overdue:
+                row["overdue_tasks"] += 1
+            if is_on_time:
+                row["on_time_tasks"] += 1
+            if cycle_hours is not None:
+                row["cycle_hours_total"] += cycle_hours
+                row["cycle_hours_count"] += 1
+            if effort_accuracy is not None:
+                row["effort_accuracy_total"] += effort_accuracy
+                row["effort_accuracy_count"] += 1
+
+    rows: list[dict[str, object]] = []
+    for row in stats_by_person.values():
+        assigned = int(row["assigned_tasks"])
+        completed = int(row["completed_tasks"])
+        blocked = int(row["blocked_tasks"])
+        overdue = int(row["overdue_tasks"])
+        completion_rate = (completed / assigned * 100) if assigned else 0.0
+        on_time_rate = (int(row["on_time_tasks"]) / completed * 100) if completed else 0.0
+        blocked_rate = (blocked / assigned * 100) if assigned else 0.0
+        overdue_rate = (overdue / assigned * 100) if assigned else 0.0
+        avg_cycle_hours = (
+            float(row["cycle_hours_total"]) / int(row["cycle_hours_count"]) if int(row["cycle_hours_count"]) else 0.0
+        )
+        effort_accuracy = (
+            float(row["effort_accuracy_total"]) / int(row["effort_accuracy_count"])
+            if int(row["effort_accuracy_count"])
+            else 0.0
+        )
+        health_score = max(0.0, 100.0 - blocked_rate - overdue_rate)
+        performance_score = (
+            (completion_rate * 0.4) + (on_time_rate * 0.35) + (health_score * 0.15) + (effort_accuracy * 0.10)
+        )
+        rows.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "assigned_tasks": assigned,
+                "completed_tasks": completed,
+                "open_tasks": int(row["open_tasks"]),
+                "blocked_tasks": blocked,
+                "overdue_tasks": overdue,
+                "completion_rate": round(completion_rate, 1),
+                "on_time_rate": round(on_time_rate, 1),
+                "avg_cycle_hours": round(avg_cycle_hours, 1),
+                "effort_accuracy": round(effort_accuracy, 1),
+                "performance_score": round(performance_score, 1),
+                "rating": min(5, max(1, round(performance_score / 20))) if assigned else 3,
+            }
+        )
+
+    rows.sort(
+        key=lambda item: (
+            -_metric_float(item, "performance_score"),
+            -_metric_int(item, "completed_tasks"),
+            str(item.get("name", "")).lower(),
+        )
+    )
+
+    completed_rows = [row for row in rows if _metric_int(row, "completed_tasks") > 0]
+    total_assigned = sum(_metric_int(row, "assigned_tasks") for row in rows)
+    total_completed = sum(_metric_int(row, "completed_tasks") for row in rows)
+    total_overdue = sum(_metric_int(row, "overdue_tasks") for row in rows)
+    weighted_completion = (total_completed / total_assigned * 100) if total_assigned else 0.0
+    weighted_on_time = (
+        sum(_metric_int(row, "completed_tasks") * _metric_float(row, "on_time_rate") for row in rows) / total_completed
+        if total_completed
+        else 0.0
+    )
+    avg_cycle_hours = (
+        sum(_metric_int(row, "completed_tasks") * _metric_float(row, "avg_cycle_hours") for row in completed_rows)
+        / total_completed
+        if total_completed
+        else 0.0
+    )
+    summary: dict[str, object] = {
+        "people_count": len(rows),
+        "tasks_assigned": total_assigned,
+        "tasks_completed": total_completed,
+        "tasks_overdue": total_overdue,
+        "completion_rate": round(weighted_completion, 1),
+        "on_time_rate": round(weighted_on_time, 1),
+        "avg_cycle_hours": round(avg_cycle_hours, 1),
+    }
+
+    recent_completions = (
+        db.scalars(
+            select(ProjectTask)
+            .options(
+                joinedload(ProjectTask.assigned_to),
+                selectinload(ProjectTask.assignees).selectinload(ProjectTaskAssignee.person),
+                selectinload(ProjectTask.project),
+            )
+            .where(
+                ProjectTask.is_active.is_(True),
+                ProjectTask.status == TaskStatus.done,
+                ProjectTask.completed_at >= start_date,
+                ProjectTask.completed_at <= end_date,
+            )
+            .order_by(ProjectTask.completed_at.desc())
+            .limit(5)
+        )
+        .unique()
+        .all()
+    )
+
+    return rows, summary, project_type_breakdown, list(recent_completions)
+
+
+@router.get("/project-task-performance", response_class=HTMLResponse)
+def project_task_people_performance_report(
+    request: Request,
+    db: Session = Depends(get_db),
+    days: int = Query(30, ge=7, le=90),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """People performance report based on assigned project tasks."""
+    user = get_current_user(request)
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+    people_stats, summary, project_type_breakdown, recent_completions = _get_project_task_people_performance(
+        db, start_dt, end_dt
+    )
+
+    return templates.TemplateResponse(
+        "admin/reports/project_task_performance.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "project-task-performance",
+            "active_menu": "reports",
+            "people_stats": people_stats,
+            "summary": summary,
+            "project_type_breakdown": project_type_breakdown,
+            "recent_completions": recent_completions,
+            "days": days,
+            "custom_range": bool(start_date and end_date),
+            "start_date": start_dt.strftime("%Y-%m-%d"),
+            "end_date": end_dt.strftime("%Y-%m-%d"),
+        },
+    )
+
+
+@router.get("/project-task-performance/export")
+def project_task_people_performance_export(
+    db: Session = Depends(get_db),
+    days: int = Query(30, ge=7, le=90),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Export project task people performance report as CSV."""
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+    people_stats, _, _, _ = _get_project_task_people_performance(db, start_dt, end_dt)
+
+    export_data = []
+    for index, person in enumerate(people_stats, 1):
+        export_data.append(
+            {
+                "Rank": index,
+                "Person": person["name"],
+                "Assigned Tasks": person["assigned_tasks"],
+                "Completed Tasks": person["completed_tasks"],
+                "Open Tasks": person["open_tasks"],
+                "Blocked Tasks": person["blocked_tasks"],
+                "Overdue Tasks": person["overdue_tasks"],
+                "Completion Rate (%)": person["completion_rate"],
+                "On-Time Rate (%)": person["on_time_rate"],
+                "Avg Cycle Hours": person["avg_cycle_hours"],
+                "Effort Accuracy (%)": person["effort_accuracy"],
+                "Performance Score": person["performance_score"],
+            }
+        )
+
+    filename = f"project_task_people_performance_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
     return _csv_response(export_data, filename)
 
 
