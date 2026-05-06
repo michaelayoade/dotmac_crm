@@ -1,0 +1,165 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import leaderboard_table %}
+
+{% block title %}Project Task Performance - Admin{% endblock %}
+
+{% block charts_js %}
+<script src="/static/js/vendor/chart.min.js"></script>
+<script src="/static/js/charts.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Project Task Performance</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Compare people by assigned project-task throughput, timeliness, and delivery health</p>
+        </div>
+        <form method="GET" action="/admin/reports/project-task-performance" class="flex flex-wrap items-center gap-2" x-data="{ custom: {{ 'true' if custom_range else 'false' }} }">
+            <select name="days" @change="custom = ($event.target.selectedOptions[0].dataset.custom === 'true')" class="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <option value="7" {% if days == 7 and not custom_range %}selected{% endif %}>Last 7 Days</option>
+                <option value="30" {% if days == 30 and not custom_range %}selected{% endif %}>Last 30 Days</option>
+                <option value="60" {% if days == 60 and not custom_range %}selected{% endif %}>Last 60 Days</option>
+                <option value="90" {% if days == 90 and not custom_range %}selected{% endif %}>Last 90 Days</option>
+                <option value="{{ days }}" data-custom="true" {% if custom_range %}selected{% endif %}>Custom Range</option>
+            </select>
+            <template x-if="custom">
+                <div class="flex items-center gap-2">
+                    <input type="date" name="start_date" value="{{ start_date }}" class="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <span class="text-slate-500 dark:text-slate-400">to</span>
+                    <input type="date" name="end_date" value="{{ end_date }}" class="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+            </template>
+            <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+                Filter
+            </button>
+            <a href="/admin/reports/project-task-performance/export?days={{ days }}{% if start_date %}&start_date={{ start_date }}&end_date={{ end_date }}{% endif %}" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                Export CSV
+            </a>
+        </form>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">People With Tasks</p>
+            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ summary.people_count | default(0) }}</p>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Assigned in period</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Tasks Completed</p>
+            <p class="mt-2 text-3xl font-bold text-green-600 dark:text-green-400">{{ summary.tasks_completed | default(0) }}</p>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Of {{ summary.tasks_assigned | default(0) }} assigned</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">On-Time Rate</p>
+            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ "%.1f" | format(summary.on_time_rate | default(0)) }}%</p>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Completed by due date</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Avg Cycle Time</p>
+            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ "%.1f" | format(summary.avg_cycle_hours | default(0)) }}h</p>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ summary.tasks_overdue | default(0) }} overdue open tasks</p>
+        </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <h2 class="font-semibold text-slate-900 dark:text-white">People Leaderboard</h2>
+        </div>
+        <div class="p-6">
+            {{ leaderboard_table(
+                data=people_stats,
+                columns=[
+                    {"key": "performance_score", "label": "Score", "format": "number"},
+                    {"key": "assigned_tasks", "label": "Assigned", "format": "number"},
+                    {"key": "completed_tasks", "label": "Done", "format": "number"},
+                    {"key": "completion_rate", "label": "Complete", "format": "percent"},
+                    {"key": "on_time_rate", "label": "On Time", "format": "percent"},
+                    {"key": "avg_cycle_hours", "label": "Avg Time", "format": "hours"},
+                    {"key": "overdue_tasks", "label": "Overdue", "format": "number"},
+                ],
+                name_key="name",
+                color="primary",
+                empty_title="No project task performance data",
+                empty_message="Assigned project tasks will appear here once available for this period."
+            ) }}
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                <h2 class="font-semibold text-slate-900 dark:text-white">Tasks by Project Type</h2>
+            </div>
+            <div class="p-6">
+                <div class="chart-container mb-4" style="min-height: 200px;">
+                    <canvas id="project-task-types-chart"></canvas>
+                </div>
+                <div class="space-y-3">
+                    {% for project_type, count in project_type_breakdown.items() %}
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm text-slate-700 dark:text-slate-300">{{ project_type | title | replace('_', ' ') }}</span>
+                        <span class="text-sm font-semibold text-slate-900 dark:text-white">{{ count }}</span>
+                    </div>
+                    {% else %}
+                    <p class="text-sm text-slate-500 dark:text-slate-400">No project type data available.</p>
+                    {% endfor %}
+                </div>
+                <script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    const ctx = document.getElementById('project-task-types-chart');
+                    if (!ctx) return;
+                    const chartData = {
+                        labels: [{% for project_type, count in project_type_breakdown.items() %}'{{ project_type | title | replace("_", " ") }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+                        values: [{% for project_type, count in project_type_breakdown.items() %}{{ count }}{% if not loop.last %}, {% endif %}{% endfor %}],
+                        colors: ['#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899']
+                    };
+                    if (chartData.labels.length > 0) {
+                        const chart = DotmacCharts.createDoughnutChart(ctx, chartData, { plugins: { legend: { display: false } } });
+                        DotmacCharts.registerChart('project-task-types-chart', chart);
+                    }
+                });
+                </script>
+            </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+                <h2 class="font-semibold text-slate-900 dark:text-white">Recent Task Completions</h2>
+            </div>
+            <div class="p-6">
+                {% if recent_completions %}
+                <div class="space-y-3">
+                    {% for task in recent_completions %}
+                    <div class="border-b border-slate-100 py-2 last:border-0 dark:border-slate-700">
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="min-w-0">
+                                <p class="truncate text-sm font-medium text-slate-900 dark:text-white">{{ task.title }}</p>
+                                <p class="truncate text-xs text-slate-500 dark:text-slate-400">
+                                    {{ task.project.name if task.project else 'Project task' }} -
+                                    {% if task.assignees %}
+                                        {{ task.assignees | map(attribute='person.display_name') | reject('equalto', none) | join(', ') or 'Assigned' }}
+                                    {% elif task.assigned_to %}
+                                        {{ task.assigned_to.display_name or ((task.assigned_to.first_name ~ ' ' ~ task.assigned_to.last_name) | trim) or 'Assigned' }}
+                                    {% else %}
+                                        Unassigned
+                                    {% endif %}
+                                </p>
+                            </div>
+                            <span class="shrink-0 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                                {{ task.completed_at.strftime('%b %d') if task.completed_at else '-' }}
+                            </span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-sm text-slate-500 dark:text-slate-400">No recent task completions.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
