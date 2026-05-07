@@ -2,7 +2,12 @@ from app.celery_app import celery_app
 from app.db import SessionLocal
 from app.schemas.crm.inbox import InboxSendRequest
 from app.services.crm import inbox as inbox_service
-from app.services.crm.ai_intake import escalate_expired_pending_intakes, retry_team_only_ai_assignments
+from app.services.crm.ai_intake import (
+    backfill_missing_handoff_states,
+    escalate_expired_pending_intakes,
+    retry_team_only_ai_assignments,
+    send_due_handoff_reassurance_followups,
+)
 from app.services.crm.inbox.outbound import TransientOutboundError
 from app.services.crm.inbox.outbox import cleanup_old_outbox, list_due_outbox_ids, process_outbox_item
 
@@ -53,16 +58,25 @@ def escalate_expired_ai_intake_conversations_task(limit: int = 200):
     start = time.monotonic()
     status = "success"
     session = SessionLocal()
-    logger.info("AI_INTAKE_ESCALATION_START")
+    logger.info("AI_INTAKE_MAINTENANCE_START")
     try:
+        backfill = backfill_missing_handoff_states(session, limit=max(limit, 500))
+        reminders = send_due_handoff_reassurance_followups(session, limit=limit)
         result = escalate_expired_pending_intakes(session, limit=limit)
         logger.info(
-            "AI_INTAKE_ESCALATION_COMPLETE escalated=%s skipped=%s errors=%s",
+            "AI_INTAKE_MAINTENANCE_COMPLETE backfill_updated=%s reminders_sent=%s reminders_suppressed=%s escalated=%s skipped=%s errors=%s",
+            backfill.get("updated", 0),
+            reminders.get("sent", 0),
+            reminders.get("suppressed", 0),
             result.get("escalated", 0),
             result.get("skipped", 0),
-            len(result.get("errors", [])),
+            len(reminders.get("errors", [])) + len(result.get("errors", [])),
         )
-        return result
+        return {
+            "backfill": backfill,
+            "reminders": reminders,
+            "escalations": result,
+        }
     except Exception:
         status = "error"
         session.rollback()

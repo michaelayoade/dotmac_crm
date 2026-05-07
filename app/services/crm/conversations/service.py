@@ -388,6 +388,13 @@ class Messages(ListResponseMixin):
             if is_agent:
                 conversation.first_response_at = timestamp
                 conversation.response_time_seconds = int((timestamp - conversation.created_at).total_seconds())
+                from app.services.crm.ai_intake import mark_handoff_in_progress_for_human_reply
+
+                mark_handoff_in_progress_for_human_reply(
+                    db,
+                    conversation=conversation,
+                    message=message,
+                )
 
         from app.services.crm.inbox.summaries import recompute_conversation_summary
 

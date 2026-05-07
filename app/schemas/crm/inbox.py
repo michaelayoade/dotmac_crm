@@ -28,6 +28,7 @@ class InboxSendRequest(BaseModel):
     scheduled_at: datetime | None = None
     personalization: dict | None = None
     attachments: list[dict] | None = None
+    metadata: dict | None = None
 
     @model_validator(mode="after")
     def _require_body_or_attachments(self):

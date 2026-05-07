@@ -238,6 +238,7 @@ def post_process_inbound_message(
     conversation_id: str,
     message_id: str,
     channel_target_id: str | None,
+    is_new_conversation: bool | None = None,
 ) -> None:
     try:
         conversation = db.get(Conversation, conversation_id)
@@ -265,11 +266,20 @@ def post_process_inbound_message(
                     ),
                 )
                 try:
+                    logger.info(
+                        "ai_intake_trigger conversation_id=%s message_id=%s scope_key=%s is_new_conversation=%s channel_type=%s",
+                        conversation.id,
+                        message.id,
+                        scope_key,
+                        is_new_conversation,
+                        message.channel_type,
+                    )
                     intake_result = process_pending_intake(
                         db,
                         conversation=conversation,
                         message=message,
                         scope_key=scope_key,
+                        is_new_conversation=is_new_conversation,
                     )
                 except Exception as exc:
                     logger.warning(
