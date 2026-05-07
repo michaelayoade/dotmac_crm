@@ -244,6 +244,79 @@ def test_whatsapp_handler_process_success():
         assert result.channel_target_id == "target-1"
 
 
+def test_whatsapp_handler_promotes_meta_attribution_to_conversation_metadata():
+    handler = WhatsAppHandler()
+    payload = WhatsAppWebhookPayload(
+        contact_address="+15555550000",
+        contact_name="Test",
+        message_id="mid-1",
+        body="Hello",
+        received_at=None,
+        metadata={"attribution": {"source": "ADS", "ad_id": "ad-1", "campaign_id": "camp-1"}},
+        channel_target_id=None,
+    )
+    conversation = SimpleNamespace(id="conv-1", is_active=True, metadata_={})
+    person = SimpleNamespace(id="person-1", metadata_={})
+
+    with (
+        patch("app.services.crm.inbox.handlers.whatsapp._resolve_integration_target") as mock_target,
+        patch("app.services.crm.inbox.handlers.whatsapp._resolve_connector_config") as mock_config,
+        patch("app.services.crm.inbox.handlers.whatsapp._is_self_whatsapp_message") as mock_self,
+        patch("app.services.crm.inbox.handlers.whatsapp._resolve_person_for_inbound") as mock_person,
+        patch("app.services.crm.inbox.handlers.whatsapp._find_duplicate_inbound_message") as mock_dedupe,
+        patch("app.services.crm.inbox.handlers.whatsapp.conversation_service") as mock_conv,
+        patch("app.services.crm.inbox.handlers.whatsapp.meta_webhooks._persist_meta_attribution_to_person_and_lead"),
+    ):
+        mock_target.return_value = SimpleNamespace(id="target-1")
+        mock_config.return_value = None
+        mock_self.return_value = False
+        mock_person.return_value = (person, SimpleNamespace(id="chan-1"))
+        mock_dedupe.return_value = None
+        mock_conv.resolve_open_conversation_for_channel.return_value = conversation
+
+        result = handler.process(_DummyDB(), payload)
+
+    assert isinstance(result, InboundProcessResult)
+    assert conversation.metadata_["attribution"]["source"] == "ADS"
+    assert conversation.metadata_["attribution"]["ad_id"] == "ad-1"
+    assert conversation.metadata_["attribution"]["campaign_id"] == "camp-1"
+    assert conversation.metadata_["attribution"]["last_channel"] == "whatsapp"
+
+
+def test_whatsapp_handler_leaves_conversation_metadata_unchanged_without_attribution():
+    handler = WhatsAppHandler()
+    payload = WhatsAppWebhookPayload(
+        contact_address="+15555550000",
+        contact_name="Test",
+        message_id="mid-1",
+        body="Hello",
+        received_at=None,
+        metadata={"phone_number_id": "pnid-1"},
+        channel_target_id=None,
+    )
+    conversation = SimpleNamespace(id="conv-1", is_active=True, metadata_={"existing": "value"})
+
+    with (
+        patch("app.services.crm.inbox.handlers.whatsapp._resolve_integration_target") as mock_target,
+        patch("app.services.crm.inbox.handlers.whatsapp._resolve_connector_config") as mock_config,
+        patch("app.services.crm.inbox.handlers.whatsapp._is_self_whatsapp_message") as mock_self,
+        patch("app.services.crm.inbox.handlers.whatsapp._resolve_person_for_inbound") as mock_person,
+        patch("app.services.crm.inbox.handlers.whatsapp._find_duplicate_inbound_message") as mock_dedupe,
+        patch("app.services.crm.inbox.handlers.whatsapp.conversation_service") as mock_conv,
+    ):
+        mock_target.return_value = SimpleNamespace(id="target-1")
+        mock_config.return_value = None
+        mock_self.return_value = False
+        mock_person.return_value = (SimpleNamespace(id="person-1"), SimpleNamespace(id="chan-1"))
+        mock_dedupe.return_value = None
+        mock_conv.resolve_open_conversation_for_channel.return_value = conversation
+
+        result = handler.process(_DummyDB(), payload)
+
+    assert isinstance(result, InboundProcessResult)
+    assert conversation.metadata_ == {"existing": "value"}
+
+
 def test_whatsapp_handler_duplicate():
     handler = WhatsAppHandler()
     payload = WhatsAppWebhookPayload(

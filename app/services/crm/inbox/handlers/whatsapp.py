@@ -16,6 +16,7 @@ from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.schemas.crm.conversation import ConversationCreate, MessageCreate
 from app.schemas.crm.inbox import WhatsAppWebhookPayload
+from app.services import meta_webhooks
 from app.services.common import coerce_uuid
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox.context import get_inbox_logger
@@ -58,6 +59,13 @@ _CALL_TERMINAL_STATES = {
 }
 _CALL_EVENT_EXTERNAL_ID_MAX_LEN = 120
 _CALL_EVENT_DELIMITER = "::"
+
+
+def _extract_whatsapp_meta_attribution(metadata: dict | None) -> dict | None:
+    if not isinstance(metadata, dict):
+        return None
+    attribution = metadata.get("attribution")
+    return dict(attribution) if isinstance(attribution, dict) and attribution else None
 
 
 def _extract_call_signal(metadata: dict | None) -> tuple[str | None, str | None, str | None]:
@@ -290,6 +298,20 @@ class WhatsAppHandler(InboundHandler):
             apply_status_transition(conversation, ConversationStatus.open)
             db.commit()
             db.refresh(conversation)
+
+        attribution = _extract_whatsapp_meta_attribution(payload.metadata)
+        if attribution:
+            meta_webhooks._upsert_entity_attribution_metadata(
+                conversation,
+                attribution=attribution,
+                channel=ChannelType.whatsapp,
+            )
+            meta_webhooks._persist_meta_attribution_to_person_and_lead(
+                db,
+                person=person,
+                channel=ChannelType.whatsapp,
+                attribution=attribution,
+            )
 
         reply_to_message_id = None
         context_message_id = None

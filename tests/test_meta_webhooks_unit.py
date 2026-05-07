@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.models.connector import ConnectorConfig, ConnectorType
@@ -8,8 +9,9 @@ from app.models.crm.sales import Lead
 from app.models.domain_settings import DomainSetting, SettingDomain, SettingValueType
 from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.models.oauth_token import OAuthToken
-from app.models.person import Person
-from app.schemas.crm.inbox import MetaWebhookPayload
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import Person, PersonChannel
+from app.schemas.crm.inbox import InstagramDMWebhookPayload, MetaWebhookPayload
 from app.services import meta_webhooks
 
 
@@ -104,6 +106,31 @@ def test_upsert_entity_attribution_metadata_updates_last_seen_and_channel():
     assert isinstance(attribution["last_seen_at"], str)
 
 
+def test_persist_meta_attribution_to_person_and_lead_respects_setting_gate(db_session):
+    person = Person(first_name="Meta", last_name="Lead", email="meta-lead@example.com")
+    db_session.add(person)
+    db_session.add(
+        DomainSetting(
+            domain=SettingDomain.comms,
+            key="meta_capture_ad_attribution",
+            value_type=SettingValueType.boolean,
+            value_text="false",
+            is_active=True,
+        )
+    )
+    db_session.commit()
+
+    meta_webhooks._persist_meta_attribution_to_person_and_lead(
+        db_session,
+        person=person,
+        channel=ChannelType.whatsapp,
+        attribution={"source": "ADS", "ad_id": "ad-1"},
+    )
+
+    db_session.refresh(person)
+    assert not person.metadata_
+
+
 def test_extract_location_from_attachments():
     attachments = [
         {"type": "image", "payload": {}},
@@ -137,6 +164,189 @@ def test_fetch_profile_name_success():
         )
 
     assert result == "Test User"
+
+
+def test_process_instagram_webhook_preserves_sender_username_in_payload_metadata(db_session, monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _receive(_db, payload):
+        captured["payload"] = payload
+        return SimpleNamespace(id="msg-1")
+
+    monkeypatch.setattr(meta_webhooks, "_resolve_meta_connector", lambda *_args, **_kwargs: (None, None))
+    monkeypatch.setattr(meta_webhooks, "receive_instagram_message", _receive)
+
+    payload = MetaWebhookPayload(
+        object="instagram",
+        entry=[
+            {
+                "id": "17841403813819361",
+                "time": 1,
+                "messaging": [
+                    {
+                        "sender": {"id": "981925791189944", "username": "real_handle"},
+                        "recipient": {"id": "17841403813819361"},
+                        "timestamp": 1710000000000,
+                        "message": {"mid": "ig-mid-1", "text": "Hi"},
+                    }
+                ],
+            }
+        ],
+    )
+
+    results = meta_webhooks.process_instagram_webhook(db_session, payload)
+
+    assert results == [{"message_id": "msg-1", "status": "received"}]
+    parsed = captured["payload"]
+    assert isinstance(parsed, InstagramDMWebhookPayload)
+    assert parsed.contact_name == "real_handle"
+    assert parsed.metadata["sender_id"] == "981925791189944"
+    assert parsed.metadata["sender_username"] == "real_handle"
+
+
+def test_process_instagram_webhook_uses_graph_lookup_name_when_sender_fields_missing(db_session, monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _receive(_db, payload):
+        captured["payload"] = payload
+        return SimpleNamespace(id="msg-2")
+
+    monkeypatch.setattr(meta_webhooks, "_resolve_meta_connector", lambda *_args, **_kwargs: (None, None))
+    monkeypatch.setattr(meta_webhooks, "_fetch_profile_name", lambda *_args, **_kwargs: "Recovered Name")
+    monkeypatch.setattr(meta_webhooks, "receive_instagram_message", _receive)
+
+    payload = MetaWebhookPayload(
+        object="instagram",
+        entry=[
+            {
+                "id": "17841403813819361",
+                "time": 1,
+                "messaging": [
+                    {
+                        "sender": {"id": "981925791189945"},
+                        "recipient": {"id": "17841403813819361"},
+                        "timestamp": 1710000000000,
+                        "message": {"mid": "ig-mid-2", "text": "Hi"},
+                    }
+                ],
+            }
+        ],
+    )
+
+    results = meta_webhooks.process_instagram_webhook(db_session, payload)
+
+    assert results == [{"message_id": "msg-2", "status": "received"}]
+    parsed = captured["payload"]
+    assert isinstance(parsed, InstagramDMWebhookPayload)
+    assert parsed.contact_name == "Recovered Name"
+    assert parsed.metadata["sender_id"] == "981925791189945"
+    assert parsed.metadata["sender_name"] == "Recovered Name"
+
+
+def test_persist_instagram_sender_identity_updates_placeholder_name_and_metadata(db_session):
+    person = Person(
+        first_name="IG",
+        last_name="Placeholder",
+        email="ig-placeholder@example.com",
+        display_name="Instagram User 981925791189944",
+    )
+    db_session.add(person)
+    db_session.flush()
+    channel = PersonChannel(
+        person_id=person.id,
+        channel_type=PersonChannelType.instagram_dm,
+        address="981925791189944",
+        is_primary=True,
+    )
+    db_session.add(channel)
+    db_session.commit()
+
+    meta_webhooks._persist_instagram_sender_identity(
+        person=person,
+        channel=channel,
+        metadata={
+            "sender_id": "981925791189944",
+            "sender_username": "real_handle",
+            "sender_name": "Real Name",
+        },
+    )
+    db_session.commit()
+    db_session.refresh(person)
+    db_session.refresh(channel)
+
+    assert person.display_name == "real_handle"
+    assert person.metadata_["instagram_profile"]["sender_id"] == "981925791189944"
+    assert channel.metadata_["instagram_profile"]["sender_username"] == "real_handle"
+
+
+def test_persist_instagram_sender_identity_preserves_curated_name(db_session):
+    person = Person(
+        first_name="Jane",
+        last_name="Customer",
+        email="jane.customer@example.com",
+        display_name="Jane Customer",
+    )
+    db_session.add(person)
+    db_session.flush()
+    channel = PersonChannel(
+        person_id=person.id,
+        channel_type=PersonChannelType.instagram_dm,
+        address="981925791189955",
+        is_primary=True,
+    )
+    db_session.add(channel)
+    db_session.commit()
+
+    meta_webhooks._persist_instagram_sender_identity(
+        person=person,
+        channel=channel,
+        metadata={
+            "sender_id": "981925791189955",
+            "sender_username": "jane_ig",
+            "sender_name": "Jane IG",
+        },
+    )
+    db_session.commit()
+    db_session.refresh(person)
+    db_session.refresh(channel)
+
+    assert person.display_name == "Jane Customer"
+    assert channel.metadata_["instagram_profile"]["sender_name"] == "Jane IG"
+
+
+def test_persist_instagram_sender_identity_ignores_non_instagram_channels(db_session):
+    person = Person(
+        first_name="Email",
+        last_name="Contact",
+        email="email-contact@example.com",
+        display_name="Facebook User 123",
+    )
+    db_session.add(person)
+    db_session.flush()
+    channel = PersonChannel(
+        person_id=person.id,
+        channel_type=PersonChannelType.email,
+        address="email-contact@example.com",
+        is_primary=True,
+    )
+    db_session.add(channel)
+    db_session.commit()
+
+    meta_webhooks._persist_instagram_sender_identity(
+        person=person,
+        channel=channel,
+        metadata={
+            "sender_id": "981925791189956",
+            "sender_username": "should_not_apply",
+            "sender_name": "Should Not Apply",
+        },
+    )
+    db_session.commit()
+    db_session.refresh(person)
+    db_session.refresh(channel)
+
+    assert person.display_name == "Facebook User 123"
+    assert not channel.metadata_
 
 
 def test_process_facebook_leadgen_change_creates_person_and_lead(db_session):

@@ -39,6 +39,21 @@ _CHANNEL_STATS: dict[str, dict[str, float]] = {
     "email": {"count": 0.0, "errors": 0.0, "last_log": 0.0},
 }
 _METRICS_LOG_INTERVAL_SECONDS = 60.0
+_WHATSAPP_REFERRAL_KEYS = {
+    "source",
+    "source_type",
+    "source_id",
+    "headline",
+    "body",
+    "media_type",
+    "image_url",
+    "video_url",
+    "thumbnail_url",
+    "ctwa_clid",
+    "ad_id",
+    "campaign_id",
+    "source_url",
+}
 
 
 def get_db():
@@ -58,6 +73,55 @@ def _coerce_text(value: object) -> str | None:
         return None
     text = value.strip()
     return text or None
+
+
+def _clean_whatsapp_referral_data(value: object) -> str | dict | None:
+    if isinstance(value, str):
+        candidate = value.strip()
+        return candidate or None
+    if not isinstance(value, dict):
+        return None
+    cleaned: dict[str, object] = {}
+    for key, raw in value.items():
+        if not isinstance(key, str):
+            continue
+        if isinstance(raw, str):
+            candidate = raw.strip()
+            if candidate:
+                cleaned[key] = candidate
+        elif isinstance(raw, (int, float, bool)):
+            cleaned[key] = raw
+    return cleaned or None
+
+
+def _extract_whatsapp_attribution(message: dict) -> dict | None:
+    if not isinstance(message, dict):
+        return None
+    referral = message.get("referral")
+    referral_data = referral if isinstance(referral, dict) else {}
+    if not referral_data:
+        return None
+    attribution = meta_webhooks._extract_meta_attribution(referral_data)
+    source_url = _coerce_text(referral_data.get("source_url"))
+    if source_url:
+        attribution["source_url"] = source_url
+    clean_referral_data = _clean_whatsapp_referral_data(referral_data.get("referral_data"))
+    if clean_referral_data is not None:
+        attribution["referral_data"] = clean_referral_data
+    bounded_referral: dict[str, object] = {}
+    for key in _WHATSAPP_REFERRAL_KEYS:
+        raw = referral_data.get(key)
+        if isinstance(raw, str):
+            candidate = raw.strip()
+            if candidate:
+                bounded_referral[key] = candidate
+        elif isinstance(raw, (int, float, bool)):
+            bounded_referral[key] = raw
+    if clean_referral_data is not None:
+        bounded_referral["referral_data"] = clean_referral_data
+    if bounded_referral:
+        attribution["referral"] = bounded_referral
+    return attribution or None
 
 
 def _record_channel_stat(channel: str, ok: bool, events: int | None = None) -> None:
@@ -283,6 +347,9 @@ def _extract_meta_whatsapp_messages(payload: dict, trace_id: str | None = None) 
                     "attachments": attachments or None,
                     "raw": value,
                 }
+                attribution = _extract_whatsapp_attribution(msg)
+                if attribution:
+                    metadata_payload["attribution"] = attribution
                 context = msg.get("context")
                 if isinstance(context, dict):
                     context_id = context.get("id")
