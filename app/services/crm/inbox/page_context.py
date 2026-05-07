@@ -777,8 +777,17 @@ def build_inbox_conversation_detail_context(
         if current_agent_id
         else conversation_macros.list(db, visibility="shared", is_active=True, limit=200)
     )
+    raw_metadata = thread.conversation.metadata_ if isinstance(thread.conversation.metadata_, dict) else {}
+    raw_attribution_value = raw_metadata.get("attribution")
+    raw_attribution = raw_attribution_value if isinstance(raw_attribution_value, dict) else {}
+    conversation_attribution = {
+        key: value
+        for key in ("source", "ad_id", "campaign_id", "ctwa_clid", "source_url")
+        if (value := raw_attribution.get(key)) not in (None, "")
+    } or None
     return {
         "conversation": conversation,
+        "conversation_attribution": conversation_attribution,
         "messages": messages,
         "current_user": current_user,
         "current_agent_id": current_agent_id,
