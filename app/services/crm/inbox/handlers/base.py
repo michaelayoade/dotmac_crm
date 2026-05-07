@@ -10,6 +10,7 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.models.crm.conversation import Message
 from app.models.crm.enums import MessageDirection
 from app.schemas.crm.conversation import MessageCreate
 from app.services.crm.inbox.context import get_inbox_logger, set_request_id
@@ -21,6 +22,16 @@ from app.services.crm.inbox.observability import INBOUND_MESSAGES, MESSAGE_PROCE
 from app.services.events import EventType, emit_event
 
 logger = get_inbox_logger(__name__)
+
+
+def _is_new_inbound_message(db: Session, conversation_id: str) -> bool:
+    return (
+        db.query(Message)
+        .filter(Message.conversation_id == conversation_id)
+        .filter(Message.direction == MessageDirection.inbound)
+        .count()
+        <= 1
+    )
 
 
 @dataclass(frozen=True)
@@ -97,6 +108,10 @@ class InboundHandler:
         conversation_id = str(conversation.id)
         message_id = str(message.id)
         channel_target_id = result.channel_target_id
+        is_new_conversation = message.direction == MessageDirection.inbound and _is_new_inbound_message(
+            db,
+            conversation_id,
+        )
 
         def _after_commit(session):
             followup_db = SessionLocal()
@@ -106,6 +121,7 @@ class InboundHandler:
                     conversation_id=conversation_id,
                     message_id=message_id,
                     channel_target_id=channel_target_id,
+                    is_new_conversation=is_new_conversation,
                 )
                 try:
                     from app.services.crm.campaigns import reconcile_outreach_inbound_reply

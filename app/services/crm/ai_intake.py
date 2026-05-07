@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -15,13 +16,11 @@ from sqlalchemy.orm import Session
 from app.models.crm.ai_intake import AiIntakeConfig
 from app.models.crm.conversation import Conversation, ConversationAssignment, ConversationTag, Message
 from app.models.crm.enums import (
-    AgentPresenceStatus,
     ChannelType,
     ConversationPriority,
     ConversationStatus,
     MessageDirection,
 )
-from app.models.crm.presence import AgentPresence
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
 from app.schemas.crm.ai_intake import (
     AiIntakeConfigCreate,
@@ -34,15 +33,52 @@ from app.services.ai.gateway import ai_gateway
 from app.services.common import coerce_uuid
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox import cache as inbox_cache
+from app.services.crm.inbox import routing as inbox_routing
 from app.services.crm.inbox.outbound import send_message
-from app.services.crm.presence import agent_presence as presence_service
 
 logger = logging.getLogger(__name__)
 
 AI_INTAKE_METADATA_KEY = "ai_intake"
+AI_INTAKE_HANDOFF_SENT_KEY = "handoff_sent"
+AI_INTAKE_HANDOFF_FOLLOWUP_MINUTES = 15
+AI_INTAKE_HANDOFF_MESSAGE_KIND = "handoff"
+AI_INTAKE_HANDOFF_REASSURANCE_KIND = "handoff_reassurance"
+AI_INTAKE_FOLLOWUP_QUESTION_KIND = "followup_question"
+AI_INTAKE_SEND_CLAIM_TTL_SECONDS = 300
 AI_INTAKE_PENDING_STATES = {"pending", "awaiting_customer", "awaiting_timeout"}
 AI_INTAKE_TERMINAL_STATES = {"resolved", "escalated", "excluded"}
-AI_INTAKE_ALLOWED_DEPARTMENTS = {"billing", "support", "sales"}
+AI_INTAKE_HANDOFF_STATE_NONE = "none"
+AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT = "awaiting_agent"
+AI_INTAKE_HANDOFF_STATE_ASSIGNED = "assigned"
+AI_INTAKE_HANDOFF_STATE_IN_PROGRESS = "in_progress"
+AI_INTAKE_HANDOFF_STATE_COMPLETED = "completed"
+AI_INTAKE_HANDOFF_ALLOWED_STATES = {
+    AI_INTAKE_HANDOFF_STATE_NONE,
+    AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT,
+    AI_INTAKE_HANDOFF_STATE_ASSIGNED,
+    AI_INTAKE_HANDOFF_STATE_IN_PROGRESS,
+    AI_INTAKE_HANDOFF_STATE_COMPLETED,
+}
+AI_INTAKE_ALLOWED_DEPARTMENTS = {
+    "billing",
+    "billing_payment",
+    "billing_renewal",
+    "billing_reactivation",
+    "billing_adjustment",
+    "billing_general",
+    "support",
+    "sales",
+}
+AI_INTAKE_DEPARTMENT_HINTS = {
+    "billing": "General billing intent when the business uses a single billing queue.",
+    "billing_payment": "Payment confirmations, payment failures, overpayment, account reactivation after payment.",
+    "billing_renewal": "Subscription renewal, plan extension, multi-month renewal, purchase-style renewal decisions.",
+    "billing_reactivation": "Restore or reactivate service after payment or billing hold.",
+    "billing_adjustment": "Refunds, credits, compensation, invoice correction, billing adjustments.",
+    "billing_general": "Other billing questions that do not clearly fit payment, renewal, reactivation, or adjustment.",
+    "support": "Technical issues, outages, slow speed, engineer follow-up, existing service fault.",
+    "sales": "New connection, coverage, pricing for new service, package inquiry, upgrade, new order.",
+}
 SUPPORTED_CHANNELS = {
     ChannelType.whatsapp,
     ChannelType.facebook_messenger,
@@ -338,16 +374,40 @@ def _merge_metadata(conversation: Conversation, message: Message) -> dict[str, A
     return merged
 
 
+def _default_handoff_state(status: Any) -> str:
+    return AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT if status == "resolved" else AI_INTAKE_HANDOFF_STATE_NONE
+
+
+def _normalize_handoff_state(value: Any, *, status: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in AI_INTAKE_HANDOFF_ALLOWED_STATES:
+        return normalized
+    return _default_handoff_state(status)
+
+
+def _with_handoff_defaults(state: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(state)
+    normalized["handoff_state"] = _normalize_handoff_state(
+        normalized.get("handoff_state"), status=normalized.get("status")
+    )
+    handoff_sent_at = _parse_timestamp(normalized.get("handoff_sent_at"))
+    if handoff_sent_at is not None and not normalized.get("handoff_followup_due_at"):
+        normalized["handoff_followup_due_at"] = _serialize_timestamp(
+            handoff_sent_at + timedelta(minutes=AI_INTAKE_HANDOFF_FOLLOWUP_MINUTES)
+        )
+    return normalized
+
+
 def _state(conversation: Conversation) -> dict[str, Any]:
     if not isinstance(conversation.metadata_, dict):
         return {}
     current = conversation.metadata_.get(AI_INTAKE_METADATA_KEY)
-    return dict(current) if isinstance(current, dict) else {}
+    return _with_handoff_defaults(current) if isinstance(current, dict) else {}
 
 
 def _set_state(conversation: Conversation, state: dict[str, Any]) -> None:
     metadata = dict(conversation.metadata_ or {}) if isinstance(conversation.metadata_, dict) else {}
-    metadata[AI_INTAKE_METADATA_KEY] = state
+    metadata[AI_INTAKE_METADATA_KEY] = _with_handoff_defaults(state)
     conversation.metadata_ = metadata
 
 
@@ -399,7 +459,8 @@ def _build_prompt(
     department_lines = []
     for mapping in mappings:
         tags = ", ".join(mapping.tags or [])
-        department_lines.append(f"- key={mapping.key}; label={mapping.label}; tags={tags or 'none'}")
+        hint = AI_INTAKE_DEPARTMENT_HINTS.get(mapping.key, "No extra routing hint.")
+        department_lines.append(f"- key={mapping.key}; label={mapping.label}; tags={tags or 'none'}; intent={hint}")
     transcript = []
     for item in history:
         role = "customer" if item.direction == MessageDirection.inbound else "assistant"
@@ -412,7 +473,8 @@ def _build_prompt(
     )
     system = (
         "You manage conversational CRM intake for inbound conversations.\n"
-        "Read the full transcript and decide whether the customer intent is billing, support, or sales.\n"
+        "Read the full transcript and decide the most precise configured intent bucket for this customer.\n"
+        "Prefer a billing subtype over generic billing when the transcript clearly fits payment, renewal, reactivation, or adjustment.\n"
         f"{followup_policy}\n"
         "Return strict JSON only with keys: department, confidence, reason, needs_followup, followup_question.\n"
         "department must be one of the configured keys or null.\n"
@@ -446,7 +508,50 @@ def _parse_ai_response(content: str) -> dict[str, Any]:
     return parsed
 
 
+def _log_preview(value: str | None, *, limit: int = 160) -> str:
+    if not value:
+        return ""
+    normalized = value.replace("\n", "\\n")
+    return normalized[:limit]
+
+
+def _handoff_team_label_for_department(department: str) -> str | None:
+    labels = {
+        "billing": "billing team",
+        "billing_payment": "billing team",
+        "billing_renewal": "billing team",
+        "billing_reactivation": "billing team",
+        "billing_adjustment": "billing team",
+        "billing_general": "billing team",
+        "support": "support team",
+        "sales": "sales team",
+    }
+    return labels.get(department)
+
+
+def _handoff_message_for_department(department: str) -> str | None:
+    team_label = _handoff_team_label_for_department(department)
+    if not team_label:
+        return None
+    return f"A member of our {team_label} will respond within 15-30 minutes."
+
+
+def _handoff_reassurance_message_for_department(department: str) -> str | None:
+    team_label = _handoff_team_label_for_department(department)
+    if not team_label:
+        return None
+    return f"Thanks for your patience - our {team_label} is still reviewing your request and will respond as soon as possible."
+
+
 def _apply_mapping(db: Session, conversation: Conversation, mapping: AiIntakeDepartmentMapping) -> None:
+    logger.info(
+        "ai_intake_apply_mapping conversation_id=%s department=%s team_id=%s tags=%s priority=%s",
+        conversation.id,
+        mapping.key,
+        mapping.team_id,
+        mapping.tags or [],
+        mapping.priority.value if mapping.priority else None,
+    )
     if mapping.priority:
         conversation.priority = mapping.priority
     if mapping.tags:
@@ -464,6 +569,13 @@ def _apply_mapping(db: Session, conversation: Conversation, mapping: AiIntakeDep
                 db.add(ConversationTag(conversation_id=conversation.id, tag=clean))
     if mapping.team_id:
         assigned_agent_id = _select_agent_for_team(db, mapping.team_id)
+        logger.info(
+            "ai_intake_assignment_selected conversation_id=%s department=%s team_id=%s agent_id=%s",
+            conversation.id,
+            mapping.key,
+            mapping.team_id,
+            assigned_agent_id,
+        )
         conversation_service.assign_conversation(
             db,
             conversation_id=str(conversation.id),
@@ -474,77 +586,97 @@ def _apply_mapping(db: Session, conversation: Conversation, mapping: AiIntakeDep
         )
 
 
-AI_INTAKE_RR_STATE_KEY = "ai_intake_rr"
+AI_INTAKE_DEPARTMENT_ALIASES = {
+    "billingpayment": "billing_payment",
+    "billingpayments": "billing_payment",
+    "payment": "billing_payment",
+    "payments": "billing_payment",
+    "billingrenewal": "billing_renewal",
+    "renewal": "billing_renewal",
+    "billingreactivation": "billing_reactivation",
+    "reactivation": "billing_reactivation",
+    "billingadjustment": "billing_adjustment",
+    "adjustment": "billing_adjustment",
+    "billinggeneral": "billing_general",
+    "generalbilling": "billing_general",
+    "technicalsupport": "support",
+    "techsupport": "support",
+    "customersupport": "support",
+    "helpdesk": "support",
+}
+
+
+def _normalize_department_key(value: Any) -> str | None:
+    if value is None:
+        return None
+    raw = str(value).strip().lower()
+    if not raw:
+        return None
+    canonical = raw.replace("-", "_").replace(" ", "_")
+    canonical = "".join(ch for ch in canonical if ch.isalnum() or ch == "_")
+    if not canonical:
+        return None
+    if canonical in AI_INTAKE_ALLOWED_DEPARTMENTS:
+        return canonical
+    alias = AI_INTAKE_DEPARTMENT_ALIASES.get(canonical.replace("_", ""))
+    return alias or canonical
+
+
+def _coerce_ai_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _select_agent_for_team(db: Session, team_id) -> Any | None:
     team_uuid = coerce_uuid(team_id)
     team = db.get(CrmTeam, team_uuid)
     if not team or not team.is_active:
+        logger.info(
+            "ai_intake_assignment_unavailable team_id=%s strategy=least_loaded reason=team_missing_or_inactive",
+            team_id,
+        )
         return None
 
-    candidates = (
-        db.query(CrmAgent, AgentPresence)
+    team_id_str = str(team_uuid)
+    configured_members = (
+        db.query(CrmAgent.id)
         .join(CrmAgentTeam, CrmAgentTeam.agent_id == CrmAgent.id)
-        .outerjoin(AgentPresence, AgentPresence.agent_id == CrmAgent.id)
         .filter(CrmAgentTeam.team_id == team_uuid)
         .filter(CrmAgentTeam.is_active.is_(True))
         .filter(CrmAgent.is_active.is_(True))
         .order_by(CrmAgent.created_at.asc(), CrmAgent.id.asc())
         .all()
     )
-    if not candidates:
-        return None
-
-    candidate_ids = {agent.id for agent, _ in candidates}
-    active_assignment_counts = {
-        row[0]: int(row[1] or 0)
-        for row in (
-            db.query(
-                ConversationAssignment.agent_id,
-                func.count(ConversationAssignment.id),
-            )
-            .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.agent_id.in_(candidate_ids))
-            .group_by(ConversationAssignment.agent_id)
-            .all()
+    configured_agent_ids = [str(row[0]) for row in configured_members]
+    if not configured_agent_ids:
+        logger.info(
+            "ai_intake_assignment_unavailable team_id=%s strategy=least_loaded reason=no_team_members candidates=[]",
+            team_id_str,
         )
-        if row[0] is not None
-    }
-
-    ranked: list[tuple[int, int, int, str, Any]] = []
-    agent_id_map: dict[str, Any] = {}
-    for agent, presence in candidates:
-        effective_status = presence_service.effective_status(presence) if presence else AgentPresenceStatus.offline
-        if effective_status not in {AgentPresenceStatus.online, AgentPresenceStatus.away}:
-            continue
-        agent_id = str(agent.id)
-        agent_id_map[agent_id] = agent.id
-        availability_rank = 0 if effective_status == AgentPresenceStatus.online else 1
-        active_load = active_assignment_counts.get(agent.id, 0)
-        ranked.append((availability_rank, active_load, len(ranked), agent_id, agent.id))
-
-    if not ranked:
         return None
-    ranked.sort()
 
-    metadata = team.metadata_ if isinstance(team.metadata_, dict) else {}
-    rr_state = metadata.get(AI_INTAKE_RR_STATE_KEY)
-    if not isinstance(rr_state, dict):
-        rr_state = {}
+    active_candidates = inbox_routing._list_active_agents(db, team_id_str)
+    active_candidate_ids = [str(agent.id) for agent in active_candidates]
+    if not active_candidate_ids:
+        logger.info(
+            "ai_intake_assignment_unavailable team_id=%s strategy=least_loaded reason=no_assignable_agents configured_candidates=%s active_candidates=[]",
+            team_id_str,
+            configured_agent_ids,
+        )
+        return None
 
-    eligible_agent_ids = [agent_id for _, _, _, agent_id, _ in ranked]
-    last_agent_id = str(rr_state.get("last_agent_id") or "").strip() or None
-    next_agent_id = eligible_agent_ids[0]
-    if last_agent_id and last_agent_id in eligible_agent_ids:
-        idx = eligible_agent_ids.index(last_agent_id)
-        next_agent_id = eligible_agent_ids[(idx + 1) % len(eligible_agent_ids)]
-
-    rr_state["last_agent_id"] = next_agent_id
-    metadata[AI_INTAKE_RR_STATE_KEY] = rr_state
-    team.metadata_ = metadata
-    db.flush()
-    return agent_id_map[next_agent_id]
+    agent_id = inbox_routing._pick_least_loaded_agent(db, team_id_str)
+    logger.info(
+        "ai_intake_assignment_candidates team_id=%s strategy=least_loaded configured_candidates=%s active_candidates=%s chosen_agent_id=%s",
+        team_id_str,
+        configured_agent_ids,
+        active_candidate_ids,
+        agent_id,
+    )
+    return coerce_uuid(agent_id) if agent_id else None
 
 
 def _send_followup(
@@ -553,7 +685,15 @@ def _send_followup(
     conversation: Conversation,
     message: Message,
     body: str,
+    message_kind: str = AI_INTAKE_FOLLOWUP_QUESTION_KIND,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> None:
+    metadata = {
+        "ai_intake_generated": True,
+        "ai_intake_message_kind": message_kind,
+    }
+    if extra_metadata:
+        metadata.update(extra_metadata)
     outbound = send_message(
         db,
         InboxSendRequest(
@@ -561,14 +701,528 @@ def _send_followup(
             channel_type=message.channel_type,
             channel_target_id=message.channel_target_id,
             body=body,
+            metadata=metadata,
         ),
         author_id=None,
         trace_id="ai-intake",
     )
-    metadata = dict(outbound.metadata_ or {}) if isinstance(outbound.metadata_, dict) else {}
-    metadata["ai_intake_generated"] = True
-    outbound.metadata_ = metadata
+    persisted_metadata = dict(outbound.metadata_ or {}) if isinstance(outbound.metadata_, dict) else {}
+    persisted_metadata.update(metadata)
+    outbound.metadata_ = persisted_metadata
     db.commit()
+
+
+def _is_claim_stale(value: Any, *, now: datetime) -> bool:
+    claimed_at = _parse_timestamp(value)
+    if claimed_at is None:
+        return True
+    return (now - claimed_at).total_seconds() >= AI_INTAKE_SEND_CLAIM_TTL_SECONDS
+
+
+def _find_existing_ai_message(
+    db: Session,
+    *,
+    conversation_id,
+    message_kind: str,
+) -> Message | None:
+    rows = (
+        db.query(Message)
+        .filter(Message.conversation_id == conversation_id)
+        .filter(Message.direction == MessageDirection.outbound)
+        .order_by(func.coalesce(Message.sent_at, Message.created_at).desc())
+        .limit(50)
+        .all()
+    )
+    for row in rows:
+        metadata = row.metadata_ if isinstance(row.metadata_, dict) else {}
+        if not metadata.get("ai_intake_generated"):
+            continue
+        if str(metadata.get("ai_intake_message_kind") or "").strip() != message_kind:
+            continue
+        return row
+    return None
+
+
+def _clear_handoff_send_claim(state: dict[str, Any]) -> None:
+    state.pop("handoff_send_claimed_at", None)
+    state.pop("handoff_send_claim_token", None)
+
+
+def _clear_handoff_followup_claim(state: dict[str, Any]) -> None:
+    state.pop("handoff_followup_claimed_at", None)
+    state.pop("handoff_followup_claim_token", None)
+
+
+def _finalize_handoff_state(
+    *,
+    conversation: Conversation,
+    state: dict[str, Any],
+    body: str,
+    department: str,
+    sent_at: datetime,
+) -> None:
+    state[AI_INTAKE_HANDOFF_SENT_KEY] = True
+    state["handoff_message"] = body
+    state["handoff_department"] = department
+    state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT
+    state["handoff_sent_at"] = _serialize_timestamp(sent_at)
+    state["handoff_followup_due_at"] = _serialize_timestamp(
+        sent_at + timedelta(minutes=AI_INTAKE_HANDOFF_FOLLOWUP_MINUTES)
+    )
+    state["handoff_followup_sent_at"] = state.get("handoff_followup_sent_at")
+    state["handoff_followup_message"] = state.get("handoff_followup_message")
+    state["first_human_reply_at"] = state.get("first_human_reply_at")
+    _clear_handoff_send_claim(state)
+    _set_state(conversation, state)
+
+
+def _send_handoff_message(
+    db: Session,
+    *,
+    conversation: Conversation,
+    message: Message,
+    department: str,
+) -> bool:
+    body = _handoff_message_for_department(department)
+    if not body:
+        return False
+    conversation_id = coerce_uuid(str(conversation.id))
+    locked = db.query(Conversation).filter(Conversation.id == conversation_id).with_for_update(skip_locked=True).first()
+    if not locked:
+        return False
+    state = _state(locked)
+    if state.get(AI_INTAKE_HANDOFF_SENT_KEY):
+        return False
+    existing = _find_existing_ai_message(
+        db,
+        conversation_id=locked.id,
+        message_kind=AI_INTAKE_HANDOFF_MESSAGE_KIND,
+    )
+    if existing:
+        sent_at = _message_timestamp(existing) or _now()
+        _finalize_handoff_state(
+            conversation=locked,
+            state=state,
+            body=existing.body or body,
+            department=department,
+            sent_at=sent_at,
+        )
+        db.commit()
+        return False
+
+    now = _now()
+    if state.get("handoff_send_claimed_at") and not _is_claim_stale(state.get("handoff_send_claimed_at"), now=now):
+        logger.info(
+            "ai_intake_handoff_send_suppressed conversation_id=%s reason=claim_in_progress claimed_at=%s",
+            locked.id,
+            state.get("handoff_send_claimed_at"),
+        )
+        return False
+
+    claim_token = uuid.uuid4().hex
+    state["handoff_send_claimed_at"] = _serialize_timestamp(now)
+    state["handoff_send_claim_token"] = claim_token
+    _set_state(locked, state)
+    db.commit()
+
+    try:
+        _send_followup(
+            db,
+            conversation=locked,
+            message=message,
+            body=body,
+            message_kind=AI_INTAKE_HANDOFF_MESSAGE_KIND,
+            extra_metadata={"ai_intake_claim_token": claim_token},
+        )
+        locked = (
+            db.query(Conversation).filter(Conversation.id == conversation_id).with_for_update(skip_locked=True).first()
+        )
+        if not locked:
+            return True
+        latest_state = _state(locked)
+        existing = _find_existing_ai_message(
+            db,
+            conversation_id=locked.id,
+            message_kind=AI_INTAKE_HANDOFF_MESSAGE_KIND,
+        )
+        sent_at = (_message_timestamp(existing) if existing else None) or now
+        _finalize_handoff_state(
+            conversation=locked,
+            state=latest_state,
+            body=(existing.body if existing and existing.body else body),
+            department=department,
+            sent_at=sent_at,
+        )
+        db.commit()
+        return True
+    except Exception:
+        if not db.is_active:
+            db.rollback()
+        locked = (
+            db.query(Conversation).filter(Conversation.id == conversation_id).with_for_update(skip_locked=True).first()
+        )
+        if locked:
+            latest_state = _state(locked)
+            existing = _find_existing_ai_message(
+                db,
+                conversation_id=locked.id,
+                message_kind=AI_INTAKE_HANDOFF_MESSAGE_KIND,
+            )
+            if existing:
+                sent_at = _message_timestamp(existing) or now
+                _finalize_handoff_state(
+                    conversation=locked,
+                    state=latest_state,
+                    body=(existing.body if existing.body else body),
+                    department=department,
+                    sent_at=sent_at,
+                )
+            elif latest_state.get("handoff_send_claim_token") == claim_token:
+                _clear_handoff_send_claim(latest_state)
+                _set_state(locked, latest_state)
+            db.commit()
+        raise
+
+
+def _message_timestamp(message: Message) -> datetime | None:
+    timestamp = message.sent_at or message.received_at or message.created_at
+    if timestamp is None:
+        return None
+    if timestamp.tzinfo is None:
+        return timestamp.replace(tzinfo=UTC)
+    return timestamp
+
+
+def _first_human_reply_after_handoff(
+    db: Session,
+    *,
+    conversation_id,
+    handoff_sent_at: datetime,
+) -> datetime | None:
+    rows = (
+        db.query(Message)
+        .join(CrmAgent, CrmAgent.person_id == Message.author_id)
+        .filter(Message.conversation_id == conversation_id)
+        .filter(Message.direction == MessageDirection.outbound)
+        .filter(Message.author_id.isnot(None))
+        .filter(CrmAgent.is_active.is_(True))
+        .order_by(func.coalesce(Message.sent_at, Message.created_at).asc())
+        .all()
+    )
+    for row in rows:
+        metadata = row.metadata_ if isinstance(row.metadata_, dict) else {}
+        if metadata.get("ai_intake_generated"):
+            continue
+        timestamp = _message_timestamp(row)
+        if timestamp is not None and timestamp >= handoff_sent_at:
+            return timestamp
+    return None
+
+
+def mark_handoff_in_progress_for_human_reply(
+    db: Session,
+    *,
+    conversation: Conversation,
+    message: Message,
+) -> bool:
+    state = _state(conversation)
+    if not state:
+        return False
+    if state.get("handoff_state") != AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT:
+        return False
+    if not conversation.is_active or conversation.status != ConversationStatus.open:
+        return False
+    handoff_sent_at = _parse_timestamp(state.get("handoff_sent_at"))
+    message_timestamp = _message_timestamp(message)
+    if handoff_sent_at is None or message_timestamp is None or message_timestamp < handoff_sent_at:
+        return False
+    if _parse_timestamp(state.get("first_human_reply_at")) is not None:
+        return False
+
+    state["first_human_reply_at"] = _serialize_timestamp(message_timestamp)
+    state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_IN_PROGRESS
+    _set_state(conversation, state)
+    logger.info(
+        "ai_intake_handoff_progressed conversation_id=%s message_id=%s handoff_state=%s first_human_reply_at=%s",
+        conversation.id,
+        message.id,
+        state["handoff_state"],
+        state["first_human_reply_at"],
+    )
+    return True
+
+
+def _candidate_handoff_followup_ids(db: Session, *, limit: int) -> list[str]:
+    conversations = (
+        db.query(Conversation.id)
+        .filter(Conversation.is_active.is_(True))
+        .filter(Conversation.status == ConversationStatus.open)
+        .order_by(Conversation.updated_at.asc())
+        .limit(limit)
+        .all()
+    )
+    return [str(row[0]) for row in conversations]
+
+
+def backfill_missing_handoff_states(db: Session, *, limit: int = 500) -> dict[str, Any]:
+    rows = (
+        db.query(Conversation)
+        .filter(Conversation.metadata_.isnot(None))
+        .filter(Conversation.metadata_[AI_INTAKE_METADATA_KEY]["status"].as_string() == "resolved")
+        .filter(Conversation.metadata_[AI_INTAKE_METADATA_KEY]["handoff_state"].as_string().is_(None))
+        .order_by(Conversation.updated_at.asc())
+        .limit(limit)
+        .all()
+    )
+    updated = 0
+    for conversation in rows:
+        raw_state = (
+            conversation.metadata_.get(AI_INTAKE_METADATA_KEY) if isinstance(conversation.metadata_, dict) else None
+        )
+        if not isinstance(raw_state, dict):
+            continue
+        state = _with_handoff_defaults(raw_state)
+        if state == raw_state:
+            continue
+        _set_state(conversation, state)
+        updated += 1
+    if updated:
+        db.commit()
+        inbox_cache.invalidate_inbox_list()
+    return {"processed": len(rows), "updated": updated}
+
+
+def send_due_handoff_reassurance_followups(db: Session, *, limit: int = 200) -> dict[str, Any]:
+    if not _enabled_by_env():
+        return {"skipped": True, "reason": "disabled"}
+
+    now = _now()
+    processed = 0
+    sent = 0
+    suppressed = 0
+    errors: list[str] = []
+
+    for conversation_id in _candidate_handoff_followup_ids(db, limit=limit):
+        conversation_uuid = coerce_uuid(conversation_id)
+        conversation = (
+            db.query(Conversation)
+            .filter(Conversation.id == conversation_uuid)
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+        if not conversation:
+            continue
+        processed += 1
+        state = _state(conversation)
+        if not state:
+            suppressed += 1
+            logger.info("ai_intake_handoff_followup_suppressed conversation_id=%s reason=no_state", conversation.id)
+            continue
+        if state.get("handoff_state") != AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT:
+            suppressed += 1
+            logger.info(
+                "ai_intake_handoff_followup_suppressed conversation_id=%s reason=handoff_state handoff_state=%s ai_status=%s",
+                conversation.id,
+                state.get("handoff_state"),
+                state.get("status"),
+            )
+            continue
+        if not conversation.is_active or conversation.status != ConversationStatus.open:
+            suppressed += 1
+            logger.info(
+                "ai_intake_handoff_followup_suppressed conversation_id=%s reason=conversation_inactive_or_closed is_active=%s status=%s",
+                conversation.id,
+                conversation.is_active,
+                conversation.status,
+            )
+            continue
+        handoff_sent_at = _parse_timestamp(state.get("handoff_sent_at"))
+        if not handoff_sent_at:
+            suppressed += 1
+            logger.info(
+                "ai_intake_handoff_followup_suppressed conversation_id=%s reason=no_handoff_timestamp",
+                conversation.id,
+            )
+            continue
+        due_at = _parse_timestamp(state.get("handoff_followup_due_at")) or (
+            handoff_sent_at + timedelta(minutes=AI_INTAKE_HANDOFF_FOLLOWUP_MINUTES)
+        )
+        if due_at > now:
+            suppressed += 1
+            logger.info(
+                "ai_intake_handoff_followup_suppressed conversation_id=%s reason=not_due due_at=%s now=%s",
+                conversation.id,
+                _serialize_timestamp(due_at),
+                _serialize_timestamp(now),
+            )
+            continue
+        if _parse_timestamp(state.get("handoff_followup_sent_at")) is not None:
+            suppressed += 1
+            logger.info(
+                "ai_intake_handoff_followup_suppressed conversation_id=%s reason=already_sent sent_at=%s",
+                conversation.id,
+                state.get("handoff_followup_sent_at"),
+            )
+            continue
+        existing_followup = _find_existing_ai_message(
+            db,
+            conversation_id=conversation.id,
+            message_kind=AI_INTAKE_HANDOFF_REASSURANCE_KIND,
+        )
+        if existing_followup:
+            state["handoff_followup_sent_at"] = _serialize_timestamp(_message_timestamp(existing_followup) or now)
+            state["handoff_followup_message"] = existing_followup.body or state.get("handoff_followup_message")
+            _clear_handoff_followup_claim(state)
+            _set_state(conversation, state)
+            db.commit()
+            suppressed += 1
+            logger.info(
+                "ai_intake_handoff_followup_suppressed conversation_id=%s reason=already_persisted_from_message sent_at=%s",
+                conversation.id,
+                state["handoff_followup_sent_at"],
+            )
+            continue
+        if state.get("handoff_followup_claimed_at") and not _is_claim_stale(
+            state.get("handoff_followup_claimed_at"), now=now
+        ):
+            suppressed += 1
+            logger.info(
+                "ai_intake_handoff_followup_suppressed conversation_id=%s reason=claim_in_progress claimed_at=%s",
+                conversation.id,
+                state.get("handoff_followup_claimed_at"),
+            )
+            continue
+
+        first_human_reply_at = _first_human_reply_after_handoff(
+            db,
+            conversation_id=conversation.id,
+            handoff_sent_at=handoff_sent_at,
+        )
+        if first_human_reply_at is not None:
+            state["first_human_reply_at"] = _serialize_timestamp(first_human_reply_at)
+            state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_IN_PROGRESS
+            _set_state(conversation, state)
+            db.commit()
+            suppressed += 1
+            logger.info(
+                "ai_intake_handoff_followup_suppressed conversation_id=%s reason=human_reply_detected first_human_reply_at=%s",
+                conversation.id,
+                state["first_human_reply_at"],
+            )
+            continue
+
+        department = str(state.get("handoff_department") or state.get("department") or "").strip().lower()
+        body = _handoff_reassurance_message_for_department(department)
+        if not body:
+            suppressed += 1
+            logger.info(
+                "ai_intake_handoff_followup_suppressed conversation_id=%s reason=no_department_copy department=%s",
+                conversation.id,
+                department,
+            )
+            continue
+
+        inbound_message = (
+            db.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.direction == MessageDirection.inbound)
+            .order_by(func.coalesce(Message.received_at, Message.created_at).desc())
+            .first()
+        )
+        if not inbound_message:
+            suppressed += 1
+            logger.info(
+                "ai_intake_handoff_followup_suppressed conversation_id=%s reason=no_inbound_message",
+                conversation.id,
+            )
+            continue
+
+        try:
+            claim_token = uuid.uuid4().hex
+            latest_state = _state(conversation)
+            latest_state["handoff_followup_claimed_at"] = _serialize_timestamp(now)
+            latest_state["handoff_followup_claim_token"] = claim_token
+            _set_state(conversation, latest_state)
+            db.commit()
+            _send_followup(
+                db,
+                conversation=conversation,
+                message=inbound_message,
+                body=body,
+                message_kind=AI_INTAKE_HANDOFF_REASSURANCE_KIND,
+                extra_metadata={"ai_intake_claim_token": claim_token},
+            )
+            locked = (
+                db.query(Conversation)
+                .filter(Conversation.id == conversation.id)
+                .with_for_update(skip_locked=True)
+                .first()
+            )
+            if not locked:
+                sent += 1
+                continue
+            latest_state = _state(locked)
+            existing_followup = _find_existing_ai_message(
+                db,
+                conversation_id=locked.id,
+                message_kind=AI_INTAKE_HANDOFF_REASSURANCE_KIND,
+            )
+            latest_state["handoff_followup_sent_at"] = _serialize_timestamp(
+                (_message_timestamp(existing_followup) if existing_followup else None) or now
+            )
+            latest_state["handoff_followup_message"] = (
+                existing_followup.body if existing_followup and existing_followup.body else body
+            )
+            _clear_handoff_followup_claim(latest_state)
+            _set_state(locked, latest_state)
+            db.commit()
+            inbox_cache.invalidate_inbox_list()
+            sent += 1
+            logger.info(
+                "ai_intake_handoff_followup_sent conversation_id=%s department=%s due_at=%s waited_seconds=%s",
+                conversation.id,
+                department,
+                _serialize_timestamp(due_at),
+                int(max((now - handoff_sent_at).total_seconds(), 0)),
+            )
+        except Exception as exc:
+            if not db.is_active:
+                db.rollback()
+            locked = (
+                db.query(Conversation)
+                .filter(Conversation.id == conversation_uuid)
+                .with_for_update(skip_locked=True)
+                .first()
+            )
+            if locked:
+                latest_state = _state(locked)
+                existing_followup = _find_existing_ai_message(
+                    db,
+                    conversation_id=locked.id,
+                    message_kind=AI_INTAKE_HANDOFF_REASSURANCE_KIND,
+                )
+                if existing_followup:
+                    latest_state["handoff_followup_sent_at"] = _serialize_timestamp(
+                        _message_timestamp(existing_followup) or now
+                    )
+                    latest_state["handoff_followup_message"] = (
+                        existing_followup.body
+                        if existing_followup and existing_followup.body
+                        else latest_state.get("handoff_followup_message")
+                    )
+                else:
+                    _clear_handoff_followup_claim(latest_state)
+                _set_state(locked, latest_state)
+                db.commit()
+            logger.exception("ai_intake_handoff_followup_failed conversation_id=%s", conversation_id)
+            errors.append(f"{conversation_id}: {exc}")
+
+    return {
+        "processed": processed,
+        "sent": sent,
+        "suppressed": suppressed,
+        "errors": errors,
+    }
 
 
 def _eligible_channel(message: Message) -> bool:
@@ -657,11 +1311,31 @@ def process_pending_intake(
     scope_key: str | None,
     is_new_conversation: bool | None = None,
 ) -> AiIntakeResult:
-    if not _enabled_by_env() or not _eligible_channel(message) or not ai_gateway.enabled(db):
+    env_enabled = _enabled_by_env()
+    eligible_channel = _eligible_channel(message)
+    gateway_enabled = ai_gateway.enabled(db)
+    if not env_enabled or not eligible_channel or not gateway_enabled:
+        logger.info(
+            "ai_intake_skipped conversation_id=%s message_id=%s scope_key=%s env_enabled=%s eligible_channel=%s gateway_enabled=%s",
+            conversation.id,
+            message.id,
+            scope_key,
+            env_enabled,
+            eligible_channel,
+            gateway_enabled,
+        )
         return AiIntakeResult(handled=False)
 
     config = get_config_for_scope(db, scope_key)
     if not config or not config.is_enabled:
+        logger.info(
+            "ai_intake_config_skipped conversation_id=%s message_id=%s scope_key=%s config_found=%s config_enabled=%s",
+            conversation.id,
+            message.id,
+            scope_key,
+            bool(config),
+            bool(config and config.is_enabled),
+        )
         return AiIntakeResult(handled=False)
 
     merged_metadata = _merge_metadata(conversation, message)
@@ -678,15 +1352,36 @@ def process_pending_intake(
         state["status"] = "excluded"
         _set_state(conversation, state)
         db.commit()
+        logger.info(
+            "ai_intake_excluded conversation_id=%s message_id=%s scope_key=%s reason=campaign_attribution",
+            conversation.id,
+            message.id,
+            scope_key or config.scope_key,
+        )
         return AiIntakeResult(handled=False, excluded=True)
 
     if current_state.get("status") in AI_INTAKE_TERMINAL_STATES:
+        logger.info(
+            "ai_intake_terminal_state_skip conversation_id=%s message_id=%s scope_key=%s status=%s",
+            conversation.id,
+            message.id,
+            scope_key or config.scope_key,
+            current_state.get("status"),
+        )
         return AiIntakeResult(handled=False)
 
     new_conversation = (
         _is_new_conversation(db, conversation, message) if is_new_conversation is None else is_new_conversation
     )
     if not new_conversation and current_state.get("status") not in AI_INTAKE_PENDING_STATES:
+        logger.info(
+            "ai_intake_not_new_skip conversation_id=%s message_id=%s scope_key=%s status=%s is_new_conversation=%s",
+            conversation.id,
+            message.id,
+            scope_key or config.scope_key,
+            current_state.get("status"),
+            new_conversation,
+        )
         return AiIntakeResult(handled=False)
 
     started_at = _parse_timestamp(current_state.get("started_at"))
@@ -714,6 +1409,17 @@ def process_pending_intake(
         mappings=mappings,
         state=current_state,
     )
+    logger.info(
+        "ai_intake_prompt conversation_id=%s message_id=%s scope_key=%s config_id=%s is_new_conversation=%s system_chars=%s prompt_chars=%s prompt_preview=%s",
+        conversation.id,
+        message.id,
+        scope_key or config.scope_key,
+        config.id,
+        new_conversation,
+        len(system),
+        len(prompt),
+        _log_preview(prompt),
+    )
     try:
         ai_response, meta = ai_gateway.generate_with_fallback(
             db,
@@ -721,23 +1427,60 @@ def process_pending_intake(
             prompt=prompt,
             max_tokens=600,
         )
+        logger.info(
+            "ai_intake_raw_response conversation_id=%s message_id=%s scope_key=%s endpoint=%s fallback_used=%s response_chars=%s response_preview=%s",
+            conversation.id,
+            message.id,
+            scope_key or config.scope_key,
+            meta.get("endpoint") if isinstance(meta, dict) else None,
+            bool(isinstance(meta, dict) and meta.get("fallback_used")),
+            len(ai_response.content or ""),
+            _log_preview(ai_response.content),
+        )
         parsed = _parse_ai_response(ai_response.content)
     except (AIClientError, ValueError, json.JSONDecodeError) as exc:
         logger.warning(
             "ai_intake_failed scope_key=%s conversation_id=%s error=%s", config.scope_key, conversation.id, exc
         )
-        return AiIntakeResult(handled=False)
+        failure_state, _, _ = _base_state(
+            conversation=conversation,
+            config=config,
+            scope_key=scope_key or config.scope_key,
+            current_state=current_state,
+            reason=f"ai_error:{type(exc).__name__}",
+        )
+        return _escalate_pending_intake(
+            db,
+            conversation=conversation,
+            config=config,
+            current_state=failure_state,
+            reason="ai_error",
+        )
 
-    department = str(parsed.get("department") or "").strip().lower() or None
+    raw_department = parsed.get("department")
+    department = _normalize_department_key(raw_department)
     confidence = parsed.get("confidence")
     try:
         confidence_value = float(confidence) if confidence is not None else 0.0
     except (TypeError, ValueError):
         confidence_value = 0.0
     reason = str(parsed.get("reason") or "").strip()
-    needs_followup = bool(parsed.get("needs_followup"))
+    needs_followup = _coerce_ai_bool(parsed.get("needs_followup"))
     followup_question = str(parsed.get("followup_question") or "").strip()
     mapping_by_key = {item.key: item for item in mappings}
+    selected_mapping = mapping_by_key.get(department) if department else None
+    logger.info(
+        "ai_intake_parsed conversation_id=%s message_id=%s scope_key=%s raw_department=%s normalized_department=%s confidence=%s needs_followup=%s selected_team_id=%s selected_tags=%s",
+        conversation.id,
+        message.id,
+        scope_key or config.scope_key,
+        raw_department,
+        department,
+        confidence_value,
+        needs_followup,
+        selected_mapping.team_id if selected_mapping else None,
+        selected_mapping.tags if selected_mapping else [],
+    )
 
     next_state, now, escalate_at = _base_state(
         conversation=conversation,
@@ -755,10 +1498,35 @@ def process_pending_intake(
         _apply_mapping(db, conversation, mapping_by_key[department])
         conversation.status = ConversationStatus.open
         next_state["status"] = "resolved"
+        next_state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT
         next_state["resolved_at"] = _serialize_timestamp(now)
         _set_state(conversation, next_state)
         db.commit()
+        try:
+            _send_handoff_message(
+                db,
+                conversation=conversation,
+                message=message,
+                department=department,
+            )
+        except Exception as exc:
+            logger.warning(
+                "ai_intake_handoff_send_failed scope_key=%s conversation_id=%s department=%s error=%s",
+                config.scope_key,
+                conversation.id,
+                department,
+                exc,
+            )
+            db.rollback()
         inbox_cache.invalidate_inbox_list()
+        logger.info(
+            "ai_intake_resolved conversation_id=%s message_id=%s scope_key=%s department=%s confidence=%s",
+            conversation.id,
+            message.id,
+            scope_key or config.scope_key,
+            department,
+            confidence_value,
+        )
         return AiIntakeResult(handled=True, resolved=True)
 
     turn_count = int(current_state.get("turn_count") or 0)
@@ -777,9 +1545,26 @@ def process_pending_intake(
         db.commit()
         _send_followup(db, conversation=conversation, message=message, body=followup_question)
         inbox_cache.invalidate_inbox_list()
+        logger.info(
+            "ai_intake_followup conversation_id=%s message_id=%s scope_key=%s question=%s confidence=%s department=%s",
+            conversation.id,
+            message.id,
+            scope_key or config.scope_key,
+            followup_question,
+            confidence_value,
+            department,
+        )
         return AiIntakeResult(handled=True, followup_sent=True, waiting_for_customer=True)
 
     if now >= escalate_at or config.escalate_after_minutes == 0:
+        logger.info(
+            "ai_intake_escalate_now conversation_id=%s message_id=%s scope_key=%s department=%s confidence=%s",
+            conversation.id,
+            message.id,
+            scope_key or config.scope_key,
+            department,
+            confidence_value,
+        )
         return _escalate_pending_intake(
             db,
             conversation=conversation,
@@ -793,6 +1578,14 @@ def process_pending_intake(
     next_state["followup_question"] = None
     _set_state(conversation, next_state)
     db.commit()
+    logger.info(
+        "ai_intake_waiting_timeout conversation_id=%s message_id=%s scope_key=%s department=%s confidence=%s",
+        conversation.id,
+        message.id,
+        scope_key or config.scope_key,
+        department,
+        confidence_value,
+    )
     return AiIntakeResult(handled=True)
 
 

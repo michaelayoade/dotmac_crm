@@ -1,14 +1,18 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection
+from app.models.person import Person
 from app.schemas.crm.inbox import EmailWebhookPayload, WhatsAppWebhookPayload
+from app.services.crm.ai_intake import AI_INTAKE_METADATA_KEY, AiIntakeResult
 from app.services.crm.inbox.handlers.base import (
     InboundDuplicateResult,
     InboundHandler,
     InboundProcessResult,
 )
 from app.services.crm.inbox.handlers.email import EmailHandler
+from app.services.crm.inbox.handlers.utils import post_process_inbound_message
 from app.services.crm.inbox.handlers.whatsapp import WhatsAppHandler
 
 
@@ -65,11 +69,13 @@ def test_base_handler_receive_post_commit():
 
     with (
         patch("app.services.crm.inbox.handlers.base.create_message_and_touch_conversation") as mock_create,
+        patch("app.services.crm.inbox.handlers.base._is_new_inbound_message") as mock_is_new,
         patch("app.services.crm.inbox.handlers.base.post_process_inbound_message") as mock_post,
         patch("app.services.crm.inbox.handlers.base.emit_event") as mock_emit,
         patch("app.services.crm.inbox.handlers.base.event.listen") as mock_listen,
     ):
         mock_create.return_value = (_DummyConversation(), _DummyMessage())
+        mock_is_new.return_value = True
 
         def _listen(_target, _name, fn, once=False):
             fn(_DummyEvent())
@@ -79,7 +85,130 @@ def test_base_handler_receive_post_commit():
         message = handler.receive(db, payload)
         assert message is not None
         mock_post.assert_called_once()
+        assert mock_post.call_args.kwargs["is_new_conversation"] is True
         mock_emit.assert_called_once()
+
+
+def test_base_handler_preserves_ingest_time_newness_for_after_commit_callback():
+    handler = _Handler()
+    db = _DummyDB()
+    payload = SimpleNamespace(
+        model_dump=lambda by_alias=False: {
+            "conversation_id": "conv-1",
+            "direction": MessageDirection.inbound,
+            "channel_type": ChannelType.email,
+            "subject": "Subject",
+            "external_id": "ext-1",
+        }
+    )
+    after_commit = {}
+
+    with (
+        patch("app.services.crm.inbox.handlers.base.create_message_and_touch_conversation") as mock_create,
+        patch("app.services.crm.inbox.handlers.base._is_new_inbound_message") as mock_is_new,
+        patch("app.services.crm.inbox.handlers.base.post_process_inbound_message") as mock_post,
+        patch("app.services.crm.inbox.handlers.base.emit_event"),
+        patch("app.services.crm.inbox.handlers.base.event.listen") as mock_listen,
+    ):
+        mock_create.return_value = (_DummyConversation(), _DummyMessage())
+        mock_is_new.return_value = True
+
+        def _listen(_target, _name, fn, once=False):
+            after_commit["fn"] = fn
+            return None
+
+        mock_listen.side_effect = _listen
+        message = handler.receive(db, payload)
+        assert message is not None
+        mock_post.assert_not_called()
+
+        mock_is_new.return_value = False
+        after_commit["fn"](_DummyEvent())
+
+        mock_post.assert_called_once()
+        assert mock_post.call_args.kwargs["is_new_conversation"] is True
+
+
+def test_post_process_inbound_message_skips_generic_routing_when_ai_intake_handles_first_inbound(
+    db_session, monkeypatch
+):
+    person = Person(email="handler-ai@example.com", first_name="Handler", last_name="AI")
+    db_session.add(person)
+    db_session.flush()
+    conversation = Conversation(person_id=person.id, status=ConversationStatus.open, is_active=True, metadata_={})
+    db_session.add(conversation)
+    db_session.flush()
+    message = Message(
+        conversation_id=conversation.id,
+        channel_type=ChannelType.whatsapp,
+        direction=MessageDirection.inbound,
+        body="Need billing help",
+        metadata_={},
+    )
+    db_session.add(message)
+    db_session.commit()
+
+    events = []
+
+    def _fake_process_pending_intake(db, **kwargs):
+        events.append(("process_pending_intake", kwargs["is_new_conversation"]))
+        refreshed = db.get(Conversation, conversation.id)
+        refreshed.status = ConversationStatus.pending
+        refreshed.metadata_ = {
+            AI_INTAKE_METADATA_KEY: {
+                "status": "awaiting_customer",
+                "started_at": "2026-05-07T08:02:10+00:00",
+            }
+        }
+        db.commit()
+        return AiIntakeResult(handled=True, waiting_for_customer=True)
+
+    monkeypatch.setattr(
+        "app.services.crm.inbox.handlers.utils._assign_billing_risk_outreach_owner",
+        lambda db, conversation: False,
+    )
+    monkeypatch.setattr("app.services.crm.inbox.handlers.utils.make_scope_key", lambda **kwargs: "target:test")
+    monkeypatch.setattr(
+        "app.services.crm.inbox.handlers.utils.process_pending_intake",
+        _fake_process_pending_intake,
+    )
+    monkeypatch.setattr(
+        "app.services.crm.inbox.handlers.utils._send_resolved_ai_handoff_if_missing",
+        lambda db, conversation, message, intake_result: events.append(("handoff_check", intake_result.handled)),
+    )
+    monkeypatch.setattr(
+        "app.services.crm.inbox.handlers.utils.apply_routing_rules",
+        lambda db, conversation, message: events.append(("apply_routing_rules", str(conversation.id))),
+    )
+    monkeypatch.setattr("app.services.crm.inbox.handlers.utils.broadcast_new_message", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "app.services.crm.inbox.handlers.utils.broadcast_conversation_summary",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "app.services.crm.inbox.handlers.utils.broadcast_agent_notification", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr("app.services.crm.inbox.handlers.utils.broadcast_inbox_updated", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.crm.inbox.handlers.utils.build_conversation_summary", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        "app.services.crm.inbox.handlers.utils.notify_assigned_agent_new_reply",
+        lambda *args, **kwargs: events.append(("notify_assigned_agent_new_reply", None)),
+    )
+
+    post_process_inbound_message(
+        db_session,
+        conversation_id=str(conversation.id),
+        message_id=str(message.id),
+        channel_target_id=None,
+        is_new_conversation=True,
+    )
+
+    db_session.refresh(conversation)
+    assert events[0] == ("process_pending_intake", True)
+    assert ("apply_routing_rules", str(conversation.id)) not in events
+    assert ("notify_assigned_agent_new_reply", None) not in events
+    assert conversation.status == ConversationStatus.pending
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["started_at"] == "2026-05-07T08:02:10+00:00"
 
 
 def test_whatsapp_handler_process_success():
