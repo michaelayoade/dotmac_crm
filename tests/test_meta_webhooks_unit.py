@@ -11,7 +11,7 @@ from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.models.oauth_token import OAuthToken
 from app.models.person import ChannelType as PersonChannelType
 from app.models.person import Person, PersonChannel
-from app.schemas.crm.inbox import InstagramDMWebhookPayload, MetaWebhookPayload
+from app.schemas.crm.inbox import FacebookMessengerWebhookPayload, InstagramDMWebhookPayload, MetaWebhookPayload
 from app.services import meta_webhooks
 
 
@@ -241,6 +241,132 @@ def test_process_instagram_webhook_uses_graph_lookup_name_when_sender_fields_mis
     assert parsed.contact_name == "Recovered Name"
     assert parsed.metadata["sender_id"] == "981925791189945"
     assert parsed.metadata["sender_name"] == "Recovered Name"
+    assert parsed.metadata["platform"] == "instagram"
+
+
+def test_process_instagram_webhook_ad_origin_preserves_identity_and_attribution(db_session, monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _receive(_db, payload):
+        captured["payload"] = payload
+        return SimpleNamespace(id="msg-ig-ad-1")
+
+    monkeypatch.setattr(meta_webhooks, "_resolve_meta_connector", lambda *_args, **_kwargs: (None, None))
+    monkeypatch.setattr(meta_webhooks, "_fetch_profile_name", lambda *_args, **_kwargs: "Recovered IG Name")
+    monkeypatch.setattr(meta_webhooks, "receive_instagram_message", _receive)
+
+    payload = MetaWebhookPayload(
+        object="instagram",
+        entry=[
+            {
+                "id": "17841403813819361",
+                "time": 1,
+                "messaging": [
+                    {
+                        "sender": {"id": "981925791189946"},
+                        "recipient": {"id": "17841403813819361"},
+                        "timestamp": 1710000000000,
+                        "referral": {"source": "ADS", "ad_id": "ig_ad_1"},
+                        "message": {"mid": "ig-mid-ad-1", "text": "Hi"},
+                    }
+                ],
+            }
+        ],
+    )
+
+    results = meta_webhooks.process_instagram_webhook(db_session, payload)
+
+    assert results == [{"message_id": "msg-ig-ad-1", "status": "received"}]
+    parsed = captured["payload"]
+    assert isinstance(parsed, InstagramDMWebhookPayload)
+    assert parsed.contact_name == "Recovered IG Name"
+    assert parsed.metadata["sender_id"] == "981925791189946"
+    assert parsed.metadata["sender_name"] == "Recovered IG Name"
+    assert parsed.metadata["platform"] == "instagram"
+    assert parsed.metadata["attribution"]["source"] == "ADS"
+    assert parsed.metadata["attribution"]["ad_id"] == "ig_ad_1"
+
+
+def test_process_messenger_webhook_preserves_sender_identity_in_payload_metadata(db_session, monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _receive(_db, payload):
+        captured["payload"] = payload
+        return SimpleNamespace(id="fb-msg-1")
+
+    monkeypatch.setattr(meta_webhooks, "_resolve_meta_connector", lambda *_args, **_kwargs: (None, None))
+    monkeypatch.setattr(meta_webhooks, "receive_facebook_message", _receive)
+
+    payload = MetaWebhookPayload(
+        object="page",
+        entry=[
+            {
+                "id": "page_123",
+                "time": 1,
+                "messaging": [
+                    {
+                        "sender": {"id": "12345", "name": "Real Facebook Name"},
+                        "recipient": {"id": "page_123"},
+                        "timestamp": 1710000000000,
+                        "message": {"mid": "fb-mid-1", "text": "Hi"},
+                    }
+                ],
+            }
+        ],
+    )
+
+    results = meta_webhooks.process_messenger_webhook(db_session, payload)
+
+    assert results == [{"message_id": "fb-msg-1", "status": "received"}]
+    parsed = captured["payload"]
+    assert isinstance(parsed, FacebookMessengerWebhookPayload)
+    assert parsed.contact_name == "Real Facebook Name"
+    assert parsed.metadata["sender_id"] == "12345"
+    assert parsed.metadata["sender_name"] == "Real Facebook Name"
+    assert parsed.metadata["platform"] == "facebook"
+
+
+def test_process_messenger_webhook_ad_origin_preserves_identity_and_attribution(db_session, monkeypatch):
+    captured: dict[str, object] = {}
+
+    def _receive(_db, payload):
+        captured["payload"] = payload
+        return SimpleNamespace(id="fb-msg-2")
+
+    monkeypatch.setattr(meta_webhooks, "_resolve_meta_connector", lambda *_args, **_kwargs: (None, None))
+    monkeypatch.setattr(meta_webhooks, "_fetch_profile_name", lambda *_args, **_kwargs: "Recovered FB Name")
+    monkeypatch.setattr(meta_webhooks, "receive_facebook_message", _receive)
+
+    payload = MetaWebhookPayload(
+        object="page",
+        entry=[
+            {
+                "id": "page_123",
+                "time": 1,
+                "messaging": [
+                    {
+                        "sender": {"id": "12346"},
+                        "recipient": {"id": "page_123"},
+                        "timestamp": 1710000000000,
+                        "referral": {"source": "ADS", "ad_id": "ad_123"},
+                        "message": {"mid": "fb-mid-2", "text": "Hello"},
+                    }
+                ],
+            }
+        ],
+    )
+
+    results = meta_webhooks.process_messenger_webhook(db_session, payload)
+
+    assert results == [{"message_id": "fb-msg-2", "status": "received"}]
+    parsed = captured["payload"]
+    assert isinstance(parsed, FacebookMessengerWebhookPayload)
+    assert parsed.contact_name == "Recovered FB Name"
+    assert parsed.metadata["sender_id"] == "12346"
+    assert parsed.metadata["sender_name"] == "Recovered FB Name"
+    assert parsed.metadata["platform"] == "facebook"
+    assert parsed.metadata["attribution"]["source"] == "ADS"
+    assert parsed.metadata["attribution"]["ad_id"] == "ad_123"
 
 
 def test_persist_instagram_sender_identity_updates_placeholder_name_and_metadata(db_session):
@@ -277,6 +403,7 @@ def test_persist_instagram_sender_identity_updates_placeholder_name_and_metadata
     assert person.display_name == "real_handle"
     assert person.metadata_["instagram_profile"]["sender_id"] == "981925791189944"
     assert channel.metadata_["instagram_profile"]["sender_username"] == "real_handle"
+    assert person.metadata_["instagram_profile"]["platform"] == "instagram"
 
 
 def test_persist_instagram_sender_identity_preserves_curated_name(db_session):
@@ -314,6 +441,79 @@ def test_persist_instagram_sender_identity_preserves_curated_name(db_session):
     assert channel.metadata_["instagram_profile"]["sender_name"] == "Jane IG"
 
 
+def test_persist_facebook_sender_identity_updates_placeholder_name_and_metadata(db_session):
+    person = Person(
+        first_name="FB",
+        last_name="Placeholder",
+        email="fb-placeholder@example.com",
+        display_name="Facebook User 123456",
+    )
+    db_session.add(person)
+    db_session.flush()
+    channel = PersonChannel(
+        person_id=person.id,
+        channel_type=PersonChannelType.facebook_messenger,
+        address="123456",
+        is_primary=True,
+    )
+    db_session.add(channel)
+    db_session.commit()
+
+    meta_webhooks._persist_facebook_sender_identity(
+        person=person,
+        channel=channel,
+        metadata={
+            "sender_id": "123456",
+            "sender_username": "real_fb_handle",
+            "sender_name": "Real FB Name",
+        },
+    )
+    db_session.commit()
+    db_session.refresh(person)
+    db_session.refresh(channel)
+
+    assert person.display_name == "real_fb_handle"
+    assert person.metadata_["facebook_profile"]["sender_id"] == "123456"
+    assert person.metadata_["facebook_profile"]["platform"] == "facebook"
+    assert channel.metadata_["facebook_profile"]["sender_name"] == "Real FB Name"
+
+
+def test_persist_facebook_sender_identity_preserves_curated_name(db_session):
+    person = Person(
+        first_name="FB",
+        last_name="Customer",
+        email="fb-customer@example.com",
+        display_name="Jane Customer",
+    )
+    db_session.add(person)
+    db_session.flush()
+    channel = PersonChannel(
+        person_id=person.id,
+        channel_type=PersonChannelType.facebook_messenger,
+        address="123457",
+        is_primary=True,
+    )
+    db_session.add(channel)
+    db_session.commit()
+
+    meta_webhooks._persist_facebook_sender_identity(
+        person=person,
+        channel=channel,
+        metadata={
+            "sender_id": "123457",
+            "sender_username": "fb_jane",
+            "sender_name": "FB Jane",
+        },
+    )
+    db_session.commit()
+    db_session.refresh(person)
+    db_session.refresh(channel)
+
+    assert person.display_name == "Jane Customer"
+    assert person.metadata_["facebook_profile"]["sender_username"] == "fb_jane"
+    assert channel.metadata_["facebook_profile"]["sender_name"] == "FB Jane"
+
+
 def test_persist_instagram_sender_identity_ignores_non_instagram_channels(db_session):
     person = Person(
         first_name="Email",
@@ -347,6 +547,51 @@ def test_persist_instagram_sender_identity_ignores_non_instagram_channels(db_ses
 
     assert person.display_name == "Facebook User 123"
     assert not channel.metadata_
+
+
+def test_receive_facebook_message_delayed_identity_enrichment_updates_placeholder_contact(db_session, monkeypatch):
+    person = Person(
+        first_name="Placeholder",
+        last_name="Customer",
+        email="fb-delayed@example.com",
+        display_name="Facebook User 123458",
+    )
+    db_session.add(person)
+    db_session.flush()
+    channel = PersonChannel(
+        person_id=person.id,
+        channel_type=PersonChannelType.facebook_messenger,
+        address="123458",
+        is_primary=True,
+    )
+    db_session.add(channel)
+    db_session.commit()
+
+    monkeypatch.setattr(meta_webhooks, "_resolve_meta_connector", lambda *_args, **_kwargs: (None, None))
+    monkeypatch.setattr(meta_webhooks, "post_process_inbound_message", lambda *_args, **_kwargs: None)
+
+    payload = FacebookMessengerWebhookPayload(
+        contact_address="123458",
+        contact_name="Recovered FB Name",
+        message_id="fb-reconcile-1",
+        page_id="page_123",
+        body="hello",
+        metadata={
+            "sender_id": "123458",
+            "sender_username": "recovered_fb",
+            "sender_name": "Recovered FB Name",
+            "platform": "facebook",
+        },
+    )
+
+    message = meta_webhooks.receive_facebook_message(db_session, payload)
+    db_session.refresh(person)
+    db_session.refresh(channel)
+
+    assert message is not None
+    assert person.display_name == "recovered_fb"
+    assert person.metadata_["facebook_profile"]["sender_name"] == "Recovered FB Name"
+    assert channel.metadata_["facebook_profile"]["sender_username"] == "recovered_fb"
 
 
 def test_process_facebook_leadgen_change_creates_person_and_lead(db_session):

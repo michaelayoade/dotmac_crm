@@ -9,6 +9,7 @@ its own lookup logic.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 from sqlalchemy import func, or_
@@ -19,6 +20,7 @@ from app.models.crm.enums import ChannelType as CrmChannelType
 from app.models.person import ChannelType, PartyStatus, Person, PersonChannel
 
 logger = logging.getLogger(__name__)
+_META_PLACEHOLDER_RE = re.compile(r"^(Facebook|Instagram) User \S+$")
 
 
 def _is_meta_placeholder_name(value: str | None) -> bool:
@@ -27,7 +29,87 @@ def _is_meta_placeholder_name(value: str | None) -> bool:
     candidate = " ".join(value.strip().split())
     if not candidate:
         return False
-    return candidate.startswith("Facebook User") or candidate.startswith("Instagram User")
+    return bool(_META_PLACEHOLDER_RE.match(candidate))
+
+
+def meta_platform_for_channel(channel_type: CrmChannelType | ChannelType | str | None) -> str | None:
+    if channel_type is None:
+        return None
+    value = channel_type.value if hasattr(channel_type, "value") else str(channel_type)
+    if value == "instagram_dm":
+        return "instagram"
+    if value == "facebook_messenger":
+        return "facebook"
+    return None
+
+
+def meta_placeholder_name(platform: str | None, sender_id: str | None) -> str | None:
+    clean_platform = (platform or "").strip().lower()
+    clean_sender_id = (sender_id or "").strip()
+    if not clean_sender_id:
+        return None
+    if clean_platform == "instagram":
+        return f"Instagram User {clean_sender_id}"
+    if clean_platform == "facebook":
+        return f"Facebook User {clean_sender_id}"
+    return None
+
+
+def _meta_profile_key(platform: str | None) -> str | None:
+    clean_platform = (platform or "").strip().lower()
+    if clean_platform in {"instagram", "facebook"}:
+        return f"{clean_platform}_profile"
+    return None
+
+
+def get_meta_profile(metadata: dict | None, platform: str | None) -> dict[str, str]:
+    key = _meta_profile_key(platform)
+    if not key or not isinstance(metadata, dict):
+        return {}
+    profile = metadata.get(key)
+    if not isinstance(profile, dict):
+        return {}
+    result: dict[str, str] = {}
+    for field in ("platform", "sender_id", "sender_username", "sender_name"):
+        value = profile.get(field)
+        if isinstance(value, str) and value.strip():
+            result[field] = value.strip()
+    return result
+
+
+def preferred_meta_identity_name(
+    *,
+    sender_username: str | None = None,
+    sender_name: str | None = None,
+    fallback_name: str | None = None,
+    platform: str | None = None,
+    sender_id: str | None = None,
+) -> str | None:
+    for candidate in (sender_username, sender_name, fallback_name):
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return meta_placeholder_name(platform, sender_id)
+
+
+def preferred_meta_display_name(
+    person: Person | None, channel_type: CrmChannelType | ChannelType | str | None
+) -> str | None:
+    if person is None:
+        return None
+    display_name = " ".join((person.display_name or "").strip().split()) or None
+    platform = meta_platform_for_channel(channel_type)
+    if not platform:
+        return display_name
+    if display_name and not _is_meta_placeholder_name(display_name):
+        return display_name
+    profile = get_meta_profile(person.metadata_, platform)
+    preferred = preferred_meta_identity_name(
+        sender_username=profile.get("sender_username"),
+        sender_name=profile.get("sender_name"),
+        platform=platform,
+        sender_id=profile.get("sender_id"),
+    )
+    return preferred or display_name
 
 
 # ---------------------------------------------------------------------------
