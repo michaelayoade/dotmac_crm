@@ -19,6 +19,7 @@ class ConnectorType(enum.Enum):
     twilio = "twilio"
     facebook = "facebook"
     instagram = "instagram"
+    zabbix = "zabbix"
     custom = "custom"
 
 
