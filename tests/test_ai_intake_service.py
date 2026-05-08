@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.metrics import AI_INTAKE_ESCALATIONS
 from app.models.crm.ai_intake import AiIntakeConfig
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
 from app.models.crm.enums import AgentPresenceStatus, ChannelType, ConversationStatus, MessageDirection, MessageStatus
@@ -1574,6 +1575,7 @@ def test_process_pending_intake_timeout_error_escalates_safely(db_session, monke
         raise AIClientError("timeout")
 
     monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.generate_with_fallback", _raise_timeout)
+    before = AI_INTAKE_ESCALATIONS.labels(reason="ai_error")._value.get()
 
     result = process_pending_intake(
         db_session,
@@ -1587,6 +1589,7 @@ def test_process_pending_intake_timeout_error_escalates_safely(db_session, monke
     assert result.handled is True
     assert result.escalated is True
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["status"] == "escalated"
+    assert AI_INTAKE_ESCALATIONS.labels(reason="ai_error")._value.get() == before + 1
 
 
 def test_history_and_prompt_include_chronological_transcript(db_session):

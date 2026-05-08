@@ -13,6 +13,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
+from app.metrics import observe_ai_intake_escalation
 from app.models.crm.ai_intake import AiIntakeConfig
 from app.models.crm.conversation import Conversation, ConversationAssignment, ConversationTag, Message
 from app.models.crm.enums import (
@@ -1279,6 +1280,7 @@ def _escalate_pending_intake(
     current_state: dict[str, Any],
     reason: str,
 ) -> AiIntakeResult:
+    observe_ai_intake_escalation(reason=reason)
     if config and config.fallback_team_id:
         fallback_mapping = AiIntakeDepartmentMapping(
             key="support",
