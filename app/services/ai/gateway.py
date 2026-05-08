@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
+from app.metrics import observe_ai_provider_fallback, set_ai_provider_circuit_open
 from app.models.domain_settings import SettingDomain
 from app.services.ai.client import AIClientError, AIResponse, VllmClient, _coerce_float, _coerce_int
 from app.services.settings_spec import resolve_value
@@ -13,6 +16,8 @@ from app.services.settings_spec import resolve_value
 logger = logging.getLogger(__name__)
 
 AIEndpoint = Literal["primary", "secondary"]
+_CIRCUIT_BREAKER_FAILURE_THRESHOLD = max(int(os.getenv("AI_PROVIDER_CIRCUIT_FAILURE_THRESHOLD", "3")), 1)
+_CIRCUIT_BREAKER_COOLDOWN_SECONDS = max(int(os.getenv("AI_PROVIDER_CIRCUIT_COOLDOWN_SECONDS", "60")), 1)
 
 
 @dataclass(frozen=True)
@@ -25,6 +30,12 @@ class AIEndpointConfig:
     timeout_seconds: float
     max_retries: int
     max_tokens: int
+
+
+@dataclass
+class _CircuitBreakerState:
+    consecutive_failures: int = 0
+    cooldown_until: datetime | None = None
 
 
 def _get_bool(db: Session, domain: SettingDomain, key: str, default: bool = False) -> bool:
@@ -100,14 +111,96 @@ class AIGateway:
     - Supports two endpoints (primary + secondary) so you can combine DeepSeek + self-hosted Llama.
     """
 
+    def __init__(self) -> None:
+        self._circuit_states: dict[str, _CircuitBreakerState] = {}
+
+    @staticmethod
+    def _now() -> datetime:
+        return datetime.now(UTC)
+
+    def _circuit_key(self, cfg: AIEndpointConfig, endpoint: AIEndpoint) -> str:
+        return f"{endpoint}:{cfg.label}:{cfg.model}:{cfg.base_url}"
+
+    def _get_state(self, cfg: AIEndpointConfig, endpoint: AIEndpoint) -> _CircuitBreakerState:
+        key = self._circuit_key(cfg, endpoint)
+        return self._circuit_states.setdefault(key, _CircuitBreakerState())
+
+    def _before_request(self, cfg: AIEndpointConfig, endpoint: AIEndpoint) -> None:
+        state = self._get_state(cfg, endpoint)
+        now = self._now()
+        if state.cooldown_until and now < state.cooldown_until:
+            set_ai_provider_circuit_open(provider=cfg.label, model=cfg.model, endpoint=endpoint, is_open=True)
+            raise AIClientError(
+                f"AI circuit open provider={cfg.label} endpoint={endpoint} until={state.cooldown_until.isoformat()}",
+                provider=cfg.label,
+                model=cfg.model,
+                endpoint=endpoint,
+                failure_type="circuit_open",
+                transient=True,
+            )
+        if state.cooldown_until and now >= state.cooldown_until:
+            state.cooldown_until = None
+            state.consecutive_failures = 0
+            set_ai_provider_circuit_open(provider=cfg.label, model=cfg.model, endpoint=endpoint, is_open=False)
+
+    def _record_success(self, cfg: AIEndpointConfig, endpoint: AIEndpoint) -> None:
+        state = self._get_state(cfg, endpoint)
+        state.consecutive_failures = 0
+        state.cooldown_until = None
+        set_ai_provider_circuit_open(provider=cfg.label, model=cfg.model, endpoint=endpoint, is_open=False)
+
+    def _record_failure(self, cfg: AIEndpointConfig, endpoint: AIEndpoint, error: AIClientError) -> None:
+        state = self._get_state(cfg, endpoint)
+        if not error.transient:
+            state.consecutive_failures = 0
+            set_ai_provider_circuit_open(provider=cfg.label, model=cfg.model, endpoint=endpoint, is_open=False)
+            return
+        state.consecutive_failures += 1
+        if state.consecutive_failures < _CIRCUIT_BREAKER_FAILURE_THRESHOLD:
+            set_ai_provider_circuit_open(provider=cfg.label, model=cfg.model, endpoint=endpoint, is_open=False)
+            return
+        state.cooldown_until = self._now() + timedelta(seconds=_CIRCUIT_BREAKER_COOLDOWN_SECONDS)
+        set_ai_provider_circuit_open(provider=cfg.label, model=cfg.model, endpoint=endpoint, is_open=True)
+        logger.warning(
+            "ai_provider_circuit_opened provider=%s model=%s endpoint=%s failure_type=%s consecutive_failures=%s cooldown_seconds=%s",
+            cfg.label,
+            cfg.model,
+            endpoint,
+            error.failure_type,
+            state.consecutive_failures,
+            _CIRCUIT_BREAKER_COOLDOWN_SECONDS,
+        )
+
     def enabled(self, db: Session) -> bool:
         return _get_bool(db, SettingDomain.integration, "ai_enabled", default=False)
 
+    def get_endpoint_config(self, db: Session, endpoint: AIEndpoint) -> AIEndpointConfig:
+        return _load_primary_config(db) if endpoint == "primary" else _load_secondary_config(db)
+
     def endpoint_ready(self, db: Session, endpoint: AIEndpoint) -> bool:
-        cfg = _load_primary_config(db) if endpoint == "primary" else _load_secondary_config(db)
+        cfg = self.get_endpoint_config(db, endpoint)
         if not (cfg.base_url and cfg.model):
             return False
         return not (cfg.require_api_key and not cfg.api_key)
+
+    def circuit_state(self, db: Session, endpoint: AIEndpoint) -> dict[str, Any]:
+        cfg = self.get_endpoint_config(db, endpoint)
+        state = self._get_state(cfg, endpoint)
+        now = self._now()
+        is_open = bool(state.cooldown_until and now < state.cooldown_until)
+        cooldown_remaining_seconds = 0.0
+        if state.cooldown_until and now < state.cooldown_until:
+            cooldown_remaining_seconds = max((state.cooldown_until - now).total_seconds(), 0.0)
+        return {
+            "endpoint": endpoint,
+            "provider": cfg.label,
+            "model": cfg.model,
+            "configured": bool(cfg.base_url and cfg.model),
+            "is_open": is_open,
+            "consecutive_failures": state.consecutive_failures,
+            "cooldown_until": state.cooldown_until.isoformat() if state.cooldown_until else None,
+            "cooldown_remaining_seconds": cooldown_remaining_seconds,
+        }
 
     def _client_for(self, cfg: AIEndpointConfig) -> VllmClient:
         return VllmClient(
@@ -137,9 +230,16 @@ class AIGateway:
         if cfg.require_api_key and not cfg.api_key:
             raise AIClientError(f"AI endpoint requires an API key: {endpoint}")
 
+        self._before_request(cfg, endpoint)
         effective_max_tokens = min(int(max_tokens or cfg.max_tokens), int(cfg.max_tokens))
         client = self._client_for(cfg)
-        return client.generate(system, prompt, max_tokens=effective_max_tokens)
+        try:
+            result = client.generate(system, prompt, max_tokens=effective_max_tokens)
+        except AIClientError as exc:
+            self._record_failure(cfg, endpoint, exc)
+            raise
+        self._record_success(cfg, endpoint)
+        return result
 
     def generate_with_fallback(
         self,
@@ -159,9 +259,26 @@ class AIGateway:
             result = self.generate(db, endpoint=primary, system=system, prompt=prompt, max_tokens=max_tokens)
             return result, {"endpoint": primary, "fallback_used": False}
         except AIClientError as exc:
-            logger.warning("AI primary endpoint failed (%s). Trying fallback.", primary)
+            logger.warning(
+                "AI primary endpoint failed (%s). Trying fallback. provider=%s model=%s failure_type=%s status=%s timeout_type=%s retry_count=%s request_id=%s",
+                primary,
+                exc.provider,
+                exc.model,
+                exc.failure_type,
+                exc.status_code,
+                exc.timeout_type,
+                exc.retry_count,
+                exc.request_id,
+            )
             if not self.endpoint_ready(db, fallback):
+                logger.warning(
+                    "AI fallback endpoint unavailable primary=%s fallback=%s primary_failure_type=%s",
+                    primary,
+                    fallback,
+                    exc.failure_type,
+                )
                 raise
+            observe_ai_provider_fallback(from_endpoint=primary, to_endpoint=fallback, reason=exc.failure_type)
             result = self.generate(db, endpoint=fallback, system=system, prompt=prompt, max_tokens=max_tokens)
             return result, {"endpoint": fallback, "fallback_used": True, "primary_error": str(exc)}
 
