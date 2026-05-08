@@ -55,7 +55,10 @@ from app.services.crm.inbox_dedup import (
     _find_duplicate_inbound_message,
 )
 from app.services.crm.sales.service import leads as leads_service
-from app.services.person_identity import _is_meta_placeholder_name
+from app.services.person_identity import (
+    _is_meta_placeholder_name,
+    preferred_meta_identity_name,
+)
 from app.services.person_identity import ensure_person_channel as _ensure_person_channel_unified
 from app.services.settings_spec import resolve_value
 from app.services.webhook_dead_letter import write_dead_letter
@@ -352,18 +355,95 @@ def _extract_meta_attribution(*values: object) -> dict:
     return attribution
 
 
+def _build_meta_sender_identity_metadata(
+    *,
+    platform: str,
+    sender_id: str,
+    sender_username: str | None,
+    sender_name: str | None,
+) -> dict[str, str]:
+    identity: dict[str, str] = {"platform": platform.strip().lower(), "sender_id": sender_id}
+    if isinstance(sender_username, str) and sender_username.strip():
+        identity["sender_username"] = sender_username.strip()
+    if isinstance(sender_name, str) and sender_name.strip():
+        identity["sender_name"] = sender_name.strip()
+    return identity
+
+
 def _build_instagram_sender_identity_metadata(
     *,
     sender_id: str,
     sender_username: str | None,
     sender_name: str | None,
 ) -> dict[str, str]:
-    identity: dict[str, str] = {"sender_id": sender_id}
-    if isinstance(sender_username, str) and sender_username.strip():
-        identity["sender_username"] = sender_username.strip()
-    if isinstance(sender_name, str) and sender_name.strip():
-        identity["sender_name"] = sender_name.strip()
-    return identity
+    return _build_meta_sender_identity_metadata(
+        platform="instagram",
+        sender_id=sender_id,
+        sender_username=sender_username,
+        sender_name=sender_name,
+    )
+
+
+def _persist_meta_sender_identity(
+    *,
+    person: Person,
+    channel: PersonChannel,
+    platform: str,
+    metadata: dict | None,
+) -> None:
+    expected_channel = {
+        "instagram": PersonChannelType.instagram_dm,
+        "facebook": PersonChannelType.facebook_messenger,
+    }.get((platform or "").strip().lower())
+    if expected_channel is None or channel.channel_type != expected_channel or not isinstance(metadata, dict):
+        return
+    sender_id = metadata.get("sender_id")
+    if not isinstance(sender_id, str) or not sender_id.strip():
+        return
+    sender_username = metadata.get("sender_username")
+    sender_name = metadata.get("sender_name")
+    identity = _build_meta_sender_identity_metadata(
+        platform=platform,
+        sender_id=sender_id.strip(),
+        sender_username=sender_username if isinstance(sender_username, str) else None,
+        sender_name=sender_name if isinstance(sender_name, str) else None,
+    )
+    if not identity:
+        return
+    channel_meta = dict(channel.metadata_) if isinstance(channel.metadata_, dict) else {}
+    profile_key = f"{identity['platform']}_profile"
+    existing_channel_identity_raw = channel_meta.get(profile_key)
+    existing_channel_identity = (
+        dict(existing_channel_identity_raw) if isinstance(existing_channel_identity_raw, dict) else {}
+    )
+    existing_channel_identity.update(identity)
+    channel_meta[profile_key] = existing_channel_identity
+    channel.metadata_ = channel_meta
+
+    person_meta = dict(person.metadata_) if isinstance(person.metadata_, dict) else {}
+    existing_person_identity_raw = person_meta.get(profile_key)
+    existing_person_identity = (
+        dict(existing_person_identity_raw) if isinstance(existing_person_identity_raw, dict) else {}
+    )
+    existing_person_identity.update(identity)
+    person_meta[profile_key] = existing_person_identity
+    person.metadata_ = person_meta
+
+    preferred_name = preferred_meta_identity_name(
+        sender_username=identity.get("sender_username"),
+        sender_name=identity.get("sender_name"),
+    )
+    current_display_name = person.display_name.strip() if isinstance(person.display_name, str) else ""
+    current_matches_meta_name = bool(
+        current_display_name
+        and identity.get("sender_name")
+        and current_display_name == identity["sender_name"]
+        and identity.get("sender_username")
+    )
+    if preferred_name and (
+        not current_display_name or _is_meta_placeholder_name(current_display_name) or current_matches_meta_name
+    ):
+        person.display_name = preferred_name
 
 
 def _persist_instagram_sender_identity(
@@ -372,41 +452,16 @@ def _persist_instagram_sender_identity(
     channel: PersonChannel,
     metadata: dict | None,
 ) -> None:
-    if channel.channel_type != PersonChannelType.instagram_dm or not isinstance(metadata, dict):
-        return
-    sender_id = metadata.get("sender_id")
-    if not isinstance(sender_id, str) or not sender_id.strip():
-        return
-    sender_username = metadata.get("sender_username")
-    sender_name = metadata.get("sender_name")
-    identity = _build_instagram_sender_identity_metadata(
-        sender_id=sender_id.strip(),
-        sender_username=sender_username if isinstance(sender_username, str) else None,
-        sender_name=sender_name if isinstance(sender_name, str) else None,
-    )
-    if not identity:
-        return
-    channel_meta = dict(channel.metadata_) if isinstance(channel.metadata_, dict) else {}
-    existing_channel_identity_raw = channel_meta.get("instagram_profile")
-    existing_channel_identity = (
-        dict(existing_channel_identity_raw) if isinstance(existing_channel_identity_raw, dict) else {}
-    )
-    existing_channel_identity.update(identity)
-    channel_meta["instagram_profile"] = existing_channel_identity
-    channel.metadata_ = channel_meta
+    _persist_meta_sender_identity(person=person, channel=channel, platform="instagram", metadata=metadata)
 
-    person_meta = dict(person.metadata_) if isinstance(person.metadata_, dict) else {}
-    existing_person_identity_raw = person_meta.get("instagram_profile")
-    existing_person_identity = (
-        dict(existing_person_identity_raw) if isinstance(existing_person_identity_raw, dict) else {}
-    )
-    existing_person_identity.update(identity)
-    person_meta["instagram_profile"] = existing_person_identity
-    person.metadata_ = person_meta
 
-    preferred_name = identity.get("sender_username") or identity.get("sender_name")
-    if preferred_name and (not person.display_name or _is_meta_placeholder_name(person.display_name)):
-        person.display_name = preferred_name
+def _persist_facebook_sender_identity(
+    *,
+    person: Person,
+    channel: PersonChannel,
+    metadata: dict | None,
+) -> None:
+    _persist_meta_sender_identity(person=person, channel=channel, platform="facebook", metadata=metadata)
 
 
 def _is_meta_ad_attribution_capture_enabled(db: Session) -> bool:
@@ -1327,10 +1382,18 @@ def process_messenger_webhook(
             sender = messaging_event.sender or {}
             sender_id = sender.get("id")
             sender_id_str = str(sender_id).strip() if isinstance(sender_id, str) and sender_id.strip() else None
-            contact_name = (
-                sender.get("name")
-                or (_fetch_profile_name(page_token, sender_id_str, "name", base_url) if sender_id_str else None)
-                or (f"Facebook User {sender_id_str}" if sender_id_str else None)
+            sender_username = sender.get("username")
+            if not isinstance(sender_username, str) or not sender_username.strip():
+                sender_username = None
+            fetched_profile_name = (
+                _fetch_profile_name(page_token, sender_id_str, "name", base_url) if sender_id_str else None
+            )
+            sender_name = sender.get("name") or fetched_profile_name
+            contact_name = preferred_meta_identity_name(
+                sender_username=sender_username,
+                sender_name=sender_name if isinstance(sender_name, str) else None,
+                platform="facebook",
+                sender_id=sender_id_str,
             )
             event_attribution = _extract_meta_attribution(
                 messaging_event.referral,
@@ -1493,10 +1556,19 @@ def process_messenger_webhook(
                 metadata["attribution"] = attribution_metadata
             if external_ref:
                 metadata["provider_message_id"] = external_ref
-            contact_name = (
-                contact_name
-                or (message.get("from", {}) if isinstance(message.get("from"), dict) else {}).get("name")
-                or f"Facebook User {sender_id_str}"
+            sender_identity = _build_meta_sender_identity_metadata(
+                platform="facebook",
+                sender_id=sender_id_str,
+                sender_username=sender_username,
+                sender_name=sender_name if isinstance(sender_name, str) else None,
+            )
+            metadata.update(sender_identity)
+            contact_name = preferred_meta_identity_name(
+                sender_username=sender_identity.get("sender_username"),
+                sender_name=sender_identity.get("sender_name"),
+                fallback_name=(message.get("from", {}) if isinstance(message.get("from"), dict) else {}).get("name"),
+                platform="facebook",
+                sender_id=sender_id_str,
             )
             parsed = FacebookMessengerWebhookPayload(
                 contact_address=sender_id_str,
@@ -1718,10 +1790,11 @@ def process_instagram_webhook(
                 sender_name=sender_name if isinstance(sender_name, str) else None,
             )
             metadata.update(sender_identity)
-            contact_name = (
-                sender_identity.get("sender_username")
-                or sender_identity.get("sender_name")
-                or f"Instagram User {sender_id}"
+            contact_name = preferred_meta_identity_name(
+                sender_username=sender_identity.get("sender_username"),
+                sender_name=sender_identity.get("sender_name"),
+                platform="instagram",
+                sender_id=sender_id,
             )
             parsed = InstagramDMWebhookPayload(
                 contact_address=sender_id,
@@ -2033,6 +2106,11 @@ def receive_facebook_message(
         payload.contact_address,
         payload.contact_name,
         payload.metadata,
+    )
+    _persist_facebook_sender_identity(
+        person=contact,
+        channel=channel,
+        metadata=payload.metadata,
     )
 
     external_id = payload.message_id

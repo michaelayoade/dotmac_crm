@@ -305,6 +305,116 @@ class TestFormatting:
         assert result["priority"] == "none"
         assert result["is_muted"] is False
 
+    def test_format_prefers_meta_username_over_placeholder_for_facebook(self, db_session):
+        from app.models.crm.enums import ChannelType as CrmChannelType
+        from app.models.crm.enums import MessageDirection
+        from app.services.crm.inbox.formatting import format_conversation_for_template, format_message_for_template
+
+        contact = _create_person(db_session)
+        contact.display_name = "Facebook User 12345"
+        contact.metadata_ = {
+            "facebook_profile": {
+                "platform": "facebook",
+                "sender_id": "12345",
+                "sender_username": "real_fb_handle",
+                "sender_name": "Real FB Name",
+            }
+        }
+        conv = _create_conversation(db_session, contact)
+        message = Message(
+            conversation_id=conv.id,
+            body="hello",
+            channel_type=CrmChannelType.facebook_messenger,
+            direction=MessageDirection.inbound,
+        )
+        db_session.add(message)
+        db_session.flush()
+        db_session.refresh(conv)
+
+        result = format_conversation_for_template(conv, db_session, latest_message=message)
+        formatted_message = format_message_for_template(message, db_session)
+
+        assert result["contact"]["name"] == "real_fb_handle"
+        assert formatted_message["sender"]["name"] == "real_fb_handle"
+
+    def test_format_preserves_curated_name_over_meta_identity(self, db_session):
+        from app.models.crm.enums import ChannelType as CrmChannelType
+        from app.models.crm.enums import MessageDirection
+        from app.services.crm.inbox.formatting import format_conversation_for_template
+
+        contact = _create_person(db_session, name="Jane")
+        contact.display_name = "Jane Customer"
+        contact.metadata_ = {
+            "instagram_profile": {
+                "platform": "instagram",
+                "sender_id": "ig-123",
+                "sender_username": "jane_ig",
+                "sender_name": "Jane On Instagram",
+            }
+        }
+        conv = _create_conversation(db_session, contact)
+        message = Message(
+            conversation_id=conv.id,
+            body="hello",
+            channel_type=CrmChannelType.instagram_dm,
+            direction=MessageDirection.inbound,
+        )
+        db_session.add(message)
+        db_session.flush()
+
+        result = format_conversation_for_template(conv, db_session, latest_message=message)
+
+        assert result["contact"]["name"] == "Jane Customer"
+
+    def test_format_non_meta_channels_are_unchanged(self, db_session):
+        from app.models.crm.enums import ChannelType as CrmChannelType
+        from app.models.crm.enums import MessageDirection
+        from app.services.crm.inbox.formatting import format_conversation_for_template
+
+        whatsapp_contact = _create_person(db_session, name="WhatsApp")
+        whatsapp_contact.display_name = "WhatsApp Contact"
+        whatsapp_contact.phone = "2348012345678"
+        whatsapp_contact.metadata_ = {
+            "facebook_profile": {
+                "platform": "facebook",
+                "sender_id": "12345",
+                "sender_username": "should_not_apply",
+            }
+        }
+        whatsapp_conv = _create_conversation(db_session, whatsapp_contact)
+        whatsapp_message = Message(
+            conversation_id=whatsapp_conv.id,
+            body="hello",
+            channel_type=CrmChannelType.whatsapp,
+            direction=MessageDirection.inbound,
+        )
+        db_session.add(whatsapp_message)
+
+        email_contact = _create_person(db_session, name="Email")
+        email_contact.display_name = "Email Contact"
+        email_contact.metadata_ = {
+            "instagram_profile": {
+                "platform": "instagram",
+                "sender_id": "ig-1",
+                "sender_username": "should_not_apply",
+            }
+        }
+        email_conv = _create_conversation(db_session, email_contact)
+        email_message = Message(
+            conversation_id=email_conv.id,
+            body="hello",
+            channel_type=CrmChannelType.email,
+            direction=MessageDirection.inbound,
+        )
+        db_session.add(email_message)
+        db_session.flush()
+
+        whatsapp_result = format_conversation_for_template(whatsapp_conv, db_session, latest_message=whatsapp_message)
+        email_result = format_conversation_for_template(email_conv, db_session, latest_message=email_message)
+
+        assert whatsapp_result["contact"]["name"] == "WhatsApp Contact"
+        assert email_result["contact"]["name"] == "Email Contact"
+
 
 # ── Auto-Resolve Tests ───────────────────────────────────────
 

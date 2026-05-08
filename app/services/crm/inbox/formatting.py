@@ -27,6 +27,7 @@ from app.services.crm.inbox.comments_summary import (
     merge_recent_conversations_with_comments,
 )
 from app.services.crm.inbox.permissions import can_view_private_note
+from app.services.person_identity import preferred_meta_display_name
 
 logger = logging.getLogger(__name__)
 _URL_RE = re.compile(r"(https?://[^\s<]+)", flags=re.IGNORECASE)
@@ -612,10 +613,11 @@ def format_conversation_for_template(
         phone_value = contact.phone
         if phone_value and channel in ("whatsapp", "sms", "phone") and not phone_value.startswith("+"):
             phone_value = f"+{phone_value}"
+        resolved_meta_name = preferred_meta_display_name(contact, channel)
         if channel in ("whatsapp", "sms", "phone"):
             contact_name = contact.display_name or phone_value or contact.email or "Unknown"
         else:
-            contact_name = contact.display_name or contact.email or phone_value or "Unknown"
+            contact_name = resolved_meta_name or contact.email or phone_value or "Unknown"
         contact_initials = get_initials(contact_name)
     else:
         contact_name = "Unknown"
@@ -728,7 +730,8 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
     else:
         conv = msg.conversation
         if conv and conv.contact:
-            sender_name = conv.contact.display_name or conv.contact.email or "Contact"
+            resolved_meta_name = preferred_meta_display_name(conv.contact, msg.channel_type)
+            sender_name = resolved_meta_name or conv.contact.email or "Contact"
             sender_initials = get_initials(sender_name)
 
     attachments = []
