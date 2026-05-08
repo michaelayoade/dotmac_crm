@@ -67,6 +67,11 @@ class TestValidateEnum:
         result = validate_enum("http", ConnectorType, "type")
         assert result == ConnectorType.http
 
+    def test_converts_zabbix_string(self):
+        """Test zabbix is a supported connector type."""
+        result = validate_enum("zabbix", ConnectorType, "type")
+        assert result == ConnectorType.zabbix
+
     def test_invalid_string_raises(self):
         """Test invalid string raises HTTPException."""
         with pytest.raises(HTTPException) as exc_info:
@@ -98,6 +103,22 @@ class TestConnectorConfigsCreate:
         assert config.connector_type == ConnectorType.http
         assert config.auth_type == ConnectorAuthType.basic
         assert config.is_active is True
+
+    def test_creates_zabbix_config(self, db_session):
+        """Test creates a Zabbix connector config."""
+        config = connector_service.connector_configs.create(
+            db_session,
+            ConnectorConfigCreate(
+                name="Zabbix Connector",
+                connector_type=ConnectorType.zabbix,
+                auth_type=ConnectorAuthType.api_key,
+                base_url="https://zabbix.example.com/api_jsonrpc.php",
+                auth_config={"api_key": "token"},
+            ),
+        )
+        assert config.name == "Zabbix Connector"
+        assert config.connector_type == ConnectorType.zabbix
+        assert config.auth_type == ConnectorAuthType.api_key
 
 
 class TestConnectorConfigsGet:
@@ -301,6 +322,28 @@ class TestConnectorConfigsListAll:
             offset=0,
         )
         assert all(c.auth_type == ConnectorAuthType.basic for c in configs)
+
+    def test_lists_zabbix_configs(self, db_session):
+        """Test list_all can load existing Zabbix connector rows."""
+        connector_service.connector_configs.create(
+            db_session,
+            ConnectorConfigCreate(
+                name="Zabbix All Config",
+                connector_type=ConnectorType.zabbix,
+            ),
+        )
+
+        configs = connector_service.connector_configs.list_all(
+            db_session,
+            connector_type="zabbix",
+            auth_type=None,
+            order_by="created_at",
+            order_dir="asc",
+            limit=100,
+            offset=0,
+        )
+        assert configs
+        assert all(c.connector_type == ConnectorType.zabbix for c in configs)
 
 
 class TestConnectorConfigsUpdate:
