@@ -30,6 +30,20 @@ from app.models.workforce import WorkOrder, WorkOrderStatus
 # =====================================================================
 
 _ONLINE_REPORT_TEST_SUBSCRIBER_NUMBER = "TEST-NOTIFY-001"
+_BASE_STATION_KEYS = (
+    "base_station",
+    "base station",
+    "nas_name",
+    "nas",
+    "router_name",
+    "router",
+    "access_router",
+    "access name",
+    "pop",
+    "olt",
+    "tower",
+    "sector",
+)
 
 
 class ConversionBucket(TypedDict):
@@ -78,6 +92,53 @@ def online_customers_last_24h_count(db: Session, subscriber_ids: list | None = N
     return _online_customers_last_24h(db, subscriber_ids=subscriber_ids)
 
 
+def _clean_base_station_value(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"\s*\([^)]*\)", "", text).strip()
+    text = re.sub(r"\s+access\b", "", text, flags=re.IGNORECASE).strip()
+    return re.sub(r"\s+", " ", text).strip(" -")
+
+
+def _payload_key(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+
+def _extract_base_station_from_payload(payload: object) -> str:
+    aliases = {_payload_key(key) for key in _BASE_STATION_KEYS}
+    if isinstance(payload, Mapping):
+        for key, value in payload.items():
+            cleaned = _clean_base_station_value(value)
+            key_text = _payload_key(key)
+            if cleaned and (
+                key_text in aliases
+                or any(
+                    token in key_text
+                    for token in ("basestation", "station", "nas", "router", "access", "pop", "olt", "tower")
+                )
+            ):
+                return cleaned
+        label = _first_nonempty_text(
+            payload.get("name"), payload.get("label"), payload.get("key"), payload.get("field")
+        )
+        if label and _payload_key(label) in aliases:
+            cleaned = _clean_base_station_value(_first_nonempty_text(payload.get("value"), payload.get("content")))
+            if cleaned:
+                return cleaned
+        for nested in payload.values():
+            if isinstance(nested, Mapping | list):
+                cleaned = _extract_base_station_from_payload(nested)
+                if cleaned:
+                    return cleaned
+    elif isinstance(payload, list):
+        for item in payload:
+            cleaned = _extract_base_station_from_payload(item)
+            if cleaned:
+                return cleaned
+    return ""
+
+
 def _online_last_24h_test_account_row(db: Session, now: datetime) -> dict[str, Any] | None:
     subscriber = db.scalar(
         select(Subscriber)
@@ -106,6 +167,7 @@ def _online_last_24h_test_account_row(db: Session, now: datetime) -> dict[str, A
         "plan": subscriber.service_plan or "",
         "status": subscriber.status.value if subscriber.status else "active",
         "region": _first_nonempty_text(subscriber.service_region, subscriber.service_city),
+        "base_station": "",
         "email": person.email if person else "",
         "phone": person.phone if person and person.phone else "",
         "avatar_url": person.avatar_url if person and person.avatar_url else "",
@@ -298,7 +360,9 @@ def online_customers_last_24h_rows(
 
     ticket_filter = (ticket_status or "").strip().lower()
     if ticket_filter and ticket_filter != "all":
-        if ticket_filter == "not_closed":
+        if ticket_filter == "no_ticket":
+            query = query.where(latest_ticket.c.ticket_status.is_(None))
+        elif ticket_filter == "not_closed":
             query = query.where(
                 latest_ticket.c.ticket_status.isnot(None),
                 latest_ticket.c.ticket_status != TicketStatus.closed,
@@ -400,12 +464,14 @@ def online_customers_last_24h_rows(
         status_value = str(customer.get("status") or "").strip().lower()
         if active_last24_not_online_only and (status_value != "active" or currently_online):
             continue
+        base_station_value = _extract_base_station_from_payload(customer)
         customer_payload = {
             "external_id": external_id,
             "login": login,
             "email": email,
             "name": str(customer.get("name") or "").strip(),
             "status": status_value,
+            "base_station": base_station_value,
             "currently_online": currently_online,
             "last_seen_at": last_online,
         }
@@ -575,6 +641,7 @@ def online_customers_last_24h_rows(
             "plan": "",
             "status": str(customer.get("status") or ""),
             "region": "",
+            "base_station": str(customer.get("base_station") or ""),
             "email": str(customer.get("email") or ""),
             "phone": "",
             "avatar_url": "",
@@ -604,11 +671,29 @@ def online_customers_last_24h_rows(
                     str(row.get("id") or ""),
                     str(row.get("name") or ""),
                     str(row.get("status") or ""),
+                    str(row.get("base_station") or ""),
                     str(row.get("subscriber_number") or ""),
                     str(row.get("email") or ""),
                 ]
             ).lower()
         ]
+
+    if ticket_filter and ticket_filter != "all":
+        if ticket_filter == "no_ticket":
+            live_rows = [row for row in live_rows if not str(row.get("ticket_status") or "").strip()]
+        elif ticket_filter == "not_closed":
+            live_rows = [
+                row
+                for row in live_rows
+                if str(row.get("ticket_status") or "").strip()
+                and str(row.get("ticket_status") or "").strip().lower() != TicketStatus.closed.value
+            ]
+        else:
+            live_rows = [
+                row
+                for row in live_rows
+                if str(row.get("ticket_status") or "").strip().lower().replace(" ", "_") == ticket_filter
+            ]
 
     live_rows.sort(key=lambda row: str(row.get("last_seen_at_iso") or ""), reverse=True)
     test_row = _online_last_24h_test_account_row(db, now)
