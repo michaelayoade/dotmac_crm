@@ -852,6 +852,43 @@ class Tickets(ListResponseMixin):
         return ticket
 
     @staticmethod
+    def assign(
+        db: Session,
+        ticket_id: str,
+        person_id: str,
+        *,
+        actor_id: str | None = None,
+    ):
+        """Assign a ticket to a person.
+
+        Thin facade used by Workqueue inline actions; delegates to ``update``
+        so existing assignment side-effects (audit, notifications, SLA) run.
+        """
+        return Tickets.update(
+            db,
+            ticket_id,
+            TicketUpdate(assigned_to_person_id=person_id),
+        )
+
+    @staticmethod
+    def resolve(
+        db: Session,
+        ticket_id: str,
+        *,
+        actor_id: str | None = None,
+    ):
+        """Mark a ticket as resolved (closed).
+
+        Thin facade used by Workqueue inline actions; delegates to ``update``
+        so status-transition side-effects fire normally.
+        """
+        return Tickets.update(
+            db,
+            ticket_id,
+            TicketUpdate(status=TicketStatus.closed),
+        )
+
+    @staticmethod
     def auto_assign_manual(db: Session, ticket_id: str, actor_id: str | None = None):
         ticket = db.get(Ticket, ticket_id)
         if not ticket:
