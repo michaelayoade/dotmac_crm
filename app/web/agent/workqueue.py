@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.metrics import observe_workqueue_action, observe_workqueue_render
 from app.models.domain_settings import SettingDomain
 from app.schemas.workqueue import ItemRef, SnoozeRequest
 from app.services import settings_spec
@@ -69,23 +71,31 @@ def page(
     db: Session = Depends(_get_db),
     audience: str | None = Query(default=None, alias="as"),
 ):
-    _flag_or_404(db)
-    raw_user, wq_user = _build_user(request)
-    if not has_workqueue_view(wq_user):
-        raise HTTPException(status_code=403)
-    view = build_workqueue(db, wq_user, requested_audience=audience)
-    return templates.TemplateResponse(
-        "agent/workqueue/index.html",
-        {
-            "request": request,
-            "current_user": raw_user,
-            "sidebar_stats": get_sidebar_stats(db, raw_user),
-            "active_page": "workqueue",
-            "view": view,
-            "right_now": view.right_now,
-            "csrf_token": request.cookies.get("csrf_token", ""),
-        },
-    )
+    start = time.monotonic()
+    audience_label = "unknown"
+    try:
+        _flag_or_404(db)
+        raw_user, wq_user = _build_user(request)
+        if not has_workqueue_view(wq_user):
+            raise HTTPException(status_code=403)
+        view = build_workqueue(db, wq_user, requested_audience=audience)
+        audience_label = view.audience.value
+        return templates.TemplateResponse(
+            "agent/workqueue/index.html",
+            {
+                "request": request,
+                "current_user": raw_user,
+                "sidebar_stats": get_sidebar_stats(db, raw_user),
+                "active_page": "workqueue",
+                "view": view,
+                "right_now": view.right_now,
+                "csrf_token": request.cookies.get("csrf_token", ""),
+            },
+        )
+    finally:
+        observe_workqueue_render(
+            audience=audience_label, view="page", duration_ms=(time.monotonic() - start) * 1000
+        )
 
 
 @router.get("/_right_now", response_class=HTMLResponse)
@@ -94,19 +104,27 @@ def partial_right_now(
     db: Session = Depends(_get_db),
     audience: str | None = Query(default=None, alias="as"),
 ):
-    _flag_or_404(db)
-    _, wq_user = _build_user(request)
-    if not has_workqueue_view(wq_user):
-        raise HTTPException(status_code=403)
-    view = build_workqueue(db, wq_user, requested_audience=audience)
-    return templates.TemplateResponse(
-        "agent/workqueue/_right_now.html",
-        {
-            "request": request,
-            "right_now": view.right_now,
-            "csrf_token": request.cookies.get("csrf_token", ""),
-        },
-    )
+    start = time.monotonic()
+    audience_label = "unknown"
+    try:
+        _flag_or_404(db)
+        _, wq_user = _build_user(request)
+        if not has_workqueue_view(wq_user):
+            raise HTTPException(status_code=403)
+        view = build_workqueue(db, wq_user, requested_audience=audience)
+        audience_label = view.audience.value
+        return templates.TemplateResponse(
+            "agent/workqueue/_right_now.html",
+            {
+                "request": request,
+                "right_now": view.right_now,
+                "csrf_token": request.cookies.get("csrf_token", ""),
+            },
+        )
+    finally:
+        observe_workqueue_render(
+            audience=audience_label, view="right_now", duration_ms=(time.monotonic() - start) * 1000
+        )
 
 
 @router.get("/_section/{kind}", response_class=HTMLResponse)
@@ -116,26 +134,35 @@ def partial_section(
     db: Session = Depends(_get_db),
     audience: str | None = Query(default=None, alias="as"),
 ):
-    _flag_or_404(db)
+    start = time.monotonic()
+    audience_label = "unknown"
+    view_label = f"section_{kind}"
     try:
-        item_kind = ItemKind(kind)
-    except ValueError as exc:
-        raise HTTPException(status_code=404) from exc
-    _, wq_user = _build_user(request)
-    if not has_workqueue_view(wq_user):
-        raise HTTPException(status_code=403)
-    view = build_workqueue(db, wq_user, requested_audience=audience)
-    section = next((s for s in view.sections if s.kind is item_kind), None)
-    if section is None:
-        raise HTTPException(status_code=404)
-    return templates.TemplateResponse(
-        "agent/workqueue/_section.html",
-        {
-            "request": request,
-            "section": section,
-            "csrf_token": request.cookies.get("csrf_token", ""),
-        },
-    )
+        _flag_or_404(db)
+        try:
+            item_kind = ItemKind(kind)
+        except ValueError as exc:
+            raise HTTPException(status_code=404) from exc
+        _, wq_user = _build_user(request)
+        if not has_workqueue_view(wq_user):
+            raise HTTPException(status_code=403)
+        view = build_workqueue(db, wq_user, requested_audience=audience)
+        audience_label = view.audience.value
+        section = next((s for s in view.sections if s.kind is item_kind), None)
+        if section is None:
+            raise HTTPException(status_code=404)
+        return templates.TemplateResponse(
+            "agent/workqueue/_section.html",
+            {
+                "request": request,
+                "section": section,
+                "csrf_token": request.cookies.get("csrf_token", ""),
+            },
+        )
+    finally:
+        observe_workqueue_render(
+            audience=audience_label, view=view_label, duration_ms=(time.monotonic() - start) * 1000
+        )
 
 
 def _refresh_response(message: str) -> Response:
@@ -179,6 +206,7 @@ def post_snooze(
             )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    observe_workqueue_action(kind=payload.kind.value, action="snooze")
     return _refresh_response("Snoozed")
 
 
@@ -193,6 +221,7 @@ def post_clear_snooze(
     if not has_workqueue_view(wq_user):
         raise HTTPException(status_code=403)
     workqueue_actions.clear_snooze(db, wq_user, payload.kind, payload.item_id)
+    observe_workqueue_action(kind=payload.kind.value, action="clear_snooze")
     return _refresh_response("Snooze cleared")
 
 
@@ -212,6 +241,7 @@ def post_claim(
         raise HTTPException(status_code=403, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    observe_workqueue_action(kind=payload.kind.value, action="claim")
     return _refresh_response("Claimed")
 
 
@@ -229,4 +259,5 @@ def post_complete(
         workqueue_actions.complete(db, wq_user, payload.kind, payload.item_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    observe_workqueue_action(kind=payload.kind.value, action="complete")
     return _refresh_response("Completed")

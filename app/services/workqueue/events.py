@@ -42,9 +42,10 @@ def emit_change(
     score: int | None = None,
     reason: str | None = None,
 ) -> None:
+    kind_label = kind.value if hasattr(kind, "value") else str(kind)
     payload = {
         "type": "workqueue.changed",
-        "kind": kind.value if hasattr(kind, "value") else str(kind),
+        "kind": kind_label,
         "item_id": str(item_id),
         "change": change,
         "score": score,
@@ -57,6 +58,15 @@ def emit_change(
     targets.extend(team_channel(tid) for tid in affected_team_ids)
     if affected_org:
         targets.append(org_channel())
+
+    if targets:
+        # Defensive: metrics must never break the emit pipeline.
+        try:
+            from app.metrics import observe_workqueue_ws_event
+
+            observe_workqueue_ws_event(kind=kind_label, change=change, count=len(targets))
+        except Exception:  # pragma: no cover — metrics are best-effort
+            logger.debug("workqueue_metrics_failed kind=%s change=%s", kind_label, change)
 
     for channel in targets:
         try:
