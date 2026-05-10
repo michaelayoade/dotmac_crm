@@ -590,3 +590,391 @@ def crm_agent_team(db_session, crm_agent, crm_team):
     db_session.commit()
     db_session.refresh(link)
     return link
+
+
+@pytest.fixture()
+def crm_conversation_factory(db_session):
+    """Factory for building CRM conversations in workqueue tests.
+
+    The CRM `Conversation` model has no `sla_due_at` / `last_inbound_at`
+    columns; we stash them in `metadata_` (JSON) since that is exactly how the
+    Workqueue conversations provider reads them.
+
+    `assignee_person_id` may be:
+      * ``None`` — leave the conversation unassigned.
+      * A ``UUID`` — create (or reuse) a `Person` + `CrmAgent` for that id and
+        attach an active `ConversationAssignment` to the conversation.
+
+    `last_inbound_at` defaults to ~5h ago so a conversation without explicit
+    SLA still classifies as ``awaiting_reply_long`` (otherwise the provider
+    would skip it and tests that don't care about SLA would see no items).
+    """
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+
+    from app.models.crm.conversation import Conversation, ConversationAssignment
+    from app.models.crm.enums import ConversationStatus
+
+    def _factory(
+        *,
+        assignee_person_id: uuid.UUID | None = None,
+        sla_due_at: _dt | None = None,
+        last_inbound_at: _dt | None = None,
+        status: ConversationStatus = ConversationStatus.open,
+        subject: str | None = None,
+    ) -> Conversation:
+        # Contact (the conversation's "person")
+        contact = Person(
+            first_name="WQ",
+            last_name="Contact",
+            email=_unique_email(),
+        )
+        db_session.add(contact)
+        db_session.flush()
+
+        # Default last_inbound to >4h ago so plain conversations still classify.
+        effective_last_inbound = last_inbound_at
+        if effective_last_inbound is None and sla_due_at is None:
+            effective_last_inbound = _dt.now(_UTC) - _td(hours=5)
+
+        meta: dict = {}
+        if sla_due_at is not None:
+            meta["sla_due_at"] = sla_due_at.isoformat()
+        if effective_last_inbound is not None:
+            meta["last_inbound_at"] = effective_last_inbound.isoformat()
+
+        conv = Conversation(
+            person_id=contact.id,
+            status=status,
+            subject=subject or "Workqueue test conversation",
+            last_message_at=effective_last_inbound,
+            metadata_=meta or None,
+        )
+        db_session.add(conv)
+        db_session.flush()
+
+        if assignee_person_id is not None:
+            # Ensure a Person exists for the assignee id (CrmAgent.person_id
+            # is FK to people.id with nullable=False).
+            assignee_person = db_session.get(Person, assignee_person_id)
+            if assignee_person is None:
+                assignee_person = Person(
+                    id=assignee_person_id,
+                    first_name="WQ",
+                    last_name="Agent",
+                    email=_unique_email(),
+                )
+                db_session.add(assignee_person)
+                db_session.flush()
+
+            # Reuse an existing CrmAgent for this person if one exists.
+            agent = db_session.query(CrmAgent).filter(CrmAgent.person_id == assignee_person_id).one_or_none()
+            if agent is None:
+                agent = CrmAgent(person_id=assignee_person_id, title="Agent")
+                db_session.add(agent)
+                db_session.flush()
+
+            assignment = ConversationAssignment(
+                conversation_id=conv.id,
+                agent_id=agent.id,
+                is_active=True,
+            )
+            db_session.add(assignment)
+            db_session.flush()
+
+        db_session.commit()
+        db_session.refresh(conv)
+        return conv
+
+    return _factory
+
+
+@pytest.fixture()
+def lead_factory(db_session):
+    """Factory for building CRM leads in workqueue tests.
+
+    The `Lead` model has no `next_action_at` or `last_activity_at` columns;
+    we stash them in `metadata_` (JSON) since that is exactly how the
+    Workqueue leads_quotes provider reads them.
+
+    `owner_person_id` may be:
+      * ``None`` — leave the lead unassigned.
+      * A ``UUID`` — create (or reuse) a `Person` + `CrmAgent` for that id and
+        set `Lead.owner_agent_id` to that agent.
+    """
+    from datetime import datetime as _dt
+
+    from app.models.crm.enums import LeadStatus
+    from app.models.crm.sales import Lead
+
+    def _factory(
+        *,
+        owner_person_id: uuid.UUID | None = None,
+        status: LeadStatus = LeadStatus.new,
+        next_action_at: _dt | None = None,
+        last_activity_at: _dt | None = None,
+        title: str | None = None,
+        estimated_value: float | None = None,
+        probability: int | None = None,
+    ) -> Lead:
+        # Lead requires a Person (the contact)
+        contact = Person(
+            first_name="WQ",
+            last_name="LeadContact",
+            email=_unique_email(),
+        )
+        db_session.add(contact)
+        db_session.flush()
+
+        owner_agent_id = None
+        if owner_person_id is not None:
+            owner_person = db_session.get(Person, owner_person_id)
+            if owner_person is None:
+                owner_person = Person(
+                    id=owner_person_id,
+                    first_name="WQ",
+                    last_name="LeadOwner",
+                    email=_unique_email(),
+                )
+                db_session.add(owner_person)
+                db_session.flush()
+
+            agent = db_session.query(CrmAgent).filter(CrmAgent.person_id == owner_person_id).one_or_none()
+            if agent is None:
+                agent = CrmAgent(person_id=owner_person_id, title="Sales")
+                db_session.add(agent)
+                db_session.flush()
+            owner_agent_id = agent.id
+
+        meta: dict = {}
+        if next_action_at is not None:
+            meta["next_action_at"] = next_action_at.isoformat()
+        if last_activity_at is not None:
+            meta["last_activity_at"] = last_activity_at.isoformat()
+
+        lead = Lead(
+            person_id=contact.id,
+            owner_agent_id=owner_agent_id,
+            status=status,
+            title=title or "Workqueue test lead",
+            estimated_value=estimated_value,
+            probability=probability,
+            metadata_=meta or None,
+        )
+        db_session.add(lead)
+        db_session.commit()
+        db_session.refresh(lead)
+        return lead
+
+    return _factory
+
+
+@pytest.fixture()
+def quote_factory(db_session):
+    """Factory for building CRM quotes in workqueue tests.
+
+    The `Quote` model has no `owner_person_id`, `sent_at`, or `short_id`
+    columns; we stash `owner_person_id` and `sent_at` in `metadata_` (JSON)
+    since that is exactly how the Workqueue leads_quotes provider reads them.
+    """
+    from datetime import datetime as _dt
+
+    from app.models.crm.enums import QuoteStatus
+    from app.models.crm.sales import Quote
+
+    def _factory(
+        *,
+        owner_person_id: uuid.UUID | None = None,
+        status: QuoteStatus = QuoteStatus.draft,
+        expires_at: _dt | None = None,
+        sent_at: _dt | None = None,
+        total: float | None = None,
+    ) -> Quote:
+        contact = Person(
+            first_name="WQ",
+            last_name="QuoteContact",
+            email=_unique_email(),
+        )
+        db_session.add(contact)
+        db_session.flush()
+
+        if owner_person_id is not None:
+            owner_person = db_session.get(Person, owner_person_id)
+            if owner_person is None:
+                owner_person = Person(
+                    id=owner_person_id,
+                    first_name="WQ",
+                    last_name="QuoteOwner",
+                    email=_unique_email(),
+                )
+                db_session.add(owner_person)
+                db_session.flush()
+
+        meta: dict = {}
+        if owner_person_id is not None:
+            meta["owner_person_id"] = str(owner_person_id)
+        if sent_at is not None:
+            meta["sent_at"] = sent_at.isoformat()
+
+        kwargs: dict = {
+            "person_id": contact.id,
+            "status": status,
+            "expires_at": expires_at,
+            "metadata_": meta or None,
+        }
+        if total is not None:
+            kwargs["total"] = total
+
+        quote = Quote(**kwargs)
+        db_session.add(quote)
+        db_session.commit()
+        db_session.refresh(quote)
+        return quote
+
+    return _factory
+
+
+@pytest.fixture()
+def ticket_factory(db_session):
+    """Factory for building tickets in workqueue tests.
+
+    The `Ticket` model has no `sla_due_at` or `last_customer_reply_at`
+    columns; we stash them in `metadata_` (JSON) since that is exactly how
+    the Workqueue tickets provider reads them.
+
+    `assignee_person_id` may be:
+      * ``None`` — leave the ticket unassigned.
+      * A ``UUID`` — create (or reuse) a ``Person`` for that id and attach
+        a ``TicketAssignee`` row to the ticket.
+    """
+    from datetime import datetime as _dt
+
+    from app.models.tickets import (
+        Ticket,
+        TicketAssignee,
+        TicketPriority,
+        TicketStatus,
+    )
+
+    def _factory(
+        *,
+        assignee_person_id: uuid.UUID | None = None,
+        status: TicketStatus = TicketStatus.open,
+        priority: TicketPriority = TicketPriority.normal,
+        sla_due_at: _dt | None = None,
+        due_at: _dt | None = None,
+        last_customer_reply_at: _dt | None = None,
+        title: str | None = None,
+    ) -> Ticket:
+        meta: dict = {}
+        if sla_due_at is not None:
+            meta["sla_due_at"] = sla_due_at.isoformat()
+        if last_customer_reply_at is not None:
+            meta["last_customer_reply_at"] = last_customer_reply_at.isoformat()
+
+        ticket = Ticket(
+            title=title or "Workqueue test ticket",
+            status=status,
+            priority=priority,
+            due_at=due_at,
+            metadata_=meta or None,
+        )
+        db_session.add(ticket)
+        db_session.flush()
+
+        if assignee_person_id is not None:
+            assignee_person = db_session.get(Person, assignee_person_id)
+            if assignee_person is None:
+                assignee_person = Person(
+                    id=assignee_person_id,
+                    first_name="WQ",
+                    last_name="Assignee",
+                    email=_unique_email(),
+                )
+                db_session.add(assignee_person)
+                db_session.flush()
+
+            db_session.add(
+                TicketAssignee(
+                    ticket_id=ticket.id,
+                    person_id=assignee_person_id,
+                )
+            )
+            db_session.flush()
+
+        db_session.commit()
+        db_session.refresh(ticket)
+        return ticket
+
+    return _factory
+
+
+@pytest.fixture()
+def project_task_factory(db_session):
+    """Factory for building project tasks in workqueue tests.
+
+    `assignee_person_id` may be:
+      * ``None`` — leave the task unassigned.
+      * A ``UUID`` — create (or reuse) a ``Person`` for that id and attach
+        a ``ProjectTaskAssignee`` row to the task.
+
+    The Workqueue tasks provider classifies based on real columns on the
+    model (``due_at``, ``status``), so no metadata stashing is required.
+    """
+    from datetime import datetime as _dt
+
+    from app.models.projects import (
+        Project,
+        ProjectTask,
+        ProjectTaskAssignee,
+        TaskStatus,
+    )
+
+    def _factory(
+        *,
+        assignee_person_id: uuid.UUID | None = None,
+        status: TaskStatus = TaskStatus.todo,
+        due_at: _dt | None = None,
+        title: str | None = None,
+        project: Project | None = None,
+    ) -> ProjectTask:
+        if project is None:
+            project = Project(name="Workqueue test project")
+            db_session.add(project)
+            db_session.flush()
+
+        task = ProjectTask(
+            project_id=project.id,
+            title=title or "Workqueue test task",
+            status=status,
+            due_at=due_at,
+        )
+        db_session.add(task)
+        db_session.flush()
+
+        if assignee_person_id is not None:
+            assignee_person = db_session.get(Person, assignee_person_id)
+            if assignee_person is None:
+                assignee_person = Person(
+                    id=assignee_person_id,
+                    first_name="WQ",
+                    last_name="TaskAssignee",
+                    email=_unique_email(),
+                )
+                db_session.add(assignee_person)
+                db_session.flush()
+
+            db_session.add(
+                ProjectTaskAssignee(
+                    task_id=task.id,
+                    person_id=assignee_person_id,
+                )
+            )
+            db_session.flush()
+
+        db_session.commit()
+        db_session.refresh(task)
+        return task
+
+    return _factory
