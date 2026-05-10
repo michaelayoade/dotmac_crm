@@ -55,6 +55,7 @@ htmlcov/
 # Claude Code (keep skills/rules, ignore user-specific data)
 .claude/projects/
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Reports (may contain PII)
 docs/reports/

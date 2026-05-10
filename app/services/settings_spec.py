@@ -3176,6 +3176,27 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=None,
         label="Last Scored Period End (ISO)",
     ),
+    # ============== Workflow Domain: Workqueue ==============
+    SettingSpec(
+        domain=SettingDomain.workflow,
+        key="workqueue.enabled",
+        env_var=None,
+        value_type=SettingValueType.boolean,
+        default=False,
+        label="Workqueue surface",
+        help_text="Enables /agent/workqueue and the related Celery beat tasks.",
+    ),
+    SettingSpec(
+        domain=SettingDomain.workflow,
+        key="workqueue.hero_band_size",
+        env_var=None,
+        value_type=SettingValueType.integer,
+        default=6,
+        min_value=1,
+        max_value=50,
+        label="Workqueue hero band size",
+        help_text="Maximum items shown in the 'Right Now' band.",
+    ),
 ]
 
 DOMAIN_SETTINGS_SERVICE = {

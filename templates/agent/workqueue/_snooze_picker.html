@@ -1,0 +1,19 @@
+<div x-show="snoozeOpen" x-cloak
+     class="absolute right-0 top-full mt-1 z-30 rounded-2xl bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 p-3 w-64"
+     @click.outside="snoozeOpen = false">
+  {% set choices = [
+    ('1h', '1 hour'),
+    ('tomorrow', 'Tomorrow 9am'),
+    ('next_week', 'Next week'),
+    ('next_reply', 'Until next reply')
+  ] %}
+  {% for value, label in choices %}
+  {% if value != 'next_reply' or item.kind.value == 'conversation' %}
+  <button class="w-full text-left rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700"
+          hx-post="/agent/workqueue/snooze"
+          hx-vals='{{ {"kind": item.kind.value, "item_id": item.item_id | string, "preset": value} | tojson }}'
+          hx-headers='{{ {"X-CSRF-Token": csrf_token} | tojson }}'
+          @click="snoozeOpen = false">{{ label }}</button>
+  {% endif %}
+  {% endfor %}
+</div>

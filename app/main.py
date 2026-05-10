@@ -117,6 +117,7 @@ from app.web import build_router as build_web_router
 from app.web_home import router as web_home_router
 from app.websocket.router import router as ws_router
 from app.websocket.widget_router import router as ws_widget_router
+from app.websocket.workqueue_router import router as ws_workqueue_router
 
 logger = get_logger(__name__)
 
@@ -470,6 +471,7 @@ app.include_router(build_web_router())
 
 app.include_router(ws_router)
 app.include_router(ws_widget_router)
+app.include_router(ws_workqueue_router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

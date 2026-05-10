@@ -1,0 +1,48 @@
+{% macro workqueue_item(item) %}
+{% set urgency_classes = {
+  'critical': 'bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-700',
+  'high':     'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-700',
+  'normal':   'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700',
+  'low':      'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+} %}
+{% set kind_chip = {
+  'conversation': 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+  'ticket':       'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
+  'lead':         'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  'quote':        'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
+  'task':         'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+} %}
+<article class="rounded-xl border p-4 flex items-center gap-3 {{ urgency_classes.get(item.urgency, urgency_classes['normal']) }}">
+  <span class="rounded-lg px-2 py-0.5 text-xs font-semibold {{ kind_chip.get(item.kind.value, '') }}">
+    {{ item.kind.value | title }}
+  </span>
+  <div class="flex-1 min-w-0">
+    <a href="{{ item.deep_link }}" class="block font-display font-semibold text-slate-900 dark:text-white truncate hover:underline">
+      {{ item.title }}
+    </a>
+    {% if item.subtitle %}
+    <p class="text-xs text-slate-500 dark:text-slate-400 truncate">{{ item.subtitle }}</p>
+    {% endif %}
+  </div>
+  <div class="flex items-center gap-1 relative" x-data="{ snoozeOpen: false }">
+    {% set action_values = item.actions | map(attribute='value') | list %}
+    {% if 'claim' in action_values and item.is_unassigned %}
+    <button class="rounded-xl px-2 py-1 text-xs font-medium bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/40 dark:text-cyan-300"
+            hx-post="/agent/workqueue/claim"
+            hx-vals='{{ {"kind": item.kind.value, "item_id": item.item_id | string} | tojson }}'
+            hx-headers='{{ {"X-CSRF-Token": csrf_token} | tojson }}'>Claim</button>
+    {% endif %}
+    <button class="rounded-xl px-2 py-1 text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600"
+            @click="snoozeOpen = !snoozeOpen"
+            aria-haspopup="true" :aria-expanded="snoozeOpen">Snooze</button>
+    {% if item.kind.value not in ('lead', 'quote') and 'complete' in action_values %}
+    <button class="rounded-xl px-2 py-1 text-xs font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300"
+            hx-post="/agent/workqueue/complete"
+            hx-vals='{{ {"kind": item.kind.value, "item_id": item.item_id | string} | tojson }}'
+            hx-confirm="Mark as complete?"
+            hx-headers='{{ {"X-CSRF-Token": csrf_token} | tojson }}'>Done</button>
+    {% endif %}
+    {% include "agent/workqueue/_snooze_picker.html" %}
+  </div>
+</article>
+{% endmacro %}
