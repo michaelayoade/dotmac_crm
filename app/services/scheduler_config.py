@@ -874,6 +874,30 @@ def build_beat_schedule() -> dict:
             interval_seconds=86400,
         )
 
+        # Workqueue: SLA tick + snooze prune. The whole feature is gated behind
+        # the ``workflow.workqueue.enabled`` setting (or WORKQUEUE_ENABLED env).
+        workqueue_enabled = _effective_bool(
+            session,
+            SettingDomain.workflow,
+            "workqueue.enabled",
+            "WORKQUEUE_ENABLED",
+            False,
+        )
+        _sync_scheduled_task(
+            session,
+            name="workqueue_sla_tick",
+            task_name="app.services.workqueue.tasks.sla_tick",
+            enabled=workqueue_enabled,
+            interval_seconds=60,
+        )
+        _sync_scheduled_task(
+            session,
+            name="workqueue_prune_snoozes",
+            task_name="app.services.workqueue.tasks.prune_snoozes",
+            enabled=workqueue_enabled,
+            interval_seconds=86400,
+        )
+
         tasks = session.query(ScheduledTask).filter(ScheduledTask.enabled.is_(True)).all()
         for task in tasks:
             if task.schedule_type != ScheduleType.interval:
