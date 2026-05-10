@@ -51,9 +51,7 @@ def _build_app(
     person_id = person_id or str(uuid.uuid4())
     perms = list(permissions if permissions is not None else ["workqueue:view"])
 
-    fake_person = SimpleNamespace(
-        id=person_id, first_name="Test", last_name="User", email="t@example.com"
-    )
+    fake_person = SimpleNamespace(id=person_id, first_name="Test", last_name="User", email="t@example.com")
 
     def _override_auth(request: Request):
         auth_info = {
@@ -104,6 +102,7 @@ def set_setting(db_session) -> Callable[[str, bool], None]:
             _set_workqueue_enabled(db_session, value)
         else:
             raise KeyError(f"Unsupported setting in test fixture: {key}")
+
     return _setter
 
 

@@ -30,12 +30,15 @@ def test_org_outranks_team():
     )
 
 
-@pytest.mark.parametrize("requested,expected", [
-    ("self", WorkqueueAudience.self_),
-    ("team", WorkqueueAudience.team),
-    ("org", WorkqueueAudience.org),
-    ("garbage", WorkqueueAudience.org),
-])
+@pytest.mark.parametrize(
+    "requested,expected",
+    [
+        ("self", WorkqueueAudience.self_),
+        ("team", WorkqueueAudience.team),
+        ("org", WorkqueueAudience.org),
+        ("garbage", WorkqueueAudience.org),
+    ],
+)
 def test_explicit_downscope(requested, expected):
     user = _user("workqueue:view", "workqueue:audience:team", "workqueue:audience:org")
     assert resolve_audience(user, requested) is expected

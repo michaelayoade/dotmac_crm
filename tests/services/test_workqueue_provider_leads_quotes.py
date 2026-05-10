@@ -24,9 +24,7 @@ def test_quote_expires_today(db_session, user, quote_factory):
         status=QuoteStatus.sent,
         expires_at=datetime.now(UTC) + timedelta(hours=4),
     )
-    items = leads_quotes_provider.fetch(
-        db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set()
-    )
+    items = leads_quotes_provider.fetch(db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set())
     assert any(i.reason == "quote_expires_today" and i.score == 85 for i in items)
 
 
@@ -36,9 +34,7 @@ def test_lead_overdue_followup(db_session, user, lead_factory):
         status=LeadStatus.contacted,
         next_action_at=datetime.now(UTC) - timedelta(hours=1),
     )
-    items = leads_quotes_provider.fetch(
-        db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set()
-    )
+    items = leads_quotes_provider.fetch(db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set())
     assert any(i.reason == "lead_overdue_followup" and i.score == 70 for i in items)
 
 
@@ -52,8 +48,6 @@ def test_returns_two_kinds_in_one_call(db_session, user, lead_factory, quote_fac
         status=QuoteStatus.sent,
         expires_at=datetime.now(UTC) + timedelta(hours=2),
     )
-    items = leads_quotes_provider.fetch(
-        db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set()
-    )
+    items = leads_quotes_provider.fetch(db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set())
     kinds = {i.kind for i in items}
     assert {ItemKind.lead, ItemKind.quote} <= kinds

@@ -143,11 +143,7 @@ class ConversationsProvider:
 
         stmt = (
             select(Conversation)
-            .options(
-                selectinload(Conversation.assignments).selectinload(
-                    ConversationAssignment.agent
-                )
-            )
+            .options(selectinload(Conversation.assignments).selectinload(ConversationAssignment.agent))
             .where(Conversation.status.in_(_OPEN_STATUSES))
             .where(Conversation.is_active.is_(True))
         )
@@ -194,17 +190,10 @@ class ConversationsProvider:
                     deep_link=_deep_link(conv),
                     assignee_id=assignee,
                     is_unassigned=assignee is None,
-                    happened_at=(
-                        _last_inbound_at(conv)
-                        or conv.last_message_at
-                        or conv.updated_at
-                        or now
-                    ),
+                    happened_at=(_last_inbound_at(conv) or conv.last_message_at or conv.updated_at or now),
                     actions=frozenset(actions),
                     metadata={
-                        "priority": getattr(conv.priority, "value", None)
-                        if conv.priority is not None
-                        else None,
+                        "priority": getattr(conv.priority, "value", None) if conv.priority is not None else None,
                     },
                 )
             )

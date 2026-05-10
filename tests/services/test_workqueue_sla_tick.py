@@ -17,9 +17,10 @@ def test_sla_tick_emits_for_band_transition(db_session, ticket_factory):
         sla_due_at=datetime.now(UTC) + timedelta(minutes=4),
     )
 
-    with patch("app.services.workqueue.tasks.SessionLocal", return_value=db_session), patch(
-        "app.services.workqueue.tasks.emit_change"
-    ) as emit:
+    with (
+        patch("app.services.workqueue.tasks.SessionLocal", return_value=db_session),
+        patch("app.services.workqueue.tasks.emit_change") as emit,
+    ):
         # Replace db.close so the patched session isn't terminated mid-test.
         original_close = db_session.close
         try:
@@ -40,9 +41,10 @@ def test_sla_tick_skips_tickets_outside_window(db_session, ticket_factory):
         sla_due_at=datetime.now(UTC) + timedelta(hours=24),
     )
 
-    with patch("app.services.workqueue.tasks.SessionLocal", return_value=db_session), patch(
-        "app.services.workqueue.tasks.emit_change"
-    ) as emit:
+    with (
+        patch("app.services.workqueue.tasks.SessionLocal", return_value=db_session),
+        patch("app.services.workqueue.tasks.emit_change") as emit,
+    ):
         original_close = db_session.close
         try:
             db_session.close = lambda: None  # type: ignore[assignment]
@@ -59,9 +61,10 @@ def test_sla_tick_handles_missing_or_invalid_metadata(db_session, ticket_factory
     # Ticket with no sla_due_at metadata at all
     ticket_factory(assignee_person_id=uuid4(), status=TicketStatus.open)
 
-    with patch("app.services.workqueue.tasks.SessionLocal", return_value=db_session), patch(
-        "app.services.workqueue.tasks.emit_change"
-    ) as emit:
+    with (
+        patch("app.services.workqueue.tasks.SessionLocal", return_value=db_session),
+        patch("app.services.workqueue.tasks.emit_change") as emit,
+    ):
         original_close = db_session.close
         try:
             db_session.close = lambda: None  # type: ignore[assignment]

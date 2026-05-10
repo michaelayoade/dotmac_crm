@@ -53,24 +53,16 @@ class WorkqueueActions:
     ) -> None:
         now = datetime.now(UTC)
         if preset == "1h":
-            workqueue_snooze.snooze(
-                db, user.person_id, kind, item_id, until=now + timedelta(hours=1)
-            )
+            workqueue_snooze.snooze(db, user.person_id, kind, item_id, until=now + timedelta(hours=1))
         elif preset == "tomorrow":
-            target = (now + timedelta(days=1)).replace(
-                hour=9, minute=0, second=0, microsecond=0
-            )
+            target = (now + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
             workqueue_snooze.snooze(db, user.person_id, kind, item_id, until=target)
         elif preset == "next_week":
-            workqueue_snooze.snooze(
-                db, user.person_id, kind, item_id, until=now + timedelta(days=7)
-            )
+            workqueue_snooze.snooze(db, user.person_id, kind, item_id, until=now + timedelta(days=7))
         elif preset == "next_reply":
             if kind is not ItemKind.conversation:
                 raise ValueError("until_next_reply only valid for conversations")
-            workqueue_snooze.snooze(
-                db, user.person_id, kind, item_id, until_next_reply=True
-            )
+            workqueue_snooze.snooze(db, user.person_id, kind, item_id, until_next_reply=True)
         else:
             raise ValueError(f"Unknown preset: {preset}")
 
@@ -79,9 +71,7 @@ class WorkqueueActions:
         workqueue_snooze.clear(db, user.person_id, kind, item_id)
 
     @staticmethod
-    def is_snoozed(
-        db: Session, user_id: UUID, kind: ItemKind, item_id: UUID
-    ) -> bool:
+    def is_snoozed(db: Session, user_id: UUID, kind: ItemKind, item_id: UUID) -> bool:
         ids = workqueue_snooze.active_snoozed_ids(db, user_id)
         return item_id in ids.get(kind, set())
 
@@ -97,30 +87,22 @@ class WorkqueueActions:
             # ``assign(db, conversation_id, person_id, actor_id=...)`` facade
             # exists. The current `ConversationAssignment` model uses
             # team/agent IDs (not person IDs) so this is non-trivial.
-            raise NotImplementedError(
-                "claim for conversation not yet wired — needs an assignment facade"
-            )
+            raise NotImplementedError("claim for conversation not yet wired — needs an assignment facade")
         elif kind in (ItemKind.lead, ItemKind.quote):
             # TODO: leads use ``owner_agent_id`` (CrmAgent), not person_id.
             # Wire claim once a person-id-aware facade is exposed.
-            raise NotImplementedError(
-                f"claim for {kind.value} not yet wired — owner is an agent, not a person"
-            )
+            raise NotImplementedError(f"claim for {kind.value} not yet wired — owner is an agent, not a person")
         elif kind is ItemKind.task:
             # TODO: ProjectTasks has no ``assign`` facade today; would need
             # to delegate to ``project_tasks.update`` with assignee field.
-            raise NotImplementedError(
-                "claim for task not yet wired — add a project_tasks.assign facade"
-            )
+            raise NotImplementedError("claim for task not yet wired — add a project_tasks.assign facade")
         else:
             raise ValueError(f"claim not supported for {kind}")
 
     @staticmethod
     def complete(db: Session, user, kind: ItemKind, item_id: UUID) -> None:
         if kind in _COMPLETE_DISALLOWED:
-            raise ValueError(
-                f"complete not allowed for {kind.value} — use the record's stage controls"
-            )
+            raise ValueError(f"complete not allowed for {kind.value} — use the record's stage controls")
         if kind is ItemKind.ticket:
             from app.services.tickets import tickets
 
@@ -128,14 +110,10 @@ class WorkqueueActions:
         elif kind is ItemKind.conversation:
             # TODO: wire to a conversation status-transition facade
             # (``set_status(closed)``) once it exists.
-            raise NotImplementedError(
-                "complete for conversation not yet wired — needs a status facade"
-            )
+            raise NotImplementedError("complete for conversation not yet wired — needs a status facade")
         elif kind is ItemKind.task:
             # TODO: wire to project_tasks complete facade once available.
-            raise NotImplementedError(
-                "complete for task not yet wired — needs a project_tasks.complete facade"
-            )
+            raise NotImplementedError("complete for task not yet wired — needs a project_tasks.complete facade")
         else:
             raise ValueError(f"complete not supported for {kind}")
 

@@ -31,8 +31,16 @@ def test_audience_values():
 
 @pytest.mark.parametrize(
     "score,expected",
-    [(100, "critical"), (90, "critical"), (89, "high"), (70, "high"),
-     (69, "normal"), (40, "normal"), (39, "low"), (0, "low")],
+    [
+        (100, "critical"),
+        (90, "critical"),
+        (89, "high"),
+        (70, "high"),
+        (69, "normal"),
+        (40, "normal"),
+        (39, "low"),
+        (0, "low"),
+    ],
 )
 def test_urgency_bands(score, expected):
     assert urgency_for_score(score) == expected

@@ -669,11 +669,7 @@ def crm_conversation_factory(db_session):
                 db_session.flush()
 
             # Reuse an existing CrmAgent for this person if one exists.
-            agent = (
-                db_session.query(CrmAgent)
-                .filter(CrmAgent.person_id == assignee_person_id)
-                .one_or_none()
-            )
+            agent = db_session.query(CrmAgent).filter(CrmAgent.person_id == assignee_person_id).one_or_none()
             if agent is None:
                 agent = CrmAgent(person_id=assignee_person_id, title="Agent")
                 db_session.add(agent)
@@ -744,11 +740,7 @@ def lead_factory(db_session):
                 db_session.add(owner_person)
                 db_session.flush()
 
-            agent = (
-                db_session.query(CrmAgent)
-                .filter(CrmAgent.person_id == owner_person_id)
-                .one_or_none()
-            )
+            agent = db_session.query(CrmAgent).filter(CrmAgent.person_id == owner_person_id).one_or_none()
             if agent is None:
                 agent = CrmAgent(person_id=owner_person_id, title="Sales")
                 db_session.add(agent)

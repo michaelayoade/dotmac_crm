@@ -16,7 +16,10 @@ def user():
 def test_snooze_validates_and_persists(db_session, user):
     item_id = uuid4()
     workqueue_actions.snooze(
-        db_session, user, ItemKind.task, item_id,
+        db_session,
+        user,
+        ItemKind.task,
+        item_id,
         until=datetime.now(UTC) + timedelta(hours=1),
     )
     assert workqueue_actions.is_snoozed(db_session, user.person_id, ItemKind.task, item_id) is True

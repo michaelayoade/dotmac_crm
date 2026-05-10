@@ -22,9 +22,7 @@ def test_snooze_until_creates_row(db_session):
 
 
 def test_snooze_until_next_reply_sets_flag(db_session):
-    workqueue_snooze.snooze(
-        db_session, uuid4(), ItemKind.conversation, uuid4(), until_next_reply=True
-    )
+    workqueue_snooze.snooze(db_session, uuid4(), ItemKind.conversation, uuid4(), until_next_reply=True)
     row = db_session.query(WorkqueueSnooze).one()
     assert row.until_next_reply is True
     assert row.snooze_until is None
@@ -36,7 +34,10 @@ def test_snooze_requires_exactly_one_mode(db_session):
 
     with pytest.raises(ValueError):
         workqueue_snooze.snooze(
-            db_session, uuid4(), ItemKind.ticket, uuid4(),
+            db_session,
+            uuid4(),
+            ItemKind.ticket,
+            uuid4(),
             until=datetime.now(UTC) + timedelta(hours=1),
             until_next_reply=True,
         )
@@ -46,7 +47,10 @@ def test_snooze_upserts_on_same_user_item(db_session):
     user_id = uuid4()
     item_id = uuid4()
     workqueue_snooze.snooze(
-        db_session, user_id, ItemKind.task, item_id,
+        db_session,
+        user_id,
+        ItemKind.task,
+        item_id,
         until=datetime.now(UTC) + timedelta(hours=1),
     )
     new_until = datetime.now(UTC) + timedelta(hours=5)
@@ -64,7 +68,10 @@ def test_clear_snooze(db_session):
     user_id = uuid4()
     item_id = uuid4()
     workqueue_snooze.snooze(
-        db_session, user_id, ItemKind.task, item_id,
+        db_session,
+        user_id,
+        ItemKind.task,
+        item_id,
         until=datetime.now(UTC) + timedelta(hours=1),
     )
     workqueue_snooze.clear(db_session, user_id, ItemKind.task, item_id)
@@ -77,11 +84,16 @@ def test_active_snoozed_ids_filters_expired(db_session):
     expired_id = uuid4()
 
     workqueue_snooze.snooze(
-        db_session, user_id, ItemKind.ticket, active_id,
+        db_session,
+        user_id,
+        ItemKind.ticket,
+        active_id,
         until=datetime.now(UTC) + timedelta(hours=1),
     )
     expired = WorkqueueSnooze(
-        user_id=user_id, item_kind=WorkqueueItemKind.ticket, item_id=expired_id,
+        user_id=user_id,
+        item_kind=WorkqueueItemKind.ticket,
+        item_id=expired_id,
         snooze_until=datetime.now(UTC) - timedelta(hours=1),
     )
     db_session.add(expired)
@@ -96,7 +108,11 @@ def test_active_snoozed_ids_includes_until_next_reply(db_session):
     user_id = uuid4()
     item_id = uuid4()
     workqueue_snooze.snooze(
-        db_session, user_id, ItemKind.conversation, item_id, until_next_reply=True,
+        db_session,
+        user_id,
+        ItemKind.conversation,
+        item_id,
+        until_next_reply=True,
     )
     ids_by_kind = workqueue_snooze.active_snoozed_ids(db_session, user_id)
     assert item_id in ids_by_kind[ItemKind.conversation]

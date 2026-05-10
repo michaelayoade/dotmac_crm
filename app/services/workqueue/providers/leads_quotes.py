@@ -144,18 +144,16 @@ class LeadsQuotesProvider:
 
         # ---- Leads ------------------------------------------------------
         lead_stmt = (
-            select(Lead)
-            .where(Lead.is_active.is_(True))
-            .where(Lead.status.notin_((LeadStatus.won, LeadStatus.lost)))
+            select(Lead).where(Lead.is_active.is_(True)).where(Lead.status.notin_((LeadStatus.won, LeadStatus.lost)))
         )
         if audience is WorkqueueAudience.self_:
-            lead_stmt = lead_stmt.join(
-                CrmAgent, CrmAgent.id == Lead.owner_agent_id
-            ).where(CrmAgent.person_id == user.person_id)
+            lead_stmt = lead_stmt.join(CrmAgent, CrmAgent.id == Lead.owner_agent_id).where(
+                CrmAgent.person_id == user.person_id
+            )
         elif audience is WorkqueueAudience.team:
-            lead_stmt = lead_stmt.outerjoin(
-                CrmAgent, CrmAgent.id == Lead.owner_agent_id
-            ).where(or_(CrmAgent.person_id == user.person_id, Lead.owner_agent_id.is_(None)))
+            lead_stmt = lead_stmt.outerjoin(CrmAgent, CrmAgent.id == Lead.owner_agent_id).where(
+                or_(CrmAgent.person_id == user.person_id, Lead.owner_agent_id.is_(None))
+            )
         # WorkqueueAudience.org: surface every actionable lead.
 
         if snoozed_ids:
@@ -166,11 +164,7 @@ class LeadsQuotesProvider:
         lead_owner_ids = {row.owner_agent_id for row in lead_rows if row.owner_agent_id}
         agents_by_id: dict[UUID, CrmAgent] = {}
         if lead_owner_ids:
-            for agent in (
-                db.execute(select(CrmAgent).where(CrmAgent.id.in_(lead_owner_ids)))
-                .scalars()
-                .all()
-            ):
+            for agent in db.execute(select(CrmAgent).where(CrmAgent.id.in_(lead_owner_ids))).scalars().all():
                 agents_by_id[agent.id] = agent
 
         for lead in lead_rows:
@@ -209,11 +203,7 @@ class LeadsQuotesProvider:
         # fetch all sent quotes and filter by the metadata-derived owner in
         # Python, mirroring the conversations/tickets pattern for fields not
         # present on the model.
-        quote_stmt = (
-            select(Quote)
-            .where(Quote.is_active.is_(True))
-            .where(Quote.status == QuoteStatus.sent)
-        )
+        quote_stmt = select(Quote).where(Quote.is_active.is_(True)).where(Quote.status == QuoteStatus.sent)
         if snoozed_ids:
             quote_stmt = quote_stmt.where(~Quote.id.in_(snoozed_ids))
 

@@ -160,9 +160,9 @@ class TicketsProvider:
         )
 
         if audience is WorkqueueAudience.self_:
-            stmt = stmt.join(
-                TicketAssignee, TicketAssignee.ticket_id == Ticket.id
-            ).where(TicketAssignee.person_id == user.person_id)
+            stmt = stmt.join(TicketAssignee, TicketAssignee.ticket_id == Ticket.id).where(
+                TicketAssignee.person_id == user.person_id
+            )
         # WorkqueueAudience.team / org: surface every actionable ticket;
         # team scoping is layered on later when the workqueue gains
         # team-aware filters (matches conversations provider precedent).
@@ -198,9 +198,7 @@ class TicketsProvider:
                     happened_at=t.updated_at or now,
                     actions=frozenset(actions),
                     metadata={
-                        "priority": getattr(t.priority, "value", None)
-                        if t.priority is not None
-                        else None,
+                        "priority": getattr(t.priority, "value", None) if t.priority is not None else None,
                     },
                 )
             )

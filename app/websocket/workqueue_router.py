@@ -128,9 +128,7 @@ async def workqueue_websocket(websocket: WebSocket) -> None:
         try:
             assert pubsub is not None
             while True:
-                message = await pubsub.get_message(
-                    ignore_subscribe_messages=True, timeout=1.0
-                )
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if not message:
                     continue
                 if message.get("type") not in {"message", "pmessage"}:
@@ -192,9 +190,7 @@ async def workqueue_websocket(websocket: WebSocket) -> None:
                         continue
                     if ch in subscribed:
                         continue
-                    if is_subscription_allowed(
-                        user_id=user_id, permissions=permissions, channel=ch
-                    ):
+                    if is_subscription_allowed(user_id=user_id, permissions=permissions, channel=ch):
                         allowed.append(ch)
                     else:
                         denied.append(ch)
@@ -239,9 +235,7 @@ async def workqueue_websocket(websocket: WebSocket) -> None:
                         )
                     for ch in to_drop:
                         subscribed.discard(ch)
-                await _ack(
-                    {"type": "unsubscribe_ack", "subscribed": sorted(subscribed)}
-                )
+                await _ack({"type": "unsubscribe_ack", "subscribed": sorted(subscribed)})
                 continue
 
     except WebSocketDisconnect:

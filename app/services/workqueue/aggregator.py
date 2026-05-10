@@ -59,8 +59,7 @@ def build_workqueue(
     right_now = tuple(all_items[:hero_band_size])
 
     sections = tuple(
-        WorkqueueSection(kind=k, items=tuple(items_by_kind[k]), total=len(items_by_kind[k]))
-        for k in SECTION_ORDER
+        WorkqueueSection(kind=k, items=tuple(items_by_kind[k]), total=len(items_by_kind[k])) for k in SECTION_ORDER
     )
 
     return WorkqueueView(audience=audience, right_now=right_now, sections=sections)

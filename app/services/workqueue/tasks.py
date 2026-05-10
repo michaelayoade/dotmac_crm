@@ -66,12 +66,7 @@ def sla_tick() -> dict:
         now = datetime.now(UTC)
         # Pull all open tickets; we filter the SLA in Python because it lives
         # in the JSON ``metadata_`` column and varies in shape.
-        rows = (
-            db.query(Ticket)
-            .filter(Ticket.status.in_(_OPEN_STATUSES))
-            .filter(Ticket.is_active.is_(True))
-            .all()
-        )
+        rows = db.query(Ticket).filter(Ticket.status.in_(_OPEN_STATUSES)).filter(Ticket.is_active.is_(True)).all()
         boundary = now + timedelta(seconds=TICKET_SLA_SOON_SEC + 60)
         for t in rows:
             sla_dt = _parse_sla_due_at((t.metadata_ or {}).get("sla_due_at"))

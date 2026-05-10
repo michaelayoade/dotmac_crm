@@ -160,9 +160,7 @@ class InboundHandler:
                 from app.services.workqueue.snooze import workqueue_snooze
                 from app.services.workqueue.types import ItemKind as _WQItemKind
 
-                cleared_user_ids = workqueue_snooze.clear_until_next_reply_for_conversation(
-                    db, conversation.id
-                )
+                cleared_user_ids = workqueue_snooze.clear_until_next_reply_for_conversation(db, conversation.id)
                 if cleared_user_ids:
                     _wq_emit(
                         kind=_WQItemKind.conversation,

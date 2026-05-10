@@ -93,9 +93,7 @@ def page(
             },
         )
     finally:
-        observe_workqueue_render(
-            audience=audience_label, view="page", duration_ms=(time.monotonic() - start) * 1000
-        )
+        observe_workqueue_render(audience=audience_label, view="page", duration_ms=(time.monotonic() - start) * 1000)
 
 
 @router.get("/_right_now", response_class=HTMLResponse)
@@ -192,9 +190,7 @@ def post_snooze(
         raise HTTPException(status_code=403)
     try:
         if payload.preset:
-            workqueue_actions.snooze_preset(
-                db, wq_user, payload.kind, payload.item_id, payload.preset
-            )
+            workqueue_actions.snooze_preset(db, wq_user, payload.kind, payload.item_id, payload.preset)
         else:
             workqueue_actions.snooze(
                 db,

@@ -40,9 +40,7 @@ def test_team_channel_requires_team_permission():
         permissions={"workqueue:audience:team"},
         channel=chan,
     )
-    assert not is_subscription_allowed(
-        user_id=user_id, permissions=set(), channel=chan
-    )
+    assert not is_subscription_allowed(user_id=user_id, permissions=set(), channel=chan)
 
 
 def test_org_channel_requires_org_permission():
