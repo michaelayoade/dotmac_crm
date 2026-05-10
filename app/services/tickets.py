@@ -52,6 +52,8 @@ from app.services.events import emit_event
 from app.services.events.types import EventType
 from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
+from app.services.workqueue.events import emit_change as _wq_emit
+from app.services.workqueue.types import ItemKind as _WQItemKind
 
 logger = logging.getLogger(__name__)
 
@@ -849,6 +851,61 @@ class Tickets(ListResponseMixin):
                 subscriber_id=ticket.subscriber_id,
             )
 
+        return ticket
+
+    @staticmethod
+    def assign(
+        db: Session,
+        ticket_id: str | UUID,
+        person_id: str | UUID,
+        *,
+        actor_id: str | UUID | None = None,
+    ):
+        """Assign a ticket to a person.
+
+        Thin facade used by Workqueue inline actions; delegates to ``update``
+        so existing assignment side-effects (audit, notifications, SLA) run.
+        """
+        person_uuid = person_id if isinstance(person_id, UUID) else UUID(str(person_id))
+        ticket = Tickets.update(
+            db,
+            str(ticket_id),
+            TicketUpdate(assigned_to_person_id=person_uuid),
+        )
+        _wq_emit(
+            kind=_WQItemKind.ticket,
+            item_id=ticket.id,
+            change="added",
+            affected_user_ids=[person_uuid] if person_uuid else [],
+            affected_org=True,
+        )
+        return ticket
+
+    @staticmethod
+    def resolve(
+        db: Session,
+        ticket_id: str | UUID,
+        *,
+        actor_id: str | UUID | None = None,
+    ):
+        """Mark a ticket as resolved (closed).
+
+        Thin facade used by Workqueue inline actions; delegates to ``update``
+        so status-transition side-effects fire normally.
+        """
+        ticket = Tickets.update(
+            db,
+            str(ticket_id),
+            TicketUpdate(status=TicketStatus.closed),
+        )
+        affected_user_ids = [a.person_id for a in (ticket.assignees or [])]
+        _wq_emit(
+            kind=_WQItemKind.ticket,
+            item_id=ticket.id,
+            change="removed",
+            affected_user_ids=affected_user_ids,
+            affected_org=True,
+        )
         return ticket
 
     @staticmethod

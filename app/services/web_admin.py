@@ -47,10 +47,57 @@ def get_current_user(request) -> dict:
     }
 
 
-def get_sidebar_stats(db: Session) -> dict:
+def _workqueue_attention(db: Session, current_user: dict | None) -> int:
+    """Count of items in the workqueue ``right_now`` band for the badge.
+
+    Defensive: any failure (feature flag off, perm missing, aggregator
+    error, no person_id) returns 0 so the sidebar never breaks the page.
+    The aggregator is invoked once per page render — keep an eye on this
+    if it shows up in latency budgets at scale.
+    """
+    if not current_user:
+        return 0
+    perms = current_user.get("permissions") or []
+    if "workqueue:view" not in perms:
+        return 0
+    person_id_str = current_user.get("person_id") or ""
+    if not person_id_str:
+        return 0
+    try:
+        from uuid import UUID
+
+        from app.models.domain_settings import SettingDomain
+        from app.services import settings_spec
+        from app.services.workqueue.aggregator import build_workqueue
+
+        if not settings_spec.resolve_value(db, SettingDomain.workflow, "workqueue.enabled"):
+            return 0
+
+        try:
+            person_uuid = UUID(person_id_str)
+        except (TypeError, ValueError):
+            return 0
+
+        class _U:
+            def __init__(self, person_id, permissions):
+                self.person_id = person_id
+                self.permissions = permissions
+
+        view = build_workqueue(db, _U(person_uuid, set(perms)))
+        return len(view.right_now)
+    except Exception:  # never let the sidebar break the page
+        return 0
+
+
+def get_sidebar_stats(db: Session, current_user: dict | None = None) -> dict:
     """Get stats for sidebar badges.
 
     Uses SQL COUNT for efficiency instead of loading records into memory.
+
+    ``current_user`` is optional — when supplied it powers per-user badges
+    such as the workqueue *right-now* count.  Callers that don't have a
+    user handy (e.g., legacy routes) can omit it; the workqueue badge
+    simply won't render until those routes are updated.
     """
     from sqlalchemy import func
 
@@ -79,6 +126,7 @@ def get_sidebar_stats(db: Session) -> dict:
     return {
         "dispatch_jobs": 0,
         "open_tickets": open_tickets_count,
+        "workqueue_attention": _workqueue_attention(db, current_user),
     }
 
 
@@ -89,5 +137,5 @@ def build_admin_context(request, db: Session) -> dict:
         "request": request,
         "user": current_user,
         "current_user": current_user,
-        "sidebar_stats": get_sidebar_stats(db),
+        "sidebar_stats": get_sidebar_stats(db, current_user),
     }

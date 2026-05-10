@@ -154,6 +154,23 @@ class InboundHandler:
             except Exception as exc:
                 logger.warning("inbound_emit_event_failed error=%s", exc)
 
+            # Workqueue: clear "until next reply" snoozes and notify watchers.
+            try:
+                from app.services.workqueue.events import emit_change as _wq_emit
+                from app.services.workqueue.snooze import workqueue_snooze
+                from app.services.workqueue.types import ItemKind as _WQItemKind
+
+                cleared_user_ids = workqueue_snooze.clear_until_next_reply_for_conversation(db, conversation.id)
+                if cleared_user_ids:
+                    _wq_emit(
+                        kind=_WQItemKind.conversation,
+                        item_id=conversation.id,
+                        change="added",
+                        affected_user_ids=cleared_user_ids,
+                    )
+            except Exception as exc:
+                logger.warning("inbound_workqueue_emit_failed error=%s", exc)
+
         MESSAGE_PROCESSING_TIME.labels(channel_type=channel_label, direction="inbound").observe(
             time.perf_counter() - start
         )

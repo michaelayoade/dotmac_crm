@@ -174,3 +174,41 @@ def set_ai_provider_circuit_open(*, provider: str, model: str, endpoint: str, is
         model=model,
         endpoint=endpoint,
     ).set(1 if is_open else 0)
+
+
+# ---------------------------------------------------------------------------
+# Workqueue metrics
+# ---------------------------------------------------------------------------
+
+WORKQUEUE_RENDER_MS = Histogram(
+    "workqueue_render_ms",
+    "Workqueue page/partial render latency in milliseconds.",
+    ["audience", "view"],
+    buckets=(10, 25, 50, 100, 150, 250, 400, 800, 1500),
+)
+
+WORKQUEUE_ACTION_TOTAL = Counter(
+    "workqueue_action_total",
+    "Workqueue inline-action invocations.",
+    ["kind", "action"],
+)
+
+WORKQUEUE_WS_EVENT_TOTAL = Counter(
+    "workqueue_ws_event_total",
+    "Workqueue WebSocket events emitted (per channel target).",
+    ["kind", "change"],
+)
+
+
+def observe_workqueue_render(*, audience: str, view: str, duration_ms: float) -> None:
+    WORKQUEUE_RENDER_MS.labels(audience=audience, view=view).observe(max(float(duration_ms), 0.0))
+
+
+def observe_workqueue_action(*, kind: str, action: str) -> None:
+    WORKQUEUE_ACTION_TOTAL.labels(kind=kind, action=action).inc()
+
+
+def observe_workqueue_ws_event(*, kind: str, change: str, count: int = 1) -> None:
+    if count <= 0:
+        return
+    WORKQUEUE_WS_EVENT_TOTAL.labels(kind=kind, change=change).inc(count)
