@@ -590,3 +590,105 @@ def crm_agent_team(db_session, crm_agent, crm_team):
     db_session.commit()
     db_session.refresh(link)
     return link
+
+
+@pytest.fixture()
+def crm_conversation_factory(db_session):
+    """Factory for building CRM conversations in workqueue tests.
+
+    The CRM `Conversation` model has no `sla_due_at` / `last_inbound_at`
+    columns; we stash them in `metadata_` (JSON) since that is exactly how the
+    Workqueue conversations provider reads them.
+
+    `assignee_person_id` may be:
+      * ``None`` — leave the conversation unassigned.
+      * A ``UUID`` — create (or reuse) a `Person` + `CrmAgent` for that id and
+        attach an active `ConversationAssignment` to the conversation.
+
+    `last_inbound_at` defaults to ~5h ago so a conversation without explicit
+    SLA still classifies as ``awaiting_reply_long`` (otherwise the provider
+    would skip it and tests that don't care about SLA would see no items).
+    """
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+
+    from app.models.crm.conversation import Conversation, ConversationAssignment
+    from app.models.crm.enums import ConversationStatus
+
+    def _factory(
+        *,
+        assignee_person_id: uuid.UUID | None = None,
+        sla_due_at: _dt | None = None,
+        last_inbound_at: _dt | None = None,
+        status: ConversationStatus = ConversationStatus.open,
+        subject: str | None = None,
+    ) -> Conversation:
+        # Contact (the conversation's "person")
+        contact = Person(
+            first_name="WQ",
+            last_name="Contact",
+            email=_unique_email(),
+        )
+        db_session.add(contact)
+        db_session.flush()
+
+        # Default last_inbound to >4h ago so plain conversations still classify.
+        effective_last_inbound = last_inbound_at
+        if effective_last_inbound is None and sla_due_at is None:
+            effective_last_inbound = _dt.now(_UTC) - _td(hours=5)
+
+        meta: dict = {}
+        if sla_due_at is not None:
+            meta["sla_due_at"] = sla_due_at.isoformat()
+        if effective_last_inbound is not None:
+            meta["last_inbound_at"] = effective_last_inbound.isoformat()
+
+        conv = Conversation(
+            person_id=contact.id,
+            status=status,
+            subject=subject or "Workqueue test conversation",
+            last_message_at=effective_last_inbound,
+            metadata_=meta or None,
+        )
+        db_session.add(conv)
+        db_session.flush()
+
+        if assignee_person_id is not None:
+            # Ensure a Person exists for the assignee id (CrmAgent.person_id
+            # is FK to people.id with nullable=False).
+            assignee_person = db_session.get(Person, assignee_person_id)
+            if assignee_person is None:
+                assignee_person = Person(
+                    id=assignee_person_id,
+                    first_name="WQ",
+                    last_name="Agent",
+                    email=_unique_email(),
+                )
+                db_session.add(assignee_person)
+                db_session.flush()
+
+            # Reuse an existing CrmAgent for this person if one exists.
+            agent = (
+                db_session.query(CrmAgent)
+                .filter(CrmAgent.person_id == assignee_person_id)
+                .one_or_none()
+            )
+            if agent is None:
+                agent = CrmAgent(person_id=assignee_person_id, title="Agent")
+                db_session.add(agent)
+                db_session.flush()
+
+            assignment = ConversationAssignment(
+                conversation_id=conv.id,
+                agent_id=agent.id,
+                is_active=True,
+            )
+            db_session.add(assignment)
+            db_session.flush()
+
+        db_session.commit()
+        db_session.refresh(conv)
+        return conv
+
+    return _factory
