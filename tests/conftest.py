@@ -692,3 +692,78 @@ def crm_conversation_factory(db_session):
         return conv
 
     return _factory
+
+
+@pytest.fixture()
+def ticket_factory(db_session):
+    """Factory for building tickets in workqueue tests.
+
+    The `Ticket` model has no `sla_due_at` or `last_customer_reply_at`
+    columns; we stash them in `metadata_` (JSON) since that is exactly how
+    the Workqueue tickets provider reads them.
+
+    `assignee_person_id` may be:
+      * ``None`` — leave the ticket unassigned.
+      * A ``UUID`` — create (or reuse) a ``Person`` for that id and attach
+        a ``TicketAssignee`` row to the ticket.
+    """
+    from datetime import datetime as _dt
+
+    from app.models.tickets import (
+        Ticket,
+        TicketAssignee,
+        TicketPriority,
+        TicketStatus,
+    )
+
+    def _factory(
+        *,
+        assignee_person_id: uuid.UUID | None = None,
+        status: TicketStatus = TicketStatus.open,
+        priority: TicketPriority = TicketPriority.normal,
+        sla_due_at: _dt | None = None,
+        due_at: _dt | None = None,
+        last_customer_reply_at: _dt | None = None,
+        title: str | None = None,
+    ) -> Ticket:
+        meta: dict = {}
+        if sla_due_at is not None:
+            meta["sla_due_at"] = sla_due_at.isoformat()
+        if last_customer_reply_at is not None:
+            meta["last_customer_reply_at"] = last_customer_reply_at.isoformat()
+
+        ticket = Ticket(
+            title=title or "Workqueue test ticket",
+            status=status,
+            priority=priority,
+            due_at=due_at,
+            metadata_=meta or None,
+        )
+        db_session.add(ticket)
+        db_session.flush()
+
+        if assignee_person_id is not None:
+            assignee_person = db_session.get(Person, assignee_person_id)
+            if assignee_person is None:
+                assignee_person = Person(
+                    id=assignee_person_id,
+                    first_name="WQ",
+                    last_name="Assignee",
+                    email=_unique_email(),
+                )
+                db_session.add(assignee_person)
+                db_session.flush()
+
+            db_session.add(
+                TicketAssignee(
+                    ticket_id=ticket.id,
+                    person_id=assignee_person_id,
+                )
+            )
+            db_session.flush()
+
+        db_session.commit()
+        db_session.refresh(ticket)
+        return ticket
+
+    return _factory
