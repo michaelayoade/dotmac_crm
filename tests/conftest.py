@@ -916,3 +916,73 @@ def ticket_factory(db_session):
         return ticket
 
     return _factory
+
+
+@pytest.fixture()
+def project_task_factory(db_session):
+    """Factory for building project tasks in workqueue tests.
+
+    `assignee_person_id` may be:
+      * ``None`` — leave the task unassigned.
+      * A ``UUID`` — create (or reuse) a ``Person`` for that id and attach
+        a ``ProjectTaskAssignee`` row to the task.
+
+    The Workqueue tasks provider classifies based on real columns on the
+    model (``due_at``, ``status``), so no metadata stashing is required.
+    """
+    from datetime import datetime as _dt
+
+    from app.models.projects import (
+        Project,
+        ProjectTask,
+        ProjectTaskAssignee,
+        TaskStatus,
+    )
+
+    def _factory(
+        *,
+        assignee_person_id: uuid.UUID | None = None,
+        status: TaskStatus = TaskStatus.todo,
+        due_at: _dt | None = None,
+        title: str | None = None,
+        project: Project | None = None,
+    ) -> ProjectTask:
+        if project is None:
+            project = Project(name="Workqueue test project")
+            db_session.add(project)
+            db_session.flush()
+
+        task = ProjectTask(
+            project_id=project.id,
+            title=title or "Workqueue test task",
+            status=status,
+            due_at=due_at,
+        )
+        db_session.add(task)
+        db_session.flush()
+
+        if assignee_person_id is not None:
+            assignee_person = db_session.get(Person, assignee_person_id)
+            if assignee_person is None:
+                assignee_person = Person(
+                    id=assignee_person_id,
+                    first_name="WQ",
+                    last_name="TaskAssignee",
+                    email=_unique_email(),
+                )
+                db_session.add(assignee_person)
+                db_session.flush()
+
+            db_session.add(
+                ProjectTaskAssignee(
+                    task_id=task.id,
+                    person_id=assignee_person_id,
+                )
+            )
+            db_session.flush()
+
+        db_session.commit()
+        db_session.refresh(task)
+        return task
+
+    return _factory

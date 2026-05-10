@@ -10,6 +10,7 @@ from app.services.workqueue.permissions import resolve_audience
 from app.services.workqueue.providers import all_providers
 from app.services.workqueue.providers.conversations import conversations_provider  # noqa: F401
 from app.services.workqueue.providers.leads_quotes import leads_quotes_provider  # noqa: F401
+from app.services.workqueue.providers.tasks import tasks_provider  # noqa: F401
 from app.services.workqueue.providers.tickets import tickets_provider  # noqa: F401
 from app.services.workqueue.scoring_config import (
     DEFAULT_HERO_BAND_SIZE,
