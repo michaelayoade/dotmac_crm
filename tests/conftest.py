@@ -695,6 +695,155 @@ def crm_conversation_factory(db_session):
 
 
 @pytest.fixture()
+def lead_factory(db_session):
+    """Factory for building CRM leads in workqueue tests.
+
+    The `Lead` model has no `next_action_at` or `last_activity_at` columns;
+    we stash them in `metadata_` (JSON) since that is exactly how the
+    Workqueue leads_quotes provider reads them.
+
+    `owner_person_id` may be:
+      * ``None`` — leave the lead unassigned.
+      * A ``UUID`` — create (or reuse) a `Person` + `CrmAgent` for that id and
+        set `Lead.owner_agent_id` to that agent.
+    """
+    from datetime import datetime as _dt
+
+    from app.models.crm.enums import LeadStatus
+    from app.models.crm.sales import Lead
+
+    def _factory(
+        *,
+        owner_person_id: uuid.UUID | None = None,
+        status: LeadStatus = LeadStatus.new,
+        next_action_at: _dt | None = None,
+        last_activity_at: _dt | None = None,
+        title: str | None = None,
+        estimated_value: float | None = None,
+        probability: int | None = None,
+    ) -> Lead:
+        # Lead requires a Person (the contact)
+        contact = Person(
+            first_name="WQ",
+            last_name="LeadContact",
+            email=_unique_email(),
+        )
+        db_session.add(contact)
+        db_session.flush()
+
+        owner_agent_id = None
+        if owner_person_id is not None:
+            owner_person = db_session.get(Person, owner_person_id)
+            if owner_person is None:
+                owner_person = Person(
+                    id=owner_person_id,
+                    first_name="WQ",
+                    last_name="LeadOwner",
+                    email=_unique_email(),
+                )
+                db_session.add(owner_person)
+                db_session.flush()
+
+            agent = (
+                db_session.query(CrmAgent)
+                .filter(CrmAgent.person_id == owner_person_id)
+                .one_or_none()
+            )
+            if agent is None:
+                agent = CrmAgent(person_id=owner_person_id, title="Sales")
+                db_session.add(agent)
+                db_session.flush()
+            owner_agent_id = agent.id
+
+        meta: dict = {}
+        if next_action_at is not None:
+            meta["next_action_at"] = next_action_at.isoformat()
+        if last_activity_at is not None:
+            meta["last_activity_at"] = last_activity_at.isoformat()
+
+        lead = Lead(
+            person_id=contact.id,
+            owner_agent_id=owner_agent_id,
+            status=status,
+            title=title or "Workqueue test lead",
+            estimated_value=estimated_value,
+            probability=probability,
+            metadata_=meta or None,
+        )
+        db_session.add(lead)
+        db_session.commit()
+        db_session.refresh(lead)
+        return lead
+
+    return _factory
+
+
+@pytest.fixture()
+def quote_factory(db_session):
+    """Factory for building CRM quotes in workqueue tests.
+
+    The `Quote` model has no `owner_person_id`, `sent_at`, or `short_id`
+    columns; we stash `owner_person_id` and `sent_at` in `metadata_` (JSON)
+    since that is exactly how the Workqueue leads_quotes provider reads them.
+    """
+    from datetime import datetime as _dt
+
+    from app.models.crm.enums import QuoteStatus
+    from app.models.crm.sales import Quote
+
+    def _factory(
+        *,
+        owner_person_id: uuid.UUID | None = None,
+        status: QuoteStatus = QuoteStatus.draft,
+        expires_at: _dt | None = None,
+        sent_at: _dt | None = None,
+        total: float | None = None,
+    ) -> Quote:
+        contact = Person(
+            first_name="WQ",
+            last_name="QuoteContact",
+            email=_unique_email(),
+        )
+        db_session.add(contact)
+        db_session.flush()
+
+        if owner_person_id is not None:
+            owner_person = db_session.get(Person, owner_person_id)
+            if owner_person is None:
+                owner_person = Person(
+                    id=owner_person_id,
+                    first_name="WQ",
+                    last_name="QuoteOwner",
+                    email=_unique_email(),
+                )
+                db_session.add(owner_person)
+                db_session.flush()
+
+        meta: dict = {}
+        if owner_person_id is not None:
+            meta["owner_person_id"] = str(owner_person_id)
+        if sent_at is not None:
+            meta["sent_at"] = sent_at.isoformat()
+
+        kwargs: dict = {
+            "person_id": contact.id,
+            "status": status,
+            "expires_at": expires_at,
+            "metadata_": meta or None,
+        }
+        if total is not None:
+            kwargs["total"] = total
+
+        quote = Quote(**kwargs)
+        db_session.add(quote)
+        db_session.commit()
+        db_session.refresh(quote)
+        return quote
+
+    return _factory
+
+
+@pytest.fixture()
 def ticket_factory(db_session):
     """Factory for building tickets in workqueue tests.
 

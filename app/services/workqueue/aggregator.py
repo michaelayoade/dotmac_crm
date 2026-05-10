@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.services.workqueue.permissions import resolve_audience
 from app.services.workqueue.providers import all_providers
 from app.services.workqueue.providers.conversations import conversations_provider  # noqa: F401
+from app.services.workqueue.providers.leads_quotes import leads_quotes_provider  # noqa: F401
 from app.services.workqueue.providers.tickets import tickets_provider  # noqa: F401
 from app.services.workqueue.scoring_config import (
     DEFAULT_HERO_BAND_SIZE,
@@ -35,14 +36,22 @@ def build_workqueue(
     audience = resolve_audience(user, requested_audience)
     snoozed_by_kind = workqueue_snooze.active_snoozed_ids(db, user.person_id)
 
+    # Snoozes are tracked per-kind in the DB but providers may emit items of
+    # multiple kinds (e.g. ``leads_quotes`` produces both leads and quotes).
+    # Pass the union so each provider can correctly suppress any snoozed item
+    # it owns; providers only check membership, so this is safe.
+    all_snoozed: set = set().union(*snoozed_by_kind.values()) if snoozed_by_kind else set()
+
     items_by_kind: dict[ItemKind, list] = {k: [] for k in ItemKind}
     for provider in PROVIDERS:
-        items_by_kind[provider.kind] = provider.fetch(
+        fetched = provider.fetch(
             db,
             user=user,
             audience=audience,
-            snoozed_ids=snoozed_by_kind.get(provider.kind, set()),
+            snoozed_ids=all_snoozed,
         )
+        for it in fetched:
+            items_by_kind[it.kind].append(it)
 
     all_items = list(chain.from_iterable(items_by_kind.values()))
     all_items.sort(key=lambda i: (-i.score, -i.happened_at.timestamp(), KIND_ORDER[i.kind]))
