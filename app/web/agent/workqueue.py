@@ -79,7 +79,7 @@ def page(
         {
             "request": request,
             "current_user": raw_user,
-            "sidebar_stats": get_sidebar_stats(db),
+            "sidebar_stats": get_sidebar_stats(db, raw_user),
             "active_page": "workqueue",
             "view": view,
             "right_now": view.right_now,
