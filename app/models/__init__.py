@@ -298,10 +298,6 @@ from app.models.vendor import (  # noqa: F401
     VendorPurchaseInvoiceStatus,
     VendorUser,
 )
-from app.models.workqueue import (  # noqa: F401
-    WorkqueueItemKind,
-    WorkqueueSnooze,
-)
 from app.models.webhook import (  # noqa: F401
     WebhookDelivery,
     WebhookDeliveryStatus,
@@ -340,4 +336,8 @@ from app.models.workforce import (  # noqa: F401
     WorkOrderPriority,
     WorkOrderStatus,
     WorkOrderType,
+)
+from app.models.workqueue import (  # noqa: F401
+    WorkqueueItemKind,
+    WorkqueueSnooze,
 )

@@ -8,7 +8,6 @@ from app.services.workqueue.types import (
     ItemKind,
     WorkqueueAudience,
     WorkqueueItem,
-    WorkqueueSection,
     WorkqueueView,
     urgency_for_score,
 )

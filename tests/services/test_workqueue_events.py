@@ -1,7 +1,5 @@
 from uuid import uuid4
 
-import pytest
-
 from app.services.workqueue import events
 from app.services.workqueue.types import ItemKind
 

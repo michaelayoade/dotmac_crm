@@ -2,8 +2,6 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
-import pytest
-
 from app.services.workqueue import aggregator as agg_module
 from app.services.workqueue.aggregator import build_workqueue
 from app.services.workqueue.types import (

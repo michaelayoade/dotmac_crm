@@ -22,7 +22,7 @@ import asyncio
 import contextlib
 import json
 import os
-from typing import Iterable
+from collections.abc import Iterable
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
@@ -107,10 +107,8 @@ async def workqueue_websocket(websocket: WebSocket) -> None:
     heartbeat_task: asyncio.Task | None = None
 
     async def _ack(payload: dict) -> None:
-        try:
+        with contextlib.suppress(Exception):
             await websocket.send_json(payload)
-        except Exception:
-            pass
 
     async def _ensure_redis():
         nonlocal pubsub, redis_client
