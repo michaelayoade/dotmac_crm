@@ -1,9 +1,49 @@
 {% extends "layouts/admin.html" %}
 {% block title %}Workqueue - Admin{% endblock %}
 {% block content %}
+{% set _wq_user_perms = current_user.get('permissions') or current_user.get('scopes') or [] %}
+{% set _wq_channels = ['workqueue:user:' ~ current_user.person_id] %}
+{% if 'workqueue:audience:org' in _wq_user_perms %}
+  {% set _wq_channels = _wq_channels + ['workqueue:audience:org'] %}
+{% endif %}
 <div class="max-w-5xl mx-auto space-y-8 p-6"
-     x-data="{}"
+     x-data='{
+       _ws: null,
+       _pending: false,
+       init() { this.connect(); },
+       connect() {
+         if (window.WorkqueueWS && window.WorkqueueWS.readyState <= 1) { this._ws = window.WorkqueueWS; return; }
+         const proto = location.protocol === "https:" ? "wss" : "ws";
+         let sock;
+         try { sock = new WebSocket(proto + "://" + location.host + "/ws/workqueue"); }
+         catch (e) { return; }
+         this._ws = sock;
+         window.WorkqueueWS = sock;
+         const channels = {{ _wq_channels | tojson }};
+         sock.onopen = () => {
+           try { sock.send(JSON.stringify({ type: "subscribe", channels: channels })); }
+           catch (e) { /* ignore */ }
+         };
+         sock.onmessage = (ev) => {
+           let msg;
+           try { msg = JSON.parse(ev.data); } catch (e) { return; }
+           if (!msg || msg.type !== "workqueue.changed") return;
+           if (this._pending) return;
+           this._pending = true;
+           setTimeout(() => {
+             this._pending = false;
+             document.body.dispatchEvent(new CustomEvent("workqueue:refresh"));
+           }, 250);
+         };
+         sock.onclose = () => {
+           if (window.WorkqueueWS === sock) { window.WorkqueueWS = null; }
+           setTimeout(() => this.connect(), 5000);
+         };
+         sock.onerror = () => { /* close handler will reconnect */ };
+       }
+     }'
      @workqueue-refresh.window="$dispatch('workqueue:refresh')">
+
   <header class="flex items-center justify-between">
     <h1 class="font-display text-3xl font-bold text-slate-900 dark:text-white">Workqueue</h1>
     <form method="get" class="flex items-center gap-2">
