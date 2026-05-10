@@ -337,3 +337,7 @@ from app.models.workforce import (  # noqa: F401
     WorkOrderStatus,
     WorkOrderType,
 )
+from app.models.workqueue import (  # noqa: F401
+    WorkqueueItemKind,
+    WorkqueueSnooze,
+)
