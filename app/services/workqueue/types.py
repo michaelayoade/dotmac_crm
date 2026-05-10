@@ -9,7 +9,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 
-class ItemKind(str, enum.Enum):
+class ItemKind(enum.StrEnum):
     conversation = "conversation"
     ticket = "ticket"
     lead = "lead"
@@ -17,14 +17,14 @@ class ItemKind(str, enum.Enum):
     task = "task"
 
 
-class ActionKind(str, enum.Enum):
+class ActionKind(enum.StrEnum):
     open = "open"
     snooze = "snooze"
     claim = "claim"
     complete = "complete"
 
 
-class WorkqueueAudience(str, enum.Enum):
+class WorkqueueAudience(enum.StrEnum):
     self_ = "self"
     team = "team"
     org = "org"

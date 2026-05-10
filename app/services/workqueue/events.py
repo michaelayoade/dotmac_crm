@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Iterable, Literal
+from typing import Literal
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
