@@ -52,6 +52,8 @@ from app.services.events import emit_event
 from app.services.events.types import EventType
 from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
+from app.services.workqueue.events import emit_change as _wq_emit
+from app.services.workqueue.types import ItemKind as _WQItemKind
 
 logger = logging.getLogger(__name__)
 
@@ -864,11 +866,19 @@ class Tickets(ListResponseMixin):
         Thin facade used by Workqueue inline actions; delegates to ``update``
         so existing assignment side-effects (audit, notifications, SLA) run.
         """
-        return Tickets.update(
+        ticket = Tickets.update(
             db,
             ticket_id,
             TicketUpdate(assigned_to_person_id=person_id),
         )
+        _wq_emit(
+            kind=_WQItemKind.ticket,
+            item_id=ticket.id,
+            change="added",
+            affected_user_ids=[person_id] if person_id else [],
+            affected_org=True,
+        )
+        return ticket
 
     @staticmethod
     def resolve(
@@ -882,11 +892,20 @@ class Tickets(ListResponseMixin):
         Thin facade used by Workqueue inline actions; delegates to ``update``
         so status-transition side-effects fire normally.
         """
-        return Tickets.update(
+        ticket = Tickets.update(
             db,
             ticket_id,
             TicketUpdate(status=TicketStatus.closed),
         )
+        affected_user_ids = [a.person_id for a in (ticket.assignees or [])]
+        _wq_emit(
+            kind=_WQItemKind.ticket,
+            item_id=ticket.id,
+            change="removed",
+            affected_user_ids=affected_user_ids,
+            affected_org=True,
+        )
+        return ticket
 
     @staticmethod
     def auto_assign_manual(db: Session, ticket_id: str, actor_id: str | None = None):
