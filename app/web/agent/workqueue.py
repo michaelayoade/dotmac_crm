@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models.domain_settings import SettingDomain
+from app.schemas.workqueue import ItemRef, SnoozeRequest
 from app.services import settings_spec
+from app.services.workqueue.actions import workqueue_actions
 from app.services.workqueue.aggregator import build_workqueue
 from app.services.workqueue.permissions import has_workqueue_view
 from app.services.workqueue.types import ItemKind
@@ -133,3 +136,97 @@ def partial_section(
             "csrf_token": request.cookies.get("csrf_token", ""),
         },
     )
+
+
+def _refresh_response(message: str) -> Response:
+    """Empty 204 with HX-Trigger that refreshes the Workqueue and toasts."""
+    return Response(
+        status_code=status.HTTP_204_NO_CONTENT,
+        headers={
+            "HX-Trigger": json.dumps(
+                {
+                    "workqueue:refresh": True,
+                    "showToast": {"message": message, "type": "success"},
+                }
+            )
+        },
+    )
+
+
+@router.post("/snooze")
+def post_snooze(
+    payload: SnoozeRequest,
+    request: Request,
+    db: Session = Depends(_get_db),
+):
+    _flag_or_404(db)
+    _, wq_user = _build_user(request)
+    if not has_workqueue_view(wq_user):
+        raise HTTPException(status_code=403)
+    try:
+        if payload.preset:
+            workqueue_actions.snooze_preset(
+                db, wq_user, payload.kind, payload.item_id, payload.preset
+            )
+        else:
+            workqueue_actions.snooze(
+                db,
+                wq_user,
+                payload.kind,
+                payload.item_id,
+                until=payload.until,
+                until_next_reply=payload.until_next_reply,
+            )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return _refresh_response("Snoozed")
+
+
+@router.post("/snooze/clear")
+def post_clear_snooze(
+    payload: ItemRef,
+    request: Request,
+    db: Session = Depends(_get_db),
+):
+    _flag_or_404(db)
+    _, wq_user = _build_user(request)
+    if not has_workqueue_view(wq_user):
+        raise HTTPException(status_code=403)
+    workqueue_actions.clear_snooze(db, wq_user, payload.kind, payload.item_id)
+    return _refresh_response("Snooze cleared")
+
+
+@router.post("/claim")
+def post_claim(
+    payload: ItemRef,
+    request: Request,
+    db: Session = Depends(_get_db),
+):
+    _flag_or_404(db)
+    _, wq_user = _build_user(request)
+    if not has_workqueue_view(wq_user):
+        raise HTTPException(status_code=403)
+    try:
+        workqueue_actions.claim(db, wq_user, payload.kind, payload.item_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return _refresh_response("Claimed")
+
+
+@router.post("/complete")
+def post_complete(
+    payload: ItemRef,
+    request: Request,
+    db: Session = Depends(_get_db),
+):
+    _flag_or_404(db)
+    _, wq_user = _build_user(request)
+    if not has_workqueue_view(wq_user):
+        raise HTTPException(status_code=403)
+    try:
+        workqueue_actions.complete(db, wq_user, payload.kind, payload.item_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return _refresh_response("Completed")

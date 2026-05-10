@@ -91,6 +91,12 @@ async def _aget(app: FastAPI, path: str, **kwargs: Any) -> httpx.Response:
         return await client.get(path, **kwargs)
 
 
+async def _apost(app: FastAPI, path: str, **kwargs: Any) -> httpx.Response:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        return await client.post(path, **kwargs)
+
+
 @pytest.fixture()
 def set_setting(db_session) -> Callable[[str, bool], None]:
     def _setter(key: str, value: bool) -> None:
@@ -165,3 +171,35 @@ def test_workqueue_view_permission_required(db_session, set_setting):
     with _build_app(db_session, permissions=[]) as app:
         resp = _run_async(_aget(app, "/agent/workqueue"))
     assert resp.status_code == 403
+
+
+def test_post_snooze_preset(db_session, set_setting, ticket_factory):
+    set_setting("workqueue.enabled", True)
+    person_id = str(uuid.uuid4())
+    t = ticket_factory(assignee_person_id=uuid.UUID(person_id))
+    with _build_app(db_session, person_id=person_id) as app:
+        resp = _run_async(
+            _apost(
+                app,
+                "/agent/workqueue/snooze",
+                json={"kind": "ticket", "item_id": str(t.id), "preset": "1h"},
+            )
+        )
+    assert resp.status_code == 204, resp.text
+    assert resp.headers.get("HX-Trigger") and "workqueue:refresh" in resp.headers["HX-Trigger"]
+
+
+def test_post_complete_lead_returns_400(db_session, set_setting):
+    set_setting("workqueue.enabled", True)
+    with _build_app(db_session) as app:
+        resp = _run_async(
+            _apost(
+                app,
+                "/agent/workqueue/complete",
+                json={
+                    "kind": "lead",
+                    "item_id": "00000000-0000-0000-0000-000000000000",
+                },
+            )
+        )
+    assert resp.status_code == 400
