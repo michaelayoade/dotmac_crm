@@ -856,26 +856,27 @@ class Tickets(ListResponseMixin):
     @staticmethod
     def assign(
         db: Session,
-        ticket_id: str,
-        person_id: str,
+        ticket_id: str | UUID,
+        person_id: str | UUID,
         *,
-        actor_id: str | None = None,
+        actor_id: str | UUID | None = None,
     ):
         """Assign a ticket to a person.
 
         Thin facade used by Workqueue inline actions; delegates to ``update``
         so existing assignment side-effects (audit, notifications, SLA) run.
         """
+        person_uuid = person_id if isinstance(person_id, UUID) else UUID(str(person_id))
         ticket = Tickets.update(
             db,
-            ticket_id,
-            TicketUpdate(assigned_to_person_id=person_id),
+            str(ticket_id),
+            TicketUpdate(assigned_to_person_id=person_uuid),
         )
         _wq_emit(
             kind=_WQItemKind.ticket,
             item_id=ticket.id,
             change="added",
-            affected_user_ids=[person_id] if person_id else [],
+            affected_user_ids=[person_uuid] if person_uuid else [],
             affected_org=True,
         )
         return ticket
@@ -883,9 +884,9 @@ class Tickets(ListResponseMixin):
     @staticmethod
     def resolve(
         db: Session,
-        ticket_id: str,
+        ticket_id: str | UUID,
         *,
-        actor_id: str | None = None,
+        actor_id: str | UUID | None = None,
     ):
         """Mark a ticket as resolved (closed).
 
@@ -894,7 +895,7 @@ class Tickets(ListResponseMixin):
         """
         ticket = Tickets.update(
             db,
-            ticket_id,
+            str(ticket_id),
             TicketUpdate(status=TicketStatus.closed),
         )
         affected_user_ids = [a.person_id for a in (ticket.assignees or [])]

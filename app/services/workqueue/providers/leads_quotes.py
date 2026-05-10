@@ -174,9 +174,9 @@ class LeadsQuotesProvider:
             reason, score = verdict
             assignee_person_id: UUID | None = None
             if lead.owner_agent_id is not None:
-                agent = agents_by_id.get(lead.owner_agent_id)
-                if agent is not None:
-                    assignee_person_id = agent.person_id
+                owner_agent = agents_by_id.get(lead.owner_agent_id)
+                if owner_agent is not None:
+                    assignee_person_id = owner_agent.person_id
             actions = {ActionKind.open, ActionKind.snooze}
             if assignee_person_id is None:
                 actions.add(ActionKind.claim)
