@@ -254,6 +254,21 @@ def _form_str_opt(value: object | None) -> str | None:
     return value_str or None
 
 
+def _normalize_setting_for_payload(
+    spec: settings_spec.SettingSpec,
+    value: object | None,
+) -> tuple[str | None, dict[str, object] | list[object] | bool | int | str | None]:
+    if value is None:
+        if spec.value_type == settings_spec.SettingValueType.json:
+            return None, spec.default if spec.default is not None else {}
+        return "", None
+    value_text, value_json = settings_spec.normalize_for_db(spec, value)
+    if spec.value_type != settings_spec.SettingValueType.json and value_text is None:
+        value_text = ""
+        value_json = None
+    return value_text, cast(dict[str, object] | list[object] | bool | int | str | None, value_json)
+
+
 def _parse_iso_datetime(value: object | None) -> datetime | None:
     value_str = _form_str(value).strip()
     if not value_str:
@@ -3989,11 +4004,7 @@ async def settings_update(
                 if spec.max_value is not None and value > spec.max_value:
                     errors.append(f"{spec.key}: Maximum value is {spec.max_value}.")
                     continue
-            if value is None:
-                value_text, value_json = None, None
-            else:
-                value_text, value_json_raw = settings_spec.normalize_for_db(spec, value)
-                value_json = cast(SettingValue, value_json_raw)
+            value_text, value_json = _normalize_setting_for_payload(spec, value)
             payload = DomainSettingUpdate(
                 value_type=spec.value_type,
                 value_text=value_text,
@@ -4106,11 +4117,7 @@ async def settings_update(
                     if spec.max_value is not None and value_setting > spec.max_value:
                         errors.append(f"{spec.key}: Maximum value is {spec.max_value}.")
                         continue
-                if value_setting is None:
-                    value_text, value_json = None, None
-                else:
-                    value_text, value_json_raw = settings_spec.normalize_for_db(spec, value_setting)
-                    value_json = cast(SettingValue, value_json_raw)
+                value_text, value_json = _normalize_setting_for_payload(spec, value_setting)
                 payload = DomainSettingUpdate(
                     value_type=spec.value_type,
                     value_text=value_text,

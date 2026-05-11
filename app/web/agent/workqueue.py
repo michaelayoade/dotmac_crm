@@ -65,6 +65,10 @@ def _build_user(request: Request) -> tuple[dict, _WorkqueueUser]:
     return raw, _WorkqueueUser(person_id=person_uuid, permissions=perms)
 
 
+def _csrf_token(request: Request) -> str:
+    return str(getattr(request.state, "csrf_token", None) or request.cookies.get("csrf_token", ""))
+
+
 @router.get("", response_class=HTMLResponse)
 def page(
     request: Request,
@@ -89,7 +93,7 @@ def page(
                 "active_page": "workqueue",
                 "view": view,
                 "right_now": view.right_now,
-                "csrf_token": request.cookies.get("csrf_token", ""),
+                "csrf_token": _csrf_token(request),
             },
         )
     finally:
@@ -116,7 +120,7 @@ def partial_right_now(
             {
                 "request": request,
                 "right_now": view.right_now,
-                "csrf_token": request.cookies.get("csrf_token", ""),
+                "csrf_token": _csrf_token(request),
             },
         )
     finally:
@@ -154,7 +158,7 @@ def partial_section(
             {
                 "request": request,
                 "section": section,
-                "csrf_token": request.cookies.get("csrf_token", ""),
+                "csrf_token": _csrf_token(request),
             },
         )
     finally:

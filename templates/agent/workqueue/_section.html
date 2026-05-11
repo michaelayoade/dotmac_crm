@@ -1,4 +1,4 @@
-{% from "components/ui/workqueue_macros.html" import workqueue_item %}
+{% from "components/ui/workqueue_macros.html" import workqueue_item with context %}
 {% set kind_labels = {
   'conversation': 'Conversations', 'ticket': 'Tickets',
   'lead': 'Leads', 'quote': 'Quotes', 'task': 'Tasks'
@@ -6,8 +6,8 @@
 {% set show_all_links = {
   'conversation': '/admin/inbox?assignee=me',
   'ticket': '/admin/tickets?assignee=me&status=open',
-  'lead': '/admin/leads?assignee=me',
-  'quote': '/admin/quotes?status=sent',
+  'lead': '/admin/crm/leads',
+  'quote': '/admin/crm/quotes?status=sent',
   'task': '/admin/projects/tasks?assignee=me'
 } %}
 <section id="workqueue-section-{{ section.kind.value }}"
