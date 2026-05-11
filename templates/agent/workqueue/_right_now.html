@@ -1,4 +1,4 @@
-{% from "components/ui/workqueue_macros.html" import workqueue_item %}
+{% from "components/ui/workqueue_macros.html" import workqueue_item with context %}
 <section id="workqueue-right-now"
          hx-get="/agent/workqueue/_right_now"
          hx-trigger="every 60s, workqueue:refresh from:body"

@@ -192,7 +192,7 @@ class TicketsProvider:
                     score=score,
                     reason=reason,
                     urgency=urgency_for_score(score),
-                    deep_link=f"/admin/tickets/{t.id}",
+                    deep_link=f"/admin/support/tickets/{t.number or t.id}",
                     assignee_id=assignee,
                     is_unassigned=assignee is None,
                     happened_at=t.updated_at or now,

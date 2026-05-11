@@ -78,6 +78,26 @@ def build_router() -> APIRouter:
     def admin_tickets_new_alias():
         return RedirectResponse(url="/admin/support/tickets/create", status_code=302)
 
+    @router.get("/tickets/{ticket_ref}")
+    def admin_ticket_detail_alias(ticket_ref: str):
+        return RedirectResponse(url=f"/admin/support/tickets/{ticket_ref}", status_code=302)
+
+    @router.get("/leads")
+    def admin_leads_alias():
+        return RedirectResponse(url="/admin/crm/leads", status_code=302)
+
+    @router.get("/leads/{lead_id}")
+    def admin_lead_detail_alias(lead_id: str):
+        return RedirectResponse(url=f"/admin/crm/leads/{lead_id}", status_code=302)
+
+    @router.get("/quotes")
+    def admin_quotes_alias():
+        return RedirectResponse(url="/admin/crm/quotes", status_code=302)
+
+    @router.get("/quotes/{quote_id}")
+    def admin_quote_detail_alias(quote_id: str):
+        return RedirectResponse(url=f"/admin/crm/quotes/{quote_id}", status_code=302)
+
     router.include_router(dashboard_router)
     router.include_router(system_router)
     router.include_router(projects_router)
