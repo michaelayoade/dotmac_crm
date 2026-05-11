@@ -254,6 +254,20 @@ def _form_str_opt(value: object | None) -> str | None:
     return value_str or None
 
 
+def _normalize_setting_for_payload(
+    spec: settings_spec.SettingSpec,
+    value: object | None,
+) -> tuple[str | None, dict[str, object] | list[object] | bool | int | str | None]:
+    if value is None:
+        if spec.value_type == settings_spec.SettingValueType.json:
+            default_json = spec.default if spec.default is not None else {}
+            return None, cast(dict[str, object] | list[object] | bool | int | str | None, default_json)
+        return "", None
+    value_text, value_json = settings_spec.normalize_for_db(spec, value)
+    if spec.value_type != settings_spec.SettingValueType.json and value_text is None:
+        value_text = ""
+        value_json = None
+    return value_text, cast(dict[str, object] | list[object] | bool | int | str | None, value_json)
 def _parse_iso_datetime(value: object | None) -> datetime | None:
     value_str = _form_str(value).strip()
     if not value_str:
