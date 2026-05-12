@@ -104,6 +104,7 @@
             <th class="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Phone</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">City</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Street</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Location</th>
             <th class="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Area</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
             <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">MRR Total</th>
@@ -142,6 +143,7 @@
                 data-phone="{{ (row.phone or '')|lower }}"
                 data-city="{{ (row.city or '')|lower }}"
                 data-street="{{ (row.street or '')|lower }}"
+                data-location="{{ (row.location or '')|lower }}"
                 data-area="{{ (row.area or '')|lower }}"
                 data-plan="{{ (row.plan or '')|lower }}"
                 data-balance="{{ (row.balance or 0)|float }}"
@@ -164,6 +166,7 @@
             <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.phone or "-" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.city or "-" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.street or "-" }}</td>
+            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.location or "-" }}</td>
             <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.area or "-" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan or "-" }}</td>
             <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">₦{{ "{:,.2f}".format((row.mrr_total or 0)|float) }}</td>

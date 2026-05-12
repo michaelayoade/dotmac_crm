@@ -266,6 +266,35 @@ def fetch_online_customers(db: Session) -> list[dict[str, Any]]:
         return []
 
 
+def fetch_locations(db: Session) -> list[dict[str, Any]]:
+    """Fetch configured Splynx customer locations."""
+    config = _get_config(db)
+    if not config:
+        return []
+
+    import requests
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Basic {config['basic_token']}",
+    }
+    url = f"{_resolve_api_base_url(config)}/admin/administration/locations"
+    try:
+        response = requests.get(  # nosec B113 - timeout via config dict
+            url,
+            headers=headers,
+            timeout=config["timeout_seconds"],
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list):
+            return [row for row in payload if isinstance(row, dict)]
+        return []
+    except Exception as exc:
+        logger.warning("splynx_fetch_locations_failed error=%s", str(exc))
+        return []
+
+
 def fetch_customer(db: Session, splynx_id: str) -> dict[str, Any] | None:
     """Fetch a single customer from Splynx by ID."""
     config = _get_config(db)

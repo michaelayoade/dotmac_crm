@@ -5,8 +5,6 @@ from unittest.mock import patch
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-import pytest
-from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.models.connector import ConnectorConfig, ConnectorType
@@ -192,7 +190,7 @@ def test_effective_send_at_uses_next_local_window_when_immediate_send_is_after_h
     assert display_local == "2026-04-28T09:00"
 
 
-def test_queue_subscriber_notification_creates_notifications_logs_and_blocks_duplicates(db_session):
+def test_queue_subscriber_notification_creates_notifications_logs_and_allows_selected_sends(db_session):
     subscriber = _subscriber(db_session)
     first_schedule = _future_local_text()
     second_schedule = _future_local_text(minutes=30)
@@ -218,25 +216,25 @@ def test_queue_subscriber_notification_creates_notifications_logs_and_blocks_dup
     assert db_session.query(Notification).count() == 0
     assert db_session.query(SubscriberNotificationLog).count() == 2
 
-    with pytest.raises(HTTPException) as excinfo:
-        subscriber_notifications_service.queue_subscriber_notification(
-            db_session,
-            subscriber_id=subscriber.id,
-            channel_value="email",
-            email_subject="Second try",
-            email_body=(
-                "Hi Taylor, we noticed activity on your account. "
-                "Your connection looks stable from our side. "
-                "If you need help, contact support@dotmac.ng. "
-                "Thank you for your time."
-            ),
-            sms_body="",
-            scheduled_local_text=second_schedule,
-            sent_by_user_id=uuid4(),
-            sent_by_person_id=uuid4(),
-        )
+    second_logs = subscriber_notifications_service.queue_subscriber_notification(
+        db_session,
+        subscriber_id=subscriber.id,
+        channel_value="email",
+        email_subject="Second try",
+        email_body=(
+            "Hi Taylor, we noticed activity on your account. "
+            "Your connection looks stable from our side. "
+            "If you need help, contact support@dotmac.ng. "
+            "Thank you for your time."
+        ),
+        sms_body="",
+        scheduled_local_text=second_schedule,
+        sent_by_user_id=uuid4(),
+        sent_by_person_id=uuid4(),
+    )
 
-    assert excinfo.value.status_code == 409
+    assert len(second_logs) == 1
+    assert db_session.query(SubscriberNotificationLog).count() == 3
 
 
 def test_test_account_can_queue_repeated_notifications(db_session):
@@ -312,6 +310,7 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
                 "name": "Taylor Subscriber",
                 "status": "active",
                 "region": "Abuja",
+                "base_station": "Maitama POP",
                 "last_seen_at": "Apr 27, 2026 09:00 AM",
                 "ticket_id": "",
                 "ticket_status": "",
@@ -326,6 +325,7 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
                 "name": "Jordan Open",
                 "status": "active",
                 "region": "Abuja",
+                "base_station": "Wuse POP",
                 "last_seen_at": "Apr 27, 2026 10:00 AM",
                 "ticket_id": str(uuid4()),
                 "ticket_status": "open",
@@ -340,6 +340,7 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
                 "name": "Casey Closed",
                 "status": "active",
                 "region": "Abuja",
+                "base_station": "Garki POP",
                 "last_seen_at": "Apr 27, 2026 11:00 AM",
                 "ticket_id": str(uuid4()),
                 "ticket_status": "closed",
@@ -385,13 +386,17 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
 
     body = response.body.decode()
     assert response.status_code == 200
-    assert "Send customer follow-up" in body
-    assert "Queue Notification" in body
-    assert "Test mode is active" in body
-    assert "Testing Hold" in body
-    assert "WhatsApp" in body
-    assert "Scheduled: Apr 27, 2026 10:30 AM" in body
-    assert "Queued Notification" in body
+    assert "Inactive Last 24 Hours" in body
+    assert "Inactive Last 24 hours Table" in body
+    assert "Online Last 24 Hours" not in body
+    assert "Management Table" not in body
+    assert "Base Station" in body
+    assert "Maitama POP" in body
+    assert "Wuse POP" in body
+    assert "Garki POP" in body
+    assert "No tickets" in body
+    assert "Test mode is active" not in body
+    assert "Queued Notification" not in body
     assert "Notification Sent" in body
     assert "Not sent" in body
     assert "Total" in body
@@ -402,16 +407,21 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
     assert "Create Outreach" in body
     assert "online-last-24h-channel-target-id" in body
     assert "select-all-subscribers" in body
-    assert "Priority Score" in body
-    assert "Message Templates" in body
-    assert "Save Template" in body
-    assert "Activity Log" in body
-    assert "Waiting On Customer" in body
-    assert "Site Under Construction" in body
     assert "With Ticket" not in body
     assert "Ticket Statuses" not in body
     assert "Open ticket" not in body
-    assert "data-notify-button" in body
+
+
+def test_online_last_24h_base_station_filter_uses_or_logic():
+    rows = [
+        {"name": "Taylor", "base_station": "Maitama POP"},
+        {"name": "Jordan", "base_station": "Wuse POP"},
+        {"name": "Casey", "base_station": "Garki POP"},
+    ]
+
+    filtered = reports_web._filter_online_last_24h_base_stations(rows, ["Maitama POP", "Garki POP"])
+
+    assert [row["name"] for row in filtered] == ["Taylor", "Casey"]
 
 
 def test_enrich_notification_rows_includes_latest_queued_notification_summary(db_session):
@@ -489,7 +499,7 @@ def test_subscriber_online_last_24h_outreach_route_creates_campaign(db_session):
     response = reports_web.subscriber_online_last_24h_create_outreach(
         request=_request("POST", "/admin/reports/subscribers/online-last-24h/outreach"),
         db=db_session,
-        name="Online Last 24H Outreach",
+        name="Inactive Last 24H Outreach",
         channel="whatsapp",
         channel_target_id=str(target.id),
         subscriber_id=[str(subscriber.id)],

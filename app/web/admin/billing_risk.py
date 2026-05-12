@@ -170,6 +170,7 @@ def _billing_risk_page_rows(
     overdue_bucket: str | None,
     enterprise_only: bool = False,
     customer_segment: str | None = None,
+    location: str | None = None,
     mrr_sort: str | None = None,
 ) -> tuple[list[dict], dict[str, int | float], bool]:
     requested_page_size = max(1, int(page_size))
@@ -187,6 +188,7 @@ def _billing_risk_page_rows(
         overdue_bucket=overdue_bucket,
         enterprise_only=enterprise_only,
         customer_segment=customer_segment,
+        location=location,
         mrr_sort=mrr_sort,
         enrich_visible_rows=False,
     )
@@ -1039,6 +1041,7 @@ def subscriber_billing_risk(
     search: str | None = Query(None),
     enterprise_only: bool = Query(False),
     customer_segment: str | None = Query(None),
+    location: str | None = Query(None),
     mrr_sort: str | None = Query(None),
 ):
     user = get_current_user(request)
@@ -1053,6 +1056,9 @@ def subscriber_billing_risk(
     normalized_search = query_search if query_search is not None else (search if isinstance(search, str) else None)
     normalized_customer_segment = "all"
     normalized_enterprise_only = False
+    normalized_location = (
+        request.query_params.get("location") or (location if isinstance(location, str) else "")
+    ).strip()
     query_mrr_sort = request.query_params.get("mrr_sort")
     normalized_mrr_sort = (
         (query_mrr_sort if query_mrr_sort is not None else (mrr_sort if isinstance(mrr_sort, str) else ""))
@@ -1077,6 +1083,7 @@ def subscriber_billing_risk(
         overdue_bucket=normalized_bucket,
         enterprise_only=normalized_enterprise_only,
         customer_segment=normalized_customer_segment,
+        location=normalized_location,
         mrr_sort=normalized_mrr_sort,
         enrich_visible_rows=False,
     )
@@ -1095,6 +1102,7 @@ def subscriber_billing_risk(
         overdue_bucket=normalized_bucket,
         enterprise_only=normalized_enterprise_only,
         customer_segment=normalized_customer_segment,
+        location=normalized_location,
         mrr_sort=normalized_mrr_sort,
         enrich_visible_rows=False,
     )
@@ -1119,6 +1127,7 @@ def subscriber_billing_risk(
             "days_past_due": query_days_past_due or days_past_due,
             "bucket": normalized_bucket,
             "search": normalized_search or "",
+            "location": normalized_location,
             "mrr_sort": normalized_mrr_sort,
         },
         doseq=True,
@@ -1131,6 +1140,7 @@ def subscriber_billing_risk(
             "days_past_due": query_days_past_due or days_past_due,
             "bucket": normalized_bucket,
             "search": normalized_search or "",
+            "location": normalized_location,
             "mrr_sort": normalized_mrr_sort,
         },
         doseq=True,
@@ -1145,6 +1155,7 @@ def subscriber_billing_risk(
             "days_past_due": query_days_past_due or days_past_due or "",
             "bucket": normalized_bucket,
             "search": normalized_search or "",
+            "location": normalized_location,
             "mrr_sort": normalized_mrr_sort,
         },
         doseq=True,
@@ -1157,6 +1168,7 @@ def subscriber_billing_risk(
             "days_past_due": query_days_past_due or days_past_due or "",
             "bucket": normalized_bucket,
             "search": normalized_search or "",
+            "location": normalized_location,
             "mrr_sort": normalized_mrr_sort,
         },
         doseq=True,
@@ -1169,6 +1181,7 @@ def subscriber_billing_risk(
             "days_past_due": query_days_past_due or days_past_due or "",
             "bucket": normalized_bucket,
             "search": normalized_search or "",
+            "location": normalized_location,
             "mrr_sort": normalized_mrr_sort,
             "segment": "overdue",
         },
@@ -1182,6 +1195,7 @@ def subscriber_billing_risk(
             "days_past_due": query_days_past_due or days_past_due or "",
             "bucket": normalized_bucket,
             "search": normalized_search or "",
+            "location": normalized_location,
             "mrr_sort": normalized_mrr_sort,
             "segment": "suspended",
         },
@@ -1223,6 +1237,15 @@ def subscriber_billing_risk(
             "live_search": normalized_search or "",
             "live_bucket": normalized_bucket,
             "live_mrr_sort": normalized_mrr_sort,
+            "live_location": normalized_location,
+            "live_location_options": sorted(
+                {
+                    str(row.get("location") or "").strip()
+                    for row in full_metric_rows
+                    if str(row.get("location") or "").strip()
+                },
+                key=str.casefold,
+            ),
             "page_metrics": page_metrics,
             "page": 1,
             "has_prev": False,
@@ -1732,6 +1755,7 @@ def subscriber_billing_risk_rows(
     bucket: str | None = Query("all"),
     enterprise_only: bool = Query(False),
     customer_segment: str | None = Query(None),
+    location: str | None = Query(None),
     mrr_sort: str | None = Query(None),
 ):
     get_current_user(request)
@@ -1746,6 +1770,9 @@ def subscriber_billing_risk_rows(
     ).strip() or "all"
     normalized_customer_segment = "all"
     normalized_enterprise_only = False
+    normalized_location = (
+        request.query_params.get("location") or (location if isinstance(location, str) else "")
+    ).strip()
     query_mrr_sort = request.query_params.get("mrr_sort")
     normalized_mrr_sort = (
         (query_mrr_sort if query_mrr_sort is not None else (mrr_sort if isinstance(mrr_sort, str) else ""))
@@ -1769,6 +1796,7 @@ def subscriber_billing_risk_rows(
         overdue_bucket=normalized_bucket,
         enterprise_only=normalized_enterprise_only,
         customer_segment=normalized_customer_segment,
+        location=normalized_location,
         mrr_sort=normalized_mrr_sort,
     )
     return templates.TemplateResponse(

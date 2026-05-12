@@ -1502,12 +1502,15 @@ def test_get_billing_risk_table_normalizes_street_display_symbols(monkeypatch):
         "last_online": "2026-03-20 11:28:03",
         "street_1": " 12,, Aminu   Kano;;; Crescent -- ",
         "street_2": "Suite 4  /  Block B",
+        "location_id": 1,
+        "gps": "9.081511583651492,7.471630153732377",
         "billing": {"blocking_date": "0000-00-00"},
     }
 
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
     monkeypatch.setattr(splynx_service, "fetch_customers", lambda _db: [customer_payload])
+    monkeypatch.setattr(splynx_service, "fetch_locations", lambda _db: [{"id": 1, "name": "Abuja"}])
     monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
     monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
     monkeypatch.setattr(
@@ -1529,6 +1532,27 @@ def test_get_billing_risk_table_normalizes_street_display_symbols(monkeypatch):
 
     assert len(rows) == 1
     assert rows[0]["street"] == "12, Aminu Kano; Crescent, Suite 4 / Block B"
+    assert rows[0]["location"] == "Abuja"
+
+    filtered_rows = billing_risk_service.get_billing_risk_table(
+        FakeDb(),
+        segment="suspended",
+        location="Abuja",
+        limit=10,
+        enrich_visible_rows=False,
+    )
+    assert len(filtered_rows) == 1
+
+    assert (
+        billing_risk_service.get_billing_risk_table(
+            FakeDb(),
+            segment="suspended",
+            location="CBD",
+            limit=10,
+            enrich_visible_rows=False,
+        )
+        == []
+    )
 
 
 def test_customer_retention_tracker_renders_from_billing_risk_filters(monkeypatch):

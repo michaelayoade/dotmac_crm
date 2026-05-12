@@ -1,18 +1,19 @@
 {% extends "layouts/admin.html" %}
 {% from "components/ui/macros.html" import page_header, action_button, dashboard_filter_panel, table_shell, table_row, empty_state %}
 
-{% block title %}Online Last 24h - Admin{% endblock %}
+{% block title %}Inactive Last 24h - Admin{% endblock %}
 
 {% set rows = online_customers | default([]) %}
-{% set region_options = (filter_opts.regions if filter_opts is defined else []) %}
+{% set base_station_options = base_station_options | default([]) %}
+{% set selected_base_stations = selected_base_stations | default([]) %}
 {% set selected_segment = selected_activity_segment | default("active_last24_not_online") %}
 
 {% block content %}
 <div class="space-y-6">
-    {% call page_header("Online Last 24 Hours", "Live Splynx data for customers seen in the last 24 hours.", color="emerald", color2="teal") %}
+    {% call page_header("Inactive Last 24 Hours", "Live Splynx data for customers active in the last 24 hours but not currently online.", color="emerald", color2="teal") %}
         {{ action_button(
             "Export CSV",
-            href="/admin/reports/subscribers/online-last-24h/export?status=" ~ (selected_status | default("")) ~ "&region=" ~ (selected_region | default("")) ~ "&search=" ~ (search | default("")) ~ "&ticket_status=" ~ (selected_ticket_status | default("all")) ~ "&notification_state=" ~ (selected_notification_state | default("all")) ~ "&activity_segment=" ~ selected_segment,
+            href="/admin/reports/subscribers/online-last-24h/export?status=" ~ (selected_status | default("")) ~ "&search=" ~ (search | default("")) ~ "&ticket_status=" ~ (selected_ticket_status | default("all")) ~ "&notification_state=" ~ (selected_notification_state | default("all")) ~ "&activity_segment=" ~ selected_segment,
             variant="secondary",
             color="emerald"
         ) }}
@@ -53,7 +54,7 @@
     </div>
 
     {% call dashboard_filter_panel(color="emerald", title="Filters") %}
-    <form method="get" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7 xl:items-end">
+    <form method="get" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6 xl:items-end">
         <div>
             <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Segment</label>
             <select name="activity_segment" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
@@ -77,14 +78,26 @@
                 <option value="terminated" {% if selected_status == "terminated" %}selected{% endif %}>Terminated</option>
             </select>
         </div>
-        <div>
-            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Region</label>
-            <select name="region" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
-                <option value="">All regions</option>
-                {% for option in region_options %}
-                <option value="{{ option }}" {% if selected_region == option %}selected{% endif %}>{{ option }}</option>
-                {% endfor %}
-            </select>
+        <div class="relative">
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Base Station</label>
+            <details class="group">
+                <summary class="flex h-10 cursor-pointer list-none items-center justify-between rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700">
+                    <span>{% if selected_base_stations %}{{ selected_base_stations|length }} selected{% else %}All base stations{% endif %}</span>
+                    <span class="text-slate-400 group-open:rotate-180">⌄</span>
+                </summary>
+                <div class="absolute z-30 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+                    {% if base_station_options %}
+                    {% for option in base_station_options %}
+                    <label class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm text-slate-800 hover:bg-emerald-50 hover:text-slate-950 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-white">
+                        <input type="checkbox" name="base_station" value="{{ option }}" {% if option in selected_base_stations %}checked{% endif %} class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                        <span>{{ option }}</span>
+                    </label>
+                    {% endfor %}
+                    {% else %}
+                    <p class="px-2 py-2 text-sm text-slate-500 dark:text-slate-400">No base stations found</p>
+                    {% endif %}
+                </div>
+            </details>
         </div>
         <div>
             <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Ticket</label>
@@ -109,17 +122,13 @@
     </form>
     {% endcall %}
 
-    <div class="rounded-2xl border border-slate-300 bg-slate-100 p-4 text-sm text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
-        Test mode is active for these notifications. Queueing a notification only saves it for review; it does not send any email or WhatsApp message to the customer.
-    </div>
-
     <form method="post" action="/admin/reports/subscribers/online-last-24h/outreach" id="online-last-24h-outreach-form">
     <input type="hidden" name="next_url" value="{{ current_query }}">
-    {% call table_shell(table_id="subscriber-online-last-24h", title="Management Table", color="emerald", count=rows|length, bulk_selectable=False) %}
+    {% call table_shell(table_id="subscriber-online-last-24h", title="Inactive Last 24 hours Table", color="emerald", count=rows|length, bulk_selectable=False) %}
     <div class="grid gap-3 border-b border-slate-200 px-5 py-4 dark:border-slate-700 lg:grid-cols-[1.2fr,0.8fr,1fr,auto] lg:items-end">
         <div>
             <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Outreach Name</label>
-            <input type="text" name="name" value="Online Last 24H Outreach" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+            <input type="text" name="name" value="Inactive Last 24H Outreach" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
             <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 <span id="bulk-selected-count" class="font-semibold text-slate-900 dark:text-white">0</span>
                 selected for outreach.
@@ -154,13 +163,11 @@
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Subscriber #</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Name</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</th>
-                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Region</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Base Station</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Seen</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Currently Online</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Ticket</th>
-                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Queued Notification</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Notification Sent</th>
-                <th class="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Actions</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
@@ -189,7 +196,7 @@
                 </div>
             </td>
             <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ row.status or "-" }}</td>
-            <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ row.region or "-" }}</td>
+            <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ row.base_station or "-" }}</td>
             <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ row.last_seen_at or "-" }}</td>
             <td class="px-5 py-3 text-sm">
                 {% if row.currently_online %}
@@ -206,39 +213,6 @@
                 {% endif %}
             </td>
             <td class="px-5 py-3 text-sm">
-                {% if row.latest_notification_channel %}
-                <button
-                    type="button"
-                    class="block w-full rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-left text-xs text-emerald-900 transition hover:border-emerald-300 hover:bg-emerald-100/80 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/50"
-                    data-queued-view
-                    data-customer-name="{{ row.name }}"
-                    data-channel="{{ row.latest_notification_channel }}"
-                    data-status="{{ row.latest_notification_status }}"
-                    data-scheduled="{{ row.latest_notification_scheduled_for }}"
-                    data-message="{{ row.latest_notification_message_body }}"
-                >
-                    <p class="font-semibold">
-                        {{ row.latest_notification_status | replace('_', ' ') | title }}
-                        {{ row.latest_notification_channel | upper }}
-                    </p>
-                    <p class="mt-1">Scheduled: {{ row.latest_notification_scheduled_for }}</p>
-                    <p class="mt-1 line-clamp-2">{{ row.latest_notification_message_body }}</p>
-                    <p class="mt-2 font-medium text-emerald-700 dark:text-emerald-300">View full queued draft</p>
-                </button>
-                {% if row.is_test_account %}
-                <form method="post" action="/admin/reports/subscribers/online-last-24h/notify/test-send" class="mt-2">
-                    <input type="hidden" name="subscriber_id" value="{{ row.subscriber_id }}">
-                    <input type="hidden" name="next_url" value="{{ current_query }}">
-                    <button type="submit" class="inline-flex w-full items-center justify-center rounded-xl bg-amber-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-600">
-                        Approve &amp; Send Test
-                    </button>
-                </form>
-                {% endif %}
-                {% else %}
-                <span class="text-slate-400 dark:text-slate-500">None queued</span>
-                {% endif %}
-            </td>
-            <td class="px-5 py-3 text-sm">
                 {% if row.latest_notification_sent_for %}
                 {% set sent_status = (row.latest_notification_sent_status or "")|lower %}
                 {% set sent_pill_class = "border-emerald-700 bg-emerald-600 text-white dark:border-emerald-300 dark:bg-emerald-300 dark:text-slate-950" if sent_status in ["delivered", "read", "sent", "queued"] else "border-rose-700 bg-rose-600 text-white dark:border-rose-300 dark:bg-rose-300 dark:text-slate-950" if sent_status == "failed" else "border-slate-600 bg-slate-700 text-white dark:border-slate-300 dark:bg-slate-300 dark:text-slate-950" %}
@@ -252,34 +226,9 @@
                 <span class="text-slate-400 dark:text-slate-500">Not sent</span>
                 {% endif %}
             </td>
-            <td class="px-5 py-3 text-right">
-                {% if row.can_notify %}
-                <button
-                    type="button"
-                    class="inline-flex items-center rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-                    data-notify-button
-                    data-subscriber-id="{{ row.subscriber_id }}"
-                    data-customer-name="{{ row.name }}"
-                    data-ticket-status="{{ row.ticket_status }}"
-                    data-timezone="{{ row.notification_timezone or row.timezone or 'UTC' }}"
-                    data-email="{{ row.email }}"
-                    data-phone="{{ row.phone }}"
-                    data-last-seen="{{ row.last_seen_at }}"
-                    data-last-activity="{{ row.last_activity or row.last_seen_at }}"
-                    data-template-key="{{ row.notification_template_key }}"
-                    data-email-subject="{{ row.notification_email_subject }}"
-                    data-email-body="{{ row.notification_email_body }}"
-                    data-sms-body="{{ row.notification_sms_body }}"
-                >
-                    Notify
-                </button>
-                {% else %}
-                <span class="text-sm text-slate-400 dark:text-slate-500">No CRM subscriber link</span>
-                {% endif %}
-            </td>
             {% endcall %}
             {% else %}
-            {{ empty_state(title="No matching customers", message="No live Splynx rows match the selected filters.", color="emerald", color2="teal", colspan=11) }}
+            {{ empty_state(title="No matching customers", message="No live Splynx rows match the selected filters.", color="emerald", color2="teal", colspan=9) }}
             {% endfor %}
         </tbody>
     </table>
