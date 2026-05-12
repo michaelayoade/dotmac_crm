@@ -46,19 +46,6 @@
 
   <header class="flex items-center justify-between">
     <h1 class="font-display text-3xl font-bold text-slate-900 dark:text-white">Workqueue</h1>
-    <form method="get" class="flex items-center gap-2">
-      <label for="as" class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">Audience</label>
-      <select id="as" name="as" onchange="this.form.submit()"
-              class="rounded-xl bg-slate-50/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 px-3 py-1 text-sm">
-        <option value="self" {% if view.audience.value == 'self' %}selected{% endif %}>Me</option>
-        {% if 'workqueue:audience:team' in current_user.permissions %}
-        <option value="team" {% if view.audience.value == 'team' %}selected{% endif %}>My team</option>
-        {% endif %}
-        {% if 'workqueue:audience:org' in current_user.permissions %}
-        <option value="org" {% if view.audience.value == 'org' %}selected{% endif %}>Organization</option>
-        {% endif %}
-      </select>
-    </form>
   </header>
 
   {% include "agent/workqueue/_right_now.html" %}
