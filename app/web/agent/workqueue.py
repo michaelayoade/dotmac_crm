@@ -82,7 +82,7 @@ def page(
         raw_user, wq_user = _build_user(request)
         if not has_workqueue_view(wq_user):
             raise HTTPException(status_code=403)
-        view = build_workqueue(db, wq_user, requested_audience=audience)
+        view = build_workqueue(db, wq_user, requested_audience="self")
         audience_label = view.audience.value
         return templates.TemplateResponse(
             "agent/workqueue/index.html",
@@ -114,7 +114,7 @@ def partial_right_now(
         _, wq_user = _build_user(request)
         if not has_workqueue_view(wq_user):
             raise HTTPException(status_code=403)
-        view = build_workqueue(db, wq_user, requested_audience=audience)
+        view = build_workqueue(db, wq_user, requested_audience="self")
         audience_label = view.audience.value
         return templates.TemplateResponse(
             "agent/workqueue/_right_now.html",
@@ -150,7 +150,7 @@ def partial_section(
         _, wq_user = _build_user(request)
         if not has_workqueue_view(wq_user):
             raise HTTPException(status_code=403)
-        view = build_workqueue(db, wq_user, requested_audience=audience)
+        view = build_workqueue(db, wq_user, requested_audience="self")
         audience_label = view.audience.value
         section = next((s for s in view.sections if s.kind is item_kind), None)
         if section is None:

@@ -149,18 +149,19 @@ def test_workqueue_defaults_to_me_even_with_broader_permissions(db_session, set_
     ) as app:
         resp = _run_async(_aget(app, "/agent/workqueue"))
     assert resp.status_code == 200, resp.text
-    assert b'<option value="self" selected>Me</option>' in resp.content
+    assert b'hx-get="/agent/workqueue/_right_now?as=self"' in resp.content
+    assert b"<select" not in resp.content
 
 
-def test_workqueue_partials_preserve_requested_audience(db_session, set_setting):
+def test_workqueue_partials_force_self_audience(db_session, set_setting):
     set_setting("workqueue.enabled", True)
     with _build_app(db_session, permissions=["workqueue:view", "workqueue:audience:team"]) as app:
         right_now = _run_async(_aget(app, "/agent/workqueue/_right_now?as=team"))
         section = _run_async(_aget(app, "/agent/workqueue/_section/ticket?as=team"))
     assert right_now.status_code == 200, right_now.text
     assert section.status_code == 200, section.text
-    assert b'hx-get="/agent/workqueue/_right_now?as=team"' in right_now.content
-    assert b'hx-get="/agent/workqueue/_section/ticket?as=team"' in section.content
+    assert b'hx-get="/agent/workqueue/_right_now?as=self"' in right_now.content
+    assert b'hx-get="/agent/workqueue/_section/ticket?as=self"' in section.content
 
 
 def test_partial_right_now(db_session, set_setting):
