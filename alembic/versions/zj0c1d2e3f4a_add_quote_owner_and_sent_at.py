@@ -1,7 +1,7 @@
 """add quote owner and sent timestamp
 
 Revision ID: zj0c1d2e3f4a
-Revises: zh8a9b0c1d2e
+Revises: 20260509100000
 Create Date: 2026-05-12 00:00:00.000000
 """
 
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "zj0c1d2e3f4a"
-down_revision = "zh8a9b0c1d2e"
+down_revision = "20260509100000"
 branch_labels = None
 depends_on = None
 
