@@ -84,7 +84,7 @@
 
     {% call dashboard_filter_panel(color="rose", title="Blocked Customer Live Filters") %}
     <div id="billing-risk-live-controls" class="space-y-4">
-        <div class="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-4">
             <div class="lg:col-span-2">
                 <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Blocked Customers</label>
                 <div class="flex gap-2">
@@ -103,6 +103,18 @@
                         Search
                     </button>
                 </div>
+            </div>
+            <div>
+                <label for="billing-risk-location-filter" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Location</label>
+                <select
+                    id="billing-risk-location-filter"
+                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                >
+                    <option value="">All Locations</option>
+                    {% for location in live_location_options|default([]) %}
+                    <option value="{{ location }}" {% if location == live_location|default('') %}selected{% endif %}>{{ location }}</option>
+                    {% endfor %}
+                </select>
             </div>
             <div>
                 <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer Segment</label>
@@ -141,6 +153,7 @@
         data-bucket="{{ live_bucket }}"
         data-search="{{ live_search|default('') }}"
         data-mrr-sort="{{ live_mrr }}"
+        data-location="{{ live_location|default('') }}"
         data-segments="{{ selected_segments|join(',') }}"
         data-customer-tier="all"
     >
@@ -231,11 +244,13 @@
             const segmentButtons = Array.from(document.querySelectorAll('[data-segment-filter]'));
             const tierButtons = Array.from(document.querySelectorAll('.billing-risk-tier-toggle'));
             const tierCount = document.getElementById('billing-risk-tier-count');
+            const locationSelect = document.getElementById('billing-risk-location-filter');
             const mrrSortSelect = document.getElementById('billing-risk-mrr-sort');
             const exportLink = document.querySelector('a[href^="/admin/reports/subscribers/billing-risk/export"]');
             const filterState = {
                 bucket: results.dataset.bucket || 'all',
                 customerTier: results.dataset.customerTier || 'all',
+                location: results.dataset.location || locationSelect?.value || '',
                 mrrSort: results.dataset.mrrSort || '',
                 segments: (results.dataset.segments || '').split(',').map((segment) => segment.trim()).filter(Boolean),
                 search: results.dataset.search || searchInput?.value || '',
@@ -579,6 +594,7 @@
                 params.set('bucket', filterState.bucket);
                 params.set('mrr_sort', filterState.mrrSort);
                 params.set('search', filterState.search);
+                params.set('location', filterState.location);
                 for (const segment of filterState.segments) {
                     params.append('segments', segment);
                 }
@@ -591,6 +607,7 @@
                 const params = new URLSearchParams(queryString);
                 params.set('search', filterState.search);
                 params.set('bucket', filterState.bucket);
+                params.set('location', filterState.location);
                 params.delete('enterprise_only');
                 params.delete('customer_segment');
                 params.set('mrr_sort', filterState.mrrSort);
@@ -806,6 +823,7 @@
                     page_size: String(filterState.pageSize),
                     search: filterState.search,
                     bucket: filterState.bucket,
+                    location: filterState.location,
                     due_soon_days: results.dataset.dueSoonDays || '7',
                     overdue_invoice_days: results.dataset.overdueInvoiceDays || '30',
                     high_balance_only: results.dataset.highBalanceOnly || 'false',
@@ -838,6 +856,7 @@
                 results.dataset.pageSize = String(filterState.pageSize);
                 results.dataset.search = filterState.search;
                 results.dataset.customerTier = filterState.customerTier;
+                results.dataset.location = filterState.location;
                 syncUrlState();
                 syncExportLink();
                 applyBucketButtonState();
@@ -852,6 +871,9 @@
             applyTierButtonState();
             if (searchInput) {
                 searchInput.value = filterState.search;
+            }
+            if (locationSelect) {
+                locationSelect.value = filterState.location;
             }
             syncExportLink();
             syncUrlState();
@@ -891,6 +913,10 @@
             mrrSortSelect?.addEventListener('change', () => {
                 filterState.mrrSort = mrrSortSelect.value || '';
                 loadResults(1, true, { mrrSort: mrrSortSelect.value || '' });
+            });
+            locationSelect?.addEventListener('change', () => {
+                filterState.location = locationSelect.value || '';
+                loadResults(1, true);
             });
             exportLink?.addEventListener('click', (event) => {
                 event.preventDefault();

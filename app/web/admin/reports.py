@@ -87,6 +87,7 @@ _NCC_COLUMNS = [
 
 _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS = [
     {"value": "all", "label": "All ticket states"},
+    {"value": "no_ticket", "label": "No tickets"},
     {"value": "new", "label": "New"},
     {"value": "open", "label": "Open"},
     {"value": "pending", "label": "Pending"},
@@ -157,6 +158,85 @@ def _online_last_24h_ticket_status_cards(rows: list[dict]) -> list[dict[str, int
         }
         for status_value in tracked_statuses
     ]
+
+
+def _online_last_24h_base_station_options(rows: list[dict]) -> list[str]:
+    return sorted(
+        {str(row.get("base_station") or "").strip() for row in rows if str(row.get("base_station") or "").strip()},
+        key=str.lower,
+    )
+
+
+def _normalize_online_last_24h_base_station_values(base_station: list[str] | str | object) -> list[str]:
+    if isinstance(base_station, list):
+        values = base_station
+    elif isinstance(base_station, str):
+        values = [base_station]
+    else:
+        values = []
+    return [value for value in dict.fromkeys(str(item).strip() for item in values if str(item).strip())]
+
+
+def _filter_online_last_24h_base_stations(rows: list[dict], selected_base_stations: list[str]) -> list[dict]:
+    selected = {value.strip().lower() for value in selected_base_stations if value and value.strip()}
+    if not selected:
+        return rows
+    return [row for row in rows if str(row.get("base_station") or "").strip().lower() in selected]
+
+
+def _enrich_online_last_24h_campaign_status(rows: list[dict], db: Session) -> list[dict]:
+    """Attach latest online-last-24h campaign recipient status to report rows."""
+    from app.models.crm.campaign import Campaign, CampaignRecipient
+    from app.services.crm.web_campaigns import OUTREACH_SOURCE_ONLINE_LAST_24H
+
+    if db is None:
+        return rows
+
+    subscriber_ids: list[UUID] = []
+    for row in rows:
+        try:
+            subscriber_ids.append(UUID(str(row.get("subscriber_id") or "").strip()))
+        except (TypeError, ValueError):
+            continue
+    if not subscriber_ids:
+        return rows
+
+    subscriber_person_rows = db.execute(
+        select(Subscriber.id, Subscriber.person_id).where(Subscriber.id.in_(subscriber_ids))
+    ).all()
+    person_to_subscribers: dict[str, list[str]] = {}
+    for subscriber_id, person_id in subscriber_person_rows:
+        if person_id:
+            person_to_subscribers.setdefault(str(person_id), []).append(str(subscriber_id))
+    if not person_to_subscribers:
+        return rows
+
+    recipient_rows = (
+        db.query(CampaignRecipient, Campaign)
+        .join(Campaign, Campaign.id == CampaignRecipient.campaign_id)
+        .filter(CampaignRecipient.person_id.in_([UUID(person_id) for person_id in person_to_subscribers]))
+        .order_by(func.coalesce(CampaignRecipient.sent_at, CampaignRecipient.created_at).desc())
+        .all()
+    )
+    latest_by_subscriber: dict[str, CampaignRecipient] = {}
+    for recipient, campaign in recipient_rows:
+        metadata = campaign.metadata_ or {}
+        if not isinstance(metadata, dict) or metadata.get("source_report") != OUTREACH_SOURCE_ONLINE_LAST_24H:
+            continue
+        for subscriber_id in person_to_subscribers.get(str(recipient.person_id), []):
+            latest_by_subscriber.setdefault(subscriber_id, recipient)
+
+    for row in rows:
+        recipient = latest_by_subscriber.get(str(row.get("subscriber_id") or ""))
+        if not recipient:
+            row.setdefault("latest_notification_sent_status", "")
+            row.setdefault("latest_notification_sent_for", "")
+            continue
+        status = recipient.status.value if hasattr(recipient.status, "value") else str(recipient.status or "")
+        sent_at = recipient.sent_at or recipient.delivered_at or recipient.created_at
+        row["latest_notification_sent_status"] = status
+        row["latest_notification_sent_for"] = sent_at.strftime("%Y-%m-%d %H:%M") if sent_at else ""
+    return rows
 
 
 def _filter_online_last_24h_notification_state(rows: list[dict], notification_state: str) -> list[dict]:
@@ -1614,7 +1694,7 @@ def subscriber_overview_export(
 
 
 # =============================================================================
-# Online Last 24h Report
+# Inactive Last 24h Report
 # =============================================================================
 
 
@@ -1628,6 +1708,7 @@ def subscriber_online_last_24h(
     ticket_status: str | None = Query("all"),
     notification_state: str | None = Query("all"),
     activity_segment: str | None = Query("active_last24_not_online"),
+    base_station: list[str] = Query(default=[]),
 ):
     """Subscribers with online/session activity in the last 24 hours."""
     from app.services import subscriber_notifications as subscriber_notifications_service
@@ -1636,11 +1717,9 @@ def subscriber_online_last_24h(
 
     user = get_current_user(request)
     filter_opts = sr.overview_filter_options(db)
-    region_options = filter_opts.get("regions", [])
     status_value = (status or "").strip().lower()
-    selected_region = region if isinstance(region, str) and region in region_options else None
     selected_status = next((item for item in SubscriberStatus if item.value == status_value), None)
-    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=selected_region)
+    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=None)
 
     selected_ticket_status = (ticket_status or "all").strip().lower()
     valid_ticket_values = {item["value"] for item in _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS}
@@ -1666,6 +1745,12 @@ def subscriber_online_last_24h(
         limit=None,
     )
     online_customers = subscriber_notifications_service.enrich_notification_rows(online_customers, db)
+    online_customers = _enrich_online_last_24h_campaign_status(online_customers, db)
+    base_station_options = _online_last_24h_base_station_options(online_customers)
+    selected_base_stations = [
+        value for value in _normalize_online_last_24h_base_station_values(base_station) if value in base_station_options
+    ]
+    online_customers = _filter_online_last_24h_base_stations(online_customers, selected_base_stations)
     online_customers = _filter_online_last_24h_notification_state(online_customers, selected_notification_state)
     online_customers = _sort_online_last_24h_rows(online_customers)
 
@@ -1684,8 +1769,9 @@ def subscriber_online_last_24h(
             "ticket_status_kpis": _online_last_24h_ticket_status_cards(online_customers),
             "filter_opts": filter_opts,
             "selected_status": selected_status.value if selected_status else "",
-            "selected_region": selected_region or "",
             "search": search_value,
+            "base_station_options": base_station_options,
+            "selected_base_stations": selected_base_stations,
             "selected_ticket_status": selected_ticket_status,
             "ticket_status_options": _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS,
             "selected_notification_state": selected_notification_state,
@@ -1842,7 +1928,7 @@ def subscriber_online_last_24h_bulk_notify(
 def subscriber_online_last_24h_create_outreach(
     request: Request,
     db: Session = Depends(get_db),
-    name: str = Form("Online Last 24H Outreach"),
+    name: str = Form("Inactive Last 24H Outreach"),
     channel: str = Form("whatsapp"),
     channel_target_id: str = Form(""),
     subscriber_id: list[str] = Form(default=[]),
@@ -1937,17 +2023,15 @@ def subscriber_online_last_24h_export(
     ticket_status: str | None = Query("all"),
     notification_state: str | None = Query("all"),
     activity_segment: str | None = Query("active_last24_not_online"),
+    base_station: list[str] = Query(default=[]),
 ):
     """Export last-24h online subscribers report."""
     from app.services import subscriber_notifications as subscriber_notifications_service
     from app.services import subscriber_reports as sr
 
-    filter_opts = sr.overview_filter_options(db)
-    region_options = filter_opts.get("regions", [])
     status_value = (status or "").strip().lower()
-    selected_region = region if isinstance(region, str) and region in region_options else None
     selected_status = next((item for item in SubscriberStatus if item.value == status_value), None)
-    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=selected_region)
+    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=None)
     selected_ticket_status = (ticket_status or "all").strip().lower()
     valid_ticket_values = {item["value"] for item in _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS}
     if selected_ticket_status not in valid_ticket_values:
@@ -1971,6 +2055,12 @@ def subscriber_online_last_24h_export(
         limit=None,
     )
     online_customers = subscriber_notifications_service.enrich_notification_rows(online_customers, db)
+    online_customers = _enrich_online_last_24h_campaign_status(online_customers, db)
+    base_station_options = _online_last_24h_base_station_options(online_customers)
+    selected_base_stations = [
+        value for value in _normalize_online_last_24h_base_station_values(base_station) if value in base_station_options
+    ]
+    online_customers = _filter_online_last_24h_base_stations(online_customers, selected_base_stations)
     online_customers = _filter_online_last_24h_notification_state(online_customers, selected_notification_state)
     online_customers = _sort_online_last_24h_rows(online_customers)
 
@@ -1979,7 +2069,7 @@ def subscriber_online_last_24h_export(
             "Name": row.get("name", ""),
             "Subscriber Number": row.get("subscriber_number", ""),
             "Status": row.get("status", ""),
-            "Region": row.get("region", ""),
+            "Base Station": row.get("base_station", ""),
             "Email": row.get("email", ""),
             "Phone": row.get("phone", ""),
             "Last Seen At": row.get("last_seen_at", ""),

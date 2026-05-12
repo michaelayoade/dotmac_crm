@@ -843,7 +843,7 @@ def _create_notification(
         channel=channel,
         recipient=recipient,
         subject=subject,
-        body=_email_html_body(body) if channel == NotificationChannel.email else body,
+        body=body,
         status=NotificationStatus.queued,
         send_at=send_at,
     )
@@ -865,12 +865,6 @@ def queue_subscriber_notification(
     sent_by_person_id: UUID | None,
 ) -> list[SubscriberNotificationLog]:
     prepared = prepare_subscriber_notification(db, subscriber_id)
-    if prepared.subscriber.subscriber_number != TEST_NOTIFICATION_SUBSCRIBER_NUMBER and _recent_notification_exists(
-        db, prepared.subscriber.id
-    ):
-        raise HTTPException(
-            status_code=409, detail="A notification was already sent to this customer in the last 6 hours."
-        )
     if sent_by_person_id and db.get(Person, sent_by_person_id) is None:
         sent_by_person_id = None
 
