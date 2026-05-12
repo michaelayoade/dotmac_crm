@@ -123,12 +123,14 @@ class QuoteBase(BaseModel):
 
     person_id: UUID  # Required - links to Person
     lead_id: UUID | None = None
+    owner_person_id: UUID | None = None
     status: QuoteStatus = QuoteStatus.draft
     currency: str = Field(default="NGN", min_length=3, max_length=3)
     subtotal: Decimal = Decimal("0.00")
     tax_total: Decimal = Decimal("0.00")
     total: Decimal = Decimal("0.00")
     expires_at: datetime | None = None
+    sent_at: datetime | None = None
     notes: str | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
     is_active: bool = True
@@ -141,12 +143,14 @@ class QuoteCreate(QuoteBase):
 class QuoteUpdate(BaseModel):
     person_id: UUID | None = None
     lead_id: UUID | None = None
+    owner_person_id: UUID | None = None
     status: QuoteStatus | None = None
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     subtotal: Decimal | None = None
     tax_total: Decimal | None = None
     total: Decimal | None = None
     expires_at: datetime | None = None
+    sent_at: datetime | None = None
     notes: str | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
     is_active: bool | None = None

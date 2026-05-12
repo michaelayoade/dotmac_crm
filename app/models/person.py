@@ -119,7 +119,7 @@ class Person(Base):
         foreign_keys="PersonStatusLog.person_id",
     )
     leads = relationship("Lead", back_populates="person")
-    quotes = relationship("Quote", back_populates="person")
+    quotes = relationship("Quote", back_populates="person", foreign_keys="Quote.person_id")
     sales_orders = relationship("SalesOrder", back_populates="person")
     conversations = relationship("Conversation", back_populates="person")
 

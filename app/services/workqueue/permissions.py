@@ -31,10 +31,14 @@ def _natural_audience(user: _UserLike) -> WorkqueueAudience:
 
 
 def resolve_audience(user: _UserLike, requested: str | None = None) -> WorkqueueAudience:
-    """Highest-tier audience the user holds; query param can downscope only."""
+    """Resolve the requested audience.
+
+    The workqueue defaults to the logged-in user's own queue. Broader team/org
+    views remain available only when explicitly requested and permitted.
+    """
     natural = _natural_audience(user)
     if requested is None:
-        return natural
+        return WorkqueueAudience.self_
 
     try:
         wanted = WorkqueueAudience(requested)

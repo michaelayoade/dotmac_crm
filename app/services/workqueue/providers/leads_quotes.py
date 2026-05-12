@@ -6,9 +6,9 @@ columns; per the implementation plan we derive them from
 and tickets providers.  Lead ownership uses the real ``Lead.owner_agent_id``
 column joined through ``CrmAgent.person_id``.
 
-The CRM `Quote` model has no owner column at all and no ``sent_at``
-column, so we stash ``owner_person_id`` and ``sent_at`` inside
-``Quote.metadata_`` (JSON).
+The CRM `Quote` model has real owner/sent columns; older rows may still have
+``owner_person_id`` and ``sent_at`` inside ``Quote.metadata_`` (JSON), so this
+provider keeps those as a compatibility fallback.
 
 This single provider returns items of two kinds (``ItemKind.lead`` and
 ``ItemKind.quote``); the aggregator partitions by ``item.kind`` so each
@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.crm.enums import LeadStatus, QuoteStatus
 from app.models.crm.sales import Lead, Quote
@@ -80,11 +80,22 @@ def _lead_last_activity_at(lead: Lead) -> datetime | None:
 
 
 def _quote_sent_at(q: Quote) -> datetime | None:
-    return _parse_dt(_meta(q).get("sent_at"))
+    return _parse_dt(getattr(q, "sent_at", None)) or _parse_dt(_meta(q).get("sent_at"))
 
 
-def _quote_owner_person_id(q: Quote) -> UUID | None:
-    return _parse_uuid(_meta(q).get("owner_person_id"))
+def _quote_owner_person_id(q: Quote, agents_by_id: dict[UUID, CrmAgent]) -> UUID | None:
+    owner = getattr(q, "owner_person_id", None)
+    if owner:
+        return owner
+    owner = _parse_uuid(_meta(q).get("owner_person_id"))
+    if owner:
+        return owner
+    lead = getattr(q, "lead", None)
+    if lead is not None and lead.owner_agent_id:
+        agent = agents_by_id.get(lead.owner_agent_id)
+        if agent is not None:
+            return agent.person_id
+    return None
 
 
 def _classify_quote(q: Quote, now: datetime) -> tuple[str, int] | None:
@@ -203,14 +214,28 @@ class LeadsQuotesProvider:
         # fetch all sent quotes and filter by the metadata-derived owner in
         # Python, mirroring the conversations/tickets pattern for fields not
         # present on the model.
-        quote_stmt = select(Quote).where(Quote.is_active.is_(True)).where(Quote.status == QuoteStatus.sent)
+        quote_stmt = (
+            select(Quote)
+            .options(selectinload(Quote.lead))
+            .where(Quote.is_active.is_(True))
+            .where(Quote.status == QuoteStatus.sent)
+        )
         if snoozed_ids:
             quote_stmt = quote_stmt.where(~Quote.id.in_(snoozed_ids))
 
         quote_rows = db.execute(quote_stmt.limit(limit * 4)).scalars().unique().all()
+        quote_owner_agent_ids = {
+            q.lead.owner_agent_id
+            for q in quote_rows
+            if getattr(q, "lead", None) is not None and q.lead.owner_agent_id is not None
+        }
+        quote_agents_by_id: dict[UUID, CrmAgent] = {}
+        if quote_owner_agent_ids:
+            for agent in db.execute(select(CrmAgent).where(CrmAgent.id.in_(quote_owner_agent_ids))).scalars().all():
+                quote_agents_by_id[agent.id] = agent
 
         for q in quote_rows:
-            owner_person_id = _quote_owner_person_id(q)
+            owner_person_id = _quote_owner_person_id(q, quote_agents_by_id)
             if audience is WorkqueueAudience.self_ and owner_person_id != user.person_id:
                 continue
             if audience is WorkqueueAudience.team and owner_person_id not in (

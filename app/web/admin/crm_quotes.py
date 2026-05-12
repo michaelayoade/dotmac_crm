@@ -29,6 +29,7 @@ from app.services.crm.web_quotes import (
     update_quote,
     update_quote_status,
 )
+from app.web.admin._auth_helpers import get_current_user
 from app.web.admin.crm_support import (
     _build_quote_pdf_bytes,
     _crm_base_context,
@@ -237,7 +238,13 @@ def crm_quote_create(
         item_inventory_item_id=item_inventory_item_id,
     )
     try:
-        create_quote(db, form=form_input, tax_rate_get=billing_service.tax_rates.get)
+        current_user = get_current_user(request)
+        create_quote(
+            db,
+            form=form_input,
+            tax_rate_get=billing_service.tax_rates.get,
+            owner_person_id=current_user.get("person_id") or None,
+        )
         return RedirectResponse(url="/admin/crm/quotes", status_code=303)
     except (ValidationError, ValueError) as exc:
         error = exc.errors()[0]["msg"] if isinstance(exc, ValidationError) else str(exc)
