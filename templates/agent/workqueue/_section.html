@@ -1,4 +1,5 @@
 {% from "components/ui/workqueue_macros.html" import workqueue_item with context %}
+{% set _audience = workqueue_audience.value if workqueue_audience is defined and workqueue_audience else 'self' %}
 {% set kind_labels = {
   'conversation': 'Conversations', 'ticket': 'Tickets',
   'lead': 'Leads', 'quote': 'Quotes', 'task': 'Tasks'
@@ -11,7 +12,7 @@
   'task': '/admin/projects/tasks?assignee=me'
 } %}
 <section id="workqueue-section-{{ section.kind.value }}"
-         hx-get="/agent/workqueue/_section/{{ section.kind.value }}"
+         hx-get="/agent/workqueue/_section/{{ section.kind.value }}?as={{ _audience }}"
          hx-trigger="every 60s, workqueue:refresh from:body"
          hx-swap="outerHTML"
          class="space-y-2">

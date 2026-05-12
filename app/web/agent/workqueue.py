@@ -93,6 +93,7 @@ def page(
                 "active_page": "workqueue",
                 "view": view,
                 "right_now": view.right_now,
+                "workqueue_audience": view.audience,
                 "csrf_token": _csrf_token(request),
             },
         )
@@ -120,6 +121,7 @@ def partial_right_now(
             {
                 "request": request,
                 "right_now": view.right_now,
+                "workqueue_audience": view.audience,
                 "csrf_token": _csrf_token(request),
             },
         )
@@ -158,6 +160,7 @@ def partial_section(
             {
                 "request": request,
                 "section": section,
+                "workqueue_audience": view.audience,
                 "csrf_token": _csrf_token(request),
             },
         )

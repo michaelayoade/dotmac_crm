@@ -292,6 +292,73 @@ def _apply_lead_status_from_quote(db: Session, quote: Quote, status: QuoteStatus
     db.commit()
 
 
+def _uuid_from_metadata(metadata: dict | None, key: str):
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get(key)
+    if not value:
+        return None
+    try:
+        return coerce_uuid(str(value))
+    except Exception:
+        return None
+
+
+def _datetime_from_metadata(metadata: dict | None, key: str) -> datetime | None:
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get(key)
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return None
+
+
+def _quote_owner_from_lead(db: Session, lead_id):
+    if not lead_id:
+        return None
+    lead = db.get(Lead, lead_id)
+    if not lead or not lead.owner_agent_id:
+        return None
+    agent = db.get(CrmAgent, lead.owner_agent_id)
+    return agent.person_id if agent and agent.person_id else None
+
+
+def _prepare_quote_ownership(db: Session, data: dict, *, existing: Quote | None = None) -> None:
+    metadata = data.get("metadata_")
+    if not isinstance(metadata, dict):
+        metadata = existing.metadata_ if existing is not None and isinstance(existing.metadata_, dict) else None
+
+    if data.get("owner_person_id"):
+        owner = db.get(Person, data["owner_person_id"])
+        if not owner:
+            raise HTTPException(status_code=404, detail="Quote owner not found")
+    elif existing is not None and existing.owner_person_id:
+        pass
+    else:
+        owner_from_meta = _uuid_from_metadata(metadata, "owner_person_id")
+        owner_from_lead = _quote_owner_from_lead(db, data.get("lead_id") or (existing.lead_id if existing else None))
+        owner_person_id = owner_from_meta or owner_from_lead
+        if owner_person_id:
+            data["owner_person_id"] = owner_person_id
+
+    if data.get("sent_at") is None:
+        sent_from_meta = _datetime_from_metadata(metadata, "sent_at")
+        if sent_from_meta is not None:
+            data["sent_at"] = sent_from_meta
+
+    status = data.get("status")
+    if status == QuoteStatus.sent and data.get("sent_at") is None and (existing is None or existing.sent_at is None):
+        data["sent_at"] = datetime.now(UTC)
+
+
 def _recalculate_quote_totals(db: Session, quote: Quote) -> None:
     items = db.query(CrmQuoteLineItem).filter(CrmQuoteLineItem.quote_id == quote.id).all()
     subtotal = Decimal("0.00")
@@ -841,6 +908,8 @@ class Quotes(ListResponseMixin):
             display_name = person.display_name or f"{person.first_name} {person.last_name}"
             data["metadata_"]["quote_name"] = display_name
 
+        _prepare_quote_ownership(db, data)
+
         if not data.get("currency"):
             default_currency = settings_spec.resolve_value(db, SettingDomain.billing, "default_currency")
             if default_currency:
@@ -946,6 +1015,8 @@ class Quotes(ListResponseMixin):
             person = db.get(Person, data["person_id"])
             if not person:
                 raise HTTPException(status_code=404, detail="Person not found")
+
+        _prepare_quote_ownership(db, data, existing=quote)
 
         for key, value in data.items():
             setattr(quote, key, value)

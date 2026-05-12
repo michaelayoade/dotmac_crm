@@ -19,14 +19,14 @@ def test_default_audience_is_self():
     assert resolve_audience(_user("workqueue:view")) is WorkqueueAudience.self_
 
 
-def test_team_permission_resolves_to_team():
-    assert resolve_audience(_user("workqueue:view", "workqueue:audience:team")) is WorkqueueAudience.team
+def test_team_permission_still_defaults_to_self():
+    assert resolve_audience(_user("workqueue:view", "workqueue:audience:team")) is WorkqueueAudience.self_
 
 
-def test_org_outranks_team():
+def test_org_permission_still_defaults_to_self():
     assert (
         resolve_audience(_user("workqueue:view", "workqueue:audience:team", "workqueue:audience:org"))
-        is WorkqueueAudience.org
+        is WorkqueueAudience.self_
     )
 
 
