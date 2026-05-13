@@ -33,7 +33,16 @@ def _get_config(db: Session) -> dict[str, Any] | None:
     base_url = settings_spec.resolve_value(db, SettingDomain.integration, "splynx_base_url", use_cache=False)
     customer_url = settings_spec.resolve_value(db, SettingDomain.integration, "splynx_customer_url", use_cache=False)
     invoice_url = settings_spec.resolve_value(db, SettingDomain.integration, "splynx_invoice_url", use_cache=False)
+    monitoring_url = settings_spec.resolve_value(
+        db, SettingDomain.integration, "splynx_monitoring_url", use_cache=False
+    )
     basic_token = settings_spec.resolve_value(db, SettingDomain.integration, "splynx_basic_auth_token", use_cache=False)
+    monitoring_basic_token = settings_spec.resolve_value(
+        db,
+        SettingDomain.integration,
+        "splynx_monitoring_basic_auth_token",
+        use_cache=False,
+    )
     timeout_value = (
         settings_spec.resolve_value(db, SettingDomain.integration, "splynx_timeout_seconds", use_cache=False) or 30
     )
@@ -56,6 +65,8 @@ def _get_config(db: Session) -> dict[str, Any] | None:
         "customer_url": str(customer_url).rstrip("/") if customer_url else None,
         "invoice_url": str(invoice_url).rstrip("/") if invoice_url else None,
         "basic_token": str(basic_token) if basic_token else None,
+        "monitoring_url": str(monitoring_url).rstrip("/") if monitoring_url else None,
+        "monitoring_basic_token": str(monitoring_basic_token) if monitoring_basic_token else None,
         "timeout_seconds": timeout_seconds,
     }
 
@@ -295,6 +306,45 @@ def fetch_locations(db: Session) -> list[dict[str, Any]]:
         return []
 
 
+def fetch_monitoring_devices(db: Session) -> list[dict[str, Any]]:
+    """Fetch monitoring device rows from Splynx."""
+    config = _get_config(db)
+    if not config:
+        return []
+
+    import requests
+
+    token = str(config.get("monitoring_basic_token") or config.get("basic_token") or "").strip()
+    if not token:
+        logger.warning("splynx_monitoring_config_incomplete")
+        return []
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Basic {token}",
+    }
+    url = _resolve_monitoring_url(config)
+    try:
+        response = requests.get(  # nosec B113 - timeout via config dict
+            url,
+            headers=headers,
+            timeout=config["timeout_seconds"],
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list):
+            return [row for row in payload if isinstance(row, dict)]
+        if isinstance(payload, dict):
+            for key in ("data", "items", "results"):
+                nested = payload.get(key)
+                if isinstance(nested, list):
+                    return [row for row in nested if isinstance(row, dict)]
+        return []
+    except Exception as exc:
+        logger.error("splynx_fetch_monitoring_failed error=%s", str(exc))
+        return []
+
+
 def fetch_customer(db: Session, splynx_id: str) -> dict[str, Any] | None:
     """Fetch a single customer from Splynx by ID."""
     config = _get_config(db)
@@ -377,6 +427,32 @@ def fetch_customer_billing(db: Session, splynx_id: str) -> dict[str, Any] | None
     except Exception as exc:
         logger.warning("splynx_fetch_billing_failed splynx_id=%s error=%s", splynx_id, str(exc))
         return None
+
+
+def customer_base_station(customer: dict[str, Any] | None) -> str:
+    """Extract the customer base station label from a Splynx payload."""
+    if not isinstance(customer, dict):
+        return ""
+
+    additional_attributes = customer.get("additional_attributes")
+    nested_base_station = ""
+    if isinstance(additional_attributes, dict):
+        nested_base_station = str(
+            additional_attributes.get("base_station")
+            or additional_attributes.get("base_station_name")
+            or additional_attributes.get("router_name")
+            or additional_attributes.get("nas_name")
+            or ""
+        ).strip()
+
+    return str(
+        customer.get("base_station")
+        or customer.get("base_station_name")
+        or customer.get("router_name")
+        or customer.get("nas_name")
+        or nested_base_station
+        or ""
+    ).strip()
 
 
 def map_customer_to_subscriber_data(
@@ -980,6 +1056,13 @@ def _resolve_invoice_urls(config: dict[str, Any]) -> list[str]:
         if candidate not in deduped:
             deduped.append(candidate)
     return deduped
+
+
+def _resolve_monitoring_url(config: dict[str, Any]) -> str:
+    configured = str(config.get("monitoring_url") or "").strip()
+    if configured:
+        return configured
+    return f"{_resolve_api_base_url(config)}/admin/networking/monitoring"
 
 
 def _resolve_api_base_url(config: dict[str, Any]) -> str:

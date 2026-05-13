@@ -1,7 +1,7 @@
 """Lightweight in-memory cache for CRM inbox services.
 
 NOTE: This is a per-process cache. Cross-worker invalidation relies on short
-TTLs (5s for inbox list).  A Redis pubsub layer could be added later for
+TTLs (30s for inbox list).  A Redis pubsub layer could be added later for
 instant invalidation across workers, but the short TTLs are sufficient for now.
 """
 
@@ -10,9 +10,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from threading import Lock
 from typing import Any
 
-INBOX_LIST_TTL_SECONDS = 5
+INBOX_LIST_TTL_SECONDS = 30
 SUMMARY_COUNTS_TTL_SECONDS = 30
 COMMENTS_LIST_TTL_SECONDS = 60
 COMMENTS_THREAD_TTL_SECONDS = 60
@@ -25,6 +26,8 @@ class _CacheEntry:
 
 
 _cache: dict[str, _CacheEntry] = {}
+_cache_locks: dict[str, Lock] = {}
+_cache_locks_guard = Lock()
 
 
 def _now() -> datetime:
@@ -50,6 +53,25 @@ def set(key: str, value: Any, ttl_seconds: int) -> None:
         value=value,
         expires_at=_now() + timedelta(seconds=ttl_seconds),
     )
+
+
+def _lock_for_key(key: str) -> Lock:
+    with _cache_locks_guard:
+        return _cache_locks.setdefault(key, Lock())
+
+
+def get_or_set(key: str, ttl_seconds: int, loader) -> Any:
+    cached = get(key)
+    if cached is not None:
+        return cached
+    lock = _lock_for_key(key)
+    with lock:
+        cached = get(key)
+        if cached is not None:
+            return cached
+        value = loader()
+        set(key, value, ttl_seconds)
+        return value
 
 
 def invalidate_prefix(prefix: str) -> None:
