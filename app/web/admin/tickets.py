@@ -2739,14 +2739,14 @@ def ticket_detail(
             status_code=404,
         )
 
-    # Get comments for this ticket
+    # Keep initial ticket detail bounded; older history can remain available via audit/export paths.
     comments = tickets_service.ticket_comments.list(
         db=db,
         ticket_id=str(ticket.id),
         is_internal=None,  # Show both internal and external comments
         order_by="created_at",
         order_dir="desc",
-        limit=100,
+        limit=25,
         offset=0,
     )
 
@@ -2765,7 +2765,7 @@ def ticket_detail(
         is_active=None,
         order_by="occurred_at",
         order_dir="desc",
-        limit=10,
+        limit=5,
         offset=0,
     )
     activities = _build_activity_feed(db, audit_events)
