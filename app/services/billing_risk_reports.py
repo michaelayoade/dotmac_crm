@@ -156,6 +156,7 @@ def get_billing_risk_table(
     overdue_bucket: str | None = None,
     enterprise_only: bool = False,
     customer_segment: str | None = None,
+    location: str | None = None,
     mrr_sort: str | None = None,
     enrich_visible_rows: bool = True,
 ) -> list[dict]:
@@ -165,6 +166,7 @@ def get_billing_risk_table(
         fetch_customer_billing,
         fetch_customer_internet_services,
         fetch_customers,
+        fetch_locations,
         map_customer_to_subscriber_data,
     )
 
@@ -238,6 +240,7 @@ def get_billing_risk_table(
     normalized_mrr_sort = (mrr_sort if isinstance(mrr_sort, str) else "").strip().lower()
     if normalized_mrr_sort not in {"asc", "desc"}:
         normalized_mrr_sort = ""
+    normalized_location = (location if isinstance(location, str) else "").strip().casefold()
     requires_live_mrr_resolution = normalized_customer_segment in {
         "enterprise",
         "non_enterprise",
@@ -283,6 +286,7 @@ def get_billing_risk_table(
                 str(row.get("city") or ""),
                 str(row.get("street") or ""),
                 str(row.get("area") or ""),
+                str(row.get("location") or ""),
                 str(row.get("plan") or ""),
             ]
         ).lower()
@@ -375,6 +379,16 @@ def get_billing_risk_table(
             *args,
             cache_scope=read_fn,
         )
+
+    try:
+        location_rows = _call_splynx("fetch_locations", fetch_locations)
+    except Exception:
+        location_rows = []
+    location_name_by_id = {
+        str(row.get("id") or "").strip(): str(row.get("name") or "").strip()
+        for row in location_rows
+        if isinstance(row, Mapping) and str(row.get("id") or "").strip()
+    }
 
     customers = _call_splynx("fetch_customers", fetch_customers)
     live_results: list[dict] = []
@@ -908,6 +922,16 @@ def get_billing_risk_table(
                         return direct_area
         return ""
 
+    def _live_location_from_customer(customer_payload: Mapping[str, Any]) -> str:
+        for key in ("location_name", "location", "location_title"):
+            text = str(customer_payload.get(key) or "").strip()
+            if text:
+                return text
+        location_id = str(customer_payload.get("location_id") or customer_payload.get("locationId") or "").strip()
+        if location_id:
+            return location_name_by_id.get(location_id, "")
+        return ""
+
     def _infer_city(*values: object) -> str:
         haystack = " ".join(str(value or "") for value in values).strip()
         if not haystack:
@@ -1166,6 +1190,7 @@ def get_billing_risk_table(
                 "email": email_value,
                 "phone": _contact_phone(email_value, phone_value),
                 "city": city_value,
+                "location": _live_location_from_customer(customer),
                 "street": street_value,
                 "mrr_total": mrr_total_value,
                 "subscriber_status": status_value.replace("_", " ").title(),
@@ -1235,6 +1260,10 @@ def get_billing_risk_table(
                 live_results = list(executor.map(_resolve_row_mrr, live_results))
     if normalized_customer_segment in {"enterprise", "non_enterprise"}:
         live_results = [row for row in live_results if _matches_customer_segment(float(row.get("mrr_total") or 0))]
+    if normalized_location:
+        live_results = [
+            row for row in live_results if str(row.get("location") or "").strip().casefold() == normalized_location
+        ]
     live_results = [
         row for row in live_results if _matches_search(row) and _matches_overdue_bucket(row.get("blocked_for_days"))
     ]
