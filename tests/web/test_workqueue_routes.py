@@ -16,6 +16,7 @@ from app.services.domain_settings import workflow_settings
 from app.services.settings_cache import SettingsCache
 from app.web.agent import workqueue as workqueue_web
 
+
 def _set_workqueue_enabled(db_session, enabled: bool) -> None:
     workflow_settings.upsert_by_key(
         db_session,
