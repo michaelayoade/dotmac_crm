@@ -1171,7 +1171,7 @@ function inboxController() {
         selectedConversation: {{ (selected_conversation.id if selected_conversation else None) | tojson }},
         selectedContactId: {{ (selected_conversation.contact.id if selected_conversation else None) | tojson }},
         selectedCommentId: {{ ((selected_comment.id | string) if selected_comment else None) | tojson }},
-        paginationLimit: {{ (pagination_limit or 150) | tojson }},
+        paginationLimit: {{ (pagination_limit or 50) | tojson }},
         stats: {{ (stats or {}) | tojson }},
         assignmentCounts: {{ (assignment_counts or {}) | tojson }},
         showInboxStats: true,
@@ -1241,6 +1241,17 @@ function inboxController() {
         inboxWs: null,
         refreshTimer: null,
         refreshDelayMs: 800,
+        conversationListInFlightUrl: null,
+        conversationListLastUrl: null,
+        conversationListLastRequestedAt: 0,
+        conversationListMinIntervalMs: 1500,
+        threadInFlightConversationId: null,
+        threadLastConversationId: null,
+        threadLastRequestedAt: 0,
+        threadMinIntervalMs: 1200,
+        summaryCountsInFlight: false,
+        summaryCountsLastRequestedAt: 0,
+        summaryCountsMinIntervalMs: 5000,
         pendingThreadRefresh: false,
         listStale: false,
         threadStale: false,
@@ -1333,6 +1344,25 @@ function inboxController() {
                 if (e.detail.target && e.detail.target.id === 'ticket-create-panel-body') {
                     this.ticketFormLoaded = false;
                     this.openTicketPanel();
+                }
+                const target = e.detail && e.detail.target;
+                const pathInfo = (e.detail && e.detail.pathInfo) || {};
+                const requestPath = pathInfo.finalRequestPath || pathInfo.requestPath || '';
+                if (target && target.id === 'conversation-list' && requestPath.includes('/admin/crm/inbox/conversations')) {
+                    if (!this.beginConversationListRequest(requestPath)) {
+                        e.preventDefault();
+                    }
+                }
+            });
+            document.body.addEventListener('htmx:afterRequest', (e) => {
+                const target = e.detail && e.detail.target;
+                const pathInfo = (e.detail && e.detail.pathInfo) || {};
+                const requestPath = pathInfo.finalRequestPath || pathInfo.requestPath || '';
+                if (target && target.id === 'conversation-list' && requestPath.includes('/admin/crm/inbox/conversations')) {
+                    this.finishConversationListRequest(requestPath);
+                }
+                if (target && target.id === 'message-thread' && requestPath.includes('/admin/crm/inbox/conversation/')) {
+                    this.finishThreadRequest();
                 }
             });
 
@@ -1645,6 +1675,12 @@ function inboxController() {
             }, 300);
         },
         async refreshSummaryCounts() {
+            const now = Date.now();
+            if (this.summaryCountsInFlight || now - this.summaryCountsLastRequestedAt < this.summaryCountsMinIntervalMs) {
+                return false;
+            }
+            this.summaryCountsInFlight = true;
+            this.summaryCountsLastRequestedAt = now;
             try {
                 const resp = await fetch('/admin/crm/inbox/summary-counts', {
                     headers: { Accept: 'application/json' }
@@ -1662,6 +1698,8 @@ function inboxController() {
                 }
             } catch (_err) {
                 // Best-effort; avoid disrupting inbox interactions.
+            } finally {
+                this.summaryCountsInFlight = false;
             }
         },
         initViewportMode() {
@@ -3640,10 +3678,35 @@ function inboxController() {
                 return;
             }
 
-            htmx.ajax('GET', `/admin/crm/inbox/conversations?${params.toString()}`, {
+            this.requestConversationList(`/admin/crm/inbox/conversations?${params.toString()}`);
+        },
+
+        beginConversationListRequest(url) {
+            const now = Date.now();
+            if (this.conversationListInFlightUrl === url) {
+                return false;
+            }
+            if (this.conversationListLastUrl === url && now - this.conversationListLastRequestedAt < this.conversationListMinIntervalMs) {
+                return false;
+            }
+            this.conversationListInFlightUrl = url;
+            this.conversationListLastUrl = url;
+            this.conversationListLastRequestedAt = now;
+            return true;
+        },
+
+        finishConversationListRequest(url) {
+            if (!url || this.conversationListInFlightUrl === url) {
+                this.conversationListInFlightUrl = null;
+            }
+        },
+
+        requestConversationList(url) {
+            htmx.ajax('GET', url, {
                 target: '#conversation-list',
                 swap: 'innerHTML transition:false'
             });
+            return true;
         },
 
         scheduleRefresh(scope = 'both') {
@@ -3693,11 +3756,7 @@ function inboxController() {
             this.startPresenceHeartbeat();
 
             // Load conversation thread
-            htmx.ajax('GET', `/admin/crm/inbox/conversation/${convId}`, {
-                target: '#message-thread',
-                swap: 'innerHTML transition:false'
-            });
-
+            this.requestThread(convId);
             const contactPanel = document.querySelector('#contact-details');
             if (contactPanel) {
                 contactPanel.innerHTML = '';
@@ -3717,6 +3776,39 @@ function inboxController() {
                 params.delete('channel');
             }
             window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+        },
+
+        beginThreadRequest(conversationId) {
+            const now = Date.now();
+            const normalizedId = String(conversationId || '').trim();
+            if (!normalizedId) {
+                return false;
+            }
+            if (this.threadInFlightConversationId === normalizedId) {
+                return false;
+            }
+            if (this.threadLastConversationId === normalizedId && now - this.threadLastRequestedAt < this.threadMinIntervalMs) {
+                return false;
+            }
+            this.threadInFlightConversationId = normalizedId;
+            this.threadLastConversationId = normalizedId;
+            this.threadLastRequestedAt = now;
+            return true;
+        },
+
+        finishThreadRequest() {
+            this.threadInFlightConversationId = null;
+        },
+
+        requestThread(conversationId) {
+            if (!this.beginThreadRequest(conversationId)) {
+                return false;
+            }
+            htmx.ajax('GET', `/admin/crm/inbox/conversation/${conversationId}`, {
+                target: '#message-thread',
+                swap: 'innerHTML transition:false'
+            });
+            return true;
         },
 
         selectComment(commentId) {
@@ -3864,10 +3956,7 @@ function inboxController() {
                 this.pendingThreadRefresh = false;
             }
             this.threadStale = false;
-            htmx.ajax('GET', `/admin/crm/inbox/conversation/${this.selectedConversation}`, {
-                target: '#message-thread',
-                swap: 'innerHTML transition:false'
-            });
+            this.requestThread(this.selectedConversation);
         },
         acknowledgeListStale() {
             this.refreshConversations(true);

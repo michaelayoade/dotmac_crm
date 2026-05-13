@@ -17,11 +17,11 @@ from app.services.crm.inbox.comments_context import (
     build_comment_list_items,
     load_comments_context,
 )
-from app.services.crm.inbox.conversation_status import reopen_due_snoozed_conversations
 from app.services.crm.inbox.queries import list_inbox_conversations
 from app.services.crm.inbox.search import normalize_search
 
 INBOX_LIST_CACHE_SCHEMA = 2
+DEFAULT_INBOX_PAGE_SIZE = 50
 
 
 @dataclass(frozen=True)
@@ -114,15 +114,15 @@ async def load_inbox_list(
     sort_by: str | None = None,
     missing: str | None = None,
     offset: int = 0,
-    limit: int = 150,
+    limit: int = DEFAULT_INBOX_PAGE_SIZE,
     include_thread: bool = False,
     fetch_comments: bool = False,
 ) -> InboxListResult:
-    # Keep snooze schedules current whenever inbox lists are loaded.
-    reopen_due_snoozed_conversations(db)
     normalized_search = normalize_search(search)
     safe_offset = max(int(offset or 0), 0)
     safe_limit = max(int(limit or 0), 1)
+    assignment_filter = (assignment or "").strip().lower()
+    actor_sensitive_assignment = assignment_filter in {"assigned", "assigned_to_me", "mine", "my_team"}
     cache_params = {
         "cache_schema": INBOX_LIST_CACHE_SCHEMA,
         "channel": channel,
@@ -131,7 +131,7 @@ async def load_inbox_list(
         "outbox_status": outbox_status,
         "search": normalized_search,
         "assignment": assignment,
-        "assigned_person_id": assigned_person_id,
+        "assigned_person_id": assigned_person_id if actor_sensitive_assignment else None,
         "target_id": target_id,
         "filter_agent_id": filter_agent_id,
         "assigned_from": assigned_from,
@@ -205,7 +205,6 @@ async def load_inbox_list(
                 status_enum = None
 
     exclude_superseded = status != ConversationStatus.resolved.value if status else True
-    assignment_filter = (assignment or "").strip().lower()
     target_prefix = (target_id or "").strip()
     target_is_comment = target_prefix.startswith("fb:") or target_prefix.startswith("ig:")
     include_comments = not channel and assignment_filter != "assigned" and (status_enum is None)
