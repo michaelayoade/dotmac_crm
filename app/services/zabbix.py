@@ -268,6 +268,8 @@ def fetch_monitoring_devices(db: Session) -> list[dict[str, Any]]:
             logger.error("zabbix_fetch_monitoring_failed error=%s", str(exc))
             return []
 
+    if result is None:
+        return []
     hosts = result.get("result")
     if not isinstance(hosts, list):
         return []
