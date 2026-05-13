@@ -1,10 +1,13 @@
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from starlette.requests import Request
 
+from app.models.subscriber import SubscriberBillingRiskSnapshot
+from app.services import billing_risk_cache
 from app.services import billing_risk_reports as billing_risk_service
 from app.services import splynx as splynx_service
 from app.web.admin import billing_risk as billing_risk_web
@@ -107,6 +110,7 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
         "email": "blocked@example.com",
         "phone": "+2348099991111",
         "city": "Abuja",
+        "location": "Abuja HQ",
         "street": "12 Aminu Kano Crescent",
         "area": "Maitama",
         "plan": "Home Fiber 50Mbps",
@@ -220,6 +224,8 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
     assert "Customer Retention Tracker" in body
     assert "Blocked Customer" in body
     assert "Blocked Date" in body
+    assert "Location" in body
+    assert "Abuja HQ" in body
     assert "12 Aminu Kano Crescent" in body
     assert "Open 2" in body
     assert "Closed 5" in body
@@ -229,6 +235,8 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
     assert 'id="billing-risk-search-button"' in body
     assert "syncExportLink" in body
     assert "params.set(&#39;search&#39;" in body or "params.set('search'" in body
+    assert "billing-risk-location-filter" in body
+    assert "params.set(&#39;location&#39;" in body or "params.set('location'" in body
     assert "params.set(&#39;bucket&#39;" in body or "params.set('bucket'" in body
     assert "rowsNeedingRefresh" in body
     assert "params.set(&#39;mrr_sort&#39;" in body or "params.set('mrr_sort'" in body
@@ -237,6 +245,121 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
     assert "subscriber_billing_risk_visible_" in body
     assert "'X-CSRF-Token': csrfToken()" in body
     assert "Blocked 8-30 Days" in body
+
+
+def test_billing_risk_live_rows_resolve_and_filter_location(monkeypatch):
+    class Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+    class FakeDb:
+        def execute(self, _statement):
+            return Result([])
+
+    customer_payload = {
+        "id": "17060",
+        "name": "Abduljabbar Anibilowo",
+        "email": "abdul@example.com",
+        "phone": "08012345678",
+        "status": "blocked",
+        "location_id": 1,
+        "billing": {"blocking_date": "2026-04-01", "month_price": "42000"},
+    }
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(splynx_service, "fetch_customers", lambda _db: [customer_payload])
+    monkeypatch.setattr(splynx_service, "fetch_locations", lambda _db: [{"id": 1, "name": "Abuja"}])
+    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: customer_payload["billing"])
+    monkeypatch.setattr(
+        splynx_service,
+        "map_customer_to_subscriber_data",
+        lambda _db, _customer, include_remote_details=False: {
+            "status": "suspended",
+            "subscriber_number": "100017060",
+            "service_plan": "Home Fiber 50Mbps",
+            "billing_cycle": "monthly",
+            "sync_metadata": {},
+        },
+    )
+
+    rows = billing_risk_service.get_billing_risk_table(
+        FakeDb(),
+        segment="suspended",
+        location="Abuja",
+        limit=10,
+        enrich_visible_rows=False,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["location"] == "Abuja"
+
+    rows = billing_risk_service.get_billing_risk_table(
+        FakeDb(),
+        segment="suspended",
+        location="CBD",
+        limit=10,
+        enrich_visible_rows=False,
+    )
+
+    assert rows == []
+
+
+def test_billing_risk_cache_persists_and_filters_location(db_session):
+    refreshed_at = datetime.now(UTC)
+    db_session.add_all(
+        [
+            SubscriberBillingRiskSnapshot(
+                id=uuid4(),
+                external_system="splynx",
+                external_id="100",
+                name="Abuja Customer",
+                city="Abuja",
+                location="Abuja",
+                risk_segment="Suspended",
+                balance=1000,
+                refreshed_at=refreshed_at,
+            ),
+            SubscriberBillingRiskSnapshot(
+                id=uuid4(),
+                external_system="splynx",
+                external_id="200",
+                name="SPDC Customer",
+                city="Port Harcourt",
+                location="SPDC",
+                risk_segment="Suspended",
+                balance=500,
+                refreshed_at=refreshed_at,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    page = billing_risk_cache.list_cached_rows(db_session, location="Abuja")
+
+    assert len(page.rows) == 1
+    assert page.rows[0]["_external_id"] == "100"
+    assert page.rows[0]["location"] == "Abuja"
+    assert billing_risk_cache.location_options_cached(db_session) == ["Abuja", "SPDC"]
+
+
+def test_billing_risk_cache_snapshot_values_include_location():
+    values = billing_risk_cache._snapshot_values(
+        {
+            "_external_id": "300",
+            "name": "Cached Customer",
+            "location": "CBD",
+            "risk_segment": "Due Soon",
+            "balance": 100,
+        },
+        refreshed_at=datetime.now(UTC),
+        subscribers_by_external={},
+    )
+
+    assert values["location"] == "CBD"
 
 
 def test_subscriber_billing_risk_page_builds_table_once(monkeypatch):
@@ -310,6 +433,116 @@ def test_subscriber_billing_risk_page_builds_table_once(monkeypatch):
 
     assert response.status_code == 200
     assert calls["count"] == 2
+
+
+def test_subscriber_billing_risk_page_uses_single_cached_dataset_load(monkeypatch):
+    monkeypatch.setattr(billing_risk_web, "get_current_user", lambda _request: {"id": "test-user"})
+    monkeypatch.setattr(billing_risk_web, "get_sidebar_stats", lambda _db: {})
+    monkeypatch.setattr(billing_risk_web, "get_csrf_token", lambda _request: "csrf-token")
+    monkeypatch.setattr(billing_risk_web, "_latest_subscriber_sync_at", lambda _db: datetime.now(UTC))
+    monkeypatch.setattr(billing_risk_web, "_retention_rep_options", lambda _db: [])
+    monkeypatch.setattr(billing_risk_web, "_retention_engagements_by_customer", lambda _db, customer_ids: {})
+    monkeypatch.setattr(billing_risk_web, "outreach_channel_target_options", lambda _db: [])
+    monkeypatch.setattr(
+        billing_risk_web,
+        "settings",
+        replace(billing_risk_web.settings, billing_risk_route_use_cache=True),
+    )
+
+    cached_calls = {"count": 0}
+    row = {
+        "name": "Blocked Customer",
+        "_external_id": "12345",
+        "phone": "+2348099991111",
+        "city": "Abuja",
+        "street": "12 Aminu Kano Crescent",
+        "area": "Maitama",
+        "plan": "Home Fiber 50Mbps",
+        "mrr_total": 42000.0,
+        "subscriber_status": "Suspended",
+        "risk_segment": "Suspended",
+        "billing_start_date": "2024-01-15",
+        "blocked_date": "2024-04-18",
+        "blocked_for_days": 12,
+        "balance": 9200.0,
+        "days_past_due": 18,
+    }
+
+    def fake_list_cached_rows(*_args, **_kwargs):
+        cached_calls["count"] += 1
+        return billing_risk_cache.BillingRiskPage(
+            rows=[row],
+            page_metrics={"total_count": 1, "total_balance": 9200.0, "avg_days_overdue": 18},
+            has_next=False,
+        )
+
+    monkeypatch.setattr(billing_risk_cache, "list_cached_rows", fake_list_cached_rows)
+    monkeypatch.setattr(billing_risk_cache, "cache_metadata", lambda _db: {"row_count": 1})
+    monkeypatch.setattr(billing_risk_cache, "location_options_cached", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        billing_risk_cache,
+        "summary_cached",
+        lambda *_args, **_kwargs: {
+            "total_at_risk": 1,
+            "total_balance_exposure": 9200.0,
+            "high_balance_risk_count": 1,
+            "overdue_invoice_balance": 0.0,
+        },
+    )
+    monkeypatch.setattr(
+        billing_risk_cache,
+        "segment_breakdown_cached",
+        lambda *_args, **_kwargs: [{"segment": "Suspended", "count": 1, "share_pct": 100.0, "balance": 9200.0}],
+    )
+    monkeypatch.setattr(
+        billing_risk_cache,
+        "aging_buckets_cached",
+        lambda *_args, **_kwargs: [{"label": "Blocked 8-30 Days", "count": 1}],
+    )
+    monkeypatch.setattr(
+        billing_risk_service,
+        "get_billing_risk_table",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("live builder should not be used")),
+    )
+    monkeypatch.setattr(billing_risk_service, "enrich_billing_risk_rows", lambda rows: rows)
+    monkeypatch.setattr(billing_risk_service, "get_overdue_invoices_table", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        billing_risk_service,
+        "get_billing_risk_summary",
+        lambda *_args, **_kwargs: {
+            "total_at_risk": 1,
+            "total_balance_exposure": 9200.0,
+            "high_balance_risk_count": 1,
+            "overdue_invoice_balance": 0.0,
+        },
+    )
+    monkeypatch.setattr(
+        billing_risk_service,
+        "get_billing_risk_segment_breakdown",
+        lambda *_args, **_kwargs: [{"segment": "Suspended", "count": 1, "share_pct": 100.0, "balance": 9200.0}],
+    )
+    monkeypatch.setattr(
+        billing_risk_service,
+        "get_billing_risk_aging_buckets",
+        lambda *_args, **_kwargs: [{"label": "Blocked 8-30 Days", "count": 1}],
+    )
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/reports/subscribers/billing-risk",
+            "headers": [],
+            "query_string": b"",
+            "server": ("testserver", 80),
+            "client": ("testclient", 50000),
+            "scheme": "http",
+        }
+    )
+    response = billing_risk_web.subscriber_billing_risk(request=request, db=SimpleNamespace(query=lambda *_args, **_kwargs: None))
+
+    assert response.status_code == 200
+    assert cached_calls["count"] == 1
 
 
 def test_subscriber_billing_risk_export_matches_visible_columns_and_filters(monkeypatch):
@@ -2027,3 +2260,160 @@ def test_customer_retention_engagements_returns_saved_history(monkeypatch):
 
     assert response.status_code == 200
     assert json.loads(response.body)["engagements"]["12345"][0]["note"] == "Payment received"
+
+
+def test_customer_retention_tracker_uses_cached_customer_subset(monkeypatch):
+    monkeypatch.setattr(billing_risk_web, "get_current_user", lambda _request: {"id": "test-user"})
+    monkeypatch.setattr(billing_risk_web, "get_sidebar_stats", lambda _db: {})
+    monkeypatch.setattr(billing_risk_web, "_latest_subscriber_sync_at", lambda _db: datetime.now(UTC))
+    monkeypatch.setattr(billing_risk_web, "_retention_rep_options", lambda _db: [])
+    monkeypatch.setattr(billing_risk_web, "outreach_channel_target_options", lambda _db: [])
+    monkeypatch.setattr(
+        billing_risk_web,
+        "settings",
+        replace(billing_risk_web.settings, customer_retention_route_use_cache=True),
+    )
+    monkeypatch.setattr(billing_risk_web, "_retention_active_customer_ids", lambda _db: ["12345", "54321"])
+    monkeypatch.setattr(
+        billing_risk_web,
+        "_retention_engagements_by_customer",
+        lambda _db, customer_ids: {
+            customer_id: [
+                {
+                    "id": f"engagement-{customer_id}",
+                    "customerId": customer_id,
+                    "customerName": f"Customer {customer_id}",
+                    "outcome": "Promised to Pay",
+                    "note": "Follow up",
+                    "followUp": "",
+                    "rep": "Sales Rep",
+                    "repPersonId": "rep-1",
+                    "createdAt": "2026-04-14T10:00:00",
+                }
+            ]
+            for customer_id in customer_ids
+        },
+    )
+    monkeypatch.setattr(billing_risk_web, "_retention_saved_only_rows", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        billing_risk_service,
+        "get_billing_risk_segment_breakdown",
+        lambda _rows: [{"segment": "Suspended", "count": len(_rows), "share_pct": 100.0}],
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_cached_rows_by_external_ids(_db, customer_ids, **kwargs):
+        captured["customer_ids"] = list(customer_ids)
+        captured["kwargs"] = kwargs
+        return [
+            {
+                "name": "Blocked Customer",
+                "_external_id": "12345",
+                "subscriber_id": "12345",
+                "email": "blocked@example.com",
+                "phone": "+2348099991111",
+                "city": "Abuja",
+                "area": "Maitama",
+                "plan": "Home Fiber 50Mbps",
+                "subscriber_status": "Suspended",
+                "risk_segment": "Suspended",
+                "balance": 9200.0,
+                "days_past_due": 18,
+            }
+        ]
+
+    monkeypatch.setattr(billing_risk_cache, "cached_rows_by_external_ids", fake_cached_rows_by_external_ids)
+    monkeypatch.setattr(
+        billing_risk_cache,
+        "all_cached_rows",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("full cached scan should not be used")),
+    )
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/customer-retention",
+            "headers": [],
+            "query_string": b"",
+            "server": ("testserver", 80),
+            "client": ("testclient", 50000),
+            "scheme": "http",
+        }
+    )
+    db = SimpleNamespace(
+        query=lambda *_args, **_kwargs: None,
+        execute=lambda *_args, **_kwargs: None,
+    )
+    response = billing_risk_web.customer_retention_tracker(request=request, db=db)
+
+    assert response.status_code == 200
+    assert captured["customer_ids"] == ["12345", "54321"]
+    assert captured["kwargs"]["limit"] == 6000
+
+
+def test_customer_retention_tracker_detail_uses_cached_single_customer(monkeypatch):
+    monkeypatch.setattr(billing_risk_web, "get_current_user", lambda _request: {"id": "test-user"})
+    monkeypatch.setattr(billing_risk_web, "get_sidebar_stats", lambda _db: {})
+    monkeypatch.setattr(billing_risk_web, "_retention_rep_options", lambda _db: [])
+    monkeypatch.setattr(
+        billing_risk_web,
+        "settings",
+        replace(billing_risk_web.settings, customer_retention_route_use_cache=True),
+    )
+    monkeypatch.setattr(
+        billing_risk_web,
+        "_retention_engagements_by_customer",
+        lambda _db, customer_ids: {"12345": []} if customer_ids == ["12345"] else {},
+    )
+    monkeypatch.setattr(billing_risk_service, "enrich_billing_risk_rows", lambda rows: rows)
+
+    captured: dict[str, object] = {}
+
+    def fake_cached_row_by_external_id(_db, external_id, **kwargs):
+        captured["external_id"] = external_id
+        captured["kwargs"] = kwargs
+        return {
+            "name": "Tracker Customer",
+            "_external_id": external_id,
+            "subscriber_id": external_id,
+            "phone": "+2348099991111",
+            "city": "Abuja",
+            "area": "Maitama",
+            "plan": "Home Fiber 50Mbps",
+            "mrr_total": 42000.0,
+            "subscriber_status": "Suspended",
+            "risk_segment": "Suspended",
+            "balance": 9200.0,
+        }
+
+    monkeypatch.setattr(billing_risk_cache, "cached_row_by_external_id", fake_cached_row_by_external_id)
+    monkeypatch.setattr(
+        billing_risk_cache,
+        "all_cached_rows",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("full cached scan should not be used")),
+    )
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/customer-retention/12345",
+            "headers": [],
+            "query_string": b"",
+            "server": ("testserver", 80),
+            "client": ("testclient", 50000),
+            "scheme": "http",
+        }
+    )
+    response = billing_risk_web.customer_retention_tracker_detail(
+        customer_id="12345",
+        request=request,
+        db=SimpleNamespace(query=lambda *_args, **_kwargs: None),
+        due_soon_days=7,
+    )
+
+    assert response.status_code == 200
+    assert captured["external_id"] == "12345"
+    assert captured["kwargs"]["due_soon_days"] == 7

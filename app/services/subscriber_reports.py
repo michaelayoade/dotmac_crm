@@ -134,14 +134,12 @@ def online_customers_last_24h_rows(
     activity_segment: str | None = None,
     limit: int | None = 200,
 ) -> list[dict]:
-    """Return subscribers with latest online activity in the last 24 hours plus ticket/notification context."""
+    """Return active Splynx customers last seen within 24h but not currently online."""
     now = datetime.now(UTC)
     start = now - timedelta(hours=24)
-    normalized_activity_segment = (activity_segment or "last_24h").strip().lower()
-    active_last24_not_online_only = normalized_activity_segment == "active_last24_not_online"
 
-    # Primary source for this report: live Splynx customer LAST ONLINE.
-    from app.services.splynx import fetch_customers, fetch_online_customers
+    # Source of truth for this report: live Splynx customer LAST ONLINE minus customer-online.
+    from app.services.splynx import customer_base_station, fetch_customers, fetch_online_customers
 
     def _parse_online_dt(value: object) -> datetime | None:
         text = str(value or "").strip()
@@ -298,7 +296,9 @@ def online_customers_last_24h_rows(
 
     ticket_filter = (ticket_status or "").strip().lower()
     if ticket_filter and ticket_filter != "all":
-        if ticket_filter == "not_closed":
+        if ticket_filter == "no_ticket":
+            query = query.where(latest_ticket.c.ticket_status.is_(None))
+        elif ticket_filter == "not_closed":
             query = query.where(
                 latest_ticket.c.ticket_status.isnot(None),
                 latest_ticket.c.ticket_status != TicketStatus.closed,
@@ -360,12 +360,11 @@ def online_customers_last_24h_rows(
             )
         return serialized
 
-    results = _serialize_rows(rows)
+    _serialize_rows(rows)
 
-    # Use Splynx LAST ONLINE and enrich rows with local CRM ticket status.
     customers = fetch_customers(db)
     if not isinstance(customers, list) or not customers:
-        return [] if active_last24_not_online_only else results
+        return []
 
     online_customers = fetch_online_customers(db)
     online_customer_ids = {
@@ -398,7 +397,7 @@ def online_customers_last_24h_rows(
             (external_id and external_id in online_customer_ids) or (login and login in online_customer_logins)
         )
         status_value = str(customer.get("status") or "").strip().lower()
-        if active_last24_not_online_only and (status_value != "active" or currently_online):
+        if status_value != "active" or currently_online:
             continue
         customer_payload = {
             "external_id": external_id,
@@ -408,6 +407,7 @@ def online_customers_last_24h_rows(
             "status": status_value,
             "currently_online": currently_online,
             "last_seen_at": last_online,
+            "base_station": customer_base_station(customer),
         }
         if external_id:
             customer_online_map[("external_id", external_id)] = max(
@@ -570,6 +570,8 @@ def online_customers_last_24h_rows(
             "subscriber_id": matched_subscriber_id or str(customer.get("external_id") or customer.get("login") or ""),
             "can_notify": bool(matched_subscriber_id),
             "id": str(customer.get("external_id") or customer.get("login") or ""),
+            "splynx_customer_id": str(customer.get("external_id") or ""),
+            "splynx_login": str(customer.get("login") or ""),
             "name": _clean_report_name(str(customer.get("name") or "").strip() or "Unknown"),
             "subscriber_number": str(customer.get("login") or ""),
             "plan": "",
@@ -579,6 +581,7 @@ def online_customers_last_24h_rows(
             "phone": "",
             "avatar_url": "",
             "timezone": "UTC",
+            "base_station": str(customer.get("base_station") or "").strip(),
             "last_seen_at": _format_datetime_value(last_seen_value),
             "last_seen_at_iso": last_seen_value.isoformat(),
             "last_activity": _format_datetime_value(last_seen_value),
@@ -610,15 +613,27 @@ def online_customers_last_24h_rows(
             ).lower()
         ]
 
+    if ticket_filter and ticket_filter != "all":
+        if ticket_filter == "no_ticket":
+            live_rows = [row for row in live_rows if not str(row.get("ticket_status") or "").strip()]
+        elif ticket_filter == "not_closed":
+            live_rows = [
+                row
+                for row in live_rows
+                if str(row.get("ticket_status") or "").strip()
+                and str(row.get("ticket_status") or "").strip().lower().replace(" ", "_") != "closed"
+            ]
+        else:
+            live_rows = [
+                row
+                for row in live_rows
+                if str(row.get("ticket_status") or "").strip().lower().replace(" ", "_") == ticket_filter
+            ]
+
     live_rows.sort(key=lambda row: str(row.get("last_seen_at_iso") or ""), reverse=True)
-    test_row = _online_last_24h_test_account_row(db, now)
-    if test_row is not None and not search_text:
-        live_rows.insert(0, test_row)
     if limit is not None:
         live_rows = live_rows[:limit]
-    if active_last24_not_online_only:
-        return live_rows
-    return live_rows if live_rows else results
+    return live_rows
 
 
 def overview_filtered_subscriber_ids(

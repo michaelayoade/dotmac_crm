@@ -386,8 +386,8 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
     body = response.body.decode()
     assert response.status_code == 200
     assert "Send customer follow-up" in body
-    assert "Queue Notification" in body
-    assert "Test mode is active" in body
+    assert "Test mode is active" not in body
+    assert ">Actions<" not in body
     assert "Testing Hold" in body
     assert "WhatsApp" in body
     assert "Scheduled: Apr 27, 2026 10:30 AM" in body
@@ -411,7 +411,7 @@ def test_subscriber_online_last_24h_page_renders_notification_action(monkeypatch
     assert "With Ticket" not in body
     assert "Ticket Statuses" not in body
     assert "Open ticket" not in body
-    assert "data-notify-button" in body
+    assert "data-notify-button" not in body
 
 
 def test_enrich_notification_rows_includes_latest_queued_notification_summary(db_session):
@@ -608,6 +608,59 @@ def test_subscriber_online_last_24h_passes_notification_state_filter(monkeypatch
     assert captured["activity_segment"] == "active_last24_not_online"
 
 
+def test_online_last_24h_rows_use_strict_splynx_active_recent_offline_conditions(db_session, monkeypatch):
+    from app.services import subscriber_reports as subscriber_reports_service
+
+    now = datetime.now(UTC)
+    monkeypatch.setattr(
+        "app.services.splynx.fetch_customers",
+        lambda _db: [
+            {
+                "id": "active-offline",
+                "login": "active-offline",
+                "name": "Active Offline",
+                "status": "active",
+                "last_online": (now - timedelta(hours=2)).isoformat(),
+            },
+            {
+                "id": "inactive-offline",
+                "login": "inactive-offline",
+                "name": "Inactive Offline",
+                "status": "inactive",
+                "last_online": (now - timedelta(hours=2)).isoformat(),
+            },
+            {
+                "id": "active-old",
+                "login": "active-old",
+                "name": "Active Old",
+                "status": "active",
+                "last_online": (now - timedelta(hours=25)).isoformat(),
+            },
+            {
+                "id": "active-online",
+                "login": "active-online",
+                "name": "Active Online",
+                "status": "active",
+                "last_online": (now - timedelta(hours=1)).isoformat(),
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        "app.services.splynx.fetch_online_customers",
+        lambda _db: [{"customer_id": "active-online", "login": "active-online"}],
+    )
+
+    rows = subscriber_reports_service.online_customers_last_24h_rows(
+        db_session,
+        activity_segment="last_24h",
+        limit=None,
+    )
+
+    assert [row["id"] for row in rows] == ["active-offline"]
+    assert rows[0]["status"] == "active"
+    assert rows[0]["currently_online"] is False
+
+
 def test_subscriber_online_last_24h_notify_context_route_returns_templates_and_activity(db_session):
     subscriber = _subscriber(db_session)
     ticket = Ticket(
@@ -648,3 +701,19 @@ def test_subscriber_online_last_24h_save_template_route_persists_bundle(db_sessi
     payload = json.loads(response.body.decode())
     assert payload["ok"] is True
     assert payload["template"]["email_subject"] == "New subject"
+
+
+def test_online_last_24h_base_station_filter_uses_or_logic():
+    rows = [
+        {"name": "Taylor", "base_station": "Maitama POP"},
+        {"name": "Jordan", "base_station": "Wuse POP"},
+        {"name": "Casey", "base_station": "Garki POP"},
+    ]
+
+    filtered = reports_web._filter_online_last_24h_base_stations(rows, ["Maitama POP", "Garki POP"])
+
+    assert [row["name"] for row in filtered] == ["Taylor", "Casey"]
+
+
+def test_online_last_24h_ticket_status_options_include_no_ticket():
+    assert any(option["value"] == "no_ticket" for option in reports_web._ONLINE_LAST_24H_TICKET_STATUS_OPTIONS)
