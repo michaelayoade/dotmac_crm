@@ -299,6 +299,7 @@ class SubscriberBillingRiskSnapshot(Base):
         Index("ix_billing_risk_snapshot_refreshed_at", "refreshed_at"),
         Index("ix_billing_risk_snapshot_search_name", "name"),
         Index("ix_billing_risk_snapshot_search_phone", "phone"),
+        Index("ix_billing_risk_snapshot_location", "location"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -314,6 +315,7 @@ class SubscriberBillingRiskSnapshot(Base):
     email: Mapped[str | None] = mapped_column(String(255))
     phone: Mapped[str | None] = mapped_column(String(120))
     city: Mapped[str | None] = mapped_column(String(120))
+    location: Mapped[str | None] = mapped_column(String(160))
     area: Mapped[str | None] = mapped_column(String(160))
     plan: Mapped[str | None] = mapped_column(String(200))
 
