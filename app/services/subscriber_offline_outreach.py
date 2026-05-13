@@ -8,7 +8,7 @@ from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
+from sqlalchemy import false, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorConfig, ConnectorType
@@ -212,44 +212,42 @@ def _parse_local_time(value: str | None) -> time:
 
 
 def _load_config(db: Session) -> OutreachConfig:
+    domain = notification_settings.domain
+    if domain is None:
+        raise RuntimeError("Notification settings domain is not configured")
     whatsapp_template_payload = settings_spec.resolve_value(
         db,
-        notification_settings.domain,
+        domain,
         "subscriber_offline_outreach_whatsapp_template_payload",
     )
     return OutreachConfig(
         enabled=_coerce_bool(
-            settings_spec.resolve_value(db, notification_settings.domain, "subscriber_offline_outreach_enabled"),
+            settings_spec.resolve_value(db, domain, "subscriber_offline_outreach_enabled"),
             False,
         ),
         interval_seconds=max(
             _coerce_int(
                 settings_spec.resolve_value(
                     db,
-                    notification_settings.domain,
+                    domain,
                     "subscriber_offline_outreach_interval_seconds",
                 ),
                 3600,
             ),
             300,
         ),
-        local_time=str(
-            settings_spec.resolve_value(db, notification_settings.domain, "subscriber_offline_outreach_local_time")
-            or "10:00"
-        ),
+        local_time=str(settings_spec.resolve_value(db, domain, "subscriber_offline_outreach_local_time") or "10:00"),
         timezone=str(
-            settings_spec.resolve_value(db, notification_settings.domain, "subscriber_offline_outreach_timezone")
-            or DEFAULT_TIMEZONE
+            settings_spec.resolve_value(db, domain, "subscriber_offline_outreach_timezone") or DEFAULT_TIMEZONE
         ),
         channel=str(
-            settings_spec.resolve_value(db, notification_settings.domain, "subscriber_offline_outreach_channel")
-            or "whatsapp"
+            settings_spec.resolve_value(db, domain, "subscriber_offline_outreach_channel") or "whatsapp"
         ).strip()
         or "whatsapp",
         channel_target_id=_coerce_text(
             settings_spec.resolve_value(
                 db,
-                notification_settings.domain,
+                domain,
                 "subscriber_offline_outreach_channel_target_id",
             )
         ),
@@ -257,7 +255,7 @@ def _load_config(db: Session) -> OutreachConfig:
             _coerce_int(
                 settings_spec.resolve_value(
                     db,
-                    notification_settings.domain,
+                    domain,
                     "subscriber_offline_outreach_cooldown_hours",
                 ),
                 72,
@@ -267,7 +265,7 @@ def _load_config(db: Session) -> OutreachConfig:
         message_template=str(
             settings_spec.resolve_value(
                 db,
-                notification_settings.domain,
+                domain,
                 "subscriber_offline_outreach_message_template",
             )
             or DEFAULT_TEMPLATE
@@ -276,7 +274,7 @@ def _load_config(db: Session) -> OutreachConfig:
         last_completed_date=_coerce_text(
             settings_spec.resolve_value(
                 db,
-                notification_settings.domain,
+                domain,
                 "subscriber_offline_outreach_last_completed_date",
             )
         ),
@@ -945,8 +943,8 @@ def _open_ticket_subscribers(
             Ticket.is_active.is_(True),
             Ticket.status.in_(OPEN_TICKET_STATUSES),
             or_(
-                Ticket.subscriber_id.in_(subscriber_ids) if subscriber_ids else False,
-                Ticket.customer_person_id.in_(person_ids) if person_ids else False,
+                Ticket.subscriber_id.in_(subscriber_ids) if subscriber_ids else false(),
+                Ticket.customer_person_id.in_(person_ids) if person_ids else false(),
             ),
         )
     ).all()
