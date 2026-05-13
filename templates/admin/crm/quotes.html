@@ -34,10 +34,10 @@
 
     {# Filters #}
     {% call filter_bar() %}
-    <form hx-get="/admin/crm/quotes" hx-target="#quotes-table" hx-trigger="submit, change from:select" class="flex flex-col gap-4 lg:flex-row lg:flex-nowrap lg:items-end">
+    <form hx-get="/admin/crm/quotes" hx-target="#quotes-table" hx-indicator="#quotes-filter-indicator" hx-trigger="submit, change from:select" class="flex flex-col gap-4 lg:flex-row lg:flex-nowrap lg:items-end">
         <div class="w-full lg:min-w-0 lg:flex-1">
             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Quotes</label>
-            {{ search_input("search", search or '', "Search by name, email, or quote ID...", "cyan", {"hx-get": "/admin/crm/quotes", "hx-target": "#quotes-table", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
+            {{ search_input("search", search or '', "Search by name, email, or quote ID...", "cyan", {"hx-get": "/admin/crm/quotes", "hx-target": "#quotes-table", "hx-indicator": "#quotes-filter-indicator", "hx-trigger": "keyup changed delay:300ms", "hx-include": "closest form"}) }}
         </div>
         <div class="w-full lg:w-48 lg:shrink-0">
             {% set status_options = [{"value": "", "label": "All Status"}] %}
@@ -59,12 +59,22 @@
         </div>
         {% endif %}
     </form>
+    <div class="relative min-h-8 pt-2" aria-live="polite">
+        <div id="quotes-filter-indicator" class="htmx-indicator absolute left-0 top-2 inline-flex items-center gap-2 rounded-lg bg-cyan-50 px-3 py-1.5 text-sm font-medium text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">
+            <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Updating results...
+        </div>
+        <div id="quotes-filter-error" class="absolute left-0 top-2 hidden rounded-lg bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300">
+            We could not update the quote list. Please try again.
+        </div>
+    </div>
     {% endcall %}
 
     {# Quotes Table #}
-    <div id="quotes-table" class="animate-fade-in-up" style="animation-delay: 150ms;">
-        {% include "admin/crm/_quotes_table.html" %}
-    </div>
+    {% include "admin/crm/_quotes_table.html" %}
 
     <!-- Bulk Actions Floating Bar -->
     <div x-show="selectedIds.length > 0"
@@ -318,5 +328,31 @@ function quotesList() {
         }
     };
 }
+</script>
+<script>
+(function() {
+    const errorEl = document.getElementById('quotes-filter-error');
+
+    function isQuotesTableRequest(event) {
+        const detail = event.detail || {};
+        const target = detail.target || null;
+        return target && target.id === 'quotes-table';
+    }
+
+    function hideFilterError(event) {
+        if (!isQuotesTableRequest(event) || !errorEl) return;
+        errorEl.classList.add('hidden');
+    }
+
+    function showFilterError(event) {
+        if (!isQuotesTableRequest(event) || !errorEl) return;
+        errorEl.classList.remove('hidden');
+    }
+
+    document.body.addEventListener('htmx:beforeRequest', hideFilterError);
+    document.body.addEventListener('htmx:responseError', showFilterError);
+    document.body.addEventListener('htmx:sendError', showFilterError);
+    document.body.addEventListener('htmx:timeout', showFilterError);
+})();
 </script>
 {% endblock %}
