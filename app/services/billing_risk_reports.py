@@ -1213,7 +1213,6 @@ def get_billing_risk_table(
                 "email": email_value,
                 "phone": _contact_phone(email_value, phone_value),
                 "city": city_value,
-                "location": _live_location_from_customer(customer),
                 "street": street_value,
                 "location": location_value,
                 "mrr_total": mrr_total_value,

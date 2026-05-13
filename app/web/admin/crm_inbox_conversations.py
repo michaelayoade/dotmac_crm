@@ -17,6 +17,7 @@ templates = Jinja2Templates(directory="templates")
 logger = logging.getLogger(__name__)
 _HOT_ENDPOINT_LOG_THRESHOLD_MS = 500.0
 
+
 def _parse_date_param(value: str | None, *, end_of_day: bool = False) -> datetime | None:
     """Parse a YYYY-MM-DD string into a timezone-aware datetime."""
     if not value:
@@ -46,14 +47,18 @@ async def inbox_summary_counts(
         current_user = get_current_user(request)
         assigned_person_id = current_user.get("person_id") if isinstance(current_user, dict) else None
         timezone = resolve_company_time_prefs(db)[0]
-        cache_key = inbox_cache.build_summary_counts_key({"assigned_person_id": assigned_person_id, "timezone": timezone})
+        cache_key = inbox_cache.build_summary_counts_key(
+            {"assigned_person_id": assigned_person_id, "timezone": timezone}
+        )
         cached_payload = inbox_cache.get(cache_key)
         if cached_payload is not None:
             cache_hit = True
             return JSONResponse(cached_payload)
 
         assignment_counts = inbox_cache.get_or_set(
-            inbox_cache.build_summary_counts_key({"kind": "assignment_counts", "assigned_person_id": assigned_person_id}),
+            inbox_cache.build_summary_counts_key(
+                {"kind": "assignment_counts", "assigned_person_id": assigned_person_id}
+            ),
             inbox_cache.SUMMARY_COUNTS_TTL_SECONDS,
             lambda: get_assignment_counts(db, assigned_person_id=assigned_person_id),
         )
@@ -113,7 +118,9 @@ async def inbox_conversations_partial(
         actor_sensitive_assignment = assignment_filter in {"assigned", "assigned_to_me", "mine", "my_team"}
         cache_key = inbox_cache.build_inbox_list_key(
             {
-                "actor": current_user.get("person_id") if actor_sensitive_assignment and isinstance(current_user, dict) else None,
+                "actor": current_user.get("person_id")
+                if actor_sensitive_assignment and isinstance(current_user, dict)
+                else None,
                 "channel": channel,
                 "status": status,
                 "outbox_status": outbox_status,
