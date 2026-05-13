@@ -105,6 +105,18 @@
                 </div>
             </div>
             <div>
+                <label for="billing-risk-location-filter" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Location</label>
+                <select
+                    id="billing-risk-location-filter"
+                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                >
+                    <option value="">All Locations</option>
+                    {% for location in live_location_options|default([]) %}
+                    <option value="{{ location }}" {% if location == live_location|default('') %}selected{% endif %}>{{ location }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
                 <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer Segment</label>
                 <div class="flex flex-wrap items-center gap-2">
                     <button type="button" data-customer-tier="all" class="billing-risk-tier-toggle inline-flex items-center rounded-full border border-rose-300 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700 transition dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200">All Customers</button>
@@ -151,6 +163,7 @@
         data-search="{{ live_search|default('') }}"
         data-location="{{ live_location|default('') }}"
         data-mrr-sort="{{ live_mrr }}"
+        data-location="{{ live_location|default('') }}"
         data-segments="{{ selected_segments|join(',') }}"
         data-customer-tier="all"
     >
@@ -592,6 +605,7 @@
                 params.set('location', filterState.location);
                 params.set('mrr_sort', filterState.mrrSort);
                 params.set('search', filterState.search);
+                params.set('location', filterState.location);
                 for (const segment of filterState.segments) {
                     params.append('segments', segment);
                 }
@@ -854,6 +868,7 @@
                 results.dataset.pageSize = String(filterState.pageSize);
                 results.dataset.search = filterState.search;
                 results.dataset.customerTier = filterState.customerTier;
+                results.dataset.location = filterState.location;
                 syncUrlState();
                 syncExportLink();
                 applyBucketButtonState();
@@ -914,6 +929,10 @@
             mrrSortSelect?.addEventListener('change', () => {
                 filterState.mrrSort = mrrSortSelect.value || '';
                 loadResults(1, true, { mrrSort: mrrSortSelect.value || '' });
+            });
+            locationSelect?.addEventListener('change', () => {
+                filterState.location = locationSelect.value || '';
+                loadResults(1, true);
             });
             exportLink?.addEventListener('click', (event) => {
                 event.preventDefault();

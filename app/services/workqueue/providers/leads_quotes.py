@@ -6,9 +6,8 @@ columns; per the implementation plan we derive them from
 and tickets providers.  Lead ownership uses the real ``Lead.owner_agent_id``
 column joined through ``CrmAgent.person_id``.
 
-The CRM `Quote` model has no owner column at all and no ``sent_at``
-column, so we stash ``owner_person_id`` and ``sent_at`` inside
-``Quote.metadata_`` (JSON).
+Quote ownership and sent timestamps are stored on first-class columns, with
+``Quote.metadata_`` kept as a fallback for legacy rows.
 
 This single provider returns items of two kinds (``ItemKind.lead`` and
 ``ItemKind.quote``); the aggregator partitions by ``item.kind`` so each
@@ -83,11 +82,11 @@ def _lead_last_activity_at(lead: Lead) -> datetime | None:
 
 
 def _quote_sent_at(q: Quote) -> datetime | None:
-    return _parse_dt(_meta(q).get("sent_at"))
+    return _parse_dt(getattr(q, "sent_at", None)) or _parse_dt(_meta(q).get("sent_at"))
 
 
 def _quote_owner_person_id(q: Quote) -> UUID | None:
-    return _parse_uuid(_meta(q).get("owner_person_id"))
+    return _parse_uuid(getattr(q, "owner_person_id", None)) or _parse_uuid(_meta(q).get("owner_person_id"))
 
 
 def _lead_visibility_source(lead: Lead, assignee_person_id: UUID | None, scope: WorkqueueScope) -> str:
@@ -221,8 +220,8 @@ class LeadsQuotesProvider:
             )
 
         # ---- Quotes -----------------------------------------------------
-        # Quote has no owner column; ownership is stored in metadata_.  We
-        # scope quotes via metadata-derived owner or related lead ownership.
+        # Scope quotes by first-class owner, legacy metadata owner, or related
+        # lead ownership.
         quote_stmt = select(Quote).where(Quote.is_active.is_(True)).where(Quote.status == QuoteStatus.sent)
         quote_stmt = apply_quote_scope(quote_stmt, scope)
         if snoozed_ids:

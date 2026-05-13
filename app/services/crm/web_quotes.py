@@ -305,7 +305,7 @@ def _normalized_form(form: QuoteUpsertInput, *, quote_id: str | None = None) -> 
     return data
 
 
-def create_quote(db: Session, *, form: QuoteUpsertInput, tax_rate_get) -> None:
+def create_quote(db: Session, *, form: QuoteUpsertInput, tax_rate_get, owner_person_id: str | None = None) -> None:
     quote = _normalized_form(form)
     quote_items = _as_quote_items(form)
     parsed_items = _parse_quote_line_items(quote_items)
@@ -355,6 +355,7 @@ def create_quote(db: Session, *, form: QuoteUpsertInput, tax_rate_get) -> None:
     payload = QuoteCreate(
         lead_id=_coerce_uuid_optional(lead_id_value),
         person_id=coerce_uuid(resolved_person_id),
+        owner_person_id=_coerce_uuid_optional(owner_person_id),
         status=status_enum,
         currency=currency_value or "NGN",
         subtotal=subtotal_val,

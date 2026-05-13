@@ -380,10 +380,11 @@ def apply_quote_scope(stmt, scope: WorkqueueScope):
             scope,
             "quote",
             "include_profile_owned_records",
-            resolved_profile_source="quote.metadata.owner_person_id_or_lead.owner_agent.person_id",
+            resolved_profile_source="quote.owner_person_id_or_metadata_owner_or_lead.owner_agent.person_id",
         )
         return stmt.where(
             or_(
+                Quote.owner_person_id == scope.person_id,
                 Quote.metadata_["owner_person_id"].as_string() == str(scope.person_id),
                 lead_owner_agent.person_id == scope.person_id,
             )
@@ -392,6 +393,7 @@ def apply_quote_scope(stmt, scope: WorkqueueScope):
     if scope.audience is WorkqueueAudience.team:
         quote_filters = []
         if owner_person_ids:
+            quote_filters.append(Quote.owner_person_id.in_(scope.accessible_person_ids))
             quote_filters.append(Quote.metadata_["owner_person_id"].as_string().in_(owner_person_ids))
             quote_filters.append(lead_owner_agent.person_id.in_(scope.accessible_person_ids))
         if not quote_filters:
@@ -401,7 +403,7 @@ def apply_quote_scope(stmt, scope: WorkqueueScope):
             scope,
             "quote",
             "include_team_profile_owned_records",
-            resolved_profile_source="quote.metadata.owner_person_id_or_lead.owner_agent.person_id",
+            resolved_profile_source="quote.owner_person_id_or_metadata_owner_or_lead.owner_agent.person_id",
         )
         return stmt.where(or_(*quote_filters))
 
@@ -409,10 +411,14 @@ def apply_quote_scope(stmt, scope: WorkqueueScope):
         scope,
         "quote",
         "include_owned_records_only",
-        resolved_profile_source="quote.metadata.owner_person_id_or_lead.owner_agent_id",
+        resolved_profile_source="quote.owner_person_id_or_metadata_owner_or_lead.owner_agent_id",
     )
     return stmt.where(
-        or_(Quote.metadata_["owner_person_id"].as_string().isnot(None), lead_alias.owner_agent_id.isnot(None))
+        or_(
+            Quote.owner_person_id.isnot(None),
+            Quote.metadata_["owner_person_id"].as_string().isnot(None),
+            lead_alias.owner_agent_id.isnot(None),
+        )
     )
 
 

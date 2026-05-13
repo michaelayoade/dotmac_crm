@@ -285,6 +285,7 @@ def get_billing_risk_table(
                 str(row.get("phone") or ""),
                 str(row.get("city") or ""),
                 str(row.get("street") or ""),
+                str(row.get("location") or ""),
                 str(row.get("area") or ""),
                 str(row.get("location") or ""),
                 str(row.get("plan") or ""),
@@ -391,6 +392,17 @@ def get_billing_risk_table(
     }
 
     customers = _call_splynx("fetch_customers", fetch_customers)
+    try:
+        locations_payload = _call_splynx("fetch_locations", fetch_locations)
+    except Exception:
+        locations_payload = []
+    locations_by_id = {
+        str(location.get("id") or "").strip(): str(location.get("name") or "").strip()
+        for location in locations_payload
+        if isinstance(location, Mapping)
+        and str(location.get("id") or "").strip()
+        and str(location.get("name") or "").strip()
+    }
     live_results: list[dict] = []
     customer_emails = {
         str(customer.get("email") or "").strip().lower()
@@ -1019,6 +1031,16 @@ def get_billing_risk_table(
             return street
         return ""
 
+    def _live_location_from_customer(customer_payload: Mapping[str, Any], locations_by_id: Mapping[str, str]) -> str:
+        for key in ("location", "location_name", "location_title"):
+            text = str(customer_payload.get(key) or "").strip()
+            if text:
+                return text
+        location_id = str(customer_payload.get("location_id") or customer_payload.get("locationId") or "").strip()
+        if location_id:
+            return locations_by_id.get(location_id) or location_id
+        return ""
+
     def _live_billing_text(payload: Mapping[str, Any] | None, *keys: str) -> str:
         if not isinstance(payload, Mapping):
             return ""
@@ -1172,6 +1194,7 @@ def get_billing_risk_table(
             )
         )
         street_value = _live_street_address(customer, cached_subscriber)
+        location_value = _live_location_from_customer(customer, locations_by_id)
         subscriber_id_key = str(cached_subscriber.get("id") or "").strip()
         person_id_key = str(cached_subscriber.get("person_id") or "").strip()
         if not person_id_key and email_value:
@@ -1190,8 +1213,8 @@ def get_billing_risk_table(
                 "email": email_value,
                 "phone": _contact_phone(email_value, phone_value),
                 "city": city_value,
-                "location": _live_location_from_customer(customer),
                 "street": street_value,
+                "location": location_value,
                 "mrr_total": mrr_total_value,
                 "subscriber_status": status_value.replace("_", " ").title(),
                 "area": area_value,
@@ -1265,7 +1288,11 @@ def get_billing_risk_table(
             row for row in live_results if str(row.get("location") or "").strip().casefold() == normalized_location
         ]
     live_results = [
-        row for row in live_results if _matches_search(row) and _matches_overdue_bucket(row.get("blocked_for_days"))
+        row
+        for row in live_results
+        if _matches_search(row)
+        and _matches_overdue_bucket(row.get("blocked_for_days"))
+        and (not normalized_location or str(row.get("location") or "").strip().casefold() == normalized_location)
     ]
     if normalized_mrr_sort == "desc":
         live_results.sort(
