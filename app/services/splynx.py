@@ -305,6 +305,7 @@ def fetch_locations(db: Session) -> list[dict[str, Any]]:
         logger.warning("splynx_fetch_locations_failed error=%s", str(exc))
         return []
 
+
 def fetch_monitoring_devices(db: Session) -> list[dict[str, Any]]:
     """Fetch monitoring device rows from Splynx."""
     config = _get_config(db)
