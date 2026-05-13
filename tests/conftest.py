@@ -795,9 +795,8 @@ def lead_factory(db_session):
 def quote_factory(db_session):
     """Factory for building CRM quotes in workqueue tests.
 
-    The `Quote` model has no `owner_person_id`, `sent_at`, or `short_id`
-    columns; we stash `owner_person_id` and `sent_at` in `metadata_` (JSON)
-    since that is exactly how the Workqueue leads_quotes provider reads them.
+    Quote ownership and sent timestamps are first-class columns. Metadata is
+    still populated for compatibility with legacy rows.
     """
     from datetime import datetime as _dt
 
@@ -807,6 +806,7 @@ def quote_factory(db_session):
     def _factory(
         *,
         owner_person_id: uuid.UUID | None = None,
+        lead_id: uuid.UUID | None = None,
         status: QuoteStatus = QuoteStatus.draft,
         expires_at: _dt | None = None,
         sent_at: _dt | None = None,
@@ -840,8 +840,11 @@ def quote_factory(db_session):
 
         kwargs: dict = {
             "person_id": contact.id,
+            "lead_id": lead_id,
+            "owner_person_id": owner_person_id,
             "status": status,
             "expires_at": expires_at,
+            "sent_at": sent_at,
             "metadata_": meta or None,
         }
         if total is not None:

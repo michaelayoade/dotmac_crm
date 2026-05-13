@@ -529,47 +529,6 @@ def _retention_search_customer_ids(db: Session, search: str) -> list[str]:
     return customer_ids
 
 
-def _retention_saved_only_rows(
-    db: Session,
-    *,
-    customer_ids: list[str],
-    existing_customer_ids: set[str],
-) -> list[dict]:
-    rows: list[dict] = []
-    can_query_subscribers = hasattr(db, "query")
-    for customer_id in customer_ids:
-        normalized = str(customer_id or "").strip()
-        if not normalized or normalized in existing_customer_ids:
-            continue
-        subscriber = None
-        if can_query_subscribers:
-            subscriber = db.query(Subscriber).filter(Subscriber.external_id == normalized).first()
-        person = subscriber.person if subscriber and subscriber.person else None
-        rows.append(
-            {
-                "_external_id": normalized,
-                "subscriber_id": str(subscriber.id) if subscriber else "",
-                "_subscriber_number": subscriber.subscriber_number if subscriber else "",
-                "name": (
-                    (person.display_name if person else None)
-                    or (f"{person.first_name or ''} {person.last_name or ''}".strip() if person else "")
-                    or normalized
-                ),
-                "phone": (person.phone if person else "") or "",
-                "email": (person.email if person else "") or "",
-                "city": (person.city if person else "") or "",
-                "area": "",
-                "balance": 0,
-                "risk_segment": "Saved Only",
-                "days_past_due": 0,
-                "blocked_for_days": None,
-                "retention_stage": "Saved retention history",
-                "recommended_action": "Open profile and continue follow-up from saved retention history.",
-            }
-        )
-    return rows
-
-
 def _retention_customer_id(row: dict) -> str:
     return str(row.get("_external_id") or row.get("subscriber_id") or row.get("_subscriber_number") or "").strip()
 
@@ -1154,6 +1113,11 @@ def _retention_billing_rows_for_customer_ids(
     return [row for row in rows if _retention_customer_id(row) in set(normalized_customer_ids)]
 
 
+def _retention_saved_only_rows(*_args, **_kwargs) -> list[dict]:
+    """Compatibility seam for tests and older retention route patches."""
+    return []
+
+
 def _retention_tracker_kpis(churn_rows: list[dict]) -> dict[str, int | float]:
     recovery_segments = {"Suspended", "Due Soon"}
     tracked_count = len(churn_rows)
@@ -1213,6 +1177,9 @@ def subscriber_billing_risk(
     normalized_location = normalized_location.strip()
     normalized_customer_segment = "all"
     normalized_enterprise_only = False
+    normalized_location = (
+        request.query_params.get("location") or (location if isinstance(location, str) else "")
+    ).strip()
     query_mrr_sort = request.query_params.get("mrr_sort")
     normalized_mrr_sort = (
         (query_mrr_sort if query_mrr_sort is not None else (mrr_sort if isinstance(mrr_sort, str) else ""))
@@ -1553,13 +1520,6 @@ def customer_retention_tracker(
     tracker_customer_ids = [_retention_customer_id(row) for row in tracker_rows]
     engagement_history = _retention_engagements_by_customer(db, tracker_customer_ids)
     tracker_rows = [row for row in tracker_rows if engagement_history.get(_retention_customer_id(row))]
-    tracker_rows.extend(
-        _retention_saved_only_rows(
-            db,
-            customer_ids=list(engagement_history.keys()),
-            existing_customer_ids={_retention_customer_id(row) for row in tracker_rows},
-        )
-    )
     raw_search = request.query_params.get("search")
     search_term = (
         raw_search.strip() if isinstance(raw_search, str) else (search.strip() if isinstance(search, str) else "")
@@ -1567,13 +1527,6 @@ def customer_retention_tracker(
     if search_term:
         matched_customer_ids = _retention_search_customer_ids(db, search_term)
         engagement_history.update(_retention_engagements_by_customer(db, matched_customer_ids))
-        tracker_rows.extend(
-            _retention_saved_only_rows(
-                db,
-                customer_ids=matched_customer_ids,
-                existing_customer_ids={_retention_customer_id(row) for row in tracker_rows},
-            )
-        )
         search_casefold = search_term.casefold()
         filtered_rows: list[dict] = []
         for row in tracker_rows:
@@ -2050,6 +2003,9 @@ def subscriber_billing_risk_rows(
     ).strip() or "all"
     normalized_customer_segment = "all"
     normalized_enterprise_only = False
+    normalized_location = (
+        request.query_params.get("location") or (location if isinstance(location, str) else "")
+    ).strip()
     query_mrr_sort = request.query_params.get("mrr_sort")
     normalized_mrr_sort = (
         (query_mrr_sort if query_mrr_sort is not None else (mrr_sort if isinstance(mrr_sort, str) else ""))
