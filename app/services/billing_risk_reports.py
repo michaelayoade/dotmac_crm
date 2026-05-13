@@ -381,16 +381,6 @@ def get_billing_risk_table(
             cache_scope=read_fn,
         )
 
-    try:
-        location_rows = _call_splynx("fetch_locations", fetch_locations)
-    except Exception:
-        location_rows = []
-    location_name_by_id = {
-        str(row.get("id") or "").strip(): str(row.get("name") or "").strip()
-        for row in location_rows
-        if isinstance(row, Mapping) and str(row.get("id") or "").strip()
-    }
-
     customers = _call_splynx("fetch_customers", fetch_customers)
     try:
         locations_payload = _call_splynx("fetch_locations", fetch_locations)
@@ -934,16 +924,6 @@ def get_billing_risk_table(
                         return direct_area
         return ""
 
-    def _live_location_from_customer(customer_payload: Mapping[str, Any]) -> str:
-        for key in ("location_name", "location", "location_title"):
-            text = str(customer_payload.get(key) or "").strip()
-            if text:
-                return text
-        location_id = str(customer_payload.get("location_id") or customer_payload.get("locationId") or "").strip()
-        if location_id:
-            return location_name_by_id.get(location_id, "")
-        return ""
-
     def _infer_city(*values: object) -> str:
         haystack = " ".join(str(value or "") for value in values).strip()
         if not haystack:
@@ -1036,7 +1016,7 @@ def get_billing_risk_table(
             text = str(customer_payload.get(key) or "").strip()
             if text:
                 return text
-        location_id = str(customer_payload.get("location_id") or "").strip()
+        location_id = str(customer_payload.get("location_id") or customer_payload.get("locationId") or "").strip()
         if location_id:
             return locations_by_id.get(location_id) or location_id
         return ""
