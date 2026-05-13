@@ -40,6 +40,33 @@ def auto_resolve_idle_conversations_task():
         observe_job("auto_resolve_idle_conversations", status, time.monotonic() - start)
 
 
+@celery_app.task(name="app.tasks.crm_inbox.reopen_due_snoozed_conversations")
+def reopen_due_snoozed_conversations_task():
+    """Reopen snoozed conversations whose due time has elapsed."""
+    import logging
+    import time
+
+    from app.metrics import observe_job
+    from app.services.crm.inbox.conversation_status import reopen_due_snoozed_conversations
+
+    logger = logging.getLogger(__name__)
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger.info("CRM_INBOX_REOPEN_SNOOZED_START")
+    try:
+        reopened = reopen_due_snoozed_conversations(session)
+        logger.info("CRM_INBOX_REOPEN_SNOOZED_COMPLETE reopened=%s", reopened)
+        return {"reopened": int(reopened or 0)}
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("crm_inbox_reopen_due_snoozed", status, time.monotonic() - start)
+
+
 @celery_app.task(name="app.tasks.crm_inbox.send_reply_reminders")
 def send_reply_reminders_task():
     # Temporary operational safety switch: disable heavy reminder scanning.
