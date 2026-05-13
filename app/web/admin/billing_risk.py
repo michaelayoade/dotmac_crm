@@ -14,13 +14,15 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.csrf import get_csrf_token
-from app.db import get_db
+from app.db import end_read_only_transaction, get_db
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
 from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.person import Person
 from app.models.service_team import ServiceTeam, ServiceTeamMember
 from app.models.subscriber import Subscriber
+from app.services import billing_risk_cache
 from app.services import billing_risk_reports as billing_risk_service
 from app.services.common import coerce_uuid
 from app.services.crm.web_campaigns import create_billing_risk_outreach_campaign, outreach_channel_target_options
@@ -144,6 +146,10 @@ def _latest_subscriber_sync_at(db: Session) -> datetime | None:
     return latest.astimezone(UTC)
 
 
+def _billing_risk_cache_available(db: Session | object) -> bool:
+    return hasattr(db, "query")
+
+
 def _billing_risk_page_metrics(churn_rows: list[dict]) -> dict[str, int | float]:
     total_count = len(churn_rows)
     total_balance = round(sum(float(row.get("balance") or 0) for row in churn_rows), 2)
@@ -201,6 +207,95 @@ def _billing_risk_page_rows(
         billing_risk_service.enrich_billing_risk_rows(visible_rows)
     _enrich_missing_blocked_fields(visible_rows, force_live=False)
     return visible_rows, _billing_risk_page_metrics(visible_rows), has_next
+
+
+def _billing_risk_rows_source(
+    db: Session,
+    *,
+    due_soon_days: int,
+    high_balance_only: bool,
+    segment: str | None,
+    selected_segments: list[str],
+    days_past_due: str | None,
+    search: str | None,
+    overdue_bucket: str | None,
+    enterprise_only: bool = False,
+    customer_segment: str | None = None,
+    location: str | None = None,
+    mrr_sort: str | None = None,
+    limit: int = 6000,
+) -> tuple[list[dict], dict[str, object]]:
+    normalized_customer_segment = customer_segment or "all"
+    normalized_enterprise_only = bool(enterprise_only)
+    normalized_location = (location if isinstance(location, str) else "").strip()
+    if (
+        settings.billing_risk_route_use_cache
+        and _billing_risk_cache_available(db)
+        and not normalized_enterprise_only
+        and normalized_customer_segment == "all"
+    ):
+        rows = billing_risk_cache.all_cached_rows(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=high_balance_only,
+            selected_segments=selected_segments,
+            days_past_due=days_past_due,
+            search=search,
+            overdue_bucket=overdue_bucket,
+            location=normalized_location,
+            limit=limit,
+        )
+        return rows, {
+            "mode": "cache",
+            "metadata": billing_risk_cache.cache_metadata(db),
+        }
+    rows = billing_risk_service.get_billing_risk_table(
+        db,
+        due_soon_days=due_soon_days,
+        high_balance_only=high_balance_only,
+        segment=segment,
+        segments=selected_segments,
+        days_past_due=days_past_due,
+        limit=limit,
+        search=search,
+        overdue_bucket=overdue_bucket,
+        enterprise_only=normalized_enterprise_only,
+        customer_segment=normalized_customer_segment,
+        location=normalized_location,
+        mrr_sort=mrr_sort,
+        enrich_visible_rows=False,
+    )
+    return rows, {"mode": "live", "metadata": {"row_count": len(rows)}}
+
+
+def _billing_risk_cached_page_rows(
+    db: Session,
+    *,
+    due_soon_days: int,
+    high_balance_only: bool,
+    selected_segments: list[str],
+    days_past_due: str | None,
+    page: int,
+    page_size: int,
+    search: str | None,
+    overdue_bucket: str | None,
+    location: str | None = None,
+) -> tuple[list[dict], dict[str, int | float], bool]:
+    cached_page = billing_risk_cache.list_cached_rows(
+        db,
+        due_soon_days=due_soon_days,
+        high_balance_only=high_balance_only,
+        selected_segments=selected_segments,
+        days_past_due=days_past_due,
+        page=page,
+        page_size=page_size,
+        search=search,
+        overdue_bucket=overdue_bucket,
+        location=location,
+    )
+    visible_rows = [dict(row) for row in cached_page.rows]
+    _enrich_missing_blocked_fields(visible_rows, force_live=False)
+    return visible_rows, cached_page.page_metrics, cached_page.has_next
 
 
 def _billing_risk_initial_rows(
@@ -385,6 +480,21 @@ def _retention_engagements_by_customer(db: Session, customer_ids: list[str]) -> 
     for row in rows:
         grouped.setdefault(row.customer_external_id, []).append(_retention_engagement_payload(row))
     return grouped
+
+
+def _retention_active_customer_ids(db: Session) -> list[str]:
+    rows = db.execute(
+        select(CustomerRetentionEngagement.customer_external_id)
+        .where(CustomerRetentionEngagement.is_active.is_(True))
+        .group_by(CustomerRetentionEngagement.customer_external_id)
+        .order_by(func.max(CustomerRetentionEngagement.created_at).desc())
+    ).all()
+    customer_ids: list[str] = []
+    for (customer_id,) in rows:
+        normalized = str(customer_id or "").strip()
+        if normalized:
+            customer_ids.append(normalized)
+    return customer_ids
 
 
 def _retention_search_customer_ids(db: Session, search: str) -> list[str]:
@@ -961,6 +1071,48 @@ def _retention_tracker_rows(churn_rows: list[dict], *, limit: int = 100) -> list
     return tracker_rows[:limit]
 
 
+def _retention_billing_rows_for_customer_ids(
+    db: Session,
+    *,
+    customer_ids: list[str],
+    due_soon_days: int,
+    high_balance_only: bool = False,
+    segment: str | None = None,
+    selected_segments: list[str] | None = None,
+    days_past_due: str | None = None,
+    search: str | None = None,
+    limit: int = 6000,
+) -> list[dict]:
+    normalized_customer_ids = sorted(
+        {str(customer_id or "").strip() for customer_id in customer_ids if str(customer_id or "").strip()}
+    )
+    if not normalized_customer_ids:
+        return []
+    if settings.customer_retention_route_use_cache and _billing_risk_cache_available(db):
+        return billing_risk_cache.cached_rows_by_external_ids(
+            db,
+            normalized_customer_ids,
+            due_soon_days=due_soon_days,
+            high_balance_only=high_balance_only,
+            selected_segments=selected_segments,
+            days_past_due=days_past_due,
+            search=search,
+            limit=limit,
+        )
+    rows = billing_risk_service.get_billing_risk_table(
+        db,
+        due_soon_days=due_soon_days,
+        high_balance_only=high_balance_only,
+        segment=segment,
+        segments=selected_segments,
+        days_past_due=days_past_due,
+        limit=limit,
+        search=search,
+        enrich_visible_rows=False,
+    )
+    return [row for row in rows if _retention_customer_id(row) in set(normalized_customer_ids)]
+
+
 def _retention_tracker_kpis(churn_rows: list[dict]) -> dict[str, int | float]:
     recovery_segments = {"Suspended", "Due Soon"}
     tracked_count = len(churn_rows)
@@ -1028,54 +1180,122 @@ def subscriber_billing_risk(
         query_segments if query_segments else segments,
         query_segment or segment,
     )
-    initial_rows = billing_risk_service.get_billing_risk_table(
-        db,
-        due_soon_days=due_soon_days,
-        high_balance_only=high_balance_only,
-        segment=segment,
-        segments=selected_segments,
-        days_past_due=query_days_past_due or days_past_due,
-        limit=51,
-        page=1,
-        page_size=51,
-        search=normalized_search,
-        overdue_bucket=normalized_bucket,
-        enterprise_only=normalized_enterprise_only,
-        customer_segment=normalized_customer_segment,
-        location=normalized_location,
-        mrr_sort=normalized_mrr_sort,
-        enrich_visible_rows=False,
-    )
     selected_labels = _segment_labels(selected_segments)
-    if selected_labels:
-        initial_rows = [row for row in initial_rows if str(row.get("risk_segment") or "") in selected_labels]
-    full_metric_rows = billing_risk_service.get_billing_risk_table(
-        db,
-        due_soon_days=due_soon_days,
-        high_balance_only=high_balance_only,
-        segment=segment,
-        segments=selected_segments,
-        days_past_due=query_days_past_due or days_past_due,
-        limit=10000,
-        search=normalized_search,
-        overdue_bucket=normalized_bucket,
-        enterprise_only=normalized_enterprise_only,
-        customer_segment=normalized_customer_segment,
-        location=normalized_location,
-        mrr_sort=normalized_mrr_sort,
-        enrich_visible_rows=False,
+    cache_eligible = (
+        settings.billing_risk_route_use_cache
+        and _billing_risk_cache_available(db)
+        and not normalized_enterprise_only
+        and normalized_customer_segment == "all"
     )
-    if selected_labels:
-        full_metric_rows = [row for row in full_metric_rows if str(row.get("risk_segment") or "") in selected_labels]
-    page_rows, page_metrics, has_next = _billing_risk_initial_rows(initial_rows, page_size=50)
+    if cache_eligible:
+        cached_page = billing_risk_cache.list_cached_rows(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=high_balance_only,
+            selected_segments=selected_segments,
+            days_past_due=query_days_past_due or days_past_due,
+            search=normalized_search,
+            overdue_bucket=normalized_bucket,
+            location=normalized_location,
+            page=1,
+            page_size=50,
+        )
+        page_rows = [dict(row) for row in cached_page.rows]
+        page_metrics = cached_page.page_metrics
+        has_next = cached_page.has_next
+        full_metric_rows: list[dict] = []
+        end_read_only_transaction(db)
+        billing_risk_route_state = {
+            "mode": "cache",
+            "metadata": billing_risk_cache.cache_metadata(db),
+            "cached_metrics": True,
+        }
+    else:
+        initial_rows, _initial_route_state = _billing_risk_rows_source(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=high_balance_only,
+            segment=segment,
+            selected_segments=selected_segments,
+            days_past_due=query_days_past_due or days_past_due,
+            search=normalized_search,
+            overdue_bucket=normalized_bucket,
+            enterprise_only=normalized_enterprise_only,
+            customer_segment=normalized_customer_segment,
+            location=normalized_location,
+            mrr_sort=normalized_mrr_sort,
+            limit=51,
+        )
+        if selected_labels:
+            initial_rows = [row for row in initial_rows if str(row.get("risk_segment") or "") in selected_labels]
+        full_metric_rows, billing_risk_route_state = _billing_risk_rows_source(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=high_balance_only,
+            segment=segment,
+            selected_segments=selected_segments,
+            days_past_due=query_days_past_due or days_past_due,
+            search=normalized_search,
+            overdue_bucket=normalized_bucket,
+            enterprise_only=normalized_enterprise_only,
+            customer_segment=normalized_customer_segment,
+            location=normalized_location,
+            mrr_sort=normalized_mrr_sort,
+            limit=10000,
+        )
+        end_read_only_transaction(db)
+        if selected_labels:
+            full_metric_rows = [
+                row for row in full_metric_rows if str(row.get("risk_segment") or "") in selected_labels
+            ]
+        page_rows, page_metrics, has_next = _billing_risk_initial_rows(initial_rows, page_size=50)
     overdue_invoices = billing_risk_service.get_overdue_invoices_table(
         db,
         min_days_past_due=overdue_invoice_days,
         limit=250,
     )
-    kpis = billing_risk_service.get_billing_risk_summary(full_metric_rows, overdue_invoices)
-    segment_breakdown = billing_risk_service.get_billing_risk_segment_breakdown(full_metric_rows)
-    aging_buckets = billing_risk_service.get_billing_risk_aging_buckets(full_metric_rows)
+    billing_risk_cache_metadata = billing_risk_route_state.get("metadata") or {"row_count": len(full_metric_rows)}
+    sidebar_stats = get_sidebar_stats(db)
+    last_synced_at = _latest_subscriber_sync_at(db)
+    rep_options = _retention_rep_options(db)
+    outreach_targets = outreach_channel_target_options(db)
+    if billing_risk_route_state.get("cached_metrics"):
+        overdue_invoice_balance = round(sum(float(row.get("total_balance_due") or 0) for row in overdue_invoices), 2)
+        kpis = billing_risk_cache.summary_cached(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=high_balance_only,
+            selected_segments=selected_segments,
+            days_past_due=query_days_past_due or days_past_due,
+            search=normalized_search,
+            overdue_bucket=normalized_bucket,
+            location=normalized_location,
+            overdue_invoice_balance=overdue_invoice_balance,
+        )
+        segment_breakdown = billing_risk_cache.segment_breakdown_cached(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=high_balance_only,
+            selected_segments=selected_segments,
+            days_past_due=query_days_past_due or days_past_due,
+            search=normalized_search,
+            overdue_bucket=normalized_bucket,
+            location=normalized_location,
+        )
+        aging_buckets = billing_risk_cache.aging_buckets_cached(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=high_balance_only,
+            selected_segments=selected_segments,
+            days_past_due=query_days_past_due or days_past_due,
+            search=normalized_search,
+            overdue_bucket=normalized_bucket,
+            location=normalized_location,
+        )
+    else:
+        kpis = billing_risk_service.get_billing_risk_summary(full_metric_rows, overdue_invoices)
+        segment_breakdown = billing_risk_service.get_billing_risk_segment_breakdown(full_metric_rows)
+        aging_buckets = billing_risk_service.get_billing_risk_aging_buckets(full_metric_rows)
 
     export_query = urlencode(
         {
@@ -1166,7 +1386,7 @@ def subscriber_billing_risk(
             "request": request,
             "user": user,
             "current_user": user,
-            "sidebar_stats": get_sidebar_stats(db),
+            "sidebar_stats": sidebar_stats,
             "active_page": "subscriber-billing-risk",
             "active_menu": "reports",
             "kpis": kpis,
@@ -1185,8 +1405,9 @@ def subscriber_billing_risk(
             "segment_all_query": segment_all_query,
             "segment_due_soon_query": segment_due_soon_query,
             "segment_suspended_query": segment_suspended_query,
-            "last_synced_at": _latest_subscriber_sync_at(db),
-            "billing_risk_cache": {"row_count": len(full_metric_rows)},
+            "last_synced_at": last_synced_at,
+            "billing_risk_cache": billing_risk_cache_metadata,
+            "billing_risk_route_mode": billing_risk_route_state.get("mode", "live"),
             "csrf_token": get_csrf_token(request),
             "refresh_started": request.query_params.get("refresh_started") == "1",
             "refresh_error": request.query_params.get("refresh_error"),
@@ -1194,24 +1415,33 @@ def subscriber_billing_risk(
             "live_page_size": 50,
             "live_has_next": has_next,
             "live_search": normalized_search or "",
-            "live_bucket": normalized_bucket,
-            "live_mrr_sort": normalized_mrr_sort,
             "live_location": normalized_location,
             "live_location_options": sorted(
-                {
+                billing_risk_cache.location_options_cached(
+                    db,
+                    due_soon_days=due_soon_days,
+                    high_balance_only=high_balance_only,
+                    selected_segments=selected_segments,
+                    days_past_due=query_days_past_due or days_past_due,
+                    search=normalized_search,
+                    overdue_bucket=normalized_bucket,
+                )
+                if billing_risk_route_state.get("cached_metrics")
+                else {
                     str(row.get("location") or "").strip()
                     for row in full_metric_rows
                     if str(row.get("location") or "").strip()
-                },
-                key=str.casefold,
+                }
             ),
+            "live_bucket": normalized_bucket,
+            "live_mrr_sort": normalized_mrr_sort,
             "page_metrics": page_metrics,
             "page": 1,
             "has_prev": False,
             "has_next": has_next,
-            "rep_options": _retention_rep_options(db),
+            "rep_options": rep_options,
             "enterprise_mrr_threshold": ENTERPRISE_MRR_THRESHOLD,
-            "outreach_channel_targets": outreach_channel_target_options(db),
+            "outreach_channel_targets": outreach_targets,
         },
     )
 
@@ -1235,16 +1465,47 @@ def customer_retention_tracker(
         query_segments if query_segments else segments,
         query_segment or segment,
     )
-    churn_rows = billing_risk_service.get_billing_risk_table(
-        db,
-        due_soon_days=due_soon_days,
-        high_balance_only=high_balance_only,
-        segment=segment,
-        segments=selected_segments,
-        days_past_due=query_days_past_due or days_past_due,
-        limit=6000,
-        enrich_visible_rows=False,
-    )
+    search_text = (search.strip() if isinstance(search, str) else "") or None
+    tracker_customer_ids: list[str] = []
+    if hasattr(db, "execute"):
+        tracker_customer_ids = _retention_active_customer_ids(db)
+        if search_text:
+            tracker_customer_ids = list(
+                dict.fromkeys(tracker_customer_ids + _retention_search_customer_ids(db, search_text))
+            )
+    if tracker_customer_ids:
+        churn_rows = _retention_billing_rows_for_customer_ids(
+            db,
+            customer_ids=tracker_customer_ids,
+            due_soon_days=due_soon_days,
+            high_balance_only=high_balance_only,
+            segment=segment,
+            selected_segments=selected_segments,
+            days_past_due=query_days_past_due or days_past_due,
+            search=search_text,
+            limit=6000,
+        )
+    elif settings.customer_retention_route_use_cache and _billing_risk_cache_available(db):
+        churn_rows = billing_risk_cache.all_cached_rows(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=high_balance_only,
+            selected_segments=selected_segments,
+            days_past_due=query_days_past_due or days_past_due,
+            search=search_text,
+            limit=6000,
+        )
+    else:
+        churn_rows = billing_risk_service.get_billing_risk_table(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=high_balance_only,
+            segment=segment,
+            segments=selected_segments,
+            days_past_due=query_days_past_due or days_past_due,
+            limit=6000,
+            enrich_visible_rows=False,
+        )
     tracker_rows = _retention_tracker_rows(churn_rows, limit=6000)
     tracker_customer_ids = [_retention_customer_id(row) for row in tracker_rows]
     engagement_history = _retention_engagements_by_customer(db, tracker_customer_ids)
@@ -1329,6 +1590,9 @@ def customer_retention_tracker(
             "last_synced_at": _latest_subscriber_sync_at(db),
             "outreach_channel_targets": outreach_channel_target_options(db),
             "outreach_error": request.query_params.get("outreach_error"),
+            "customer_retention_route_mode": "cache"
+            if settings.customer_retention_route_use_cache and _billing_risk_cache_available(db)
+            else "live",
         },
     )
 
@@ -1447,23 +1711,28 @@ def customer_retention_tracker_detail(
     due_soon_days: int = Query(7, ge=1, le=30),
 ):
     user = get_current_user(request)
-    churn_rows = billing_risk_service.get_billing_risk_table(
-        db,
-        due_soon_days=due_soon_days,
-        limit=6000,
-        enrich_visible_rows=False,
-    )
-    customer = next(
-        (row for row in churn_rows if _retention_customer_id(row) == str(customer_id)),
-        None,
-    )
+    normalized_customer_id = str(customer_id or "").strip()
+    if settings.customer_retention_route_use_cache and _billing_risk_cache_available(db):
+        customer = billing_risk_cache.cached_row_by_external_id(
+            db,
+            normalized_customer_id,
+            due_soon_days=due_soon_days,
+        )
+    else:
+        customer_rows = _retention_billing_rows_for_customer_ids(
+            db,
+            customer_ids=[normalized_customer_id],
+            due_soon_days=due_soon_days,
+            limit=1,
+        )
+        customer = customer_rows[0] if customer_rows else None
     if customer is not None:
         visible_customer = dict(customer)
         billing_risk_service.enrich_billing_risk_rows([visible_customer])
     else:
         visible_customer = {
             "name": "Unknown customer",
-            "_external_id": customer_id,
+            "_external_id": normalized_customer_id,
             "plan": "",
             "mrr_total": 0,
             "balance": 0,
@@ -1472,7 +1741,9 @@ def customer_retention_tracker_detail(
             "blocked_for_days": None,
         }
 
-    engagement_history = _retention_engagements_by_customer(db, [customer_id]).get(customer_id, [])
+    engagement_history = _retention_engagements_by_customer(db, [normalized_customer_id]).get(
+        normalized_customer_id, []
+    )
     latest_engagement = engagement_history[0] if engagement_history else None
     pipeline_stage = _pipeline_stage_from_engagement(latest_engagement)
     follow_up_due_label = ""
@@ -1496,7 +1767,7 @@ def customer_retention_tracker_detail(
             "active_page": "customer-retention",
             "active_menu": "reports",
             "customer": visible_customer,
-            "customer_id": customer_id,
+            "customer_id": normalized_customer_id,
             "engagement_history": engagement_history,
             "pipeline_steps": RETENTION_PIPELINE_STEPS,
             "pipeline_stage": pipeline_stage,
@@ -1504,6 +1775,9 @@ def customer_retention_tracker_detail(
             "rep_options": _retention_rep_options(db),
             "saved": request.query_params.get("saved"),
             "back_url": "/admin/reports/subscribers/billing-risk",
+            "customer_retention_route_mode": "cache"
+            if settings.customer_retention_route_use_cache and _billing_risk_cache_available(db)
+            else "live",
         },
     )
 
@@ -1535,15 +1809,14 @@ def customer_retention_create_outreach(
         )
 
     selected_segments = _normalize_segment_filters(segments, None)
-    churn_rows = billing_risk_service.get_billing_risk_table(
+    churn_rows = _retention_billing_rows_for_customer_ids(
         db,
+        customer_ids=selected_customer_ids,
         due_soon_days=due_soon_days,
         high_balance_only=high_balance_only,
-        segment=None,
-        segments=selected_segments,
+        selected_segments=selected_segments,
         days_past_due=days_past_due or None,
-        limit=6000,
-        enrich_visible_rows=False,
+        limit=len(selected_customer_ids),
     )
     tracker_rows = _retention_tracker_rows(churn_rows, limit=6000)
     engagement_history = _retention_engagements_by_customer(db, [_retention_customer_id(row) for row in tracker_rows])
@@ -1728,22 +2001,41 @@ def subscriber_billing_risk_rows(
         query_segments if query_segments else segments,
         query_segment or segment,
     )
-    page_rows, page_metrics, has_next = _billing_risk_page_rows(
-        db,
-        due_soon_days=due_soon_days,
-        high_balance_only=high_balance_only,
-        segment=segment,
-        selected_segments=selected_segments,
-        days_past_due=query_days_past_due or days_past_due,
-        page=page,
-        page_size=page_size,
-        search=normalized_search,
-        overdue_bucket=normalized_bucket,
-        enterprise_only=normalized_enterprise_only,
-        customer_segment=normalized_customer_segment,
-        location=normalized_location,
-        mrr_sort=normalized_mrr_sort,
-    )
+    if (
+        settings.billing_risk_route_use_cache
+        and _billing_risk_cache_available(db)
+        and not normalized_enterprise_only
+        and normalized_customer_segment == "all"
+    ):
+        page_rows, page_metrics, has_next = _billing_risk_cached_page_rows(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=high_balance_only,
+            selected_segments=selected_segments,
+            days_past_due=query_days_past_due or days_past_due,
+            page=page,
+            page_size=page_size,
+            search=normalized_search,
+            overdue_bucket=normalized_bucket,
+            location=normalized_location,
+        )
+    else:
+        page_rows, page_metrics, has_next = _billing_risk_page_rows(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=high_balance_only,
+            segment=segment,
+            selected_segments=selected_segments,
+            days_past_due=query_days_past_due or days_past_due,
+            page=page,
+            page_size=page_size,
+            search=normalized_search,
+            overdue_bucket=normalized_bucket,
+            enterprise_only=normalized_enterprise_only,
+            customer_segment=normalized_customer_segment,
+            location=normalized_location,
+            mrr_sort=normalized_mrr_sort,
+        )
     return templates.TemplateResponse(
         "admin/reports/_subscriber_billing_risk_results.html",
         {
@@ -1784,6 +2076,7 @@ def subscriber_billing_risk_export(
     bucket: str | None = Query("all"),
     enterprise_only: bool = Query(False),
     customer_segment: str | None = Query(None),
+    location: str | None = Query(None),
     mrr_sort: str | None = Query(None),
 ):
     query_segments = request.query_params.getlist("segments")
@@ -1791,6 +2084,11 @@ def subscriber_billing_risk_export(
     query_days_past_due = request.query_params.get("days_past_due")
     query_search = request.query_params.get("search")
     normalized_search = query_search if query_search is not None else (search if isinstance(search, str) else None)
+    query_location = request.query_params.get("location")
+    normalized_location = (
+        query_location if query_location is not None else (location if isinstance(location, str) else "")
+    )
+    normalized_location = normalized_location.strip()
     query_bucket = request.query_params.get("bucket")
     normalized_bucket = (
         query_bucket if query_bucket is not None else (bucket if isinstance(bucket, str) else "all")
@@ -1808,20 +2106,20 @@ def subscriber_billing_risk_export(
         query_segment or segment,
     )
 
-    churn_rows = billing_risk_service.get_billing_risk_table(
+    churn_rows, _route_state = _billing_risk_rows_source(
         db,
         due_soon_days=due_soon_days,
         high_balance_only=high_balance_only,
         segment=segment,
-        segments=selected_segments,
+        selected_segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
-        limit=6000,
         search=normalized_search,
         overdue_bucket=normalized_bucket,
         enterprise_only=normalized_enterprise_only,
         customer_segment=normalized_customer_segment,
+        location=normalized_location,
         mrr_sort=normalized_mrr_sort,
-        enrich_visible_rows=False,
+        limit=6000,
     )
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:

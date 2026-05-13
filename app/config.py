@@ -13,6 +13,18 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_csv(name: str, default: tuple[str, ...] = ()) -> tuple[str, ...]:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    values: list[str] = []
+    for part in raw.split(","):
+        candidate = part.strip()
+        if candidate:
+            values.append(candidate)
+    return tuple(values) if values else default
+
+
 @dataclass(frozen=True)
 class Settings:
     database_url: str = field(
@@ -25,6 +37,22 @@ class Settings:
     db_max_overflow: int = field(default_factory=lambda: int(os.getenv("DB_MAX_OVERFLOW", "20")))
     db_pool_timeout: int = field(default_factory=lambda: int(os.getenv("DB_POOL_TIMEOUT", "30")))
     db_pool_recycle: int = field(default_factory=lambda: int(os.getenv("DB_POOL_RECYCLE", "1800")))
+    db_statement_timeout_ms: int = field(default_factory=lambda: int(os.getenv("DB_STATEMENT_TIMEOUT_MS", "0")))
+    db_idle_in_transaction_session_timeout_ms: int = field(
+        default_factory=lambda: int(os.getenv("DB_IDLE_IN_TRANSACTION_SESSION_TIMEOUT_MS", "0"))
+    )
+    billing_risk_route_use_cache: bool = field(
+        default_factory=lambda: _env_bool("BILLING_RISK_ROUTE_USE_CACHE", default=False)
+    )
+    customer_retention_route_use_cache: bool = field(
+        default_factory=lambda: _env_bool("CUSTOMER_RETENTION_ROUTE_USE_CACHE", default=False)
+    )
+    request_shared_db_session_enabled: bool = field(
+        default_factory=lambda: _env_bool("REQUEST_SHARED_DB_SESSION_ENABLED", default=False)
+    )
+    request_shared_db_session_path_prefixes: tuple[str, ...] = field(
+        default_factory=lambda: _env_csv("REQUEST_SHARED_DB_SESSION_PATH_PREFIXES")
+    )
 
     # Avatar settings
     avatar_upload_dir: str = field(default_factory=lambda: os.getenv("AVATAR_UPLOAD_DIR", "static/avatars"))
@@ -94,6 +122,10 @@ class Settings:
             "META_GRAPH_BASE_URL",
             f"https://graph.facebook.com/{os.getenv('META_GRAPH_API_VERSION', 'v19.0')}",
         )
+    )
+    meta_webhook_debug: bool = field(default_factory=lambda: _env_bool("META_WEBHOOK_DEBUG", default=False))
+    meta_webhook_debug_signatures: bool = field(
+        default_factory=lambda: _env_bool("META_WEBHOOK_DEBUG_SIGNATURES", default=False)
     )
 
     # Storage backend

@@ -1,25 +1,21 @@
 """CRM inbox conversation/list/detail partial routes."""
 
+import logging
 from datetime import UTC, datetime, time
+from time import monotonic
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.db import get_db
 from app.web.admin.crm_support import _get_current_roles
 from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+logger = logging.getLogger(__name__)
+_HOT_ENDPOINT_LOG_THRESHOLD_MS = 500.0
 
 
 def _parse_date_param(value: str | None, *, end_of_day: bool = False) -> datetime | None:
@@ -45,26 +41,49 @@ async def inbox_summary_counts(
     from app.services.time_preferences import resolve_company_time_prefs
     from app.web.admin._auth_helpers import get_current_user
 
-    current_user = get_current_user(request)
-    assigned_person_id = current_user.get("person_id") if isinstance(current_user, dict) else None
-    timezone = resolve_company_time_prefs(db)[0]
-    cache_key = inbox_cache.build_summary_counts_key(
-        {
-            "assigned_person_id": assigned_person_id,
-            "timezone": timezone,
-        }
-    )
-    cached_payload = inbox_cache.get(cache_key)
-    if cached_payload is not None:
-        return JSONResponse(cached_payload)
+    started_at = monotonic()
+    cache_hit = False
+    try:
+        current_user = get_current_user(request)
+        assigned_person_id = current_user.get("person_id") if isinstance(current_user, dict) else None
+        timezone = resolve_company_time_prefs(db)[0]
+        cache_key = inbox_cache.build_summary_counts_key(
+            {"assigned_person_id": assigned_person_id, "timezone": timezone}
+        )
+        cached_payload = inbox_cache.get(cache_key)
+        if cached_payload is not None:
+            cache_hit = True
+            return JSONResponse(cached_payload)
 
-    payload = {
-        "assignment_counts": get_assignment_counts(db, assigned_person_id=assigned_person_id),
-        "unread": int(get_inbox_stats(db).get("unread", 0)),
-        "resolved_today": get_resolved_today_count(db, timezone=timezone),
-    }
-    inbox_cache.set(cache_key, payload, inbox_cache.SUMMARY_COUNTS_TTL_SECONDS)
-    return JSONResponse(payload)
+        assignment_counts = inbox_cache.get_or_set(
+            inbox_cache.build_summary_counts_key(
+                {"kind": "assignment_counts", "assigned_person_id": assigned_person_id}
+            ),
+            inbox_cache.SUMMARY_COUNTS_TTL_SECONDS,
+            lambda: get_assignment_counts(db, assigned_person_id=assigned_person_id),
+        )
+        unread = inbox_cache.get_or_set(
+            inbox_cache.build_summary_counts_key({"kind": "unread"}),
+            inbox_cache.SUMMARY_COUNTS_TTL_SECONDS,
+            lambda: int(get_inbox_stats(db).get("unread", 0)),
+        )
+        resolved_today = inbox_cache.get_or_set(
+            inbox_cache.build_summary_counts_key({"kind": "resolved_today", "timezone": timezone}),
+            inbox_cache.SUMMARY_COUNTS_TTL_SECONDS,
+            lambda: get_resolved_today_count(db, timezone=timezone),
+        )
+        payload = {"assignment_counts": assignment_counts, "unread": unread, "resolved_today": resolved_today}
+        inbox_cache.set(cache_key, payload, inbox_cache.SUMMARY_COUNTS_TTL_SECONDS)
+        return JSONResponse(payload)
+    finally:
+        duration_ms = (monotonic() - started_at) * 1000.0
+        if duration_ms >= _HOT_ENDPOINT_LOG_THRESHOLD_MS:
+            logger.info(
+                "crm_inbox_summary_counts_slow cache_hit=%s duration_ms=%.2f request_id=%s",
+                cache_hit,
+                duration_ms,
+                getattr(request.state, "request_id", None),
+            )
 
 
 @router.get("/inbox/conversations", response_class=HTMLResponse)
@@ -86,37 +105,79 @@ async def inbox_conversations_partial(
     page: int | None = None,
 ):
     """Partial template for conversation list (HTMX)."""
+    from app.services.crm.inbox import cache as inbox_cache
     from app.services.crm.inbox.page_context import build_inbox_conversations_partial_context
     from app.web.admin._auth_helpers import get_current_user
 
-    current_user = get_current_user(request)
-    assigned_person_id = current_user.get("person_id")
-    assigned_from_dt = _parse_date_param(assigned_from)
-    assigned_to_dt = _parse_date_param(assigned_to, end_of_day=True)
-    template_name, context = await build_inbox_conversations_partial_context(
-        db,
-        channel=channel,
-        status=status,
-        outbox_status=outbox_status,
-        search=search,
-        assignment=assignment,
-        assigned_person_id=assigned_person_id,
-        target_id=target_id,
-        filter_agent_id=agent_id,
-        assigned_from=assigned_from_dt,
-        assigned_to=assigned_to_dt,
-        missing=missing,
-        offset=offset,
-        limit=limit,
-        page=page,
-    )
-    return templates.TemplateResponse(
-        template_name,
-        {
-            "request": request,
-            **context,
-        },
-    )
+    started_at = monotonic()
+    cache_hit = False
+    try:
+        current_user = get_current_user(request)
+        assigned_person_id = current_user.get("person_id")
+        assignment_filter = (assignment or "").strip().lower()
+        actor_sensitive_assignment = assignment_filter in {"assigned", "assigned_to_me", "mine", "my_team"}
+        cache_key = inbox_cache.build_inbox_list_key(
+            {
+                "actor": current_user.get("person_id")
+                if actor_sensitive_assignment and isinstance(current_user, dict)
+                else None,
+                "channel": channel,
+                "status": status,
+                "outbox_status": outbox_status,
+                "search": search,
+                "assignment": assignment,
+                "target_id": target_id,
+                "agent_id": agent_id,
+                "assigned_from": assigned_from,
+                "assigned_to": assigned_to,
+                "missing": missing,
+                "offset": offset,
+                "limit": limit,
+                "page": page,
+            }
+        )
+        cached_html = inbox_cache.get(cache_key)
+        if isinstance(cached_html, str):
+            cache_hit = True
+            return HTMLResponse(cached_html)
+
+        assigned_from_dt = _parse_date_param(assigned_from)
+        assigned_to_dt = _parse_date_param(assigned_to, end_of_day=True)
+        template_name, context = await build_inbox_conversations_partial_context(
+            db,
+            channel=channel,
+            status=status,
+            outbox_status=outbox_status,
+            search=search,
+            assignment=assignment,
+            assigned_person_id=assigned_person_id,
+            target_id=target_id,
+            filter_agent_id=agent_id,
+            assigned_from=assigned_from_dt,
+            assigned_to=assigned_to_dt,
+            missing=missing,
+            offset=offset,
+            limit=limit,
+            page=page,
+        )
+        render_context = {"request": request, **context}
+        html = templates.env.get_template(template_name).render(render_context)
+        inbox_cache.set(cache_key, html, inbox_cache.INBOX_LIST_TTL_SECONDS)
+        return HTMLResponse(html)
+    finally:
+        duration_ms = (monotonic() - started_at) * 1000.0
+        if duration_ms >= _HOT_ENDPOINT_LOG_THRESHOLD_MS:
+            logger.info(
+                "crm_inbox_conversations_partial_slow cache_hit=%s channel=%s status=%s assignment=%s limit=%s page=%s duration_ms=%.2f request_id=%s",
+                cache_hit,
+                channel,
+                status,
+                assignment,
+                limit,
+                page,
+                duration_ms,
+                getattr(request.state, "request_id", None),
+            )
 
 
 @router.get("/inbox/conversation/{conversation_id}", response_class=HTMLResponse)
@@ -129,26 +190,37 @@ async def inbox_conversation_detail(
     from app.services.crm.inbox.page_context import build_inbox_conversation_detail_context
     from app.web.admin._auth_helpers import get_current_user
 
-    current_user = get_current_user(request)
-    current_roles = _get_current_roles(request)
-    detail_context = build_inbox_conversation_detail_context(
-        db,
-        conversation_id=conversation_id,
-        current_user=current_user,
-        current_roles=current_roles,
-    )
-    if not detail_context:
-        return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>")
-    from app.logic import private_note_logic
+    started_at = monotonic()
+    try:
+        current_user = get_current_user(request)
+        current_roles = _get_current_roles(request)
+        detail_context = build_inbox_conversation_detail_context(
+            db,
+            conversation_id=conversation_id,
+            current_user=current_user,
+            current_roles=current_roles,
+        )
+        if not detail_context:
+            return HTMLResponse("<div class='p-8 text-center text-slate-500'>Conversation not found</div>")
+        from app.logic import private_note_logic
 
-    return templates.TemplateResponse(
-        "admin/crm/_message_thread.html",
-        {
-            "request": request,
-            "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
-            **detail_context,
-        },
-    )
+        return templates.TemplateResponse(
+            "admin/crm/_message_thread.html",
+            {
+                "request": request,
+                "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
+                **detail_context,
+            },
+        )
+    finally:
+        duration_ms = (monotonic() - started_at) * 1000.0
+        if duration_ms >= _HOT_ENDPOINT_LOG_THRESHOLD_MS:
+            logger.info(
+                "crm_inbox_conversation_detail_slow conversation_id=%s duration_ms=%.2f request_id=%s",
+                conversation_id,
+                duration_ms,
+                getattr(request.state, "request_id", None),
+            )
 
 
 @router.get("/inbox/attachment/{message_id}/{attachment_index}")

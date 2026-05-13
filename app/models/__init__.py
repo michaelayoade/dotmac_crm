@@ -134,6 +134,7 @@ from app.models.material_request import (  # noqa: F401
     MaterialRequestPriority,
     MaterialRequestStatus,
 )
+from app.models.meta_raw_event import MetaRawEvent  # noqa: F401
 from app.models.network import (  # noqa: F401
     FdhCabinet,
     FiberAccessPoint,
@@ -260,6 +261,10 @@ from app.models.subscriber import (  # noqa: F401
     SubscriberStatus,
 )
 from app.models.subscriber_notification import SubscriberNotificationLog  # noqa: F401
+from app.models.subscriber_outreach import (  # noqa: F401
+    SubscriberOfflineOutreachLog,
+    SubscriberStationMapping,
+)
 from app.models.tickets import (  # noqa: F401
     Ticket,
     TicketAssignee,
