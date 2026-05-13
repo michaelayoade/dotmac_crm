@@ -4,8 +4,11 @@ import csv
 import io
 import json
 import logging
+import threading
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 from urllib.parse import quote, urlencode
 from uuid import UUID
 from xml.sax.saxutils import escape
@@ -13,7 +16,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import APIRouter, Depends, Form, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.csrf import get_csrf_token
@@ -112,6 +115,58 @@ _ONLINE_LAST_24H_ACTIVITY_SEGMENT_OPTIONS = [
 ]
 _ONLINE_LAST_24H_WHATSAPP_TARGET_NAMES = {"dotmac fiber helpdesk"}
 _ONLINE_LAST_24H_EMAIL_TARGET_NAMES = {"sales mail", "noc mail", "support mail"}
+_ONLINE_LAST_24H_ROWS_TTL_SECONDS = 120.0
+_ONLINE_LAST_24H_ROWS_CACHE: dict[tuple[Any, ...], tuple[float, list[dict[str, Any]]]] = {}
+_ONLINE_LAST_24H_ROWS_CACHE_LOCK = threading.Lock()
+
+
+def _clone_report_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [dict(row) for row in rows]
+
+
+def _online_last_24h_cache_key(
+    *,
+    status: str,
+    region: str,
+    search: str,
+    ticket_status: str,
+    notification_state: str,
+    activity_segment: str,
+    subscriber_ids: list[Any] | None,
+) -> tuple[Any, ...]:
+    subscriber_scope = None if subscriber_ids is None else tuple(sorted(str(value) for value in subscriber_ids))
+    return (
+        status,
+        region,
+        search.strip().lower(),
+        ticket_status,
+        notification_state,
+        activity_segment,
+        subscriber_scope,
+    )
+
+
+def _online_last_24h_cached_rows(
+    cache_key: tuple[Any, ...],
+    builder: Callable[[], list[dict[str, Any]]],
+) -> tuple[list[dict[str, Any]], bool]:
+    now = time.monotonic()
+    with _ONLINE_LAST_24H_ROWS_CACHE_LOCK:
+        cached = _ONLINE_LAST_24H_ROWS_CACHE.get(cache_key)
+        if cached is not None:
+            expires_at, rows = cached
+            if expires_at > now:
+                return _clone_report_rows(rows), True
+            _ONLINE_LAST_24H_ROWS_CACHE.pop(cache_key, None)
+
+    rows = builder()
+    safe_rows = _clone_report_rows(rows)
+    with _ONLINE_LAST_24H_ROWS_CACHE_LOCK:
+        _ONLINE_LAST_24H_ROWS_CACHE[cache_key] = (
+            time.monotonic() + _ONLINE_LAST_24H_ROWS_TTL_SECONDS,
+            safe_rows,
+        )
+    return _clone_report_rows(safe_rows), False
 
 
 def _online_last_24h_allowed_target_ids(db: Session, channel: str) -> set[str]:
@@ -174,7 +229,13 @@ def _normalize_online_last_24h_base_station_values(base_station: list[str] | str
         values = [base_station]
     else:
         values = []
-    return [value for value in dict.fromkeys(str(item).strip() for item in values if str(item).strip())]
+    normalized: list[str] = []
+    for value in values:
+        for part in str(value).split(","):
+            candidate = part.strip()
+            if candidate and candidate not in normalized:
+                normalized.append(candidate)
+    return normalized
 
 
 def _filter_online_last_24h_base_stations(rows: list[dict], selected_base_stations: list[str]) -> list[dict]:
@@ -1712,14 +1773,17 @@ def subscriber_online_last_24h(
 ):
     """Subscribers with online/session activity in the last 24 hours."""
     from app.services import subscriber_notifications as subscriber_notifications_service
+    from app.services import subscriber_offline_outreach as subscriber_offline_outreach_service
     from app.services import subscriber_reports as sr
     from app.services.crm.web_campaigns import outreach_channel_target_options
 
     user = get_current_user(request)
     filter_opts = sr.overview_filter_options(db)
+    region_options = filter_opts.get("regions", [])
     status_value = (status or "").strip().lower()
+    selected_region = region if isinstance(region, str) and region in region_options else None
     selected_status = next((item for item in SubscriberStatus if item.value == status_value), None)
-    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=None)
+    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=selected_region)
 
     selected_ticket_status = (ticket_status or "all").strip().lower()
     valid_ticket_values = {item["value"] for item in _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS}
@@ -1735,17 +1799,48 @@ def subscriber_online_last_24h(
         selected_activity_segment = "active_last24_not_online"
     search_value = (search or "").strip()
 
-    online_customers = sr.online_customers_last_24h_rows(
-        db,
-        subscriber_ids=subscriber_ids,
+    cache_key = _online_last_24h_cache_key(
+        status=selected_status.value if selected_status else "",
+        region=selected_region or "",
         search=search_value,
         ticket_status=selected_ticket_status,
         notification_state=selected_notification_state,
         activity_segment=selected_activity_segment,
-        limit=None,
+        subscriber_ids=subscriber_ids,
     )
-    online_customers = subscriber_notifications_service.enrich_notification_rows(online_customers, db)
-    online_customers = _enrich_online_last_24h_campaign_status(online_customers, db)
+    online_customers, cache_hit = _online_last_24h_cached_rows(
+        cache_key,
+        lambda: _enrich_online_last_24h_campaign_status(
+            subscriber_notifications_service.enrich_notification_rows(
+                subscriber_offline_outreach_service.enrich_rows_with_station_status(
+                    db,
+                    sr.online_customers_last_24h_rows(
+                        db,
+                        subscriber_ids=subscriber_ids,
+                        search=search_value,
+                        ticket_status=selected_ticket_status,
+                        notification_state=selected_notification_state,
+                        activity_segment=selected_activity_segment,
+                        limit=None,
+                    ),
+                )
+                if hasattr(db, "execute")
+                else sr.online_customers_last_24h_rows(
+                    db,
+                    subscriber_ids=subscriber_ids,
+                    search=search_value,
+                    ticket_status=selected_ticket_status,
+                    notification_state=selected_notification_state,
+                    activity_segment=selected_activity_segment,
+                    limit=None,
+                ),
+                db,
+            ),
+            db,
+        ),
+    )
+    if cache_hit:
+        logger.info("online_last_24h_rows_cache_hit rows=%s", len(online_customers))
     base_station_options = _online_last_24h_base_station_options(online_customers)
     selected_base_stations = [
         value for value in _normalize_online_last_24h_base_station_values(base_station) if value in base_station_options
@@ -1753,6 +1848,7 @@ def subscriber_online_last_24h(
     online_customers = _filter_online_last_24h_base_stations(online_customers, selected_base_stations)
     online_customers = _filter_online_last_24h_notification_state(online_customers, selected_notification_state)
     online_customers = _sort_online_last_24h_rows(online_customers)
+    outreach_settings = subscriber_offline_outreach_service.get_outreach_settings_snapshot(db)
 
     return templates.TemplateResponse(
         "admin/reports/subscriber_online_last_24h.html",
@@ -1770,17 +1866,59 @@ def subscriber_online_last_24h(
             "filter_opts": filter_opts,
             "selected_status": selected_status.value if selected_status else "",
             "search": search_value,
-            "base_station_options": base_station_options,
-            "selected_base_stations": selected_base_stations,
             "selected_ticket_status": selected_ticket_status,
             "ticket_status_options": _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS,
             "selected_notification_state": selected_notification_state,
             "notification_state_options": _ONLINE_LAST_24H_NOTIFICATION_STATE_OPTIONS,
             "selected_activity_segment": selected_activity_segment,
             "activity_segment_options": _ONLINE_LAST_24H_ACTIVITY_SEGMENT_OPTIONS,
+            "base_station_options": base_station_options,
+            "selected_base_stations": selected_base_stations,
+            "selected_base_station_query": "".join(f"&base_station={quote(value)}" for value in selected_base_stations),
             "outreach_channel_targets": outreach_channel_target_options(db),
+            "outreach_settings": outreach_settings,
             "current_query": request.url.path + (f"?{request.url.query}" if request.url.query else ""),
         },
+    )
+
+
+@router.post("/subscribers/online-last-24h/outreach/settings")
+def subscriber_online_last_24h_save_outreach_settings(
+    request: Request,
+    outreach_local_time: str = Form("10:00"),
+    outreach_timezone: str = Form("Africa/Lagos"),
+    outreach_channel_target_id: str = Form(""),
+    outreach_whatsapp_template_name: str = Form(""),
+    outreach_whatsapp_template_language: str = Form(""),
+    outreach_whatsapp_template_parameters: str = Form("{}"),
+    next_url: str = Form("/admin/reports/subscribers/online-last-24h"),
+    db: Session = Depends(get_db),
+):
+    from app.services import subscriber_offline_outreach as subscriber_offline_outreach_service
+
+    if not next_url.startswith("/admin/reports/subscribers/online-last-24h"):
+        next_url = "/admin/reports/subscribers/online-last-24h"
+
+    try:
+        subscriber_offline_outreach_service.save_outreach_settings(
+            db,
+            local_time=outreach_local_time,
+            timezone=outreach_timezone,
+            channel_target_id=outreach_channel_target_id,
+            whatsapp_template_name=outreach_whatsapp_template_name,
+            whatsapp_template_language=outreach_whatsapp_template_language,
+            whatsapp_template_parameters=outreach_whatsapp_template_parameters,
+        )
+    except Exception as exc:
+        db.rollback()
+        detail = getattr(exc, "detail", None) or str(exc)
+        return _toast_redirect(next_url, message=str(detail), toast_type="error", status_code=303)
+
+    return _toast_redirect(
+        next_url,
+        message="Offline outreach settings saved. The scheduler will check every 5 minutes and run once per day after the selected time.",
+        toast_type="success",
+        status_code=303,
     )
 
 
@@ -2027,11 +2165,15 @@ def subscriber_online_last_24h_export(
 ):
     """Export last-24h online subscribers report."""
     from app.services import subscriber_notifications as subscriber_notifications_service
+    from app.services import subscriber_offline_outreach as subscriber_offline_outreach_service
     from app.services import subscriber_reports as sr
 
+    filter_opts = sr.overview_filter_options(db)
+    region_options = filter_opts.get("regions", [])
     status_value = (status or "").strip().lower()
+    selected_region = region if isinstance(region, str) and region in region_options else None
     selected_status = next((item for item in SubscriberStatus if item.value == status_value), None)
-    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=None)
+    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=selected_region)
     selected_ticket_status = (ticket_status or "all").strip().lower()
     valid_ticket_values = {item["value"] for item in _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS}
     if selected_ticket_status not in valid_ticket_values:
@@ -2045,17 +2187,47 @@ def subscriber_online_last_24h_export(
     if selected_activity_segment not in valid_activity_segments:
         selected_activity_segment = "active_last24_not_online"
 
-    online_customers = sr.online_customers_last_24h_rows(
-        db,
-        subscriber_ids=subscriber_ids,
-        search=(search or "").strip(),
+    search_value = (search or "").strip()
+    cache_key = _online_last_24h_cache_key(
+        status=selected_status.value if selected_status else "",
+        region=selected_region or "",
+        search=search_value,
         ticket_status=selected_ticket_status,
         notification_state=selected_notification_state,
         activity_segment=selected_activity_segment,
-        limit=None,
+        subscriber_ids=subscriber_ids,
     )
-    online_customers = subscriber_notifications_service.enrich_notification_rows(online_customers, db)
-    online_customers = _enrich_online_last_24h_campaign_status(online_customers, db)
+    online_customers, _cache_hit = _online_last_24h_cached_rows(
+        cache_key,
+        lambda: _enrich_online_last_24h_campaign_status(
+            subscriber_notifications_service.enrich_notification_rows(
+                subscriber_offline_outreach_service.enrich_rows_with_station_status(
+                    db,
+                    sr.online_customers_last_24h_rows(
+                        db,
+                        subscriber_ids=subscriber_ids,
+                        search=search_value,
+                        ticket_status=selected_ticket_status,
+                        notification_state=selected_notification_state,
+                        activity_segment=selected_activity_segment,
+                        limit=None,
+                    ),
+                )
+                if hasattr(db, "execute")
+                else sr.online_customers_last_24h_rows(
+                    db,
+                    subscriber_ids=subscriber_ids,
+                    search=search_value,
+                    ticket_status=selected_ticket_status,
+                    notification_state=selected_notification_state,
+                    activity_segment=selected_activity_segment,
+                    limit=None,
+                ),
+                db,
+            ),
+            db,
+        ),
+    )
     base_station_options = _online_last_24h_base_station_options(online_customers)
     selected_base_stations = [
         value for value in _normalize_online_last_24h_base_station_values(base_station) if value in base_station_options
@@ -2074,6 +2246,7 @@ def subscriber_online_last_24h_export(
             "Phone": row.get("phone", ""),
             "Last Seen At": row.get("last_seen_at", ""),
             "Last Activity": row.get("last_activity", ""),
+            "Base Station Status": row.get("station_status", ""),
             "Currently Online": "Yes" if row.get("currently_online") else "No",
             "Ticket Status": row.get("ticket_status", ""),
         }
@@ -3029,6 +3202,14 @@ def _metric_float(row: dict[str, object], key: str) -> float:
     return float(value) if isinstance(value, int | float | str) else 0.0
 
 
+def _project_task_window_clause(start_date: datetime, end_date: datetime):
+    """Select tasks that were active at any point in the requested window."""
+    return and_(
+        ProjectTask.created_at <= end_date,
+        or_(ProjectTask.completed_at.is_(None), ProjectTask.completed_at >= start_date),
+    )
+
+
 def _get_project_task_people_performance(
     db: Session,
     start_date: datetime,
@@ -3044,8 +3225,7 @@ def _get_project_task_people_performance(
             )
             .where(
                 ProjectTask.is_active.is_(True),
-                ProjectTask.created_at >= start_date,
-                ProjectTask.created_at <= end_date,
+                _project_task_window_clause(start_date, end_date),
             )
         )
         .unique()
@@ -3103,9 +3283,17 @@ def _get_project_task_people_performance(
         if not assignee_ids:
             continue
 
-        is_done = task.status == TaskStatus.done
+        is_done = bool(
+            task.status == TaskStatus.done
+            and task.completed_at
+            and not _datetime_after(start_date, task.completed_at)
+            and not _datetime_after(task.completed_at, end_date)
+        )
         is_blocked = task.status == TaskStatus.blocked
-        is_overdue = bool(task.due_at and _datetime_after(task.completed_at or now, task.due_at) and not is_done)
+        completed_or_window_end = task.completed_at or now
+        if _datetime_after(completed_or_window_end, end_date):
+            completed_or_window_end = end_date
+        is_overdue = bool(task.due_at and _datetime_after(completed_or_window_end, task.due_at) and not is_done)
         is_on_time = bool(
             is_done and task.due_at and task.completed_at and not _datetime_after(task.completed_at, task.due_at)
         )
