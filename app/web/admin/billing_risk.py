@@ -1124,7 +1124,9 @@ def _retention_billing_rows_for_customer_ids(
     search: str | None = None,
     limit: int = 6000,
 ) -> list[dict]:
-    normalized_customer_ids = sorted({str(customer_id or "").strip() for customer_id in customer_ids if str(customer_id or "").strip()})
+    normalized_customer_ids = sorted(
+        {str(customer_id or "").strip() for customer_id in customer_ids if str(customer_id or "").strip()}
+    )
     if not normalized_customer_ids:
         return []
     if settings.customer_retention_route_use_cache and _billing_risk_cache_available(db):
@@ -1205,7 +1207,9 @@ def subscriber_billing_risk(
     query_search = request.query_params.get("search")
     normalized_search = query_search if query_search is not None else (search if isinstance(search, str) else None)
     query_location = request.query_params.get("location")
-    normalized_location = query_location if query_location is not None else (location if isinstance(location, str) else "")
+    normalized_location = (
+        query_location if query_location is not None else (location if isinstance(location, str) else "")
+    )
     normalized_location = normalized_location.strip()
     normalized_customer_segment = "all"
     normalized_enterprise_only = False
@@ -1284,7 +1288,9 @@ def subscriber_billing_risk(
         )
         end_read_only_transaction(db)
         if selected_labels:
-            full_metric_rows = [row for row in full_metric_rows if str(row.get("risk_segment") or "") in selected_labels]
+            full_metric_rows = [
+                row for row in full_metric_rows if str(row.get("risk_segment") or "") in selected_labels
+            ]
         page_rows, page_metrics, has_next = _billing_risk_initial_rows(initial_rows, page_size=50)
     overdue_invoices = billing_risk_service.get_overdue_invoices_table(
         db,
@@ -1508,10 +1514,7 @@ def customer_retention_tracker(
         tracker_customer_ids = _retention_active_customer_ids(db)
         if search_text:
             tracker_customer_ids = list(
-                dict.fromkeys(
-                    tracker_customer_ids
-                    + _retention_search_customer_ids(db, search_text)
-                )
+                dict.fromkeys(tracker_customer_ids + _retention_search_customer_ids(db, search_text))
             )
     if tracker_customer_ids:
         churn_rows = _retention_billing_rows_for_customer_ids(
@@ -1644,7 +1647,9 @@ def customer_retention_tracker(
             "last_synced_at": _latest_subscriber_sync_at(db),
             "outreach_channel_targets": outreach_channel_target_options(db),
             "outreach_error": request.query_params.get("outreach_error"),
-            "customer_retention_route_mode": "cache" if settings.customer_retention_route_use_cache and _billing_risk_cache_available(db) else "live",
+            "customer_retention_route_mode": "cache"
+            if settings.customer_retention_route_use_cache and _billing_risk_cache_available(db)
+            else "live",
         },
     )
 
@@ -1793,7 +1798,9 @@ def customer_retention_tracker_detail(
             "blocked_for_days": None,
         }
 
-    engagement_history = _retention_engagements_by_customer(db, [normalized_customer_id]).get(normalized_customer_id, [])
+    engagement_history = _retention_engagements_by_customer(db, [normalized_customer_id]).get(
+        normalized_customer_id, []
+    )
     latest_engagement = engagement_history[0] if engagement_history else None
     pipeline_stage = _pipeline_stage_from_engagement(latest_engagement)
     follow_up_due_label = ""
@@ -1825,7 +1832,9 @@ def customer_retention_tracker_detail(
             "rep_options": _retention_rep_options(db),
             "saved": request.query_params.get("saved"),
             "back_url": "/admin/reports/subscribers/billing-risk",
-            "customer_retention_route_mode": "cache" if settings.customer_retention_route_use_cache and _billing_risk_cache_available(db) else "live",
+            "customer_retention_route_mode": "cache"
+            if settings.customer_retention_route_use_cache and _billing_risk_cache_available(db)
+            else "live",
         },
     )
 
@@ -2031,7 +2040,9 @@ def subscriber_billing_risk_rows(
     query_search = request.query_params.get("search")
     normalized_search = query_search if query_search is not None else (search if isinstance(search, str) else None)
     query_location = request.query_params.get("location")
-    normalized_location = query_location if query_location is not None else (location if isinstance(location, str) else "")
+    normalized_location = (
+        query_location if query_location is not None else (location if isinstance(location, str) else "")
+    )
     normalized_location = normalized_location.strip()
     query_bucket = request.query_params.get("bucket")
     normalized_bucket = (
@@ -2133,7 +2144,9 @@ def subscriber_billing_risk_export(
     query_search = request.query_params.get("search")
     normalized_search = query_search if query_search is not None else (search if isinstance(search, str) else None)
     query_location = request.query_params.get("location")
-    normalized_location = query_location if query_location is not None else (location if isinstance(location, str) else "")
+    normalized_location = (
+        query_location if query_location is not None else (location if isinstance(location, str) else "")
+    )
     normalized_location = normalized_location.strip()
     query_bucket = request.query_params.get("bucket")
     normalized_bucket = (

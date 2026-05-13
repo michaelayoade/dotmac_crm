@@ -216,7 +216,9 @@ def _online_last_24h_ticket_status_cards(rows: list[dict]) -> list[dict[str, int
 
 
 def _online_last_24h_base_station_options(rows: list[dict]) -> list[str]:
-    return sorted({str(row.get("base_station") or "").strip() for row in rows if str(row.get("base_station") or "").strip()})
+    return sorted(
+        {str(row.get("base_station") or "").strip() for row in rows if str(row.get("base_station") or "").strip()}
+    )
 
 
 def _normalize_online_last_24h_base_station_values(base_station: list[str] | str | object) -> list[str]:
