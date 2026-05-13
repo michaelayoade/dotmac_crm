@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from cryptography.fernet import Fernet
+
 from app.models.connector import ConnectorAuthType, ConnectorConfig, ConnectorType
 from app.services import zabbix
 
@@ -53,6 +55,7 @@ def test_fetch_monitoring_devices_normalizes_host_rows(db_session, monkeypatch):
 
 
 def test_configure_connector_stores_encrypted_credentials_and_token(db_session, monkeypatch):
+    monkeypatch.setenv("TOTP_ENCRYPTION_KEY", Fernet.generate_key().decode("utf-8"))
     connector = ConnectorConfig(
         name="Zabbix Existing",
         connector_type=ConnectorType.zabbix,
