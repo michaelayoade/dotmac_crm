@@ -5,7 +5,7 @@
     'inventory': 'operations',
     'crm-live-map': 'operations',
     'network-map': 'operations', 'network-devices': 'operations', 'core-devices': 'operations', 'olts': 'operations', 'onts': 'operations', 'devices': 'operations',
-    'automations': 'system', 'pop-sites': 'system', 'configuration': 'system',
+    'automations': 'system', 'pop-sites': 'system', 'configuration': 'system', 'workflow': 'system',
     'fiber-plant': 'operations', 'fiber-map': 'operations', 'fiber-change-requests': 'operations', 'fdh-cabinets': 'operations', 'splitters': 'operations', 'fiber-strands': 'operations', 'splice-closures': 'operations', 'fiber-reports': 'operations',
     'sales-orders': 'operations', 'installations': 'operations', 'technicians': 'operations',
     'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations', 'vendor-quotes': 'operations', 'vendor-as-built': 'operations', 'vendor-purchase-invoices': 'operations',
@@ -515,7 +515,7 @@
         <div x-show="openMenu === 'reports' && !sidebarCollapsed" x-collapse x-cloak class="mt-1 space-y-1 pl-11">
             {% if can_reports_subscribers %}
             <a href="/admin/reports/subscribers/overview" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-overview' else '' }}">Subscriber Overview</a>
-            <a href="/admin/reports/subscribers/online-last-24h" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-online-last-24h' else '' }}">Online Last 24h</a>
+            <a href="/admin/reports/subscribers/online-last-24h" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-online-last-24h' else '' }}">Inactive Last 24h</a>
             <a href="/admin/reports/subscribers/lifecycle" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-lifecycle' else '' }}">Subscriber Lifecycle</a>
             <a href="/admin/reports/subscribers/churned" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-churned' else '' }}">Churned Subscribers</a>
             <a href="/admin/reports/subscribers/service-quality" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-service-quality' else '' }}">Service Quality</a>
@@ -585,6 +585,9 @@
             {% endif %}
             {% if can_system_settings %}
             <a href="/admin/system/settings" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'settings' else '' }}">Settings</a>
+            {% endif %}
+            {% if can_system_configuration %}
+            <a href="/admin/system/workflow" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'workflow' else '' }}">Work Queue</a>
             {% endif %}
             {% if can_automations %}
             <a href="/admin/system/automations" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'automations' else '' }}">Automations</a>

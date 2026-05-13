@@ -238,6 +238,7 @@ class DotMacERPTeamSync:
 
         try:
             seen_erp_departments: set[str] = set()
+            departments_processed_with_members: set[str] = set()
             offset = 0
             limit = 500
 
@@ -260,7 +261,15 @@ class DotMacERPTeamSync:
                             continue
 
                         members_data = dept.get("members") or []
+                        if not members_data and erp_id in departments_processed_with_members:
+                            logger.info(
+                                "Skipping empty duplicate department payload for %s after populated payload was processed",
+                                erp_id,
+                            )
+                            continue
                         self._sync_team_members(team, members_data, result)
+                        if members_data:
+                            departments_processed_with_members.add(erp_id)
 
                     except Exception as e:
                         logger.error("Failed to sync department %s: %s", erp_id, e)

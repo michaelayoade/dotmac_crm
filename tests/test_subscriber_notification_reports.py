@@ -5,8 +5,6 @@ from unittest.mock import patch
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-import pytest
-from fastapi import HTTPException
 from starlette.requests import Request
 
 from app.models.connector import ConnectorConfig, ConnectorType
@@ -192,7 +190,7 @@ def test_effective_send_at_uses_next_local_window_when_immediate_send_is_after_h
     assert display_local == "2026-04-28T09:00"
 
 
-def test_queue_subscriber_notification_creates_notifications_logs_and_blocks_duplicates(db_session):
+def test_queue_subscriber_notification_creates_notifications_logs_without_blocking_duplicates(db_session):
     subscriber = _subscriber(db_session)
     first_schedule = _future_local_text()
     second_schedule = _future_local_text(minutes=30)
@@ -218,25 +216,25 @@ def test_queue_subscriber_notification_creates_notifications_logs_and_blocks_dup
     assert db_session.query(Notification).count() == 0
     assert db_session.query(SubscriberNotificationLog).count() == 2
 
-    with pytest.raises(HTTPException) as excinfo:
-        subscriber_notifications_service.queue_subscriber_notification(
-            db_session,
-            subscriber_id=subscriber.id,
-            channel_value="email",
-            email_subject="Second try",
-            email_body=(
-                "Hi Taylor, we noticed activity on your account. "
-                "Your connection looks stable from our side. "
-                "If you need help, contact support@dotmac.ng. "
-                "Thank you for your time."
-            ),
-            sms_body="",
-            scheduled_local_text=second_schedule,
-            sent_by_user_id=uuid4(),
-            sent_by_person_id=uuid4(),
-        )
+    second_logs = subscriber_notifications_service.queue_subscriber_notification(
+        db_session,
+        subscriber_id=subscriber.id,
+        channel_value="email",
+        email_subject="Second try",
+        email_body=(
+            "Hi Taylor, we noticed activity on your account. "
+            "Your connection looks stable from our side. "
+            "If you need help, contact support@dotmac.ng. "
+            "Thank you for your time."
+        ),
+        sms_body="",
+        scheduled_local_text=second_schedule,
+        sent_by_user_id=uuid4(),
+        sent_by_person_id=uuid4(),
+    )
 
-    assert excinfo.value.status_code == 409
+    assert len(second_logs) == 1
+    assert db_session.query(SubscriberNotificationLog).count() == 3
 
 
 def test_test_account_can_queue_repeated_notifications(db_session):

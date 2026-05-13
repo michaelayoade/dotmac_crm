@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,8 @@ from app.services.agent_mentions import (
 from app.services.common import coerce_uuid
 
 logger = logging.getLogger(__name__)
+_TICKET_MENTION_USERS_TTL_SECONDS = 30.0
+_TICKET_MENTION_USERS_CACHE: tuple[datetime, list[dict]] | None = None
 
 
 def list_ticket_mention_users(db: Session, *, limit: int = 200) -> list[dict]:
@@ -22,7 +25,14 @@ def list_ticket_mention_users(db: Session, *, limit: int = 200) -> list[dict]:
 
     Shape: [{"id": "person:<person_uuid>", "label": "<display name>"}]
     """
-    return list_active_users_for_mentions(db, limit=limit)
+    global _TICKET_MENTION_USERS_CACHE
+    now = datetime.now(UTC)
+    cached = _TICKET_MENTION_USERS_CACHE
+    if cached and (now - cached[0]).total_seconds() < _TICKET_MENTION_USERS_TTL_SECONDS:
+        return list(cached[1])
+    payload = list_active_users_for_mentions(db, limit=limit)
+    _TICKET_MENTION_USERS_CACHE = (now, list(payload))
+    return payload
 
 
 def notify_ticket_comment_mentions(

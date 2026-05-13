@@ -323,6 +323,7 @@ def process_email_webhook(self, payload: dict, trace_id: str | None = None):
 def process_meta_webhook(self, payload: dict, trace_id: str | None = None):
     session = SessionLocal()
     try:
+        meta_webhooks.persist_meta_raw_events(session, payload, trace_id=trace_id)
         parsed = MetaWebhookPayload(**payload)
         if parsed.object == "page":
             results = meta_webhooks.process_messenger_webhook(session, parsed)
@@ -371,5 +372,34 @@ def process_meta_webhook(self, payload: dict, trace_id: str | None = None):
                 error=exc,
                 trace_id=trace_id,
             )
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.tasks.webhooks.enrich_meta_identity")
+def enrich_meta_identity(platform: str, sender_id: str, account_id: str):
+    session = SessionLocal()
+    try:
+        updated = meta_webhooks.enrich_meta_identity(
+            session,
+            platform=platform,
+            sender_id=sender_id,
+            account_id=account_id,
+        )
+        logger.info(
+            "meta_identity_enrichment_result platform=%s sender_id=%s account_id=%s updated=%s",
+            platform,
+            sender_id,
+            account_id,
+            updated,
+        )
+    except Exception:
+        logger.exception(
+            "meta_identity_enrichment_failed platform=%s sender_id=%s account_id=%s",
+            platform,
+            sender_id,
+            account_id,
+        )
+        raise
     finally:
         session.close()

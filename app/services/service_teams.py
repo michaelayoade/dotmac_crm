@@ -332,6 +332,8 @@ def _sync_crm_agents_for_team(db: Session, service_team_id) -> None:
                 agent = CrmAgent(person_id=person_id, is_active=True)
                 db.add(agent)
                 db.flush()
+            elif not agent.is_active:
+                agent.is_active = True
 
             link = (
                 db.query(CrmAgentTeam)

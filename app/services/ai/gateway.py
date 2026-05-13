@@ -8,7 +8,11 @@ from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
-from app.metrics import observe_ai_provider_fallback, set_ai_provider_circuit_open
+from app.metrics import (
+    observe_ai_provider_fallback,
+    set_ai_provider_circuit_open,
+    set_ai_provider_circuit_open_duration,
+)
 from app.models.domain_settings import SettingDomain
 from app.services.ai.client import AIClientError, AIResponse, VllmClient, _coerce_float, _coerce_int
 from app.services.settings_spec import resolve_value
@@ -36,6 +40,7 @@ class AIEndpointConfig:
 class _CircuitBreakerState:
     consecutive_failures: int = 0
     cooldown_until: datetime | None = None
+    opened_at: datetime | None = None
 
 
 def _get_bool(db: Session, domain: SettingDomain, key: str, default: bool = False) -> bool:
@@ -139,28 +144,73 @@ class AIGateway:
                 transient=True,
             )
         if state.cooldown_until and now >= state.cooldown_until:
+            open_duration_seconds = 0.0
+            if state.opened_at is not None:
+                open_duration_seconds = max((now - state.opened_at).total_seconds(), 0.0)
             state.cooldown_until = None
             state.consecutive_failures = 0
+            state.opened_at = None
             set_ai_provider_circuit_open(provider=cfg.label, model=cfg.model, endpoint=endpoint, is_open=False)
+            set_ai_provider_circuit_open_duration(
+                provider=cfg.label,
+                model=cfg.model,
+                endpoint=endpoint,
+                duration_seconds=0.0,
+            )
+            logger.info(
+                "ai_provider_circuit_recovered provider=%s model=%s endpoint=%s previous_open_duration_seconds=%.1f",
+                cfg.label,
+                cfg.model,
+                endpoint,
+                open_duration_seconds,
+            )
 
     def _record_success(self, cfg: AIEndpointConfig, endpoint: AIEndpoint) -> None:
         state = self._get_state(cfg, endpoint)
         state.consecutive_failures = 0
         state.cooldown_until = None
+        state.opened_at = None
         set_ai_provider_circuit_open(provider=cfg.label, model=cfg.model, endpoint=endpoint, is_open=False)
+        set_ai_provider_circuit_open_duration(
+            provider=cfg.label,
+            model=cfg.model,
+            endpoint=endpoint,
+            duration_seconds=0.0,
+        )
 
     def _record_failure(self, cfg: AIEndpointConfig, endpoint: AIEndpoint, error: AIClientError) -> None:
         state = self._get_state(cfg, endpoint)
         if not error.transient:
             state.consecutive_failures = 0
+            state.cooldown_until = None
+            state.opened_at = None
             set_ai_provider_circuit_open(provider=cfg.label, model=cfg.model, endpoint=endpoint, is_open=False)
+            set_ai_provider_circuit_open_duration(
+                provider=cfg.label,
+                model=cfg.model,
+                endpoint=endpoint,
+                duration_seconds=0.0,
+            )
             return
         state.consecutive_failures += 1
         if state.consecutive_failures < _CIRCUIT_BREAKER_FAILURE_THRESHOLD:
             set_ai_provider_circuit_open(provider=cfg.label, model=cfg.model, endpoint=endpoint, is_open=False)
+            set_ai_provider_circuit_open_duration(
+                provider=cfg.label,
+                model=cfg.model,
+                endpoint=endpoint,
+                duration_seconds=0.0,
+            )
             return
+        state.opened_at = state.opened_at or self._now()
         state.cooldown_until = self._now() + timedelta(seconds=_CIRCUIT_BREAKER_COOLDOWN_SECONDS)
         set_ai_provider_circuit_open(provider=cfg.label, model=cfg.model, endpoint=endpoint, is_open=True)
+        set_ai_provider_circuit_open_duration(
+            provider=cfg.label,
+            model=cfg.model,
+            endpoint=endpoint,
+            duration_seconds=max((self._now() - state.opened_at).total_seconds(), 0.0),
+        )
         logger.warning(
             "ai_provider_circuit_opened provider=%s model=%s endpoint=%s failure_type=%s consecutive_failures=%s cooldown_seconds=%s",
             cfg.label,
@@ -188,6 +238,9 @@ class AIGateway:
         state = self._get_state(cfg, endpoint)
         now = self._now()
         is_open = bool(state.cooldown_until and now < state.cooldown_until)
+        open_duration_seconds = 0.0
+        if state.opened_at is not None and is_open:
+            open_duration_seconds = max((now - state.opened_at).total_seconds(), 0.0)
         cooldown_remaining_seconds = 0.0
         if state.cooldown_until and now < state.cooldown_until:
             cooldown_remaining_seconds = max((state.cooldown_until - now).total_seconds(), 0.0)
@@ -200,7 +253,13 @@ class AIGateway:
             "consecutive_failures": state.consecutive_failures,
             "cooldown_until": state.cooldown_until.isoformat() if state.cooldown_until else None,
             "cooldown_remaining_seconds": cooldown_remaining_seconds,
+            "open_since": state.opened_at.isoformat() if state.opened_at else None,
+            "open_duration_seconds": open_duration_seconds,
         }
+
+    def mark_endpoint_healthy(self, db: Session, endpoint: AIEndpoint) -> None:
+        cfg = self.get_endpoint_config(db, endpoint)
+        self._record_success(cfg, endpoint)
 
     def _client_for(self, cfg: AIEndpointConfig) -> VllmClient:
         return VllmClient(

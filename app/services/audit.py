@@ -1,4 +1,5 @@
 from fastapi import HTTPException, Request, Response
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 from app.models.audit import AuditActorType, AuditEvent
@@ -6,6 +7,19 @@ from app.models.person import Person
 from app.schemas.audit import AuditEventCreate
 from app.services.common import apply_ordering, apply_pagination
 from app.services.response import ListResponseMixin
+
+
+def _state_person_id(person: object | None) -> str | None:
+    if person is None:
+        return None
+    state = sa_inspect(person, raiseerr=False)
+    if state is not None and state.identity:
+        return str(state.identity[0])
+    try:
+        person_id = getattr(person, "id", None)
+    except Exception:
+        return None
+    return str(person_id) if person_id else None
 
 
 class AuditEvents(ListResponseMixin):
@@ -95,10 +109,13 @@ class AuditEvents(ListResponseMixin):
     def log_request(db: Session, request: Request, response: Response):
         actor_type = request.headers.get("x-actor-type")
         actor_id = request.headers.get("x-actor-id")
+        state_person = getattr(request.state, "user", None)
         if not actor_type:
             actor_type = getattr(request.state, "actor_type", None)
         if not actor_id:
             actor_id = getattr(request.state, "actor_id", None)
+        if not actor_id:
+            actor_id = _state_person_id(state_person)
         if not actor_type:
             actor_type = AuditActorType.system.value
         request_id = request.headers.get("x-request-id")
@@ -117,9 +134,10 @@ class AuditEvents(ListResponseMixin):
             "path": request.url.path,
             "query": query_params,
         }
-        person = getattr(request.state, "user", None)
-        if not person and actor_id and resolved_actor_type == AuditActorType.user:
-            person = db.get(Person, actor_id)
+        actor_id_value = str(actor_id) if actor_id else None
+        person = None
+        if actor_id_value and resolved_actor_type == AuditActorType.user:
+            person = db.get(Person, actor_id_value)
         if person:
             display_name = person.display_name or f"{person.first_name} {person.last_name}".strip()
             if display_name:
@@ -128,7 +146,7 @@ class AuditEvents(ListResponseMixin):
                 metadata["actor_email"] = person.email
         payload = AuditEventCreate(
             actor_type=resolved_actor_type,
-            actor_id=actor_id,
+            actor_id=actor_id_value,
             action=request.method,
             entity_type=request.url.path,
             entity_id=entity_id,

@@ -23,3 +23,23 @@ def test_cookie_secure_true_string_parses_true(monkeypatch):
     settings = Settings()
 
     assert settings.cookie_secure is True
+
+
+def test_request_shared_db_session_defaults_disabled(monkeypatch):
+    monkeypatch.delenv("REQUEST_SHARED_DB_SESSION_ENABLED", raising=False)
+    monkeypatch.delenv("REQUEST_SHARED_DB_SESSION_PATH_PREFIXES", raising=False)
+
+    settings = Settings()
+
+    assert settings.request_shared_db_session_enabled is False
+    assert settings.request_shared_db_session_path_prefixes == ()
+
+
+def test_request_shared_db_session_path_prefixes_parse(monkeypatch):
+    monkeypatch.setenv("REQUEST_SHARED_DB_SESSION_ENABLED", "true")
+    monkeypatch.setenv("REQUEST_SHARED_DB_SESSION_PATH_PREFIXES", "/admin/crm, /admin/dashboard ")
+
+    settings = Settings()
+
+    assert settings.request_shared_db_session_enabled is True
+    assert settings.request_shared_db_session_path_prefixes == ("/admin/crm", "/admin/dashboard")

@@ -126,7 +126,8 @@ async def workqueue_websocket(websocket: WebSocket) -> None:
 
     async def _listen() -> None:
         try:
-            assert pubsub is not None
+            if pubsub is None:
+                return
             while True:
                 message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if not message:
@@ -256,7 +257,7 @@ async def workqueue_websocket(websocket: WebSocket) -> None:
                 if subscribed:
                     await pubsub.unsubscribe(*subscribed)
                 await pubsub.close()
-            except Exception:
+            except Exception:  # nosec B110 - best-effort websocket cleanup
                 pass
         if redis_client is not None:
             with contextlib.suppress(Exception):

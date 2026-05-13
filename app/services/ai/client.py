@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 from sqlalchemy.orm import Session
 
-from app.metrics import observe_ai_provider_failure, observe_ai_provider_request
+from app.metrics import observe_ai_provider_failure, observe_ai_provider_request, observe_ai_provider_retry_exhaustion
 from app.models.domain_settings import SettingDomain
 from app.services import settings_spec
 
@@ -174,6 +174,8 @@ class _BaseHttpAIClient:
             response_preview = self._truncate_response_body(exc.response.text)
             if status_code in {401, 403}:
                 failure_type = "auth"
+            elif status_code == 402 or (response_preview and "insufficient balance" in response_preview.lower()):
+                failure_type = "provider_billing"
             elif status_code == 429:
                 failure_type = "rate_limit"
                 transient = True
@@ -225,7 +227,7 @@ class _BaseHttpAIClient:
 
     @staticmethod
     def _retry_backoff_seconds(attempt: int) -> float:
-        return min((2**attempt) + random.uniform(0.0, 0.5), 5.0)
+        return min((2**attempt) + random.uniform(0.0, 0.5), 5.0)  # nosec B311 - retry jitter is not security-sensitive
 
     @staticmethod
     def _log_failure(error: AIClientError, *, final: bool) -> None:
@@ -336,6 +338,13 @@ class _BaseHttpAIClient:
                 if should_retry:
                     sleep(self._retry_backoff_seconds(attempt))
                     continue
+                if error.transient and error.retry_count >= self.max_retries:
+                    observe_ai_provider_retry_exhaustion(
+                        provider=self.provider,
+                        model=self.model,
+                        endpoint=url,
+                        failure_type=error.failure_type,
+                    )
                 raise error from exc
             except AIClientError as exc:
                 latency_ms = (perf_counter() - start) * 1000.0
@@ -355,6 +364,13 @@ class _BaseHttpAIClient:
                     endpoint=url,
                     failure_type=error.failure_type,
                 )
+                if error.transient and error.retry_count >= self.max_retries:
+                    observe_ai_provider_retry_exhaustion(
+                        provider=self.provider,
+                        model=self.model,
+                        endpoint=url,
+                        failure_type=error.failure_type,
+                    )
                 self._log_failure(error, final=True)
                 raise
         raise AIClientError(

@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, TypedDict
 from urllib.parse import quote, urlencode
 from uuid import UUID
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape  # nosec B406 - only XML-escapes generated workbook values
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import APIRouter, Depends, Form, Query, Request, Response

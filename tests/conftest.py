@@ -619,6 +619,7 @@ def crm_conversation_factory(db_session):
     def _factory(
         *,
         assignee_person_id: uuid.UUID | None = None,
+        assignment_team_id: uuid.UUID | None = None,
         sla_due_at: _dt | None = None,
         last_inbound_at: _dt | None = None,
         status: ConversationStatus = ConversationStatus.open,
@@ -678,6 +679,15 @@ def crm_conversation_factory(db_session):
             assignment = ConversationAssignment(
                 conversation_id=conv.id,
                 agent_id=agent.id,
+                team_id=assignment_team_id,
+                is_active=True,
+            )
+            db_session.add(assignment)
+            db_session.flush()
+        elif assignment_team_id is not None:
+            assignment = ConversationAssignment(
+                conversation_id=conv.id,
+                team_id=assignment_team_id,
                 is_active=True,
             )
             db_session.add(assignment)
@@ -711,6 +721,7 @@ def lead_factory(db_session):
     def _factory(
         *,
         owner_person_id: uuid.UUID | None = None,
+        owner_crm_team_id: uuid.UUID | None = None,
         status: LeadStatus = LeadStatus.new,
         next_action_at: _dt | None = None,
         last_activity_at: _dt | None = None,
@@ -745,6 +756,16 @@ def lead_factory(db_session):
                 agent = CrmAgent(person_id=owner_person_id, title="Sales")
                 db_session.add(agent)
                 db_session.flush()
+            if owner_crm_team_id is not None:
+                existing_link = (
+                    db_session.query(CrmAgentTeam)
+                    .filter(CrmAgentTeam.agent_id == agent.id)
+                    .filter(CrmAgentTeam.team_id == owner_crm_team_id)
+                    .one_or_none()
+                )
+                if existing_link is None:
+                    db_session.add(CrmAgentTeam(agent_id=agent.id, team_id=owner_crm_team_id, is_active=True))
+                    db_session.flush()
             owner_agent_id = agent.id
 
         meta: dict = {}
@@ -860,6 +881,7 @@ def ticket_factory(db_session):
     def _factory(
         *,
         assignee_person_id: uuid.UUID | None = None,
+        service_team_id: uuid.UUID | None = None,
         status: TicketStatus = TicketStatus.open,
         priority: TicketPriority = TicketPriority.normal,
         sla_due_at: _dt | None = None,
@@ -877,6 +899,7 @@ def ticket_factory(db_session):
             title=title or "Workqueue test ticket",
             status=status,
             priority=priority,
+            service_team_id=service_team_id,
             due_at=due_at,
             metadata_=meta or None,
         )
@@ -938,9 +961,10 @@ def project_task_factory(db_session):
         due_at: _dt | None = None,
         title: str | None = None,
         project: Project | None = None,
+        service_team_id: uuid.UUID | None = None,
     ) -> ProjectTask:
         if project is None:
-            project = Project(name="Workqueue test project")
+            project = Project(name="Workqueue test project", service_team_id=service_team_id)
             db_session.add(project)
             db_session.flush()
 

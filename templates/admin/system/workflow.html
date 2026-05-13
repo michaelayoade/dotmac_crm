@@ -1,11 +1,11 @@
 {% extends "layouts/admin.html" %}
 
 {% from "components/ui/macros.html" import page_header, stats_card, submit_button, table_shell, table_row, empty_state %}
-{% block title %}Workflow - System{% endblock %}
+{% block title %}Work Queue - System{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    {{ page_header("Workflow", "Review SLA policies and status transitions", color="teal", color2="emerald", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>', breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "", "label": "Workflow"}]) }}
+    {{ page_header("Work Queue", "Review assignment rules, SLA policies, and status transitions", color="teal", color2="emerald", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>', breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "", "label": "Work Queue"}]) }}
 
     {% if error %}
     <div class="animate-fade-in-up rounded-2xl border border-red-200/60 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800/40 dark:bg-red-900/20 dark:text-red-200">

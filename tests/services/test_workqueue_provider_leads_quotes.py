@@ -6,12 +6,13 @@ import pytest
 
 from app.models.crm.enums import LeadStatus, QuoteStatus
 from app.services.workqueue.providers.leads_quotes import leads_quotes_provider
+from app.services.workqueue.scope import get_workqueue_scope
 from app.services.workqueue.types import ItemKind, WorkqueueAudience
 
 
 @pytest.fixture
 def user():
-    return SimpleNamespace(person_id=uuid4(), permissions={"workqueue:view"})
+    return SimpleNamespace(person_id=uuid4(), permissions={"workqueue:view"}, roles=set())
 
 
 def test_kind(user):
@@ -24,7 +25,14 @@ def test_quote_expires_today(db_session, user, quote_factory):
         status=QuoteStatus.sent,
         expires_at=datetime.now(UTC) + timedelta(hours=4),
     )
-    items = leads_quotes_provider.fetch(db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set())
+    audience = WorkqueueAudience.self_
+    items = leads_quotes_provider.fetch(
+        db_session,
+        user=user,
+        audience=audience,
+        scope=get_workqueue_scope(db_session, user, audience),
+        snoozed_ids=set(),
+    )
     assert any(i.reason == "quote_expires_today" and i.score == 85 for i in items)
 
 
@@ -34,7 +42,14 @@ def test_lead_overdue_followup(db_session, user, lead_factory):
         status=LeadStatus.contacted,
         next_action_at=datetime.now(UTC) - timedelta(hours=1),
     )
-    items = leads_quotes_provider.fetch(db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set())
+    audience = WorkqueueAudience.self_
+    items = leads_quotes_provider.fetch(
+        db_session,
+        user=user,
+        audience=audience,
+        scope=get_workqueue_scope(db_session, user, audience),
+        snoozed_ids=set(),
+    )
     assert any(i.reason == "lead_overdue_followup" and i.score == 70 for i in items)
 
 
@@ -48,6 +63,13 @@ def test_returns_two_kinds_in_one_call(db_session, user, lead_factory, quote_fac
         status=QuoteStatus.sent,
         expires_at=datetime.now(UTC) + timedelta(hours=2),
     )
-    items = leads_quotes_provider.fetch(db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set())
+    audience = WorkqueueAudience.self_
+    items = leads_quotes_provider.fetch(
+        db_session,
+        user=user,
+        audience=audience,
+        scope=get_workqueue_scope(db_session, user, audience),
+        snoozed_ids=set(),
+    )
     kinds = {i.kind for i in items}
     assert {ItemKind.lead, ItemKind.quote} <= kinds

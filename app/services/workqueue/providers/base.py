@@ -7,6 +7,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.services.workqueue.scope import WorkqueueScope
 from app.services.workqueue.scoring_config import PROVIDER_LIMIT
 from app.services.workqueue.types import ItemKind, WorkqueueAudience, WorkqueueItem
 
@@ -21,6 +22,7 @@ class WorkqueueProvider(Protocol):
         *,
         user,
         audience: WorkqueueAudience,
+        scope: WorkqueueScope,
         snoozed_ids: set[UUID],
         limit: int = PROVIDER_LIMIT,
     ) -> list[WorkqueueItem]: ...

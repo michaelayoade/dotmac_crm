@@ -248,7 +248,7 @@ def _persist_resolved_closing_message_metadata(
 
 
 def _select_resolved_closing_variant(*, random_value: float | None = None) -> Literal["social", "feedback"]:
-    sample = random.random() if random_value is None else random_value
+    sample = random.random() if random_value is None else random_value  # nosec B311 - copy variant sampling
     return "social" if sample < 0.70 else "feedback"
 
 

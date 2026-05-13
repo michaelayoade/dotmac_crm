@@ -81,6 +81,34 @@ def test_vllm_generate_classifies_auth_failure():
     assert request.call_count == 1
 
 
+def test_vllm_generate_classifies_insufficient_balance_as_provider_billing():
+    response = MagicMock()
+    response.status_code = 402
+    response.text = '{"error":{"message":"Insufficient Balance","code":"invalid_request_error"}}'
+    response.headers = {}
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "402 payment required",
+        request=MagicMock(),
+        response=response,
+    )
+
+    request = MagicMock(return_value=response)
+    client_cm = MagicMock()
+    client_cm.__enter__.return_value.request = request
+
+    with (
+        patch("app.services.ai.client.httpx.Client", return_value=client_cm),
+        pytest.raises(AIClientError) as exc_info,
+    ):
+        client = VllmClient(api_key="secret", model="deepseek-chat", base_url="https://api.deepseek.com")
+        client.generate(system="sys", prompt="user")
+
+    assert exc_info.value.failure_type == "provider_billing"
+    assert exc_info.value.status_code == 402
+    assert exc_info.value.transient is False
+    assert request.call_count == 1
+
+
 def test_vllm_generate_retries_transient_timeout_then_succeeds():
     response = MagicMock()
     response.status_code = 200

@@ -1,6 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
+from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
 from app.models.service_team import ServiceTeamMember, ServiceTeamMemberRole, ServiceTeamType
 from app.models.tickets import Ticket
 from app.schemas.service_team import (
@@ -153,6 +154,31 @@ class TestServiceTeamMembers:
         )
         assert reactivated.is_active is True
         assert reactivated.role == ServiceTeamMemberRole.manager
+
+    def test_reactivate_existing_inactive_crm_agent_for_linked_team(self, db_session, person):
+        team = _make_team(db_session)
+        crm_team = CrmTeam(name="CRM Sales", service_team_id=team.id, is_active=True)
+        db_session.add(crm_team)
+        db_session.flush()
+
+        agent = CrmAgent(person_id=person.id, is_active=False)
+        db_session.add(agent)
+        db_session.flush()
+
+        link = CrmAgentTeam(agent_id=agent.id, team_id=crm_team.id, is_active=False)
+        db_session.add(link)
+        db_session.commit()
+
+        service_team_members.add_member(
+            db_session,
+            str(team.id),
+            ServiceTeamMemberCreate(person_id=person.id),
+        )
+
+        db_session.refresh(agent)
+        db_session.refresh(link)
+        assert agent.is_active is True
+        assert link.is_active is True
 
     def test_remove_member(self, db_session, person):
         team = _make_team(db_session)

@@ -303,3 +303,39 @@ class TestSyncDepartments:
             result = sync_service.sync_departments()
 
         assert result.teams_created == 1
+
+    def test_ignores_empty_duplicate_department_after_populated_payload(self, sync_service, db_session, team_person):
+        team = ServiceTeam(name="Sales", team_type=ServiceTeamType.operations, erp_department="SALES")
+        db_session.add(team)
+        db_session.flush()
+
+        inactive_member = ServiceTeamMember(
+            team_id=team.id,
+            person_id=team_person.id,
+            role=ServiceTeamMemberRole.member,
+            is_active=False,
+        )
+        db_session.add(inactive_member)
+        db_session.commit()
+
+        sync_service._client.get_departments.return_value = [
+            _make_department(
+                dept_id="SALES",
+                name="Sales",
+                members=[_make_member(email=team_person.email, role="lead")],
+            ),
+            _make_department(
+                dept_id="SALES",
+                name="Sales",
+                members=[],
+            ),
+        ]
+
+        with patch("app.services.service_teams.sync_crm_agents"):
+            result = sync_service.sync_departments()
+
+        db_session.refresh(inactive_member)
+        assert inactive_member.is_active is True
+        assert inactive_member.role == ServiceTeamMemberRole.lead
+        assert result.members_updated == 1
+        assert result.members_deactivated == 0

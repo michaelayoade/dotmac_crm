@@ -7,6 +7,7 @@ from jose import JWTError, jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
+from app.db import bind_request_db_context, reset_request_db_context
 from app.metrics import REQUEST_COUNT, REQUEST_ERRORS, REQUEST_LATENCY
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
         request.state.request_id = request_id
+        db_context_tokens = bind_request_db_context(path=_request_path(request), request_id=request_id)
 
         # Link request_id to the active OTel span (if any).
         try:
@@ -96,6 +98,8 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
                 },
             )
             raise
+        finally:
+            reset_request_db_context(db_context_tokens)
         duration_ms = (time.monotonic() - start) * 1000.0
         path = _request_path(request)
         actor_id = getattr(request.state, "actor_id", None) or fallback_actor_id

@@ -9,6 +9,7 @@ from app.models.crm.team import (
     CrmTeam,
     CrmTeamChannel,
 )
+from app.models.service_team import ServiceTeamMember
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
 
@@ -339,15 +340,45 @@ def get_agent_labels(db: Session, agents: list) -> dict[str, str]:
     return labels
 
 
+def _list_agents_with_sales_team_members(db: Session) -> list[CrmAgent]:
+    agents = (
+        db.query(CrmAgent).filter(CrmAgent.is_active.is_(True)).order_by(CrmAgent.created_at.desc()).limit(200).all()
+    )
+
+    sales_team_id = coerce_uuid("7ba88183-1f51-438c-b81c-02f90cbd5287")
+    member_person_ids = {
+        person_id
+        for (person_id,) in (
+            db.query(ServiceTeamMember.person_id)
+            .filter(ServiceTeamMember.team_id == sales_team_id)
+            .filter(ServiceTeamMember.is_active.is_(True))
+            .all()
+        )
+        if person_id
+    }
+    if not member_person_ids:
+        return agents
+
+    team_agents = (
+        db.query(CrmAgent)
+        .filter(CrmAgent.person_id.in_(member_person_ids))
+        .order_by(CrmAgent.created_at.desc())
+        .limit(500)
+        .all()
+    )
+    by_id = {str(agent.id): agent for agent in agents}
+    for agent in team_agents:
+        by_id[str(agent.id)] = agent
+    return list(by_id.values())
+
+
 def get_agent_team_options(db: Session) -> dict:
     """Get agents and teams for assignment dropdowns.
 
     Returns: {agents, teams, agent_labels}
     """
     teams = db.query(CrmTeam).filter(CrmTeam.is_active.is_(True)).order_by(CrmTeam.name.asc()).limit(200).all()
-    agents = (
-        db.query(CrmAgent).filter(CrmAgent.is_active.is_(True)).order_by(CrmAgent.created_at.desc()).limit(200).all()
-    )
+    agents = _list_agents_with_sales_team_members(db)
     agent_labels = get_agent_labels(db, agents)
 
     return {"agents": agents, "teams": teams, "agent_labels": agent_labels}

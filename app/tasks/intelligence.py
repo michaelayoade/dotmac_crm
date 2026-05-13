@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from app.celery_app import celery_app
 from app.db import SessionLocal
 from app.models.domain_settings import SettingDomain
 from app.services.ai.data_health import build_data_health_baseline_snapshot, persist_data_health_baseline_snapshot
 from app.services.ai.engine import intelligence_engine
+from app.services.ai.gateway import ai_gateway
 from app.services.ai.insights import ai_insights
 from app.services.ai.personas import persona_registry
+from app.services.ai.provider_health import run_provider_healthcheck
+from app.services.crm.ai_intake import recover_ai_error_escalations
+from app.services.crm.ai_intake_runtime import ai_intake_runtime_audit
 from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
@@ -121,6 +125,74 @@ def capture_data_health_baseline(sample_limit: int = 20, trend_days: int = 14) -
     except Exception:
         session.rollback()
         logger.exception("Failed to capture data health baseline")
+        raise
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.tasks.intelligence.run_ai_intake_health_watchdog")
+def run_ai_intake_health_watchdog(
+    queue_backlog_warn_threshold: int = 25,
+    circuit_open_warn_seconds: int = 300,
+    last_success_warn_seconds: int = 1800,
+) -> dict[str, Any]:
+    session = SessionLocal()
+    try:
+        mode: Literal["primary", "fallback"] = (
+            "fallback" if ai_gateway.endpoint_ready(session, "secondary") else "primary"
+        )
+        audit = ai_intake_runtime_audit(session)
+        health = run_provider_healthcheck(session, mode=mode)
+        recovery = {"candidates": 0, "retried": 0, "recovered": 0, "skipped": 0, "errors": []}
+        if health.overall_success:
+            recovery = recover_ai_error_escalations(session)
+
+        warnings: list[str] = []
+        if not health.overall_success:
+            warnings.append("provider_health_failed")
+        if int(audit.get("queue", {}).get("total_depth") or 0) >= queue_backlog_warn_threshold:
+            warnings.append("queue_backlog")
+        last_success_age_seconds = float(audit.get("intake", {}).get("last_resolved_age_seconds") or 0.0)
+        recent_ai_error_count = int(audit.get("intake", {}).get("recent_ai_error_count") or 0)
+        if last_success_age_seconds >= last_success_warn_seconds and recent_ai_error_count > 0:
+            warnings.append("last_success_stale")
+        if any(
+            bool(endpoint.get("is_open"))
+            and float(endpoint.get("open_duration_seconds") or 0.0) >= circuit_open_warn_seconds
+            for endpoint in audit.get("circuit", {}).get("endpoints", [])
+        ):
+            warnings.append("circuit_open_too_long")
+        if mode == "primary" and not ai_gateway.endpoint_ready(session, "secondary"):
+            warnings.append("secondary_not_configured")
+
+        if warnings:
+            logger.warning(
+                "ai_intake_watchdog_warning warnings=%s provider_mode=%s queue_depth=%s last_success_age_seconds=%.1f recent_ai_error_count=%s",
+                ",".join(warnings),
+                mode,
+                audit.get("queue", {}).get("total_depth"),
+                last_success_age_seconds,
+                recent_ai_error_count,
+            )
+        else:
+            logger.info(
+                "ai_intake_watchdog_ok provider_mode=%s queue_depth=%s last_success_age_seconds=%.1f",
+                mode,
+                audit.get("queue", {}).get("total_depth"),
+                last_success_age_seconds,
+            )
+
+        return {
+            "ok": not warnings,
+            "warnings": warnings,
+            "provider_mode": mode,
+            "health": health.to_dict(),
+            "recovery": recovery,
+            "audit": audit,
+        }
+    except Exception:
+        session.rollback()
+        logger.exception("AI intake watchdog failed")
         raise
     finally:
         session.close()

@@ -547,6 +547,11 @@ def get_inbox_stats(db: Session) -> dict:
     Returns: {total, open, pending, snoozed, resolved, unread}
     Uses single GROUP BY query instead of loading all conversations.
     """
+    cache = db.info.setdefault("_inbox_query_cache", {})
+    cached = cache.get(("inbox_stats",))
+    if isinstance(cached, dict):
+        return dict(cached)
+
     _ensure_summary_rows(db)
     # Single query with GROUP BY for status counts
     status_counts = (
@@ -588,6 +593,7 @@ def get_inbox_stats(db: Session) -> dict:
         or 0
     )
 
+    cache[("inbox_stats",)] = dict(stats)
     return stats
 
 
@@ -652,33 +658,55 @@ def _count_active_conversations_for_filter(
     return int(query.count() or 0)
 
 
+def _get_base_assignment_counts(db: Session) -> dict[str, int]:
+    _ensure_summary_rows(db)
+    base = select(func.count(ConversationSummary.conversation_id)).where(ConversationSummary.is_active.is_(True))
+    row = db.execute(
+        select(
+            base.scalar_subquery().label("all_count"),
+            base.where(
+                ConversationSummary.active_assignment_agent_id.is_(None),
+                ConversationSummary.active_assignment_team_id.is_(None),
+                ConversationSummary.latest_message_at >= UNASSIGNED_ACTIVITY_START_UTC,
+            )
+            .scalar_subquery()
+            .label("unassigned_count"),
+            base.where(ConversationSummary.unreplied.is_(True)).scalar_subquery().label("unreplied_count"),
+            base.where(ConversationSummary.needs_attention.is_(True)).scalar_subquery().label("needs_attention_count"),
+        )
+    ).one()
+    return {
+        "all": int(row.all_count or 0),
+        "unassigned": int(row.unassigned_count or 0),
+        "unreplied": int(row.unreplied_count or 0),
+        "needs_attention": int(row.needs_attention_count or 0),
+    }
+
+
 def get_assignment_counts(
     db: Session,
     *,
     assigned_person_id: str | None = None,
 ) -> dict[str, int]:
     """Get inbox assignment bucket counts for sidebar chips."""
-    return {
-        "all": _count_active_conversations_for_filter(
-            db, assignment_filter="all", assigned_person_id=assigned_person_id
-        ),
+    cache = db.info.setdefault("_inbox_query_cache", {})
+    cache_key = ("assignment_counts", assigned_person_id or "")
+    cached = cache.get(cache_key)
+    if isinstance(cached, dict):
+        return dict(cached)
+
+    counts = {
+        **_get_base_assignment_counts(db),
         "assigned": _count_active_conversations_for_filter(
             db, assignment_filter="assigned", assigned_person_id=assigned_person_id
         ),
         "my_team": _count_active_conversations_for_filter(
             db, assignment_filter="my_team", assigned_person_id=assigned_person_id
         ),
-        "unassigned": _count_active_conversations_for_filter(
-            db, assignment_filter="unassigned", assigned_person_id=assigned_person_id
-        ),
-        "unreplied": _count_active_conversations_for_filter(
-            db, assignment_filter="unreplied", assigned_person_id=assigned_person_id
-        ),
-        "needs_attention": _count_active_conversations_for_filter(
-            db, assignment_filter="needs_attention", assigned_person_id=assigned_person_id
-        ),
         "agent": 0,
     }
+    cache[cache_key] = dict(counts)
+    return counts
 
 
 def get_resolved_today_count(
@@ -687,13 +715,19 @@ def get_resolved_today_count(
     timezone: str,
 ) -> int:
     """Count resolved conversations in the current company-local calendar day."""
+    cache = db.info.setdefault("_inbox_query_cache", {})
+    cache_key = ("resolved_today", timezone)
+    cached = cache.get(cache_key)
+    if isinstance(cached, int):
+        return cached
+
     tz = ZoneInfo(timezone)
     now_local = datetime.now(tz)
     day_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end_local = day_start_local + timedelta(days=1)
     day_start_utc = day_start_local.astimezone(UTC)
     day_end_utc = day_end_local.astimezone(UTC)
-    return int(
+    resolved_today = int(
         db.query(func.count(Conversation.id))
         .filter(Conversation.is_active.is_(True))
         .filter(Conversation.status == ConversationStatus.resolved)
@@ -702,6 +736,8 @@ def get_resolved_today_count(
         .scalar()
         or 0
     )
+    cache[cache_key] = resolved_today
+    return resolved_today
 
 
 def get_waiting_queue_counts_by_channel(db: Session) -> dict[str, int]:
@@ -739,6 +775,11 @@ def get_channel_stats(db: Session) -> dict[str, int]:
 
     Returns: {email: N, whatsapp: N, ...}
     """
+    cache = db.info.setdefault("_inbox_query_cache", {})
+    cached = cache.get(("channel_stats",))
+    if isinstance(cached, dict):
+        return dict(cached)
+
     from app.models.crm.comments import SocialComment
 
     channel_stats = {}
@@ -767,6 +808,7 @@ def get_channel_stats(db: Session) -> dict[str, int]:
     # Add comments count
     channel_stats["comments"] = db.query(SocialComment).filter(SocialComment.is_active.is_(True)).count()
 
+    cache[("channel_stats",)] = dict(channel_stats)
     return channel_stats
 
 

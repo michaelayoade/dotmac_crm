@@ -1,6 +1,11 @@
 """Service helpers for admin web layer."""
 
+from datetime import UTC, datetime
+
 from sqlalchemy.orm import Session
+
+_SIDEBAR_STATS_TTL_SECONDS = 15.0
+_SIDEBAR_STATS_CACHE: dict[str, tuple[datetime, dict]] = {}
 
 
 def _get_initials(name: str) -> str:
@@ -79,17 +84,23 @@ def _workqueue_attention(db: Session, current_user: dict | None) -> int:
             return 0
 
         class _U:
-            def __init__(self, person_id, permissions):
+            def __init__(self, person_id, permissions, roles):
                 self.person_id = person_id
                 self.permissions = permissions
+                self.roles = roles
 
-        view = build_workqueue(db, _U(person_uuid, set(perms)))
+        view = build_workqueue(db, _U(person_uuid, set(perms), set(current_user.get("roles") or [])))
         return len(view.right_now)
     except Exception:  # never let the sidebar break the page
         return 0
 
 
-def get_sidebar_stats(db: Session, current_user: dict | None = None) -> dict:
+def get_sidebar_stats(
+    db: Session,
+    current_user: dict | None = None,
+    *,
+    workqueue_attention_override: int | None = None,
+) -> dict:
     """Get stats for sidebar badges.
 
     Uses SQL COUNT for efficiency instead of loading records into memory.
@@ -102,6 +113,20 @@ def get_sidebar_stats(db: Session, current_user: dict | None = None) -> dict:
     from sqlalchemy import func
 
     from app.models.tickets import Ticket, TicketStatus
+
+    cache_key = None
+    if workqueue_attention_override is None:
+        permissions = sorted(str(permission) for permission in ((current_user or {}).get("permissions") or []))
+        cache_key = "|".join(
+            [
+                str((current_user or {}).get("person_id") or ""),
+                ",".join(permissions),
+            ]
+        )
+        cached = _SIDEBAR_STATS_CACHE.get(cache_key)
+        now = datetime.now(UTC)
+        if cached and (now - cached[0]).total_seconds() < _SIDEBAR_STATS_TTL_SECONDS:
+            return dict(cached[1])
 
     try:
         # Use SQL COUNT with status filter - much faster than loading 1000 records
@@ -123,11 +148,18 @@ def get_sidebar_stats(db: Session, current_user: dict | None = None) -> dict:
     except Exception:
         open_tickets_count = 0
 
-    return {
+    payload = {
         "dispatch_jobs": 0,
         "open_tickets": open_tickets_count,
-        "workqueue_attention": _workqueue_attention(db, current_user),
+        "workqueue_attention": (
+            workqueue_attention_override
+            if workqueue_attention_override is not None
+            else _workqueue_attention(db, current_user)
+        ),
     }
+    if cache_key is not None:
+        _SIDEBAR_STATS_CACHE[cache_key] = (datetime.now(UTC), dict(payload))
+    return payload
 
 
 def build_admin_context(request, db: Session) -> dict:

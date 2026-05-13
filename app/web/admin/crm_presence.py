@@ -1,13 +1,15 @@
 """CRM presence and live-map web routes."""
 
+import logging
 from datetime import datetime
+from time import monotonic
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.db import get_db
 from app.models.crm.enums import AgentPresenceStatus
 from app.services import crm as crm_service
 from app.services.crm.inbox.agents import get_current_agent_id
@@ -16,14 +18,8 @@ from app.web.templates import Jinja2Templates
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+logger = logging.getLogger(__name__)
+_PRESENCE_LOG_THRESHOLD_MS = 500.0
 
 
 @router.post("/agents/presence", response_class=JSONResponse)
@@ -34,21 +30,31 @@ async def update_current_agent_presence(
     """Update presence for the current CRM agent (derived from logged-in user)."""
     from app.web.admin._auth_helpers import get_current_user
 
-    current_user = get_current_user(request)
-    agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
-    if not agent_id:
-        return Response(status_code=204)
-
+    started_at = monotonic()
     try:
-        payload = await request.json()
-    except Exception:
-        payload = {}
-    status = payload.get("status") if isinstance(payload, dict) else None
-    if status is not None and status not in {s.value for s in AgentPresenceStatus}:
-        raise HTTPException(status_code=400, detail="Invalid status")
+        current_user = get_current_user(request)
+        agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
+        if not agent_id:
+            return Response(status_code=204)
 
-    crm_service.agent_presence.upsert(db, agent_id, status=status, source="auto")
-    return JSONResponse({"ok": True})
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        status = payload.get("status") if isinstance(payload, dict) else None
+        if status is not None and status not in {s.value for s in AgentPresenceStatus}:
+            raise HTTPException(status_code=400, detail="Invalid status")
+
+        crm_service.agent_presence.upsert(db, agent_id, status=status, source="auto")
+        return JSONResponse({"ok": True})
+    finally:
+        duration_ms = (monotonic() - started_at) * 1000.0
+        if duration_ms >= _PRESENCE_LOG_THRESHOLD_MS:
+            logger.info(
+                "crm_presence_upsert_slow duration_ms=%.2f request_id=%s",
+                duration_ms,
+                getattr(request.state, "request_id", None),
+            )
 
 
 @router.post("/agents/presence/location", response_class=JSONResponse)
@@ -118,54 +124,64 @@ async def get_current_agent_presence(
     from app.services.crm.shifts import current_shift_window, resolve_company_timezone
     from app.web.admin._auth_helpers import get_current_user
 
-    current_user = get_current_user(request)
-    agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
-    if not agent_id:
-        return JSONResponse({"ok": True, "agent_id": None, "status": None, "effective_status": None})
+    started_at = monotonic()
+    try:
+        current_user = get_current_user(request)
+        agent_id = get_current_agent_id(db, (current_user or {}).get("person_id"))
+        if not agent_id:
+            return JSONResponse({"ok": True, "agent_id": None, "status": None, "effective_status": None})
 
-    presence = crm_service.agent_presence.get_or_create(db, agent_id)
-    effective_status = crm_service.agent_presence.effective_status(presence)
-    last_location_at = getattr(presence, "last_location_at", None)
-    manual_override_status = getattr(presence, "manual_override_status", None)
-    manual_override_set_at = getattr(presence, "manual_override_set_at", None)
+        presence = crm_service.agent_presence.get_or_create(db, agent_id)
+        effective_status = crm_service.agent_presence.effective_status(presence)
+        last_location_at = getattr(presence, "last_location_at", None)
+        manual_override_status = getattr(presence, "manual_override_status", None)
+        manual_override_set_at = getattr(presence, "manual_override_set_at", None)
 
-    # Shift-aware work timer: Online + Away count as working time within current shift window.
-    tz_name = resolve_company_timezone(db)
-    shift = current_shift_window(tz_name=tz_name)
-    seconds_by_status = crm_service.agent_presence.seconds_by_status(
-        db,
-        agent_id=agent_id,
-        start_at=shift.start_utc,
-        end_at=shift.end_utc,
-    )
-    work_seconds = float(seconds_by_status.get(AgentPresenceStatus.online.value, 0.0)) + float(
-        seconds_by_status.get(AgentPresenceStatus.away.value, 0.0)
-    )
-    return JSONResponse(
-        {
-            "ok": True,
-            "agent_id": agent_id,
-            "status": presence.status.value if presence.status else None,
-            "effective_status": effective_status.value if effective_status else None,
-            "location_sharing_enabled": bool(getattr(presence, "location_sharing_enabled", False)),
-            "last_latitude": getattr(presence, "last_latitude", None),
-            "last_longitude": getattr(presence, "last_longitude", None),
-            "last_location_accuracy_m": getattr(presence, "last_location_accuracy_m", None),
-            "last_location_at": last_location_at.isoformat() if isinstance(last_location_at, datetime) else None,
-            "manual_override_status": manual_override_status.value if manual_override_status else None,
-            "manual_override_set_at": (
-                manual_override_set_at.isoformat() if isinstance(manual_override_set_at, datetime) else None
-            ),
-            "shift": {
-                "name": shift.name,
-                "timezone": shift.tz,
-                "start_at": shift.start_utc.isoformat(),
-                "end_at": shift.end_utc.isoformat(),
-                "work_seconds": int(work_seconds),
-                "break_seconds": int(seconds_by_status.get(AgentPresenceStatus.on_break.value, 0.0)),
-            },
-        }
-    )
+        # Shift-aware work timer: Online + Away count as working time within current shift window.
+        tz_name = resolve_company_timezone(db)
+        shift = current_shift_window(tz_name=tz_name)
+        seconds_by_status = crm_service.agent_presence.seconds_by_status(
+            db,
+            agent_id=agent_id,
+            start_at=shift.start_utc,
+            end_at=shift.end_utc,
+        )
+        work_seconds = float(seconds_by_status.get(AgentPresenceStatus.online.value, 0.0)) + float(
+            seconds_by_status.get(AgentPresenceStatus.away.value, 0.0)
+        )
+        return JSONResponse(
+            {
+                "ok": True,
+                "agent_id": agent_id,
+                "status": presence.status.value if presence.status else None,
+                "effective_status": effective_status.value if effective_status else None,
+                "location_sharing_enabled": bool(getattr(presence, "location_sharing_enabled", False)),
+                "last_latitude": getattr(presence, "last_latitude", None),
+                "last_longitude": getattr(presence, "last_longitude", None),
+                "last_location_accuracy_m": getattr(presence, "last_location_accuracy_m", None),
+                "last_location_at": last_location_at.isoformat() if isinstance(last_location_at, datetime) else None,
+                "manual_override_status": manual_override_status.value if manual_override_status else None,
+                "manual_override_set_at": (
+                    manual_override_set_at.isoformat() if isinstance(manual_override_set_at, datetime) else None
+                ),
+                "shift": {
+                    "name": shift.name,
+                    "timezone": shift.tz,
+                    "start_at": shift.start_utc.isoformat(),
+                    "end_at": shift.end_utc.isoformat(),
+                    "work_seconds": int(work_seconds),
+                    "break_seconds": int(seconds_by_status.get(AgentPresenceStatus.on_break.value, 0.0)),
+                },
+            }
+        )
+    finally:
+        duration_ms = (monotonic() - started_at) * 1000.0
+        if duration_ms >= _PRESENCE_LOG_THRESHOLD_MS:
+            logger.info(
+                "crm_presence_self_slow duration_ms=%.2f request_id=%s",
+                duration_ms,
+                getattr(request.state, "request_id", None),
+            )
 
 
 @router.post("/agents/presence/override", response_class=JSONResponse)

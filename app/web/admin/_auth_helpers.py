@@ -14,10 +14,19 @@ def get_current_user(request: Request) -> dict:
     return web_admin_service.get_current_user(request)
 
 
-def get_sidebar_stats(db: Session, current_user: dict | None = None) -> dict:
+def get_sidebar_stats(
+    db: Session,
+    current_user: dict | None = None,
+    *,
+    workqueue_attention_override: int | None = None,
+) -> dict:
     """Get stats for sidebar badges.
 
     ``current_user`` is optional; when present, per-user badges such as
     the workqueue *right-now* count are populated.
     """
-    return web_admin_service.get_sidebar_stats(db, current_user)
+    return web_admin_service.get_sidebar_stats(
+        db,
+        current_user,
+        workqueue_attention_override=workqueue_attention_override,
+    )

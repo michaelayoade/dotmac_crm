@@ -139,6 +139,41 @@ def test_healthcheck_respects_open_circuit_without_provider_request(db_session, 
     assert AI_PROVIDER_CIRCUIT_OPEN.labels(provider=cfg.label, model=cfg.model, endpoint="primary")._value.get() == 1
 
 
+def test_healthcheck_success_clears_open_circuit_when_bypassing_circuit(db_session, monkeypatch):
+    _seed_provider_settings(db_session)
+    monkeypatch.setattr("app.services.ai.provider_health._dns_check", lambda base_url: (True, ["127.0.0.1"], None))
+    monkeypatch.setattr("app.services.ai.provider_health._tls_check", lambda base_url, timeout: (True, None))
+    monkeypatch.setattr(
+        "app.services.ai.client.VllmClient.generate",
+        lambda self, system, prompt, max_tokens=2048: AIResponse(
+            content='{"ok":true}',
+            tokens_in=1,
+            tokens_out=1,
+            model=self.model,
+            provider=self.provider,
+        ),
+    )
+
+    cfg = ai_gateway.get_endpoint_config(db_session, "primary")
+    error = AIClientError(
+        "timeout",
+        provider=cfg.label,
+        model=cfg.model,
+        endpoint="primary",
+        failure_type="timeout",
+        transient=True,
+    )
+    for _ in range(3):
+        ai_gateway._record_failure(cfg, "primary", error)
+
+    report = run_provider_healthcheck(db_session, mode="primary", respect_circuit=False)
+    state = ai_gateway.circuit_state(db_session, "primary")
+
+    assert report.overall_success is True
+    assert state["is_open"] is False
+    assert state["consecutive_failures"] == 0
+
+
 def test_healthcheck_never_mutates_crm_state(db_session, monkeypatch):
     _seed_provider_settings(db_session)
     monkeypatch.setattr("app.services.ai.provider_health._dns_check", lambda base_url: (True, ["127.0.0.1"], None))

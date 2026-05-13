@@ -66,7 +66,7 @@ def _hydrate_conversations_raw(db: Session, payload: list[dict]) -> list[tuple[A
             continue
         try:
             valid_ids.append(coerce_uuid(raw_id))
-        except Exception:
+        except Exception:  # nosec B112 - skip invalid cached IDs
             continue
     if not valid_ids:
         return []
