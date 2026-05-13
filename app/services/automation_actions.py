@@ -502,7 +502,11 @@ def _execute_create_work_order(db: Session, params: dict, event: Event) -> None:
 
     # Queue PO creation on ERP if this WO originated from an approved quote
     quote_id = event.payload.get("quote_id")
-    if getattr(event.event_type, "value", event.event_type) == EventType.vendor_quote_approved.value and quote_id and work_order.id:
+    if (
+        getattr(event.event_type, "value", event.event_type) == EventType.vendor_quote_approved.value
+        and quote_id
+        and work_order.id
+    ):
         try:
             from app.tasks.integrations import sync_purchase_order_to_erp
 
