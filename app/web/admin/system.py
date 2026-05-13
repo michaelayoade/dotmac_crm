@@ -99,6 +99,14 @@ router = APIRouter(prefix="/system", tags=["web-admin-system"])
 logger = logging.getLogger(__name__)
 
 
+def __getattr__(name: str):
+    if name in {"get_current_user", "get_sidebar_stats"}:
+        from app.web.admin import _auth_helpers
+
+        return getattr(_auth_helpers, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def get_db():
     db = SessionLocal()
     try:
