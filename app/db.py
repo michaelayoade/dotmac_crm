@@ -215,7 +215,7 @@ def get_request_db_session(request: Request | None = None):
         def get_items(db: Session = Depends(get_db)):
             return db.query(Item).all()
     """
-    if _shared_request_db_enabled(request):
+    if request is not None and _shared_request_db_enabled(request):
         shared_db = getattr(request.state, "middleware_db", None)
         if shared_db is not None:
             yield shared_db
