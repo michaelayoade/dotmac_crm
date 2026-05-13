@@ -17,6 +17,7 @@ what we need without altering the schema:
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -25,8 +26,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.enums import ConversationStatus
-from app.models.crm.team import CrmAgent
 from app.services.workqueue.providers import register
+from app.services.workqueue.scope import WorkqueueScope, apply_conversation_scope
 from app.services.workqueue.scoring_config import (
     CONV_SLA_IMMINENT_SEC,
     CONV_SLA_SOON_SEC,
@@ -42,6 +43,7 @@ from app.services.workqueue.types import (
 )
 
 _OPEN_STATUSES = (ConversationStatus.open, ConversationStatus.pending)
+logger = logging.getLogger(__name__)
 
 
 def _parse_dt(value) -> datetime | None:
@@ -84,6 +86,20 @@ def _active_assignee_person_id(conv: Conversation) -> UUID | None:
         if agent is not None:
             return agent.person_id
     return None
+
+
+def _visibility_source(conv: Conversation, scope: WorkqueueScope) -> str:
+    assignee = _active_assignee_person_id(conv)
+    team_ids = {
+        assignment.team_id for assignment in (conv.assignments or ()) if assignment.is_active and assignment.team_id
+    }
+    if assignee == scope.person_id:
+        return "direct_assignment"
+    if assignee is not None and assignee in scope.accessible_person_ids:
+        return "profile_related_assignment"
+    if scope.accessible_crm_team_ids and team_ids.intersection(scope.accessible_crm_team_ids):
+        return "department_team_assignment"
+    return "unknown"
 
 
 def _classify(conv: Conversation, now: datetime) -> tuple[str, int] | None:
@@ -136,6 +152,7 @@ class ConversationsProvider:
         *,
         user,
         audience: WorkqueueAudience,
+        scope: WorkqueueScope,
         snoozed_ids: set[UUID],
         limit: int = PROVIDER_LIMIT,
     ) -> list[WorkqueueItem]:
@@ -147,20 +164,7 @@ class ConversationsProvider:
             .where(Conversation.status.in_(_OPEN_STATUSES))
             .where(Conversation.is_active.is_(True))
         )
-
-        if audience is WorkqueueAudience.self_:
-            stmt = (
-                stmt.join(
-                    ConversationAssignment,
-                    ConversationAssignment.conversation_id == Conversation.id,
-                )
-                .join(CrmAgent, CrmAgent.id == ConversationAssignment.agent_id)
-                .where(ConversationAssignment.is_active.is_(True))
-                .where(CrmAgent.person_id == user.person_id)
-            )
-        # WorkqueueAudience.team / org: surface every actionable conversation;
-        # routing/team scoping is layered on later when the workqueue gains
-        # team-aware filters.
+        stmt = apply_conversation_scope(stmt, scope)
 
         if snoozed_ids:
             stmt = stmt.where(~Conversation.id.in_(snoozed_ids))
@@ -178,6 +182,19 @@ class ConversationsProvider:
             actions = {ActionKind.open, ActionKind.snooze, ActionKind.complete}
             if assignee is None:
                 actions.add(ActionKind.claim)
+            visibility_source = _visibility_source(conv, scope)
+            logger.info(
+                "workqueue_item_included kind=conversation user_id=%s item_id=%s visibility_source=%s assignee_source=%s team_source=%s",
+                scope.person_id,
+                conv.id,
+                visibility_source,
+                assignee,
+                [
+                    str(assignment.team_id)
+                    for assignment in (conv.assignments or ())
+                    if assignment.is_active and assignment.team_id
+                ],
+            )
             items.append(
                 WorkqueueItem(
                     kind=ItemKind.conversation,
@@ -194,6 +211,7 @@ class ConversationsProvider:
                     actions=frozenset(actions),
                     metadata={
                         "priority": getattr(conv.priority, "value", None) if conv.priority is not None else None,
+                        "visibility_source": visibility_source,
                     },
                 )
             )

@@ -17,16 +17,18 @@ ends up in its own UI section.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.crm.enums import LeadStatus, QuoteStatus
 from app.models.crm.sales import Lead, Quote
 from app.models.crm.team import CrmAgent
 from app.services.workqueue.providers import register
+from app.services.workqueue.scope import WorkqueueScope, apply_lead_scope, apply_quote_scope
 from app.services.workqueue.scoring_config import LEAD_QUOTE_SCORES, PROVIDER_LIMIT
 from app.services.workqueue.types import (
     ActionKind,
@@ -37,6 +39,7 @@ from app.services.workqueue.types import (
 )
 
 _HIGH_VALUE_THRESHOLD = 5000.0
+logger = logging.getLogger(__name__)
 
 
 def _parse_dt(value) -> datetime | None:
@@ -85,6 +88,24 @@ def _quote_sent_at(q: Quote) -> datetime | None:
 
 def _quote_owner_person_id(q: Quote) -> UUID | None:
     return _parse_uuid(_meta(q).get("owner_person_id"))
+
+
+def _lead_visibility_source(lead: Lead, assignee_person_id: UUID | None, scope: WorkqueueScope) -> str:
+    if assignee_person_id == scope.person_id:
+        return "direct_profile_owner"
+    if assignee_person_id is not None and assignee_person_id in scope.accessible_person_ids:
+        return "team_profile_owner"
+    return "unknown"
+
+
+def _quote_visibility_source(q: Quote, owner_person_id: UUID | None, scope: WorkqueueScope) -> str:
+    if owner_person_id == scope.person_id:
+        return "direct_profile_owner"
+    if owner_person_id is not None and owner_person_id in scope.accessible_person_ids:
+        return "team_profile_owner"
+    if q.lead_id is not None:
+        return "lead_owner_fallback"
+    return "unknown"
 
 
 def _classify_quote(q: Quote, now: datetime) -> tuple[str, int] | None:
@@ -136,6 +157,7 @@ class LeadsQuotesProvider:
         *,
         user,
         audience: WorkqueueAudience,
+        scope: WorkqueueScope,
         snoozed_ids: set[UUID],
         limit: int = PROVIDER_LIMIT,
     ) -> list[WorkqueueItem]:
@@ -146,15 +168,7 @@ class LeadsQuotesProvider:
         lead_stmt = (
             select(Lead).where(Lead.is_active.is_(True)).where(Lead.status.notin_((LeadStatus.won, LeadStatus.lost)))
         )
-        if audience is WorkqueueAudience.self_:
-            lead_stmt = lead_stmt.join(CrmAgent, CrmAgent.id == Lead.owner_agent_id).where(
-                CrmAgent.person_id == user.person_id
-            )
-        elif audience is WorkqueueAudience.team:
-            lead_stmt = lead_stmt.outerjoin(CrmAgent, CrmAgent.id == Lead.owner_agent_id).where(
-                or_(CrmAgent.person_id == user.person_id, Lead.owner_agent_id.is_(None))
-            )
-        # WorkqueueAudience.org: surface every actionable lead.
+        lead_stmt = apply_lead_scope(lead_stmt, scope)
 
         if snoozed_ids:
             lead_stmt = lead_stmt.where(~Lead.id.in_(snoozed_ids))
@@ -180,6 +194,14 @@ class LeadsQuotesProvider:
             actions = {ActionKind.open, ActionKind.snooze}
             if assignee_person_id is None:
                 actions.add(ActionKind.claim)
+            visibility_source = _lead_visibility_source(lead, assignee_person_id, scope)
+            logger.info(
+                "workqueue_item_included kind=lead user_id=%s item_id=%s visibility_source=%s profile_source=%s",
+                scope.person_id,
+                lead.id,
+                visibility_source,
+                assignee_person_id,
+            )
             items.append(
                 WorkqueueItem(
                     kind=ItemKind.lead,
@@ -194,16 +216,15 @@ class LeadsQuotesProvider:
                     is_unassigned=assignee_person_id is None,
                     happened_at=lead.updated_at or now,
                     actions=frozenset(actions),
-                    metadata={"value": float(lead.estimated_value or 0)},
+                    metadata={"value": float(lead.estimated_value or 0), "visibility_source": visibility_source},
                 )
             )
 
         # ---- Quotes -----------------------------------------------------
         # Quote has no owner column; ownership is stored in metadata_.  We
-        # fetch all sent quotes and filter by the metadata-derived owner in
-        # Python, mirroring the conversations/tickets pattern for fields not
-        # present on the model.
+        # scope quotes via metadata-derived owner or related lead ownership.
         quote_stmt = select(Quote).where(Quote.is_active.is_(True)).where(Quote.status == QuoteStatus.sent)
+        quote_stmt = apply_quote_scope(quote_stmt, scope)
         if snoozed_ids:
             quote_stmt = quote_stmt.where(~Quote.id.in_(snoozed_ids))
 
@@ -211,13 +232,6 @@ class LeadsQuotesProvider:
 
         for q in quote_rows:
             owner_person_id = _quote_owner_person_id(q)
-            if audience is WorkqueueAudience.self_ and owner_person_id != user.person_id:
-                continue
-            if audience is WorkqueueAudience.team and owner_person_id not in (
-                user.person_id,
-                None,
-            ):
-                continue
 
             verdict = _classify_quote(q, now)
             if verdict is None:
@@ -226,6 +240,14 @@ class LeadsQuotesProvider:
             actions = {ActionKind.open, ActionKind.snooze}
             if owner_person_id is None:
                 actions.add(ActionKind.claim)
+            visibility_source = _quote_visibility_source(q, owner_person_id, scope)
+            logger.info(
+                "workqueue_item_included kind=quote user_id=%s item_id=%s visibility_source=%s profile_source=%s",
+                scope.person_id,
+                q.id,
+                visibility_source,
+                owner_person_id,
+            )
             items.append(
                 WorkqueueItem(
                     kind=ItemKind.quote,
@@ -240,7 +262,7 @@ class LeadsQuotesProvider:
                     is_unassigned=owner_person_id is None,
                     happened_at=q.updated_at or now,
                     actions=frozenset(actions),
-                    metadata={"total": float(q.total or 0)},
+                    metadata={"total": float(q.total or 0), "visibility_source": visibility_source},
                 )
             )
 

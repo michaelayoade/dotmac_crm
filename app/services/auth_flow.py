@@ -144,11 +144,17 @@ def _setting_value(db: Session | None, key: str) -> str | None:
 def _load_jwt_settings_cache(db: Session | None) -> None:
     """Load JWT settings into cache once per process lifetime."""
     global _JWT_SETTINGS_CACHE, _JWT_SETTINGS_CACHED
+    env_secret = _env_value("JWT_SECRET")
+    env_algorithm = _env_value("JWT_ALGORITHM")
     if _JWT_SETTINGS_CACHED:
+        if env_secret:
+            _JWT_SETTINGS_CACHE["jwt_secret"] = env_secret
+        if env_algorithm:
+            _JWT_SETTINGS_CACHE["jwt_algorithm"] = env_algorithm
         return
     # Try env vars first (preferred)
-    _JWT_SETTINGS_CACHE["jwt_secret"] = _env_value("JWT_SECRET")
-    _JWT_SETTINGS_CACHE["jwt_algorithm"] = _env_value("JWT_ALGORITHM")
+    _JWT_SETTINGS_CACHE["jwt_secret"] = env_secret
+    _JWT_SETTINGS_CACHE["jwt_algorithm"] = env_algorithm
     # Fall back to DB if needed
     if db is not None:
         if not _JWT_SETTINGS_CACHE["jwt_secret"]:

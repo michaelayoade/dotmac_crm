@@ -13,7 +13,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
-from app.metrics import observe_ai_intake_escalation
+from app.metrics import observe_ai_intake_escalation, observe_ai_intake_result
 from app.models.crm.ai_intake import AiIntakeConfig
 from app.models.crm.conversation import Conversation, ConversationAssignment, ConversationTag, Message
 from app.models.crm.enums import (
@@ -48,6 +48,20 @@ AI_INTAKE_FOLLOWUP_QUESTION_KIND = "followup_question"
 AI_INTAKE_SEND_CLAIM_TTL_SECONDS = 300
 AI_INTAKE_PENDING_STATES = {"pending", "awaiting_customer", "awaiting_timeout"}
 AI_INTAKE_TERMINAL_STATES = {"resolved", "escalated", "excluded"}
+AI_INTAKE_RECOVERABLE_FAILURE_TYPES = {
+    "auth",
+    "provider_billing",
+    "rate_limit",
+    "provider_5xx",
+    "timeout",
+    "dns_network",
+    "tls_handshake",
+    "connection_error",
+    "network_error",
+    "circuit_open",
+}
+AI_INTAKE_RECOVERY_MAX_ATTEMPTS = 1
+AI_INTAKE_RECOVERY_LOOKBACK_HOURS = 24
 AI_INTAKE_HANDOFF_STATE_NONE = "none"
 AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT = "awaiting_agent"
 AI_INTAKE_HANDOFF_STATE_ASSIGNED = "assigned"
@@ -98,6 +112,16 @@ class AiIntakeResult:
     fallback_used: bool = False
     escalated: bool = False
     waiting_for_customer: bool = False
+
+
+@dataclass(frozen=True)
+class DepartmentRoutingSelection:
+    team_id: uuid.UUID | None
+    agent_id: uuid.UUID | None
+    configured_agent_ids: tuple[str, ...]
+    active_agent_ids: tuple[str, ...]
+    reason: str
+    routing_state: str
 
 
 def _now() -> datetime:
@@ -544,7 +568,7 @@ def _handoff_reassurance_message_for_department(department: str) -> str | None:
     return f"Thanks for your patience - our {team_label} is still reviewing your request and will respond as soon as possible."
 
 
-def _apply_mapping(db: Session, conversation: Conversation, mapping: AiIntakeDepartmentMapping) -> None:
+def _apply_mapping_metadata(db: Session, conversation: Conversation, mapping: AiIntakeDepartmentMapping) -> None:
     logger.info(
         "ai_intake_apply_mapping conversation_id=%s department=%s team_id=%s tags=%s priority=%s",
         conversation.id,
@@ -568,23 +592,6 @@ def _apply_mapping(db: Session, conversation: Conversation, mapping: AiIntakeDep
             )
             if not existing:
                 db.add(ConversationTag(conversation_id=conversation.id, tag=clean))
-    if mapping.team_id:
-        assigned_agent_id = _select_agent_for_team(db, mapping.team_id)
-        logger.info(
-            "ai_intake_assignment_selected conversation_id=%s department=%s team_id=%s agent_id=%s",
-            conversation.id,
-            mapping.key,
-            mapping.team_id,
-            assigned_agent_id,
-        )
-        conversation_service.assign_conversation(
-            db,
-            conversation_id=str(conversation.id),
-            agent_id=str(assigned_agent_id) if assigned_agent_id else None,
-            team_id=str(mapping.team_id),
-            assigned_by_id=None,
-            update_lead_owner=False,
-        )
 
 
 AI_INTAKE_DEPARTMENT_ALIASES = {
@@ -631,7 +638,11 @@ def _coerce_ai_bool(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _select_agent_for_team(db: Session, team_id) -> Any | None:
+def _select_department_assignment(
+    db: Session,
+    *,
+    team_id,
+) -> DepartmentRoutingSelection:
     team_uuid = coerce_uuid(team_id)
     team = db.get(CrmTeam, team_uuid)
     if not team or not team.is_active:
@@ -639,7 +650,14 @@ def _select_agent_for_team(db: Session, team_id) -> Any | None:
             "ai_intake_assignment_unavailable team_id=%s strategy=least_loaded reason=team_missing_or_inactive",
             team_id,
         )
-        return None
+        return DepartmentRoutingSelection(
+            team_id=team_uuid,
+            agent_id=None,
+            configured_agent_ids=(),
+            active_agent_ids=(),
+            reason="team_missing_or_inactive",
+            routing_state="pending_department_assignment",
+        )
 
     team_id_str = str(team_uuid)
     configured_members = (
@@ -657,7 +675,14 @@ def _select_agent_for_team(db: Session, team_id) -> Any | None:
             "ai_intake_assignment_unavailable team_id=%s strategy=least_loaded reason=no_team_members candidates=[]",
             team_id_str,
         )
-        return None
+        return DepartmentRoutingSelection(
+            team_id=team_uuid,
+            agent_id=None,
+            configured_agent_ids=(),
+            active_agent_ids=(),
+            reason="no_team_members",
+            routing_state="waiting_for_agent",
+        )
 
     active_candidates = inbox_routing._list_active_agents(db, team_id_str)
     active_candidate_ids = [str(agent.id) for agent in active_candidates]
@@ -667,7 +692,14 @@ def _select_agent_for_team(db: Session, team_id) -> Any | None:
             team_id_str,
             configured_agent_ids,
         )
-        return None
+        return DepartmentRoutingSelection(
+            team_id=team_uuid,
+            agent_id=None,
+            configured_agent_ids=tuple(configured_agent_ids),
+            active_agent_ids=(),
+            reason="no_eligible_agents",
+            routing_state="waiting_for_agent",
+        )
 
     agent_id = inbox_routing._pick_least_loaded_agent(db, team_id_str)
     logger.info(
@@ -677,7 +709,115 @@ def _select_agent_for_team(db: Session, team_id) -> Any | None:
         active_candidate_ids,
         agent_id,
     )
-    return coerce_uuid(agent_id) if agent_id else None
+    return DepartmentRoutingSelection(
+        team_id=team_uuid,
+        agent_id=coerce_uuid(agent_id) if agent_id else None,
+        configured_agent_ids=tuple(configured_agent_ids),
+        active_agent_ids=tuple(active_candidate_ids),
+        reason="assigned" if agent_id else "no_eligible_agents",
+        routing_state="assigned" if agent_id else "waiting_for_agent",
+    )
+
+
+def _set_routing_state(
+    state: dict[str, Any],
+    *,
+    department: str | None,
+    selected_team_id: uuid.UUID | None,
+    assigned_team_id: uuid.UUID | None,
+    assigned_agent_id: uuid.UUID | None,
+    routing_state: str,
+    skipped_reason: str | None = None,
+    fallback_blocked: bool = False,
+) -> None:
+    state["routing_state"] = routing_state
+    state["routing_department"] = department
+    state["routing_selected_team_id"] = str(selected_team_id) if selected_team_id else None
+    state["routing_assigned_team_id"] = str(assigned_team_id) if assigned_team_id else None
+    state["routing_assigned_agent_id"] = str(assigned_agent_id) if assigned_agent_id else None
+    state["routing_assignment_skipped_reason"] = skipped_reason
+    state["routing_department_preserved"] = bool(department)
+    state["routing_fallback_blocked"] = fallback_blocked
+
+
+def _apply_department_assignment(
+    db: Session,
+    *,
+    conversation: Conversation,
+    mapping: AiIntakeDepartmentMapping,
+    state: dict[str, Any],
+    source: str,
+    fallback_team_id: uuid.UUID | None = None,
+    block_fallback: bool = False,
+) -> DepartmentRoutingSelection:
+    _apply_mapping_metadata(db, conversation, mapping)
+    selection = _select_department_assignment(db, team_id=mapping.team_id)
+    logger.info(
+        "routing_department_selected conversation_id=%s source=%s department=%s team_id=%s fallback_team_id=%s",
+        conversation.id,
+        source,
+        mapping.key,
+        mapping.team_id,
+        fallback_team_id,
+    )
+
+    assigned_team_id = selection.team_id if selection.reason != "team_missing_or_inactive" else None
+    if selection.reason != "assigned":
+        logger.info(
+            "routing_no_eligible_agents conversation_id=%s source=%s department=%s team_id=%s reason=%s configured_candidates=%s active_candidates=%s",
+            conversation.id,
+            source,
+            mapping.key,
+            mapping.team_id,
+            selection.reason,
+            list(selection.configured_agent_ids),
+            list(selection.active_agent_ids),
+        )
+        if block_fallback and fallback_team_id is not None and fallback_team_id != mapping.team_id:
+            logger.info(
+                "routing_fallback_blocked conversation_id=%s source=%s department=%s selected_team_id=%s fallback_team_id=%s reason=department_integrity_preserved",
+                conversation.id,
+                source,
+                mapping.key,
+                mapping.team_id,
+                fallback_team_id,
+            )
+        logger.info(
+            "routing_assignment_skipped_reason conversation_id=%s source=%s department=%s reason=%s",
+            conversation.id,
+            source,
+            mapping.key,
+            selection.reason,
+        )
+
+    conversation_service.assign_conversation(
+        db,
+        conversation_id=str(conversation.id),
+        agent_id=str(selection.agent_id) if selection.agent_id else None,
+        team_id=str(assigned_team_id) if assigned_team_id else None,
+        assigned_by_id=None,
+        update_lead_owner=False,
+    )
+    _set_routing_state(
+        state,
+        department=mapping.key,
+        selected_team_id=mapping.team_id,
+        assigned_team_id=assigned_team_id,
+        assigned_agent_id=selection.agent_id,
+        routing_state=selection.routing_state,
+        skipped_reason=None if selection.reason == "assigned" else selection.reason,
+        fallback_blocked=bool(block_fallback and fallback_team_id is not None and fallback_team_id != mapping.team_id),
+    )
+    logger.info(
+        "routing_department_preserved conversation_id=%s source=%s department=%s routing_state=%s assigned_team_id=%s assigned_agent_id=%s",
+        conversation.id,
+        source,
+        mapping.key,
+        selection.routing_state,
+        assigned_team_id,
+        selection.agent_id,
+    )
+    return selection
 
 
 def _send_followup(
@@ -1251,6 +1391,7 @@ def _base_state(
     reason: str | None = None,
     endpoint: str | None = None,
     fallback_used: bool = False,
+    channel: str | None = None,
 ) -> tuple[dict[str, Any], datetime, datetime]:
     now = _now()
     started_at = _parse_timestamp(current_state.get("started_at")) or now
@@ -1267,9 +1408,157 @@ def _base_state(
         "turn_count": int(current_state.get("turn_count") or 0),
         "endpoint": endpoint,
         "fallback_used": fallback_used,
+        "channel": channel or current_state.get("channel") or None,
         "updated_at": _serialize_timestamp(now),
     }
+    for key in (
+        "recovery_attempt_count",
+        "recovery_last_attempt_at",
+        "recovery_last_failure_type",
+        "recovery_last_error_class",
+    ):
+        if key in current_state:
+            state[key] = current_state.get(key)
     return state, now, escalate_at
+
+
+def _apply_ai_error_details(state: dict[str, Any], exc: Exception) -> dict[str, Any]:
+    enriched = dict(state)
+    enriched["error_class"] = type(exc).__name__
+    if not isinstance(exc, AIClientError):
+        return enriched
+    enriched["provider"] = exc.provider
+    enriched["model"] = exc.model
+    enriched["endpoint"] = exc.endpoint
+    enriched["failure_type"] = exc.failure_type
+    enriched["timeout_type"] = exc.timeout_type
+    enriched["retry_count"] = exc.retry_count
+    enriched["request_id"] = exc.request_id
+    enriched["response_preview"] = exc.response_preview
+    enriched["transient"] = exc.transient
+    return enriched
+
+
+def _is_recoverable_ai_error_state(state: dict[str, Any]) -> bool:
+    if state.get("status") != "escalated" or state.get("escalated_reason") != "ai_error":
+        return False
+    if int(state.get("recovery_attempt_count") or 0) >= AI_INTAKE_RECOVERY_MAX_ATTEMPTS:
+        return False
+    if state.get("handoff_sent"):
+        return False
+    handoff_state = str(state.get("handoff_state") or AI_INTAKE_HANDOFF_STATE_NONE)
+    if handoff_state != AI_INTAKE_HANDOFF_STATE_NONE:
+        return False
+    failure_type = str(state.get("failure_type") or "").strip().lower()
+    if failure_type in AI_INTAKE_RECOVERABLE_FAILURE_TYPES:
+        return True
+    response_preview = str(state.get("response_preview") or "").lower()
+    return failure_type == "http_error" and "insufficient balance" in response_preview
+
+
+def _prepare_recovery_state(*, current_state: dict[str, Any], now: datetime) -> dict[str, Any]:
+    state = dict(current_state)
+    state["status"] = "pending"
+    state["reason"] = "automatic_recovery_probe"
+    state["started_at"] = _serialize_timestamp(now)
+    state["escalate_at"] = None
+    state["updated_at"] = _serialize_timestamp(now)
+    state["recovery_attempt_count"] = int(current_state.get("recovery_attempt_count") or 0) + 1
+    state["recovery_last_attempt_at"] = _serialize_timestamp(now)
+    state["recovery_last_failure_type"] = current_state.get("failure_type")
+    state["recovery_last_error_class"] = current_state.get("error_class")
+    state.pop("escalated_reason", None)
+    state.pop("escalated_at", None)
+    return state
+
+
+def recover_ai_error_escalations(db: Session, *, limit: int = 25) -> dict[str, Any]:
+    cutoff = _now() - timedelta(hours=AI_INTAKE_RECOVERY_LOOKBACK_HOURS)
+    conversations = (
+        db.query(Conversation)
+        .filter(Conversation.metadata_.isnot(None))
+        .filter(Conversation.metadata_["ai_intake"]["status"].as_string() == "escalated")
+        .filter(Conversation.metadata_["ai_intake"]["escalated_reason"].as_string() == "ai_error")
+        .filter(Conversation.updated_at >= cutoff)
+        .order_by(Conversation.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    recovered = 0
+    retried = 0
+    skipped = 0
+    errors: list[dict[str, Any]] = []
+    for conversation in conversations:
+        current_state = _state(conversation)
+        if not _is_recoverable_ai_error_state(current_state):
+            skipped += 1
+            continue
+        if not conversation.is_active:
+            skipped += 1
+            continue
+
+        active_assignments = (
+            db.query(ConversationAssignment)
+            .filter(ConversationAssignment.conversation_id == conversation.id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .count()
+        )
+        if active_assignments:
+            skipped += 1
+            continue
+
+        escalated_at = _parse_timestamp(current_state.get("escalated_at"))
+        outbound_query = (
+            db.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.direction == MessageDirection.outbound)
+            .filter(Message.sent_at.isnot(None))
+        )
+        if escalated_at is not None:
+            outbound_query = outbound_query.filter(Message.sent_at >= escalated_at)
+        outbound_after_escalation = outbound_query.count()
+        if outbound_after_escalation:
+            skipped += 1
+            continue
+
+        message = (
+            db.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.direction == MessageDirection.inbound)
+            .order_by(func.coalesce(Message.received_at, Message.created_at).desc())
+            .first()
+        )
+        scope_key = str(current_state.get("scope_key") or "").strip() or None
+        if message is None or scope_key is None:
+            skipped += 1
+            continue
+
+        retried += 1
+        try:
+            recovery_state = _prepare_recovery_state(current_state=current_state, now=_now())
+            _set_state(conversation, recovery_state)
+            result = process_pending_intake(
+                db,
+                conversation=conversation,
+                message=message,
+                scope_key=scope_key,
+                is_new_conversation=False,
+            )
+            if result.handled and not result.escalated:
+                recovered += 1
+        except Exception as exc:
+            db.rollback()
+            errors.append({"conversation_id": str(conversation.id), "error": str(exc)})
+            logger.exception("ai_intake_recovery_failed conversation_id=%s", conversation.id)
+
+    return {
+        "candidates": len(conversations),
+        "retried": retried,
+        "recovered": recovered,
+        "skipped": skipped,
+        "errors": errors,
+    }
 
 
 def _escalate_pending_intake(
@@ -1281,7 +1570,27 @@ def _escalate_pending_intake(
     reason: str,
 ) -> AiIntakeResult:
     observe_ai_intake_escalation(reason=reason)
-    if config and config.fallback_team_id:
+    observe_ai_intake_result(
+        outcome="escalated",
+        channel=str(current_state.get("channel") or "unknown"),
+        failure_type=str(current_state.get("failure_type") or reason or "none"),
+    )
+    state = dict(current_state)
+    department = _normalize_department_key(state.get("department"))
+    mapping_by_key = {item.key: item for item in _mapping_objects(config)} if config else {}
+    selected_mapping = mapping_by_key.get(department) if department else None
+
+    if selected_mapping:
+        _apply_department_assignment(
+            db,
+            conversation=conversation,
+            mapping=selected_mapping,
+            state=state,
+            source=f"ai_intake_escalation:{reason}",
+            fallback_team_id=coerce_uuid(config.fallback_team_id) if config and config.fallback_team_id else None,
+            block_fallback=True,
+        )
+    elif config and config.fallback_team_id:
         fallback_mapping = AiIntakeDepartmentMapping(
             key="support",
             label="Live Agent",
@@ -1290,19 +1599,28 @@ def _escalate_pending_intake(
             priority=ConversationPriority.none,
             notify_email=None,
         )
-        _apply_mapping(db, conversation, fallback_mapping)
+        _apply_department_assignment(
+            db,
+            conversation=conversation,
+            mapping=fallback_mapping,
+            state=state,
+            source=f"ai_intake_escalation:{reason}",
+        )
     conversation.status = ConversationStatus.open
-    state = dict(current_state)
     state["status"] = "escalated"
     state["escalated_reason"] = reason
     state["escalated_at"] = _serialize_timestamp(_now())
     if config:
         state["config_id"] = str(config.id)
-        state["fallback_used"] = bool(config.fallback_team_id)
+        state["fallback_used"] = bool(config.fallback_team_id and not selected_mapping)
     _set_state(conversation, state)
     db.commit()
     inbox_cache.invalidate_inbox_list()
-    return AiIntakeResult(handled=True, fallback_used=bool(config and config.fallback_team_id), escalated=True)
+    return AiIntakeResult(
+        handled=True,
+        fallback_used=bool(config and config.fallback_team_id and not selected_mapping),
+        escalated=True,
+    )
 
 
 def process_pending_intake(
@@ -1442,7 +1760,19 @@ def process_pending_intake(
         parsed = _parse_ai_response(ai_response.content)
     except (AIClientError, ValueError, json.JSONDecodeError) as exc:
         logger.warning(
-            "ai_intake_failed scope_key=%s conversation_id=%s error=%s", config.scope_key, conversation.id, exc
+            "ai_intake_failed scope_key=%s conversation_id=%s error_class=%s failure_type=%s timeout_type=%s provider=%s model=%s endpoint=%s retry_count=%s request_id=%s transient=%s error=%s",
+            config.scope_key,
+            conversation.id,
+            type(exc).__name__,
+            getattr(exc, "failure_type", None),
+            getattr(exc, "timeout_type", None),
+            getattr(exc, "provider", None),
+            getattr(exc, "model", None),
+            getattr(exc, "endpoint", None),
+            getattr(exc, "retry_count", None),
+            getattr(exc, "request_id", None),
+            getattr(exc, "transient", None),
+            exc,
         )
         failure_state, _, _ = _base_state(
             conversation=conversation,
@@ -1450,7 +1780,9 @@ def process_pending_intake(
             scope_key=scope_key or config.scope_key,
             current_state=current_state,
             reason=f"ai_error:{type(exc).__name__}",
+            channel=message.channel_type.value if message.channel_type else "unknown",
         )
+        failure_state = _apply_ai_error_details(failure_state, exc)
         return _escalate_pending_intake(
             db,
             conversation=conversation,
@@ -1494,16 +1826,28 @@ def process_pending_intake(
         reason=reason,
         endpoint=meta.get("endpoint") if isinstance(meta, dict) else None,
         fallback_used=bool(isinstance(meta, dict) and meta.get("fallback_used")),
+        channel=message.channel_type.value if message.channel_type else "unknown",
     )
 
     if department in mapping_by_key and confidence_value >= config.confidence_threshold and not needs_followup:
-        _apply_mapping(db, conversation, mapping_by_key[department])
+        _apply_department_assignment(
+            db,
+            conversation=conversation,
+            mapping=mapping_by_key[department],
+            state=next_state,
+            source="ai_intake_resolution",
+            fallback_team_id=coerce_uuid(config.fallback_team_id) if config.fallback_team_id else None,
+            block_fallback=True,
+        )
         conversation.status = ConversationStatus.open
         next_state["status"] = "resolved"
         next_state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT
         next_state["resolved_at"] = _serialize_timestamp(now)
         _set_state(conversation, next_state)
         db.commit()
+        conversation_id_str = str(conversation.id)
+        message_id_str = str(message.id)
+        channel_value = message.channel_type.value if message.channel_type else "unknown"
         try:
             _send_handoff_message(
                 db,
@@ -1515,19 +1859,24 @@ def process_pending_intake(
             logger.warning(
                 "ai_intake_handoff_send_failed scope_key=%s conversation_id=%s department=%s error=%s",
                 config.scope_key,
-                conversation.id,
+                conversation_id_str,
                 department,
                 exc,
             )
             db.rollback()
+            conversation = db.get(Conversation, coerce_uuid(conversation_id_str)) or conversation
         inbox_cache.invalidate_inbox_list()
         logger.info(
             "ai_intake_resolved conversation_id=%s message_id=%s scope_key=%s department=%s confidence=%s",
-            conversation.id,
-            message.id,
+            conversation_id_str,
+            message_id_str,
             scope_key or config.scope_key,
             department,
             confidence_value,
+        )
+        observe_ai_intake_result(
+            outcome="resolved",
+            channel=channel_value,
         )
         return AiIntakeResult(handled=True, resolved=True)
 
@@ -1555,6 +1904,10 @@ def process_pending_intake(
             followup_question,
             confidence_value,
             department,
+        )
+        observe_ai_intake_result(
+            outcome="followup",
+            channel=message.channel_type.value if message.channel_type else "unknown",
         )
         return AiIntakeResult(handled=True, followup_sent=True, waiting_for_customer=True)
 
@@ -1587,6 +1940,10 @@ def process_pending_intake(
         scope_key or config.scope_key,
         department,
         confidence_value,
+    )
+    observe_ai_intake_result(
+        outcome="awaiting_timeout",
+        channel=message.channel_type.value if message.channel_type else "unknown",
     )
     return AiIntakeResult(handled=True)
 
@@ -1680,9 +2037,20 @@ def retry_team_only_ai_assignments(db: Session, *, limit: int = 200) -> dict[str
 
         retried += 1
         try:
-            agent_id = _select_agent_for_team(db, assignment.team_id)
+            selection = _select_department_assignment(db, team_id=assignment.team_id)
             state["last_assignment_retry_at"] = _serialize_timestamp(_now())
-            if not agent_id:
+            state["last_assignment_retry_reason"] = selection.reason
+            if not selection.agent_id:
+                _set_routing_state(
+                    state,
+                    department=_normalize_department_key(state.get("department")),
+                    selected_team_id=assignment.team_id,
+                    assigned_team_id=assignment.team_id,
+                    assigned_agent_id=None,
+                    routing_state="waiting_for_agent",
+                    skipped_reason=selection.reason,
+                    fallback_blocked=bool(state.get("routing_fallback_blocked")),
+                )
                 _set_state(conversation, state)
                 db.commit()
                 continue
@@ -1690,13 +2058,21 @@ def retry_team_only_ai_assignments(db: Session, *, limit: int = 200) -> dict[str
             conversation_service.assign_conversation(
                 db,
                 conversation_id=str(conversation.id),
-                agent_id=str(agent_id),
+                agent_id=str(selection.agent_id),
                 team_id=str(assignment.team_id),
                 assigned_by_id=None,
                 update_lead_owner=False,
             )
             state["agent_assigned_at"] = _serialize_timestamp(_now())
-            state["agent_id"] = str(agent_id)
+            state["agent_id"] = str(selection.agent_id)
+            _set_routing_state(
+                state,
+                department=_normalize_department_key(state.get("department")),
+                selected_team_id=assignment.team_id,
+                assigned_team_id=assignment.team_id,
+                assigned_agent_id=selection.agent_id,
+                routing_state="assigned",
+            )
             _set_state(conversation, state)
             db.commit()
             inbox_cache.invalidate_inbox_list()

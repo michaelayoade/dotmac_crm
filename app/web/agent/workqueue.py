@@ -38,6 +38,7 @@ class _WorkqueueUser:
 
     person_id: UUID
     permissions: set[str]
+    roles: set[str]
 
 
 def _get_db():
@@ -62,7 +63,8 @@ def _build_user(request: Request) -> tuple[dict, _WorkqueueUser]:
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=403) from exc
     perms = set(raw.get("permissions") or [])
-    return raw, _WorkqueueUser(person_id=person_uuid, permissions=perms)
+    roles = {str(role) for role in (raw.get("roles") or []) if str(role).strip()}
+    return raw, _WorkqueueUser(person_id=person_uuid, permissions=perms, roles=roles)
 
 
 @router.get("", response_class=HTMLResponse)
@@ -85,7 +87,7 @@ def page(
             {
                 "request": request,
                 "current_user": raw_user,
-                "sidebar_stats": get_sidebar_stats(db, raw_user),
+                "sidebar_stats": get_sidebar_stats(db, raw_user, workqueue_attention_override=len(view.right_now)),
                 "active_page": "workqueue",
                 "view": view,
                 "right_now": view.right_now,

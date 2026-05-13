@@ -728,7 +728,7 @@ def enrich_notification_rows(rows: list[dict[str, Any]], db: Session) -> list[di
     for row in rows:
         try:
             subscriber_ids.append(UUID(str(row["subscriber_id"])))
-        except Exception:
+        except Exception:  # nosec B112 - skip malformed report rows
             continue
 
     latest_logs: dict[str, SubscriberNotificationLog] = {}
@@ -759,7 +759,7 @@ def enrich_notification_rows(rows: list[dict[str, Any]], db: Session) -> list[di
     for row in rows:
         try:
             prepared = prepare_subscriber_notification(db, UUID(str(row["subscriber_id"])))
-        except Exception:
+        except Exception:  # nosec B112 - skip rows that cannot be prepared
             continue
         last_seen_iso = row.get("last_seen_at_iso")
         last_seen_value = None
@@ -816,20 +816,6 @@ def _effective_send_at(
     return send_local.astimezone(UTC), send_local.strftime("%Y-%m-%dT%H:%M")
 
 
-def _recent_notification_exists(db: Session, subscriber_id: UUID, now_utc: datetime | None = None) -> bool:
-    now_utc = _coerce_utc(now_utc) or datetime.now(UTC)
-    cutoff = now_utc - DEDUPLICATE_WINDOW
-    existing = db.scalar(
-        select(SubscriberNotificationLog.id)
-        .where(
-            SubscriberNotificationLog.subscriber_id == subscriber_id,
-            SubscriberNotificationLog.created_at >= cutoff,
-        )
-        .limit(1)
-    )
-    return existing is not None
-
-
 def _create_notification(
     *,
     db: Session,
@@ -843,7 +829,7 @@ def _create_notification(
         channel=channel,
         recipient=recipient,
         subject=subject,
-        body=_email_html_body(body) if channel == NotificationChannel.email else body,
+        body=body,
         status=NotificationStatus.queued,
         send_at=send_at,
     )
@@ -865,12 +851,6 @@ def queue_subscriber_notification(
     sent_by_person_id: UUID | None,
 ) -> list[SubscriberNotificationLog]:
     prepared = prepare_subscriber_notification(db, subscriber_id)
-    if prepared.subscriber.subscriber_number != TEST_NOTIFICATION_SUBSCRIBER_NUMBER and _recent_notification_exists(
-        db, prepared.subscriber.id
-    ):
-        raise HTTPException(
-            status_code=409, detail="A notification was already sent to this customer in the last 6 hours."
-        )
     if sent_by_person_id and db.get(Person, sent_by_person_id) is None:
         sent_by_person_id = None
 

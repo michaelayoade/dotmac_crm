@@ -21,6 +21,7 @@ from app.schemas.crm.inbox import (
     WhatsAppWebhookPayload,
 )
 from app.services.crm import inbox as inbox_service
+from app.services.crm.inbox.outbound import _build_reply_subject
 
 # =============================================================================
 # Helper Functions Tests
@@ -47,6 +48,24 @@ def test_render_personalization_empty():
     body = "Hello {{name}}!"
     result = inbox_service._render_personalization(body, {})
     assert result == "Hello {{name}}!"
+
+
+def test_build_reply_subject_truncates_generated_subject_to_schema_limit():
+    base_subject = "Q" * 220
+
+    result = _build_reply_subject(None, base_subject)
+
+    assert result is not None
+    assert result.startswith("Re: ")
+    assert len(result) == 200
+
+
+def test_build_reply_subject_truncates_existing_reply_subject_to_schema_limit():
+    base_subject = "Re: " + ("Q" * 210)
+
+    result = _build_reply_subject(None, base_subject)
+
+    assert result == base_subject[:200]
 
 
 # =============================================================================

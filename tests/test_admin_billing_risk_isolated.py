@@ -539,7 +539,9 @@ def test_subscriber_billing_risk_page_uses_single_cached_dataset_load(monkeypatc
             "scheme": "http",
         }
     )
-    response = billing_risk_web.subscriber_billing_risk(request=request, db=SimpleNamespace(query=lambda *_args, **_kwargs: None))
+    response = billing_risk_web.subscriber_billing_risk(
+        request=request, db=SimpleNamespace(query=lambda *_args, **_kwargs: None)
+    )
 
     assert response.status_code == 200
     assert cached_calls["count"] == 1

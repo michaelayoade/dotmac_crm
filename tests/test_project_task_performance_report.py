@@ -91,3 +91,36 @@ def test_project_task_people_performance_excludes_tasks_outside_window(db_sessio
     assert rows == []
     assert summary["tasks_assigned"] == 0
     assert recent_completions == []
+
+
+def test_project_task_people_performance_includes_tasks_completed_within_window(db_session):
+    start_at = datetime(2026, 5, 1, tzinfo=UTC)
+    end_at = datetime(2026, 5, 7, 23, 59, tzinfo=UTC)
+    person = _person("carryover.project@example.com", "Carryover", "Project")
+    project = Project(name="Carryover Project")
+    db_session.add_all([person, project])
+    db_session.flush()
+    db_session.add(
+        ProjectTask(
+            project_id=project.id,
+            title="Carryover completion",
+            status=TaskStatus.done,
+            assigned_to_person_id=person.id,
+            created_at=start_at - timedelta(days=10),
+            start_at=start_at - timedelta(days=9),
+            due_at=start_at + timedelta(days=1),
+            completed_at=start_at + timedelta(days=2),
+            effort_hours=24,
+        )
+    )
+    db_session.commit()
+
+    rows, summary, _, recent_completions = _get_project_task_people_performance(db_session, start_at, end_at)
+
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Carryover Project"
+    assert rows[0]["assigned_tasks"] == 1
+    assert rows[0]["completed_tasks"] == 1
+    assert summary["tasks_assigned"] == 1
+    assert summary["tasks_completed"] == 1
+    assert [task.title for task in recent_completions] == ["Carryover completion"]

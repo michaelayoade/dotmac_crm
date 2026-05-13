@@ -48,6 +48,12 @@ def _base_celery_config() -> dict[str, object]:
             "socket_connect_timeout": 3,
             "socket_timeout": 3,
         },
+        # Recycle long-lived worker children so transient leaks or degraded process
+        # state do not accumulate across overnight uptime.
+        "worker_max_tasks_per_child": _env_int("CELERY_WORKER_MAX_TASKS_PER_CHILD", 200),
+        "worker_max_memory_per_child": _env_int("CELERY_WORKER_MAX_MEMORY_PER_CHILD_KB", 350000),
+        "worker_prefetch_multiplier": _env_int("CELERY_WORKER_PREFETCH_MULTIPLIER", 1),
+        "task_track_started": True,
     }
 
 

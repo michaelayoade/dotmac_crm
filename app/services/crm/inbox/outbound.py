@@ -392,6 +392,9 @@ def _text_to_email_html(text: str) -> str:
     )
 
 
+EMAIL_SUBJECT_MAX_LENGTH = 200
+
+
 def _build_reply_subject(current_subject: str | None, base_subject: str | None) -> str | None:
     if base_subject:
         subject = base_subject.strip()
@@ -400,8 +403,8 @@ def _build_reply_subject(current_subject: str | None, base_subject: str | None) 
     if not subject:
         return current_subject
     if subject.lower().startswith("re:"):
-        return subject
-    return f"Re: {subject}"
+        return subject[:EMAIL_SUBJECT_MAX_LENGTH]
+    return f"Re: {subject}"[:EMAIL_SUBJECT_MAX_LENGTH]
 
 
 def _get_rate_limit_per_minute(config) -> int:

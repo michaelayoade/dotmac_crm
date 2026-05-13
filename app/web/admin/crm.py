@@ -11,12 +11,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
-from app.db import SessionLocal
+from app.db import get_db
 from app.logging import get_logger
 from app.models.projects import ProjectType
 from app.models.subscriber import Organization, Subscriber
 from app.services import person as person_service
 from app.services.common import coerce_uuid
+from app.services.crm.inbox.listing import DEFAULT_INBOX_PAGE_SIZE
 from app.services.crm.inbox.page_context import build_inbox_page_context
 from app.services.subscriber import subscriber as subscriber_service
 from app.web.admin.crm_contacts import router as crm_contacts_router
@@ -72,14 +73,6 @@ def _infer_project_type_from_quote_items(items: list) -> str | None:
         if "fiber optics installation" in desc:
             return ProjectType.fiber_optics_installation.value
     return None
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 router = APIRouter(prefix="/crm", tags=["web-admin-crm"])
@@ -310,7 +303,7 @@ async def inbox(
                 merged["saved_filter_id"] = str(saved_filter_id)
                 return RedirectResponse(url=f"/admin/crm/inbox?{urlencode(merged)}", status_code=303)
 
-    safe_limit = max(int(limit or 150), 1)
+    safe_limit = max(int(limit or DEFAULT_INBOX_PAGE_SIZE), 1)
     safe_page = max(int(page or 1), 1)
     safe_offset = max(int(offset or ((safe_page - 1) * safe_limit)), 0)
     assigned_from_dt = _parse_inbox_date(assigned_from)

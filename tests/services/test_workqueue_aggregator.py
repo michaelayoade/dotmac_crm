@@ -35,12 +35,12 @@ class FakeProvider:
         self.kind = kind
         self._items = items
 
-    def fetch(self, db, *, user, audience, snoozed_ids, limit=50):
+    def fetch(self, db, *, user, audience, scope, snoozed_ids, limit=50):
         return list(self._items)
 
 
 def test_aggregator_uses_registered_providers(db_session, monkeypatch):
-    user = SimpleNamespace(person_id=uuid4(), permissions={"workqueue:view"})
+    user = SimpleNamespace(person_id=uuid4(), permissions={"workqueue:view"}, roles=set())
     fake_convs = FakeProvider(ItemKind.conversation, [_item(ItemKind.conversation, 100)])
     fake_tickets = FakeProvider(ItemKind.ticket, [_item(ItemKind.ticket, 80)])
     monkeypatch.setattr(agg_module, "PROVIDERS", (fake_convs, fake_tickets))
@@ -59,7 +59,7 @@ def test_aggregator_uses_registered_providers(db_session, monkeypatch):
 
 
 def test_hero_band_capped(db_session, monkeypatch):
-    user = SimpleNamespace(person_id=uuid4(), permissions={"workqueue:view"})
+    user = SimpleNamespace(person_id=uuid4(), permissions={"workqueue:view"}, roles=set())
     items = [_item(ItemKind.ticket, 100 - i) for i in range(20)]
     monkeypatch.setattr(agg_module, "PROVIDERS", (FakeProvider(ItemKind.ticket, items),))
     view = build_workqueue(db_session, user)
@@ -67,7 +67,7 @@ def test_hero_band_capped(db_session, monkeypatch):
 
 
 def test_tie_break_by_kind_order(db_session, monkeypatch):
-    user = SimpleNamespace(person_id=uuid4(), permissions={"workqueue:view"})
+    user = SimpleNamespace(person_id=uuid4(), permissions={"workqueue:view"}, roles=set())
     same_score = 80
     same_ts = datetime.now(UTC)
     monkeypatch.setattr(

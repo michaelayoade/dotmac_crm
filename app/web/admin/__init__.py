@@ -3,29 +3,28 @@
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
+from starlette.datastructures import QueryParams
 
-from app.db import SessionLocal
+from app.db import get_db
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.auth.dependencies import require_web_auth
 
 _META_OAUTH_CALLBACK_PATH = "/admin/crm/meta/callback"
 
 
-def _get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 def require_web_auth_or_meta_callback(
     request: Request,
-    db: Session = Depends(_get_db),
+    db: Session = Depends(get_db),
 ):
     if request.url.path == _META_OAUTH_CALLBACK_PATH:
         return {}
     return require_web_auth(request, db)
+
+
+def _redirect_with_query(path: str, query_params: QueryParams) -> RedirectResponse:
+    query_string = str(query_params)
+    target = f"{path}?{query_string}" if query_string else path
+    return RedirectResponse(url=target, status_code=302)
 
 
 def build_router() -> APIRouter:
@@ -77,6 +76,50 @@ def build_router() -> APIRouter:
     @router.get("/tickets/new")
     def admin_tickets_new_alias():
         return RedirectResponse(url="/admin/support/tickets/create", status_code=302)
+
+    @router.get("/tickets/{ticket_ref}")
+    def admin_ticket_detail_alias(ticket_ref: str):
+        return RedirectResponse(url=f"/admin/support/tickets/{ticket_ref}", status_code=302)
+
+    @router.get("/tickets/{ticket_ref}/edit")
+    def admin_ticket_edit_alias(ticket_ref: str):
+        return RedirectResponse(url=f"/admin/support/tickets/{ticket_ref}/edit", status_code=302)
+
+    @router.get("/inbox")
+    def admin_inbox_alias(request: Request):
+        return _redirect_with_query("/admin/crm/inbox", request.query_params)
+
+    @router.get("/leads")
+    def admin_leads_alias(request: Request):
+        return _redirect_with_query("/admin/crm/leads", request.query_params)
+
+    @router.get("/leads/new")
+    def admin_leads_new_alias(request: Request):
+        return _redirect_with_query("/admin/crm/leads/new", request.query_params)
+
+    @router.get("/leads/{lead_id}")
+    def admin_lead_detail_alias(lead_id: str, request: Request):
+        return _redirect_with_query(f"/admin/crm/leads/{lead_id}", request.query_params)
+
+    @router.get("/leads/{lead_id}/edit")
+    def admin_lead_edit_alias(lead_id: str, request: Request):
+        return _redirect_with_query(f"/admin/crm/leads/{lead_id}/edit", request.query_params)
+
+    @router.get("/quotes")
+    def admin_quotes_alias(request: Request):
+        return _redirect_with_query("/admin/crm/quotes", request.query_params)
+
+    @router.get("/quotes/new")
+    def admin_quotes_new_alias(request: Request):
+        return _redirect_with_query("/admin/crm/quotes/new", request.query_params)
+
+    @router.get("/quotes/{quote_id}")
+    def admin_quote_detail_alias(quote_id: str, request: Request):
+        return _redirect_with_query(f"/admin/crm/quotes/{quote_id}", request.query_params)
+
+    @router.get("/quotes/{quote_id}/edit")
+    def admin_quote_edit_alias(quote_id: str, request: Request):
+        return _redirect_with_query(f"/admin/crm/quotes/{quote_id}/edit", request.query_params)
 
     router.include_router(dashboard_router)
     router.include_router(system_router)
