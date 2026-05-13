@@ -233,6 +233,27 @@ def build_beat_schedule() -> dict:
             enabled=notification_queue_enabled,
             interval_seconds=notification_queue_interval_seconds,
         )
+        offline_outreach_enabled = _effective_bool(
+            session,
+            SettingDomain.notification,
+            "subscriber_offline_outreach_enabled",
+            "SUBSCRIBER_OFFLINE_OUTREACH_ENABLED",
+            False,
+        )
+        offline_outreach_interval_seconds = _effective_int(
+            session,
+            SettingDomain.notification,
+            "subscriber_offline_outreach_interval_seconds",
+            "SUBSCRIBER_OFFLINE_OUTREACH_INTERVAL_SECONDS",
+            3600,
+        )
+        _sync_scheduled_task(
+            session,
+            name="subscriber_offline_outreach",
+            task_name="app.tasks.subscriber_outreach.run_daily_offline_outreach",
+            enabled=offline_outreach_enabled,
+            interval_seconds=max(offline_outreach_interval_seconds, 300),
+        )
 
         billing_risk_cache_enabled = _effective_bool(
             session,
@@ -472,6 +493,13 @@ def build_beat_schedule() -> dict:
             task_name="app.tasks.crm_inbox.send_reply_reminders",
             enabled=False,
             interval_seconds=reminder_interval_seconds,
+        )
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_reopen_due_snoozed",
+            task_name="app.tasks.crm_inbox.reopen_due_snoozed_conversations",
+            enabled=True,
+            interval_seconds=60,
         )
 
         _sync_scheduled_task(
@@ -872,6 +900,13 @@ def build_beat_schedule() -> dict:
             task_name="app.tasks.intelligence.capture_data_health_baseline",
             enabled=ai_enabled and intelligence_enabled,
             interval_seconds=86400,
+        )
+        _sync_scheduled_task(
+            session,
+            name="ai_intake_health_watchdog",
+            task_name="app.tasks.intelligence.run_ai_intake_health_watchdog",
+            enabled=ai_enabled,
+            interval_seconds=600,
         )
 
         # Workqueue: SLA tick + snooze prune. The whole feature is gated behind

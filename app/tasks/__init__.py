@@ -1,3 +1,4 @@
+from app.services.workqueue.tasks import prune_snoozes, sla_tick
 from app.tasks.bandwidth import (
     aggregate_to_metrics as aggregate_bandwidth_to_metrics,
 )
@@ -18,6 +19,7 @@ from app.tasks.campaigns import (
 from app.tasks.crm_inbox import (
     cleanup_old_outbox_task,
     process_outbox_queue_task,
+    reopen_due_snoozed_conversations_task,
     send_outbound_message_task,
     send_outbox_item_task,
     send_reply_reminders_task,
@@ -45,6 +47,7 @@ from app.tasks.intelligence import (
 from app.tasks.notifications import deliver_notification_queue
 from app.tasks.oauth import check_token_health, refresh_expiring_tokens
 from app.tasks.performance import compute_weekly_scores, generate_flagged_reviews, update_goal_progress
+from app.tasks.subscriber_outreach import run_daily_offline_outreach_task
 from app.tasks.subscribers import (
     reconcile_subscriber_identity,
     refresh_billing_risk_cache,
@@ -85,16 +88,20 @@ __all__ = [
     "process_scheduled_campaigns",
     "process_survey_triggers",
     "process_whatsapp_webhook",
+    "prune_snoozes",
     "reconcile_subscriber_identity",
     "refresh_billing_risk_cache",
     "refresh_expiring_tokens",
+    "reopen_due_snoozed_conversations_task",
     "retry_failed_deliveries",
+    "run_daily_offline_outreach_task",
     "run_integration_job",
     "run_scheduled_analysis",
     "send_daily_sla_violation_report",
     "send_outbound_message_task",
     "send_outbox_item_task",
     "send_reply_reminders_task",
+    "sla_tick",
     "sync_chatwoot",
     "sync_dotmac_erp",
     "sync_dotmac_erp_agents",
