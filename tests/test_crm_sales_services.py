@@ -866,6 +866,29 @@ def test_list_quotes(db_session, person):
     assert len(quotes) >= 2
 
 
+def test_list_quotes_filter_by_search_matches_contact(db_session, person):
+    """Test quote search matches linked contact details."""
+    unique = uuid.uuid4().hex
+    person.display_name = f"Quote Search {unique}"
+    person.email = f"quote-search-{unique}@example.com"
+    db_session.commit()
+
+    quote = sales_service.Quotes.create(db_session, QuoteCreate(person_id=person.id, notes="Searchable Quote"))
+
+    quotes = sales_service.Quotes.list(
+        db_session,
+        lead_id=None,
+        status=None,
+        is_active=None,
+        order_by="created_at",
+        order_dir="asc",
+        limit=10,
+        offset=0,
+        search=person.email,
+    )
+    assert [item.id for item in quotes] == [quote.id]
+
+
 def test_list_quotes_filter_by_lead(db_session, person):
     """Test listing quotes filtered by lead."""
     lead = sales_service.Leads.create(

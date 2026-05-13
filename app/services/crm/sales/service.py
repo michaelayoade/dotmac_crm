@@ -893,18 +893,14 @@ class Quotes(ListResponseMixin):
             query = query.filter(Quote.status == status_value)
         if search:
             like = f"%{search.strip()}%"
-            query = (
-                query.outerjoin(Person, Quote.person_id == Person.id)
-                .filter(
-                    or_(
-                        Person.display_name.ilike(like),
-                        Person.first_name.ilike(like),
-                        Person.last_name.ilike(like),
-                        Person.email.ilike(like),
-                        cast(Quote.id, String).ilike(like),
-                    )
+            query = query.outerjoin(Person, Quote.person_id == Person.id).filter(
+                or_(
+                    Person.display_name.ilike(like),
+                    Person.first_name.ilike(like),
+                    Person.last_name.ilike(like),
+                    Person.email.ilike(like),
+                    cast(Quote.id, String).ilike(like),
                 )
-                .distinct()
             )
         if is_active is None:
             query = query.filter(Quote.is_active.is_(True))
