@@ -1,7 +1,7 @@
 {% extends "layouts/admin.html" %}
 {% from "components/ui/macros.html" import page_header, action_button, dashboard_filter_panel, table_shell, table_row, empty_state %}
 
-{% block title %}Online Last 24h - Admin{% endblock %}
+{% block title %}Inactive Last 24h - Admin{% endblock %}
 
 {% set rows = online_customers | default([]) %}
 {% set region_options = (filter_opts.regions if filter_opts is defined else []) %}
@@ -9,10 +9,10 @@
 
 {% block content %}
 <div class="space-y-6">
-    {% call page_header("Online Last 24 Hours", "Live Splynx data for customers seen in the last 24 hours.", color="emerald", color2="teal") %}
+    {% call page_header("Inactive Last 24h", "Live Splynx data for customers last seen within 24 hours but not currently online.", color="emerald", color2="teal") %}
         {{ action_button(
             "Export CSV",
-            href="/admin/reports/subscribers/online-last-24h/export?status=" ~ (selected_status | default("")) ~ "&region=" ~ (selected_region | default("")) ~ "&search=" ~ (search | default("")) ~ "&ticket_status=" ~ (selected_ticket_status | default("all")) ~ "&notification_state=" ~ (selected_notification_state | default("all")) ~ "&activity_segment=" ~ selected_segment,
+            href="/admin/reports/subscribers/online-last-24h/export?status=" ~ (selected_status | default("")) ~ "&region=" ~ (selected_region | default("")) ~ "&search=" ~ (search | default("")) ~ "&ticket_status=" ~ (selected_ticket_status | default("all")) ~ "&notification_state=" ~ (selected_notification_state | default("all")) ~ "&activity_segment=" ~ selected_segment ~ (selected_base_station_query | default("")),
             variant="secondary",
             color="emerald"
         ) }}
@@ -53,7 +53,7 @@
     </div>
 
     {% call dashboard_filter_panel(color="emerald", title="Filters") %}
-    <form method="get" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7 xl:items-end">
+    <form method="get" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-8 xl:items-end">
         <div>
             <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Segment</label>
             <select name="activity_segment" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
@@ -102,6 +102,14 @@
                 {% endfor %}
             </select>
         </div>
+        <div>
+            <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Base Station</label>
+            <select name="base_station" multiple class="min-h-24 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                {% for option in base_station_options | default([]) %}
+                <option value="{{ option }}" {% if option in selected_base_stations|default([]) %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </div>
         <div class="flex items-center gap-2 xl:justify-end">
             <a href="/admin/reports/subscribers/online-last-24h" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Reset</a>
             <button type="submit" class="inline-flex h-10 items-center rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700">Apply</button>
@@ -109,9 +117,62 @@
     </form>
     {% endcall %}
 
-    <div class="rounded-2xl border border-slate-300 bg-slate-100 p-4 text-sm text-slate-950 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
-        Test mode is active for these notifications. Queueing a notification only saves it for review; it does not send any email or WhatsApp message to the customer.
-    </div>
+    <form method="post" action="/admin/reports/subscribers/online-last-24h/outreach/settings" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
+        <input type="hidden" name="next_url" value="{{ current_query }}">
+        <input type="hidden" name="outreach_timezone" value="{{ outreach_settings.timezone or 'Africa/Lagos' }}">
+        <div class="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-400">Daily Outreach Settings</p>
+                <h2 class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">Cron timing and approved WhatsApp template</h2>
+                <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                    The scheduler checks every 5 minutes and runs once per day after the selected Lagos time. The cron job will use the approved WhatsApp template selected here.
+                </p>
+            </div>
+            <button
+                type="submit"
+                id="outreach-settings-save-button"
+                class="inline-flex h-10 items-center justify-center rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600 dark:disabled:bg-slate-700 dark:disabled:text-slate-400"
+            >
+                Save Outreach Settings
+            </button>
+        </div>
+        <div class="mt-5 grid gap-4 lg:grid-cols-3">
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Run Time</label>
+                <input
+                    type="time"
+                    name="outreach_local_time"
+                    value="{{ outreach_settings.local_time or '10:00' }}"
+                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                >
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Timezone: {{ outreach_settings.timezone or 'Africa/Lagos' }}</p>
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">WhatsApp Send From</label>
+                <select id="outreach-settings-target-id" name="outreach_channel_target_id" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"></select>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Approved templates are loaded from the selected WhatsApp number.</p>
+            </div>
+            <div>
+                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Approved Template</label>
+                <select id="outreach-settings-template-select" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"></select>
+                <input type="hidden" name="outreach_whatsapp_template_name" id="outreach-settings-template-name" value="{{ outreach_settings.template_name or '' }}">
+                <input type="hidden" name="outreach_whatsapp_template_language" id="outreach-settings-template-language" value="{{ outreach_settings.template_language or '' }}">
+                <input type="hidden" name="outreach_whatsapp_template_parameters" id="outreach-settings-template-parameters" value="">
+                <p id="outreach-settings-template-status" class="mt-1 text-xs text-slate-500 dark:text-slate-400">Choose an approved template for the selected WhatsApp number.</p>
+            </div>
+        </div>
+        <div id="outreach-settings-parameter-panel" class="mt-4 hidden rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+            <div class="mb-3">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Template Parameters</p>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">You can use {first_name}, {name}, {subscriber_number}, and {base_station}.</p>
+            </div>
+            <div id="outreach-settings-parameter-fields" class="grid gap-3 md:grid-cols-2 xl:grid-cols-4"></div>
+        </div>
+        <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Current Template Preview</p>
+            <p id="outreach-settings-template-preview" class="mt-2 whitespace-pre-wrap">{{ outreach_settings.template_body or "No approved template selected yet." }}</p>
+        </div>
+    </form>
 
     <form method="post" action="/admin/reports/subscribers/online-last-24h/outreach" id="online-last-24h-outreach-form">
     <input type="hidden" name="next_url" value="{{ current_query }}">
@@ -155,12 +216,13 @@
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Name</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Region</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Base Station</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Station Status</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Seen</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Currently Online</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Ticket</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Queued Notification</th>
                 <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Notification Sent</th>
-                <th class="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Actions</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
@@ -190,6 +252,31 @@
             </td>
             <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ row.status or "-" }}</td>
             <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ row.region or "-" }}</td>
+            <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">
+                <div class="flex flex-col gap-1">
+                    <span>{{ row.base_station or "-" }}</span>
+                    {% if row.station_monitoring_title and row.station_monitoring_title != row.base_station %}
+                    <span class="text-xs text-slate-500 dark:text-slate-400">{{ row.station_monitoring_title }}</span>
+                    {% endif %}
+                </div>
+            </td>
+            <td class="px-5 py-3 text-sm">
+                {% set station_status = (row.station_status or "unknown")|lower %}
+                {% if station_status == "up" %}
+                <span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">Online</span>
+                {% elif station_status == "down" %}
+                <span class="inline-flex rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-800 dark:bg-rose-900/40 dark:text-rose-200">Down</span>
+                {% else %}
+                <span class="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">Unknown</span>
+                {% endif %}
+                {% if row.station_ping_state or row.station_snmp_state %}
+                <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {% if row.station_ping_state %}Ping: {{ row.station_ping_state }}{% endif %}
+                    {% if row.station_ping_state and row.station_snmp_state %}<span class="mx-1">•</span>{% endif %}
+                    {% if row.station_snmp_state %}SNMP: {{ row.station_snmp_state }}{% endif %}
+                </div>
+                {% endif %}
+            </td>
             <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ row.last_seen_at or "-" }}</td>
             <td class="px-5 py-3 text-sm">
                 {% if row.currently_online %}
@@ -252,34 +339,9 @@
                 <span class="text-slate-400 dark:text-slate-500">Not sent</span>
                 {% endif %}
             </td>
-            <td class="px-5 py-3 text-right">
-                {% if row.can_notify %}
-                <button
-                    type="button"
-                    class="inline-flex items-center rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-                    data-notify-button
-                    data-subscriber-id="{{ row.subscriber_id }}"
-                    data-customer-name="{{ row.name }}"
-                    data-ticket-status="{{ row.ticket_status }}"
-                    data-timezone="{{ row.notification_timezone or row.timezone or 'UTC' }}"
-                    data-email="{{ row.email }}"
-                    data-phone="{{ row.phone }}"
-                    data-last-seen="{{ row.last_seen_at }}"
-                    data-last-activity="{{ row.last_activity or row.last_seen_at }}"
-                    data-template-key="{{ row.notification_template_key }}"
-                    data-email-subject="{{ row.notification_email_subject }}"
-                    data-email-body="{{ row.notification_email_body }}"
-                    data-sms-body="{{ row.notification_sms_body }}"
-                >
-                    Notify
-                </button>
-                {% else %}
-                <span class="text-sm text-slate-400 dark:text-slate-500">No CRM subscriber link</span>
-                {% endif %}
-            </td>
             {% endcall %}
             {% else %}
-            {{ empty_state(title="No matching customers", message="No live Splynx rows match the selected filters.", color="emerald", color2="teal", colspan=11) }}
+            {{ empty_state(title="No matching customers", message="No live Splynx rows match the selected filters.", color="emerald", color2="teal", colspan=12) }}
             {% endfor %}
         </tbody>
     </table>
@@ -433,6 +495,17 @@
     const outreachChannelSelect = document.getElementById('online-last-24h-outreach-channel');
     const outreachTargetSelect = document.getElementById('online-last-24h-channel-target-id');
     const outreachTargetOptions = {{ outreach_channel_targets|default({}, true)|tojson }};
+    const outreachSettings = {{ outreach_settings|default({}, true)|tojson }};
+    const outreachSettingsTargetSelect = document.getElementById('outreach-settings-target-id');
+    const outreachSettingsTemplateSelect = document.getElementById('outreach-settings-template-select');
+    const outreachSettingsTemplateNameInput = document.getElementById('outreach-settings-template-name');
+    const outreachSettingsTemplateLanguageInput = document.getElementById('outreach-settings-template-language');
+    const outreachSettingsTemplateParametersInput = document.getElementById('outreach-settings-template-parameters');
+    const outreachSettingsTemplateStatus = document.getElementById('outreach-settings-template-status');
+    const outreachSettingsTemplatePreview = document.getElementById('outreach-settings-template-preview');
+    const outreachSettingsSaveButton = document.getElementById('outreach-settings-save-button');
+    const outreachSettingsParameterPanel = document.getElementById('outreach-settings-parameter-panel');
+    const outreachSettingsParameterFields = document.getElementById('outreach-settings-parameter-fields');
     const channelInput = document.getElementById('notify-channel');
     const emailSection = document.getElementById('notify-email-section');
     const smsSection = document.getElementById('notify-sms-section');
@@ -502,6 +575,213 @@
         outreachTargetSelect.appendChild(node);
       });
       updateBulkControls();
+    }
+
+    function currentWhatsappTargets() {
+      return Array.isArray(outreachTargetOptions?.whatsapp) ? outreachTargetOptions.whatsapp : [];
+    }
+
+    function renderOutreachSettingsTargets() {
+      if (!outreachSettingsTargetSelect) return;
+      const options = currentWhatsappTargets();
+      outreachSettingsTargetSelect.innerHTML = '';
+      if (!options.length) {
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = 'No active WhatsApp targets';
+        outreachSettingsTargetSelect.appendChild(empty);
+        return;
+      }
+      options.forEach((option, index) => {
+        const node = document.createElement('option');
+        node.value = option.target_id || '';
+        node.textContent = option.name || option.target_id || 'WhatsApp target';
+        node.dataset.connectorConfigId = option.connector_config_id || '';
+        if ((outreachSettings.channel_target_id && outreachSettings.channel_target_id === node.value) || (!outreachSettings.channel_target_id && index === 0)) {
+          node.selected = true;
+        }
+        outreachSettingsTargetSelect.appendChild(node);
+      });
+    }
+
+    function selectedOutreachSettingsConnectorId() {
+      if (!outreachSettingsTargetSelect) return '';
+      const option = outreachSettingsTargetSelect.selectedOptions?.[0];
+      return option ? String(option.dataset.connectorConfigId || '') : '';
+    }
+
+    function applyOutreachSettingsTemplateSelection() {
+      if (!outreachSettingsTemplateSelect || !outreachSettingsTemplateNameInput || !outreachSettingsTemplateLanguageInput || !outreachSettingsTemplatePreview) return;
+      const option = outreachSettingsTemplateSelect.selectedOptions?.[0];
+      if (!option) {
+        outreachSettingsTemplateNameInput.value = '';
+        outreachSettingsTemplateLanguageInput.value = '';
+        if (outreachSettingsTemplateParametersInput) outreachSettingsTemplateParametersInput.value = '{}';
+        renderOutreachSettingsTemplateParameters([]);
+        outreachSettingsTemplatePreview.textContent = 'No approved template selected yet.';
+        if (outreachSettingsSaveButton) outreachSettingsSaveButton.disabled = true;
+        return;
+      }
+      outreachSettingsTemplateNameInput.value = option.dataset.templateName || '';
+      outreachSettingsTemplateLanguageInput.value = option.dataset.templateLanguage || '';
+      outreachSettingsTemplatePreview.textContent = option.dataset.templateBody || 'This template has no BODY text preview.';
+      const parameterKeys = extractWhatsappTemplateParameterKeys(option.dataset.templateComponents || '[]');
+      renderOutreachSettingsTemplateParameters(parameterKeys);
+      if (outreachSettingsSaveButton) {
+        outreachSettingsSaveButton.disabled = !(outreachSettingsTemplateNameInput.value && outreachSettingsTemplateLanguageInput.value && outreachSettingsTargetSelect?.value);
+      }
+    }
+
+    function extractWhatsappTemplateParameterKeys(rawComponents) {
+      let components = [];
+      try {
+        components = JSON.parse(rawComponents || '[]');
+      } catch (_error) {
+        components = [];
+      }
+      const keys = [];
+      components.forEach((component) => {
+        const text = String(component?.text || '');
+        const placeholderPattern = new RegExp('\\{\\{\\s*([A-Za-z_][A-Za-z0-9_]*|\\d+)\\s*\\}\\}', 'g');
+        const matches = text.matchAll(placeholderPattern);
+        for (const match of matches) {
+          const key = String(match[1] || '').trim();
+          if (key && !keys.includes(key)) keys.push(key);
+        }
+      });
+      return keys.sort((left, right) => {
+        const leftNumber = Number.parseInt(left, 10);
+        const rightNumber = Number.parseInt(right, 10);
+        const leftIsNumber = String(leftNumber) === left;
+        const rightIsNumber = String(rightNumber) === right;
+        if (leftIsNumber && rightIsNumber) return leftNumber - rightNumber;
+        if (leftIsNumber) return -1;
+        if (rightIsNumber) return 1;
+        return left.localeCompare(right);
+      });
+    }
+
+    function defaultTemplateParameterValue(key) {
+      const existing = outreachSettings.template_parameter_values || {};
+      const saved = existing[String(key)] || existing[key];
+      if (saved) return saved;
+      if (String(key) === '1' || key === 'first_name') return '{first_name}';
+      if (String(key) === '2' || key === 'subscriber_number') return '{subscriber_number}';
+      if (String(key) === '3' || key === 'base_station') return '{base_station}';
+      if (String(key) === '4' || key === 'name') return '{name}';
+      return '';
+    }
+
+    function syncOutreachSettingsTemplateParameters() {
+      if (!outreachSettingsTemplateParametersInput || !outreachSettingsParameterFields) return;
+      const values = {};
+      outreachSettingsParameterFields.querySelectorAll('[data-template-parameter-index]').forEach((input) => {
+        const index = input.dataset.templateParameterIndex;
+        const value = String(input.value || '').trim();
+        if (index && value) values[index] = value;
+      });
+      outreachSettingsTemplateParametersInput.value = JSON.stringify(values);
+      renderOutreachSettingsTemplatePreview();
+    }
+
+    function escapeRegex(value) {
+      return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function renderOutreachSettingsTemplatePreview() {
+      if (!outreachSettingsTemplateSelect || !outreachSettingsTemplatePreview) return;
+      const option = outreachSettingsTemplateSelect.selectedOptions?.[0];
+      let preview = option?.dataset.templateBody || '';
+      let values = {};
+      try {
+        values = outreachSettingsTemplateParametersInput?.value ? JSON.parse(outreachSettingsTemplateParametersInput.value || '{}') : {};
+      } catch (_error) {
+        values = {};
+      }
+      Object.entries(values).forEach(([index, value]) => {
+        const placeholderPattern = new RegExp('\\{\\{\\s*' + escapeRegex(index) + '\\s*\\}\\}', 'g');
+        preview = preview.replace(placeholderPattern, value);
+      });
+      outreachSettingsTemplatePreview.textContent = preview || 'This template has no BODY text preview.';
+    }
+
+    function renderOutreachSettingsTemplateParameters(parameterKeys) {
+      if (!outreachSettingsParameterPanel || !outreachSettingsParameterFields || !outreachSettingsTemplateParametersInput) return;
+      outreachSettingsParameterFields.innerHTML = '';
+      outreachSettingsParameterPanel.classList.toggle('hidden', parameterKeys.length === 0);
+      if (!parameterKeys.length) {
+        outreachSettingsTemplateParametersInput.value = '{}';
+        return;
+      }
+      parameterKeys.forEach((key) => {
+        const wrapper = document.createElement('label');
+        wrapper.className = 'block';
+        const defaultValue = defaultTemplateParameterValue(key);
+        const parameterLabel = `Parameter ${'{' + '{'}${key}${'}' + '}'}`;
+        const label = document.createElement('span');
+        label.className = 'mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400';
+        label.textContent = parameterLabel;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.dataset.templateParameterIndex = key;
+        input.value = defaultValue;
+        input.className = 'block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white';
+        input.addEventListener('input', syncOutreachSettingsTemplateParameters);
+        wrapper.appendChild(label);
+        wrapper.appendChild(input);
+        outreachSettingsParameterFields.appendChild(wrapper);
+      });
+      syncOutreachSettingsTemplateParameters();
+    }
+
+    async function loadOutreachSettingsTemplates() {
+      if (!outreachSettingsTemplateSelect || !outreachSettingsTemplateStatus || !outreachSettingsTemplatePreview) return;
+      const connectorId = selectedOutreachSettingsConnectorId();
+      if (!connectorId) {
+        outreachSettingsTemplateSelect.innerHTML = '<option value="">Select a WhatsApp target first</option>';
+        outreachSettingsTemplateStatus.textContent = 'Select a WhatsApp number to load its approved templates.';
+        outreachSettingsTemplatePreview.textContent = 'No approved template selected yet.';
+        if (outreachSettingsSaveButton) outreachSettingsSaveButton.disabled = true;
+        return;
+      }
+      outreachSettingsTemplateStatus.textContent = 'Loading approved templates…';
+      outreachSettingsTemplateSelect.innerHTML = '<option value="">Loading…</option>';
+      try {
+        const response = await fetch(`/admin/crm/campaigns/templates/whatsapp?connector_id=${encodeURIComponent(connectorId)}`);
+        const payload = await response.json();
+        const templates = Array.isArray(payload.templates) ? payload.templates : [];
+        outreachSettingsTemplateSelect.innerHTML = '';
+        if (!templates.length) {
+          outreachSettingsTemplateSelect.innerHTML = '<option value="">No approved templates</option>';
+          outreachSettingsTemplateStatus.textContent = 'No approved templates were found for this WhatsApp number.';
+          outreachSettingsTemplatePreview.textContent = 'No approved template selected yet.';
+          if (outreachSettingsSaveButton) outreachSettingsSaveButton.disabled = true;
+          return;
+        }
+        templates.forEach((template, index) => {
+          const node = document.createElement('option');
+          node.value = `${template.name || ''}::${template.language || ''}`;
+          node.textContent = `${template.name || 'Template'} (${template.language || 'n/a'})`;
+          node.dataset.templateName = template.name || '';
+          node.dataset.templateLanguage = template.language || '';
+          node.dataset.templateBody = template.body || '';
+          node.dataset.templateComponents = JSON.stringify(template.components || []);
+          if (
+            (outreachSettings.template_name && outreachSettings.template_name === node.dataset.templateName && outreachSettings.template_language === node.dataset.templateLanguage)
+            || (!outreachSettings.template_name && index === 0)
+          ) {
+            node.selected = true;
+          }
+          outreachSettingsTemplateSelect.appendChild(node);
+        });
+        outreachSettingsTemplateStatus.textContent = `Loaded ${templates.length} approved template(s).`;
+        applyOutreachSettingsTemplateSelection();
+      } catch (_error) {
+        outreachSettingsTemplateSelect.innerHTML = '<option value="">Failed to load templates</option>';
+        outreachSettingsTemplateStatus.textContent = 'Failed to load approved templates for this WhatsApp number.';
+        outreachSettingsTemplatePreview.textContent = 'No approved template selected yet.';
+        if (outreachSettingsSaveButton) outreachSettingsSaveButton.disabled = true;
+      }
     }
 
     function configureSingleNotifyMode() {
@@ -691,15 +971,6 @@
       }
     }
 
-    document.querySelectorAll('[data-notify-button]').forEach((button) => {
-      button.addEventListener('click', async () => {
-        configureSingleNotifyMode();
-        await loadNotifyContext(button);
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
-      });
-    });
-
     bulkCheckboxes.forEach((checkbox) => {
       checkbox.addEventListener('change', updateBulkControls);
     });
@@ -715,6 +986,16 @@
 
     if (outreachChannelSelect) outreachChannelSelect.addEventListener('change', renderOutreachTargets);
     if (outreachTargetSelect) outreachTargetSelect.addEventListener('change', updateBulkControls);
+    if (outreachSettingsTargetSelect) {
+      outreachSettingsTargetSelect.addEventListener('change', async () => {
+        outreachSettings.template_name = '';
+        outreachSettings.template_language = '';
+        await loadOutreachSettingsTemplates();
+      });
+    }
+    if (outreachSettingsTemplateSelect) {
+      outreachSettingsTemplateSelect.addEventListener('change', applyOutreachSettingsTemplateSelection);
+    }
 
     channelInput.addEventListener('change', updateChannelVisibility);
     smsBody.addEventListener('input', updateSmsCount);
@@ -768,6 +1049,8 @@
     updateChannelVisibility();
     updateSmsCount();
     renderOutreachTargets();
+    renderOutreachSettingsTargets();
+    loadOutreachSettingsTemplates();
     updateBulkControls();
 
     window.setTimeout(() => {

@@ -103,6 +103,7 @@
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
             <th class="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Phone</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">City</th>
+            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Location</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Street</th>
             <th class="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Area</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
@@ -141,6 +142,7 @@
                 data-name="{{ row.name|lower }}"
                 data-phone="{{ (row.phone or '')|lower }}"
                 data-city="{{ (row.city or '')|lower }}"
+                data-location="{{ (row.location or '')|lower }}"
                 data-street="{{ (row.street or '')|lower }}"
                 data-area="{{ (row.area or '')|lower }}"
                 data-plan="{{ (row.plan or '')|lower }}"
@@ -163,6 +165,7 @@
             </td>
             <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.phone or "-" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.city or "-" }}</td>
+            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.location or "-" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.street or "-" }}</td>
             <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.area or "-" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan or "-" }}</td>
@@ -223,7 +226,7 @@
             </td>
         {% endcall %}
         {% else %}
-        {{ empty_state(title="No billing-risk rows", message="No subscribers matched the current computed billing-risk rules and filters.", color="rose", color2="red", colspan=17) }}
+        {{ empty_state(title="No billing-risk rows", message="No subscribers matched the current computed billing-risk rules and filters.", color="rose", color2="red", colspan=18) }}
         {% endfor %}
     </tbody>
 </table>

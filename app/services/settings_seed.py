@@ -408,6 +408,74 @@ def seed_notification_settings(db: Session) -> None:
         value_type=SettingValueType.integer,
         value_text=os.getenv("NEXTCLOUD_TALK_NOTIFICATIONS_ROOM_TYPE", "1"),
     )
+    offline_outreach_enabled_raw = os.getenv("SUBSCRIBER_OFFLINE_OUTREACH_ENABLED", "false")
+    notification_settings.ensure_by_key(
+        db,
+        key="subscriber_offline_outreach_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=offline_outreach_enabled_raw,
+        value_json=offline_outreach_enabled_raw.lower() in {"1", "true", "yes", "on"},
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="subscriber_offline_outreach_interval_seconds",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("SUBSCRIBER_OFFLINE_OUTREACH_INTERVAL_SECONDS", "300"),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="subscriber_offline_outreach_local_time",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SUBSCRIBER_OFFLINE_OUTREACH_LOCAL_TIME", "10:00"),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="subscriber_offline_outreach_timezone",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SUBSCRIBER_OFFLINE_OUTREACH_TIMEZONE", "Africa/Lagos"),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="subscriber_offline_outreach_channel",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SUBSCRIBER_OFFLINE_OUTREACH_CHANNEL", "whatsapp"),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="subscriber_offline_outreach_channel_target_id",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SUBSCRIBER_OFFLINE_OUTREACH_CHANNEL_TARGET_ID", ""),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="subscriber_offline_outreach_cooldown_hours",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("SUBSCRIBER_OFFLINE_OUTREACH_COOLDOWN_HOURS", "72"),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="subscriber_offline_outreach_message_template",
+        value_type=SettingValueType.string,
+        value_text=os.getenv(
+            "SUBSCRIBER_OFFLINE_OUTREACH_MESSAGE_TEMPLATE",
+            (
+                "Hello {first_name}, we noticed your Dotmac service was offline in the last 24 hours. "
+                "If you need help getting back online, reply here and we will assist."
+            ),
+        ),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="subscriber_offline_outreach_whatsapp_template_payload",
+        value_type=SettingValueType.json,
+        value_json={},
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="subscriber_offline_outreach_last_completed_date",
+        value_type=SettingValueType.string,
+        value_text="",
+    )
 
 
 def seed_geocoding_settings(db: Session) -> None:
@@ -977,6 +1045,76 @@ def seed_integration_settings(db: Session) -> None:
         key="intelligence_max_insights_per_run",
         value_type=SettingValueType.integer,
         value_text=os.getenv("INTELLIGENCE_MAX_INSIGHTS_PER_RUN", "50"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="splynx_customer_sync_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=os.getenv("SPLYNX_CUSTOMER_SYNC_ENABLED", "false"),
+        value_json=os.getenv("SPLYNX_CUSTOMER_SYNC_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="splynx_auth_type",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SPLYNX_AUTH_TYPE", "basic"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="splynx_base_url",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SPLYNX_BASE_URL", ""),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="splynx_customer_url",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SPLYNX_CUSTOMER_URL", ""),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="splynx_invoice_url",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SPLYNX_INVOICE_URL", ""),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="splynx_monitoring_url",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SPLYNX_MONITORING_URL", ""),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="splynx_basic_auth_token",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SPLYNX_BASIC_AUTH_TOKEN", ""),
+        is_secret=True,
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="splynx_monitoring_basic_auth_token",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SPLYNX_MONITORING_BASIC_AUTH_TOKEN", ""),
+        is_secret=True,
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="splynx_timeout_seconds",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("SPLYNX_TIMEOUT_SECONDS", "30"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="splynx_subscriber_sync_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=os.getenv("SPLYNX_SUBSCRIBER_SYNC_ENABLED", "false"),
+        value_json=os.getenv("SPLYNX_SUBSCRIBER_SYNC_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="splynx_subscriber_sync_interval_hours",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("SPLYNX_SUBSCRIBER_SYNC_INTERVAL_HOURS", "24"),
     )
     integration_settings.ensure_by_key(
         db,
