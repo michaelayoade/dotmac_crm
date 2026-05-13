@@ -17,6 +17,7 @@ from app.services.crm.inbox.comments_context import (
     build_comment_list_items,
     load_comments_context,
 )
+from app.services.crm.inbox.conversation_status import reopen_due_snoozed_conversations  # noqa: F401
 from app.services.crm.inbox.queries import list_inbox_conversations
 from app.services.crm.inbox.search import normalize_search
 

@@ -1789,7 +1789,26 @@ def subscriber_online_last_24h(
     online_customers = _filter_online_last_24h_base_stations(online_customers, selected_base_stations)
     online_customers = _filter_online_last_24h_notification_state(online_customers, selected_notification_state)
     online_customers = _sort_online_last_24h_rows(online_customers)
-    outreach_settings = subscriber_offline_outreach_service.get_outreach_settings_snapshot(db)
+    has_db_session = hasattr(db, "execute")
+    outreach_settings = (
+        subscriber_offline_outreach_service.get_outreach_settings_snapshot(db)
+        if has_db_session
+        else {
+            "enabled": False,
+            "interval_seconds": 0,
+            "local_time": "10:00",
+            "timezone": "Africa/Lagos",
+            "channel_target_id": "",
+            "cooldown_hours": 0,
+            "template_name": "",
+            "template_language": "",
+            "template_body": "",
+            "template_parameter_values": {},
+            "template_parameter_indexes": [],
+            "template_payload": None,
+        }
+    )
+    outreach_channel_targets = outreach_channel_target_options(db) if has_db_session else {}
 
     return templates.TemplateResponse(
         "admin/reports/subscriber_online_last_24h.html",
@@ -1817,7 +1836,7 @@ def subscriber_online_last_24h(
             "base_station_options": base_station_options,
             "selected_base_stations": selected_base_stations,
             "selected_base_station_query": "".join(f"&base_station={quote(value)}" for value in selected_base_stations),
-            "outreach_channel_targets": outreach_channel_target_options(db),
+            "outreach_channel_targets": outreach_channel_targets,
             "outreach_settings": outreach_settings,
             "current_query": request.url.path + (f"?{request.url.query}" if request.url.query else ""),
         },
