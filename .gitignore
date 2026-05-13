@@ -79,3 +79,6 @@ static/avatars/
 
 # Codex local marker
 .codex
+
+# Git worktrees
+.worktrees/
