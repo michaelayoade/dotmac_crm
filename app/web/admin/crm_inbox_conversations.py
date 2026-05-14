@@ -3,6 +3,7 @@
 import logging
 from datetime import UTC, datetime, time
 from time import monotonic
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -16,6 +17,16 @@ router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")
 logger = logging.getLogger(__name__)
 _HOT_ENDPOINT_LOG_THRESHOLD_MS = 500.0
+
+
+def _inline_attachment_headers(file_name: str | None) -> dict[str, str]:
+    if not file_name:
+        return {"Content-Disposition": "inline"}
+    safe_name = file_name.replace("\\", "_").replace('"', "'")
+    encoded_name = quote(file_name)
+    return {
+        "Content-Disposition": f"inline; filename=\"{safe_name}\"; filename*=UTF-8''{encoded_name}",
+    }
 
 
 def _parse_date_param(value: str | None, *, end_of_day: bool = False) -> datetime | None:
@@ -238,7 +249,26 @@ def inbox_attachment(
         return Response(
             content=result.content,
             media_type=result.content_type or "application/octet-stream",
-            headers={"Content-Disposition": "inline"},
+            headers=_inline_attachment_headers(result.file_name),
+        )
+    return Response(status_code=404)
+
+
+@router.get("/inbox/message-attachment/{attachment_id}")
+def inbox_message_attachment(
+    attachment_id: str,
+    db: Session = Depends(get_db),
+):
+    from app.services.crm.inbox.attachments import fetch_stored_message_attachment
+
+    result = fetch_stored_message_attachment(db, attachment_id)
+    if result.kind == "redirect" and result.redirect_url:
+        return RedirectResponse(result.redirect_url)
+    if result.kind == "content" and result.content is not None:
+        return Response(
+            content=result.content,
+            media_type=result.content_type or "application/octet-stream",
+            headers=_inline_attachment_headers(result.file_name),
         )
     return Response(status_code=404)
 
