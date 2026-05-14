@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import logging
 import time
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models.crm.conversation import Message
+from app.models.crm.conversation import Message, MessageAttachment
 from app.models.crm.enums import ChannelType
 from app.models.domain_settings import SettingDomain
 from app.services import meta_oauth
@@ -33,6 +36,7 @@ class AttachmentFetchResult:
     content: bytes | None = None
     content_type: str | None = None
     redirect_url: str | None = None
+    file_name: str | None = None
 
 
 def fetch_inbox_attachment(
@@ -191,6 +195,71 @@ def fetch_inbox_attachment(
         content=media_response.content,
         content_type=content_type,
     )
+
+
+def fetch_stored_message_attachment(
+    db: Session,
+    attachment_id: str,
+) -> AttachmentFetchResult:
+    try:
+        attachment_uuid = coerce_uuid(attachment_id)
+    except Exception:
+        return AttachmentFetchResult(kind="not_found")
+
+    attachment = db.get(MessageAttachment, attachment_uuid)
+    if not attachment:
+        return AttachmentFetchResult(kind="not_found")
+
+    external_url = _normalize_storage_attachment_url(attachment.external_url)
+    if external_url:
+        return AttachmentFetchResult(
+            kind="redirect",
+            redirect_url=external_url,
+            file_name=attachment.file_name,
+        )
+
+    metadata = attachment.metadata_ if isinstance(attachment.metadata_, dict) else {}
+    content_base64 = metadata.get("content_base64")
+    if not isinstance(content_base64, str) or not content_base64:
+        return AttachmentFetchResult(kind="not_found")
+
+    try:
+        content = base64.b64decode(content_base64, validate=True)
+    except (binascii.Error, ValueError):
+        logger.warning(
+            "crm_inbox_stored_attachment_decode_failed attachment_id=%s",
+            attachment_id,
+        )
+        return AttachmentFetchResult(kind="not_found")
+
+    return AttachmentFetchResult(
+        kind="content",
+        content=content,
+        content_type=attachment.mime_type or "application/octet-stream",
+        file_name=attachment.file_name,
+    )
+
+
+def _normalize_storage_attachment_url(url: str | None) -> str | None:
+    if not url or settings.storage_backend != "s3":
+        return url
+    if url.startswith("/admin/storage/"):
+        return url
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return url
+    path = (parsed.path or url).lstrip("/")
+    bucket_prefix = f"{settings.s3_bucket}/"
+    if path.startswith(bucket_prefix):
+        key = path[len(bucket_prefix) :]
+    elif path.startswith("uploads/"):
+        key = path
+    else:
+        return url
+    if not key.startswith("uploads/"):
+        return url
+    return f"/admin/storage/{settings.s3_bucket}/{key}"
 
 
 def _cache_and_log_failure(

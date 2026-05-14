@@ -798,22 +798,29 @@ select.churn-filter-select option {
   color: #f8fafc;
 }
 
+select.quote-detail-select,
 select.ticket-detail-select {
   color-scheme: light;
 }
+.dark select.quote-detail-select,
 .dark select.ticket-detail-select {
   color-scheme: dark;
 }
+.dark select.quote-detail-select,
+.dark select.quote-detail-select:focus,
+.dark select.quote-detail-select:active,
 .dark select.ticket-detail-select,
 .dark select.ticket-detail-select:focus,
 .dark select.ticket-detail-select:active {
   background-color: rgb(51 65 85) !important;
   color: rgb(248 250 252) !important;
 }
+select.quote-detail-select option,
 select.ticket-detail-select option {
   background-color: rgb(255 255 255);
   color: rgb(15 23 42);
 }
+.dark select.quote-detail-select option,
 .dark select.ticket-detail-select option {
   background-color: rgb(51 65 85);
   color: rgb(248 250 252);

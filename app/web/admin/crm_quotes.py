@@ -112,6 +112,30 @@ def crm_quote_new(
     return templates.TemplateResponse("admin/crm/quote_form.html", context)
 
 
+@router.post("/quotes/bulk/status")
+async def crm_quotes_bulk_status(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Bulk update quote status."""
+
+    _require_admin_role(request)
+    status_code, payload = bulk_status(db, await request.body())
+    return JSONResponse(payload, status_code=status_code)
+
+
+@router.post("/quotes/bulk/delete")
+async def crm_quotes_bulk_delete(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Bulk delete quotes."""
+
+    _require_admin_role(request)
+    status_code, payload = bulk_delete(db, await request.body())
+    return JSONResponse(payload, status_code=status_code)
+
+
 @router.get("/quotes/{quote_id}", response_class=HTMLResponse)
 def crm_quote_detail(request: Request, quote_id: str, db: Session = Depends(get_db)):
     context = _crm_base_context(request, db, "quotes")
@@ -376,27 +400,3 @@ def crm_quote_delete(request: Request, quote_id: str, db: Session = Depends(get_
     _require_admin_role(request)
     delete_quote(db, quote_id)
     return RedirectResponse(url="/admin/crm/quotes", status_code=303)
-
-
-@router.post("/quotes/bulk/status")
-async def crm_quotes_bulk_status(
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Bulk update quote status."""
-
-    _require_admin_role(request)
-    status_code, payload = bulk_status(db, await request.body())
-    return JSONResponse(payload, status_code=status_code)
-
-
-@router.post("/quotes/bulk/delete")
-async def crm_quotes_bulk_delete(
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Bulk delete quotes."""
-
-    _require_admin_role(request)
-    status_code, payload = bulk_delete(db, await request.body())
-    return JSONResponse(payload, status_code=status_code)

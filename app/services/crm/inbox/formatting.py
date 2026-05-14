@@ -737,11 +737,8 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
     attachments = []
     for attachment in msg.attachments or []:
         metadata = attachment.metadata_ or {}
-        content_base64 = metadata.get("content_base64")
         content_id = metadata.get("content_id")
-        url = _normalize_storage_attachment_url(attachment.external_url)
-        if not url and content_base64 and attachment.mime_type:
-            url = f"data:{attachment.mime_type};base64,{content_base64}"
+        url: str | None = f"/admin/crm/inbox/message-attachment/{attachment.id}"
         attachments.append(
             {
                 "id": str(attachment.id),
