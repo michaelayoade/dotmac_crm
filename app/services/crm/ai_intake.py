@@ -761,7 +761,9 @@ def _apply_department_assignment(
         fallback_team_id,
     )
 
-    assigned_team_id = selection.team_id if selection.reason != "team_missing_or_inactive" else None
+    assigned_team_id = (
+        selection.team_id if selection.reason not in {"team_missing_or_inactive", "no_team_members"} else None
+    )
     if selection.reason != "assigned":
         logger.info(
             "routing_no_eligible_agents conversation_id=%s source=%s department=%s team_id=%s reason=%s configured_candidates=%s active_candidates=%s",
@@ -2041,11 +2043,21 @@ def retry_team_only_ai_assignments(db: Session, *, limit: int = 200) -> dict[str
             state["last_assignment_retry_at"] = _serialize_timestamp(_now())
             state["last_assignment_retry_reason"] = selection.reason
             if not selection.agent_id:
+                assigned_team_id = assignment.team_id if selection.reason != "no_team_members" else None
+                if assigned_team_id is None:
+                    conversation_service.assign_conversation(
+                        db,
+                        conversation_id=str(conversation.id),
+                        agent_id=None,
+                        team_id=None,
+                        assigned_by_id=None,
+                        update_lead_owner=False,
+                    )
                 _set_routing_state(
                     state,
                     department=_normalize_department_key(state.get("department")),
                     selected_team_id=assignment.team_id,
-                    assigned_team_id=assignment.team_id,
+                    assigned_team_id=assigned_team_id,
                     assigned_agent_id=None,
                     routing_state="waiting_for_agent",
                     skipped_reason=selection.reason,

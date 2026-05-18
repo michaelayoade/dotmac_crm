@@ -769,7 +769,7 @@ def test_process_pending_intake_ignores_offline_agents_for_round_robin(db_sessio
     assert assignment.agent_id == online_agent.id
 
 
-def test_process_pending_intake_preserves_selected_department_when_team_has_no_members(
+def test_process_pending_intake_does_not_assign_selected_department_when_team_has_no_members(
     db_session,
     monkeypatch,
     caplog,
@@ -838,12 +838,11 @@ def test_process_pending_intake_preserves_selected_department_when_team_has_no_m
 
     assert result.handled is True
     assert result.resolved is True
-    assert assignment is not None
-    assert assignment.team_id == sales_team.id
-    assert assignment.agent_id is None
+    assert assignment is None
     assert state["department"] == "billing_payment"
     assert state["routing_state"] == "waiting_for_agent"
-    assert state["routing_assigned_team_id"] == str(sales_team.id)
+    assert state["routing_selected_team_id"] == str(sales_team.id)
+    assert state["routing_assigned_team_id"] is None
     assert state["routing_assigned_agent_id"] is None
     assert state["routing_assignment_skipped_reason"] == "no_team_members"
     assert state["routing_department_preserved"] is True
@@ -926,7 +925,7 @@ def test_process_pending_intake_preserves_selected_department_when_team_agents_a
     assert state["routing_assigned_agent_id"] != str(support_agent.id)
 
 
-def test_process_pending_intake_timeout_escalation_preserves_selected_department_queue(
+def test_process_pending_intake_timeout_escalation_does_not_assign_empty_selected_department_team(
     db_session,
     monkeypatch,
 ):
@@ -982,13 +981,13 @@ def test_process_pending_intake_timeout_escalation_preserves_selected_department
     assert result.handled is True
     assert result.escalated is True
     assert result.fallback_used is False
-    assert assignment is not None
-    assert assignment.team_id == sales_team.id
-    assert assignment.agent_id is None
+    assert assignment is None
     assert state["status"] == "escalated"
     assert state["department"] == "billing_payment"
     assert state["routing_state"] == "waiting_for_agent"
     assert state["routing_fallback_blocked"] is True
+    assert state["routing_selected_team_id"] == str(sales_team.id)
+    assert state["routing_assigned_team_id"] is None
     assert state["routing_assignment_skipped_reason"] == "no_team_members"
 
 
@@ -1182,8 +1181,10 @@ def test_process_pending_intake_escalates_after_single_followup_retry_limit(db_s
     assert result.followup_sent is False
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["status"] == "escalated"
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["escalated_reason"] == "timeout"
-    assert assignment is not None
-    assert assignment.team_id == team.id
+    assert assignment is None
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_assignment_skipped_reason"] == "no_team_members"
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_selected_team_id"] == str(team.id)
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_assigned_team_id"] is None
 
 
 def test_process_pending_intake_existing_without_state_skips(db_session, monkeypatch):
@@ -1697,6 +1698,7 @@ def test_process_pending_intake_existing_pending_state_continues(db_session, mon
     team = CrmTeam(name="Support", is_active=True)
     db_session.add(team)
     db_session.commit()
+    _make_agent(db_session, team, label="SupportOnline", status=AgentPresenceStatus.online)
     _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
     conversation.status = ConversationStatus.pending
     conversation.metadata_ = {
@@ -1845,8 +1847,10 @@ def test_process_pending_intake_ai_failure_escalates_safely(db_session, monkeypa
     assert result.escalated is True
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["status"] == "escalated"
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["escalated_reason"] == "ai_error"
-    assert assignment is not None
-    assert assignment.team_id == team.id
+    assert assignment is None
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_assignment_skipped_reason"] == "no_team_members"
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_selected_team_id"] == str(team.id)
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_assigned_team_id"] is None
 
 
 def test_process_pending_intake_timeout_error_escalates_safely(db_session, monkeypatch):
@@ -2049,6 +2053,7 @@ def test_process_pending_intake_does_not_duplicate_handoff_or_assignment(db_sess
     team = CrmTeam(name="Support", is_active=True)
     db_session.add(team)
     db_session.commit()
+    _make_agent(db_session, team, label="DuplicateGuard", status=AgentPresenceStatus.online)
     _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
 
     monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
@@ -2107,7 +2112,7 @@ def test_process_pending_intake_does_not_duplicate_handoff_or_assignment(db_sess
     assert sent_messages.count("A member of our support team will respond within 15-30 minutes.") == 1
 
 
-def test_escalate_expired_pending_intakes_opens_and_assigns_fallback_team(db_session, monkeypatch):
+def test_escalate_expired_pending_intakes_opens_without_assigning_empty_fallback_team(db_session, monkeypatch):
     person = _make_person(db_session)
     conversation = _make_conversation(db_session, person)
     team = CrmTeam(name="Fallback", is_active=True)
@@ -2141,8 +2146,10 @@ def test_escalate_expired_pending_intakes_opens_and_assigns_fallback_team(db_ses
     assert result["escalated"] == 1
     assert conversation.status == ConversationStatus.open
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["status"] == "escalated"
-    assert assignment is not None
-    assert assignment.team_id == team.id
+    assert assignment is None
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_assignment_skipped_reason"] == "no_team_members"
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_selected_team_id"] == str(team.id)
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_assigned_team_id"] is None
 
 
 def test_save_ai_intake_config_requires_fallback_team_when_enabled(db_session):

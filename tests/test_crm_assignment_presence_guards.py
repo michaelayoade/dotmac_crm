@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from app.models.crm.conversation import ConversationAssignment, Message
 from app.models.crm.enums import AgentPresenceStatus, ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.crm.presence import AgentPresence
-from app.models.crm.team import CrmAgent, CrmRoutingRule
+from app.models.crm.team import CrmAgent, CrmRoutingRule, CrmTeam
 from app.models.person import Person
 from app.schemas.crm.conversation import ConversationCreate
 from app.services.crm import conversation as conversation_service
@@ -60,7 +60,9 @@ def test_manual_assignment_rejects_agent_without_presence(db_session, crm_contac
     assert exc.value.status_code == 409
 
 
-def test_inbox_assign_action_maps_conflict_to_invalid_input(db_session, crm_contact, crm_agent, crm_team, person):
+def test_inbox_assign_action_maps_conflict_to_invalid_input(
+    db_session, crm_contact, crm_agent, crm_team, crm_agent_team, person
+):
     conversation = conversation_service.Conversations.create(
         db_session,
         ConversationCreate(person_id=crm_contact.id),
@@ -132,7 +134,9 @@ def test_inbox_assign_action_rejects_missing_team(db_session, crm_contact, crm_a
     assert result.error_detail == "Selected team does not exist or is inactive."
 
 
-def test_auto_assignment_drops_unavailable_agent_and_keeps_team(db_session, crm_contact, crm_agent, crm_team):
+def test_auto_assignment_drops_unavailable_agent_and_keeps_team(
+    db_session, crm_contact, crm_agent, crm_team, crm_agent_team
+):
     conversation = conversation_service.Conversations.create(
         db_session,
         ConversationCreate(person_id=crm_contact.id),
@@ -157,6 +161,53 @@ def test_auto_assignment_drops_unavailable_agent_and_keeps_team(db_session, crm_
     assert assignment is not None
     assert assignment.team_id == crm_team.id
     assert assignment.agent_id is None
+
+
+def test_auto_assignment_skips_team_with_no_agents(db_session, crm_contact):
+    conversation = conversation_service.Conversations.create(
+        db_session,
+        ConversationCreate(person_id=crm_contact.id),
+    )
+    empty_team = CrmTeam(name="Empty Support", is_active=True)
+    db_session.add(empty_team)
+    db_session.commit()
+
+    assignment = conversation_service.assign_conversation(
+        db_session,
+        conversation_id=str(conversation.id),
+        team_id=str(empty_team.id),
+        assigned_by_id=None,
+    )
+
+    active_assignment = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .first()
+    )
+    assert assignment is None
+    assert active_assignment is None
+
+
+def test_manual_assignment_rejects_team_with_no_agents(db_session, crm_contact, person):
+    conversation = conversation_service.Conversations.create(
+        db_session,
+        ConversationCreate(person_id=crm_contact.id),
+    )
+    empty_team = CrmTeam(name="Empty Support", is_active=True)
+    db_session.add(empty_team)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        conversation_service.assign_conversation(
+            db_session,
+            conversation_id=str(conversation.id),
+            team_id=str(empty_team.id),
+            assigned_by_id=str(person.id),
+        )
+
+    assert exc.value.status_code == 409
+    assert "no active agents" in exc.value.detail
 
 
 def test_auto_routing_excludes_agents_without_presence(db_session, crm_agent_team):
@@ -245,7 +296,9 @@ def test_conversation_assignment_unique_active_conversation(db_session, crm_cont
     db_session.rollback()
 
 
-def test_manual_assignment_reopens_snoozed_conversation(db_session, crm_contact, crm_agent, crm_team, person):
+def test_manual_assignment_reopens_snoozed_conversation(
+    db_session, crm_contact, crm_agent, crm_team, crm_agent_team, person
+):
     conversation = conversation_service.Conversations.create(
         db_session,
         ConversationCreate(person_id=crm_contact.id),
@@ -298,7 +351,9 @@ def _create_inbound_message(db_session, conversation):
     return message
 
 
-def test_inbound_routing_reassigns_unavailable_existing_assignee(db_session, crm_contact, crm_agent, crm_team, person):
+def test_inbound_routing_reassigns_unavailable_existing_assignee(
+    db_session, crm_contact, crm_agent, crm_team, crm_agent_team, person
+):
     conversation = conversation_service.Conversations.create(
         db_session,
         ConversationCreate(person_id=crm_contact.id),
@@ -353,7 +408,9 @@ def test_inbound_routing_reassigns_unavailable_existing_assignee(db_session, crm
     assert active_assignment.agent_id is None
 
 
-def test_inbound_routing_keeps_available_existing_assignee(db_session, crm_contact, crm_agent, crm_team, person):
+def test_inbound_routing_keeps_available_existing_assignee(
+    db_session, crm_contact, crm_agent, crm_team, crm_agent_team, person
+):
     conversation = conversation_service.Conversations.create(
         db_session,
         ConversationCreate(person_id=crm_contact.id),
@@ -402,7 +459,9 @@ def test_inbound_routing_keeps_available_existing_assignee(db_session, crm_conta
     assert active_assignments[0].id == existing_assignment.id
 
 
-def test_manual_assignment_same_target_is_idempotent(db_session, crm_contact, crm_agent, crm_team, person):
+def test_manual_assignment_same_target_is_idempotent(
+    db_session, crm_contact, crm_agent, crm_team, crm_agent_team, person
+):
     conversation = conversation_service.Conversations.create(
         db_session,
         ConversationCreate(person_id=crm_contact.id),
@@ -442,7 +501,9 @@ def test_manual_assignment_same_target_is_idempotent(db_session, crm_contact, cr
     assert assignments[0].is_active is True
 
 
-def test_manual_assignment_reactivates_existing_inactive_tuple(db_session, crm_contact, crm_agent, crm_team, person):
+def test_manual_assignment_reactivates_existing_inactive_tuple(
+    db_session, crm_contact, crm_agent, crm_team, crm_agent_team, person
+):
     conversation = conversation_service.Conversations.create(
         db_session,
         ConversationCreate(person_id=crm_contact.id),
