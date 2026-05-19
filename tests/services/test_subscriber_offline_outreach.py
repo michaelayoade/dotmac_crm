@@ -561,15 +561,15 @@ def test_run_daily_offline_outreach_uses_selected_whatsapp_template(db_session, 
 
     assert result["status"] == "success"
     assert result["sent"] == 1
-    assert captured["body"] == "Hello Amaka, subscriber CARD-7788 on ASOKORO (D-AFR2)"
+    assert captured["body"] == "Hello Test, subscriber SUB-12896 on ASOKORO (D-AFR2)"
     assert captured["template_name"] == "offline_outreach"
     assert captured["template_language"] == "en"
     assert captured["template_components"] == [
         {
             "type": "body",
             "parameters": [
-                {"type": "text", "text": "Amaka"},
-                {"type": "text", "text": "CARD-7788"},
+                {"type": "text", "text": "Test"},
+                {"type": "text", "text": "SUB-12896"},
                 {"type": "text", "text": "ASOKORO (D-AFR2)"},
             ],
         }
