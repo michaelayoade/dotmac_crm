@@ -7,7 +7,6 @@ import pytest
 from app.models.tickets import TicketPriority, TicketStatus
 from app.models.workflow import (
     SlaBreach,
-    SlaBreachStatus,
     SlaClock,
     SlaClockStatus,
     SlaPolicy,
@@ -20,6 +19,7 @@ from app.services.sla_assignment import (
     check_sla_breaches,
     create_sla_clock_for_ticket,
     resolve_sla_policy,
+    ticket_type_sla_target_minutes,
     update_sla_clocks_for_status_change,
 )
 
@@ -184,27 +184,42 @@ class TestResolveSlaPolicy:
 # ---------------------------------------------------------------------------
 
 
-class TestCreateSlaClock:
-    def test_creates_clock_with_correct_due_at(self, db_session, ticket, sla_policy, sla_target_default):
-        clock = create_sla_clock_for_ticket(db_session, ticket)
-        db_session.commit()
-        assert clock is not None
-        assert clock.status == SlaClockStatus.running
-        assert clock.entity_id == ticket.id
-        # due_at should be ~480 min from now
-        expected_due = clock.started_at + timedelta(minutes=480)
-        assert abs((clock.due_at - expected_due).total_seconds()) < 2
+class TestTicketTypeSlaTargets:
+    def test_customer_and_cabinet_ticket_types_use_24_hours(self):
+        for ticket_type in [
+            "Customer Link Disconnection",
+            "Multiple Customer Link Disconnection",
+            "Customer Realignment",
+            "Cabinet Disconnection",
+            "Multiple Cabinet Link Disconnection",
+            "Multiple Cabinet Disconnection",
+            "Cabinet Migration",
+        ]:
+            assert ticket_type_sla_target_minutes(ticket_type) == 1440
 
-    def test_uses_priority_specific_target(self, db_session, ticket, sla_policy, sla_target_urgent, sla_target_default):
+    def test_core_link_ticket_types_use_48_hours(self):
+        for ticket_type in ["Core Link Disconnection", "Multiple Core Link Disconnection"]:
+            assert ticket_type_sla_target_minutes(ticket_type) == 2880
+
+
+class TestCreateSlaClock:
+    def test_returns_none_for_ticket_type_without_explicit_sla_window(self, db_session, ticket, sla_policy):
+        clock = create_sla_clock_for_ticket(db_session, ticket)
+        assert clock is None
+
+    def test_does_not_use_priority_specific_target_without_explicit_ticket_type(
+        self, db_session, ticket, sla_policy, sla_target_urgent, sla_target_default
+    ):
         ticket.priority = TicketPriority.urgent
         db_session.commit()
+
         clock = create_sla_clock_for_ticket(db_session, ticket)
-        db_session.commit()
-        assert clock is not None
-        expected_due = clock.started_at + timedelta(minutes=60)
-        assert abs((clock.due_at - expected_due).total_seconds()) < 2
+        assert clock is None
 
     def test_no_duplicate_clocks(self, db_session, ticket, sla_policy, sla_target_default):
+        ticket.ticket_type = "Customer Link Disconnection"
+        db_session.commit()
+
         first = create_sla_clock_for_ticket(db_session, ticket)
         db_session.commit()
         second = create_sla_clock_for_ticket(db_session, ticket)
@@ -215,7 +230,7 @@ class TestCreateSlaClock:
         clock = create_sla_clock_for_ticket(db_session, ticket)
         assert clock is None
 
-    def test_matches_priority_target_case_insensitively(self, db_session, ticket):
+    def test_ignores_priority_target_case_insensitively_without_explicit_ticket_type(self, db_session, ticket):
         policy = SlaPolicy(
             name="Ticket Resolution SLA",
             entity_type=WorkflowEntityType.ticket,
@@ -236,10 +251,33 @@ class TestCreateSlaClock:
         db_session.commit()
 
         clock = create_sla_clock_for_ticket(db_session, ticket)
+        assert clock is None
+
+    def test_ticket_type_24_hour_target_overrides_priority_target(
+        self, db_session, ticket, sla_policy, sla_target_urgent, sla_target_default
+    ):
+        ticket.priority = TicketPriority.urgent
+        ticket.ticket_type = "Cabinet Disconnection"
+        db_session.commit()
+
+        clock = create_sla_clock_for_ticket(db_session, ticket)
         db_session.commit()
 
         assert clock is not None
-        assert clock.due_at == clock.started_at + timedelta(minutes=240)
+        assert clock.due_at == clock.started_at + timedelta(hours=24)
+
+    def test_core_link_ticket_type_uses_48_hour_target(
+        self, db_session, ticket, sla_policy, sla_target_urgent, sla_target_default
+    ):
+        ticket.priority = TicketPriority.urgent
+        ticket.ticket_type = "Core Link Disconnection"
+        db_session.commit()
+
+        clock = create_sla_clock_for_ticket(db_session, ticket)
+        db_session.commit()
+
+        assert clock is not None
+        assert clock.due_at == clock.started_at + timedelta(hours=48)
 
 
 # ---------------------------------------------------------------------------
@@ -264,29 +302,23 @@ class TestStatusChangeClocks:
         db_session.refresh(clock)
         return clock
 
-    def test_pause_on_waiting(self, db_session, ticket, sla_policy):
+    def test_waiting_status_keeps_sla_running(self, db_session, ticket, sla_policy):
         clock = self._create_running_clock(db_session, ticket, sla_policy)
         update_sla_clocks_for_status_change(db_session, ticket, TicketStatus.open, TicketStatus.waiting_on_customer)
         db_session.commit()
         db_session.refresh(clock)
-        assert clock.status == SlaClockStatus.paused
-        assert clock.paused_at is not None
+        assert clock.status == SlaClockStatus.running
+        assert clock.paused_at is None
 
-    def test_resume_on_reopen(self, db_session, ticket, sla_policy):
+    def test_on_hold_status_keeps_due_at_unchanged(self, db_session, ticket, sla_policy):
         clock = self._create_running_clock(db_session, ticket, sla_policy)
         original_due = clock.due_at
-        # Pause
         update_sla_clocks_for_status_change(db_session, ticket, TicketStatus.open, TicketStatus.on_hold)
-        db_session.commit()
-        db_session.refresh(clock)
-        # Resume
-        update_sla_clocks_for_status_change(db_session, ticket, TicketStatus.on_hold, TicketStatus.open)
         db_session.commit()
         db_session.refresh(clock)
         assert clock.status == SlaClockStatus.running
         assert clock.paused_at is None
-        # Due time should be extended by the pause duration
-        assert clock.due_at >= original_due
+        assert clock.due_at == original_due
 
     def test_complete_on_closed(self, db_session, ticket, sla_policy):
         clock = self._create_running_clock(db_session, ticket, sla_policy)
@@ -296,7 +328,7 @@ class TestStatusChangeClocks:
         assert clock.status == SlaClockStatus.completed
         assert clock.completed_at is not None
 
-    def test_breach_on_late_close(self, db_session, ticket, sla_policy):
+    def test_late_close_completes_without_breach(self, db_session, ticket, sla_policy):
         # Create a clock that's already overdue
         now = datetime.now(UTC)
         clock = SlaClock(
@@ -314,13 +346,11 @@ class TestStatusChangeClocks:
         update_sla_clocks_for_status_change(db_session, ticket, TicketStatus.open, TicketStatus.closed)
         db_session.commit()
         db_session.refresh(clock)
-        assert clock.status == SlaClockStatus.breached
-        assert clock.breached_at is not None
+        assert clock.status == SlaClockStatus.completed
+        assert clock.completed_at is not None
 
-        # Should also have a breach record
         breach = db_session.query(SlaBreach).filter(SlaBreach.clock_id == clock.id).first()
-        assert breach is not None
-        assert breach.status == SlaBreachStatus.open
+        assert breach is None
 
 
 # ---------------------------------------------------------------------------

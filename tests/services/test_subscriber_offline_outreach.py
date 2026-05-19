@@ -344,6 +344,48 @@ def test_build_whatsapp_template_components_uses_saved_parameter_values(db_sessi
     ]
 
 
+def test_build_whatsapp_template_components_forces_card_row_identity_values(db_session, person):
+    subscriber = _create_subscriber(db_session, person, external_id="12896", subscriber_number="SUB-12896")
+    template_payload = {
+        "name": "offline_last_24_hours",
+        "language": "en",
+        "body": "Hi *{{1}}*, account {{2}}",
+        "components": [
+            {"type": "BODY", "text": "Hi *{{1}}*, account {{2}}"},
+        ],
+        "parameter_values": {
+            "1": "Kayode",
+            "2": "1002000",
+        },
+    }
+
+    components = service._build_whatsapp_template_components(
+        template_payload,
+        person=person,
+        subscriber=subscriber,
+        base_station_label="ASOKORO (D-AFR2)",
+        report_row={"name": "Amaka Fiber", "subscriber_number": "CARD-7788"},
+    )
+    preview = service._render_whatsapp_template_preview(
+        template_payload,
+        person=person,
+        subscriber=subscriber,
+        base_station_label="ASOKORO (D-AFR2)",
+        report_row={"name": "Amaka Fiber", "subscriber_number": "CARD-7788"},
+    )
+
+    assert components == [
+        {
+            "type": "body",
+            "parameters": [
+                {"type": "text", "text": "Amaka"},
+                {"type": "text", "text": "CARD-7788"},
+            ],
+        }
+    ]
+    assert preview == "Hi *Amaka*, account CARD-7788"
+
+
 def test_build_whatsapp_template_components_supports_named_parameters(db_session, person):
     subscriber = _create_subscriber(db_session, person, external_id="12896", subscriber_number="SUB-12896")
     template_payload = {
@@ -408,7 +450,13 @@ def test_run_daily_offline_outreach_sends_only_without_open_conversation(db_sess
     monkeypatch.setattr(
         service.subscriber_reports,
         "online_customers_last_24h_rows",
-        lambda *args, **kwargs: [{"subscriber_id": str(subscriber.id)}],
+        lambda *args, **kwargs: [
+            {
+                "subscriber_id": str(subscriber.id),
+                "name": "Amaka Fiber",
+                "subscriber_number": "CARD-7788",
+            }
+        ],
     )
     monkeypatch.setattr(
         service.splynx,
@@ -513,15 +561,15 @@ def test_run_daily_offline_outreach_uses_selected_whatsapp_template(db_session, 
 
     assert result["status"] == "success"
     assert result["sent"] == 1
-    assert captured["body"] == f"Hello {person.first_name}, subscriber SUB-12896 on ASOKORO (D-AFR2)"
+    assert captured["body"] == "Hello Amaka, subscriber CARD-7788 on ASOKORO (D-AFR2)"
     assert captured["template_name"] == "offline_outreach"
     assert captured["template_language"] == "en"
     assert captured["template_components"] == [
         {
             "type": "body",
             "parameters": [
-                {"type": "text", "text": person.first_name},
-                {"type": "text", "text": "SUB-12896"},
+                {"type": "text", "text": "Amaka"},
+                {"type": "text", "text": "CARD-7788"},
                 {"type": "text", "text": "ASOKORO (D-AFR2)"},
             ],
         }

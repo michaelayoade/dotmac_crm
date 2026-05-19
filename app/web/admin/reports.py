@@ -26,7 +26,7 @@ from app.models.dispatch import TechnicianProfile
 from app.models.person import Person, PersonChannel
 from app.models.projects import ProjectTask, ProjectTaskAssignee, TaskStatus
 from app.models.subscriber import Subscriber, SubscriberStatus
-from app.models.tickets import Ticket, TicketComment
+from app.models.tickets import Ticket, TicketComment, TicketStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services import operations_sla_reports as operations_sla_reports_service
 from app.services.auth_dependencies import require_any_permission
@@ -41,6 +41,31 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
 templates = Jinja2Templates(directory="templates")
+
+REPORTS_ONLINE_LAST_24H_READ_PERMISSIONS = (
+    "reports:online-last-24h:read",
+    "reports:operations",
+    "reports:subscribers",
+    "reports",
+)
+REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS = (
+    "reports:online-last-24h:write",
+    "reports:operations",
+    "reports:subscribers",
+    "reports",
+)
+REPORTS_BILLING_RISK_READ_PERMISSIONS = (
+    "reports:billing-risk:read",
+    "reports:billing",
+    "reports:subscribers",
+    "reports",
+)
+REPORTS_BILLING_RISK_WRITE_PERMISSIONS = (
+    "reports:billing-risk:write",
+    "reports:billing",
+    "reports:subscribers",
+    "reports",
+)
 
 
 class _ProjectTaskPersonAccumulator(TypedDict):
@@ -1446,6 +1471,7 @@ def operations_sla_violations_report(
     db: Session = Depends(get_db),
     data_type: str = Query("ticket"),
     region: str | None = Query(None),
+    ticket_status: str | None = Query(None),
     days: int = Query(30, ge=1, le=365),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
@@ -1460,6 +1486,22 @@ def operations_sla_violations_report(
     report = operations_sla_reports_service.operations_sla_violations_report
     region_options = report.region_options(db, selected_type)
     selected_region = region if region in region_options else None
+    selected_ticket_status = None
+    if selected_type == "ticket" and ticket_status:
+        try:
+            selected_ticket_status = TicketStatus(ticket_status)
+        except ValueError:
+            selected_ticket_status = None
+    export_query = urlencode(
+        {
+            "data_type": selected_type,
+            "region": selected_region or "",
+            "ticket_status": selected_ticket_status.value if selected_ticket_status else "",
+            "days": str(days),
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+        }
+    )
 
     summary = report.summary(
         db,
@@ -1467,6 +1509,7 @@ def operations_sla_violations_report(
         region=selected_region,
         start_at=start_dt,
         end_at=end_dt,
+        ticket_status=selected_ticket_status,
         open_only=True,
     )
     region_chart = report.by_region(
@@ -1475,6 +1518,7 @@ def operations_sla_violations_report(
         region=selected_region,
         start_at=start_dt,
         end_at=end_dt,
+        ticket_status=selected_ticket_status,
         open_only=True,
     )
     trend_chart = report.trend_daily(
@@ -1483,6 +1527,7 @@ def operations_sla_violations_report(
         region=selected_region,
         start_at=start_dt,
         end_at=end_dt,
+        ticket_status=selected_ticket_status,
         open_only=True,
     )
     records = report.list_records(
@@ -1491,6 +1536,7 @@ def operations_sla_violations_report(
         region=selected_region,
         start_at=start_dt,
         end_at=end_dt,
+        ticket_status=selected_ticket_status,
         open_only=True,
     )
 
@@ -1498,6 +1544,11 @@ def operations_sla_violations_report(
         {"value": "ticket", "label": "Tickets"},
         {"value": "project", "label": "Projects"},
         {"value": "project_task", "label": "Project Tasks"},
+    ]
+    ticket_status_options = [
+        {"value": status.value, "label": status.value.replace("_", " ").title()}
+        for status in TicketStatus
+        if status != TicketStatus.closed
     ]
 
     return templates.TemplateResponse(
@@ -1513,6 +1564,8 @@ def operations_sla_violations_report(
             "selected_data_type": selected_type,
             "region_options": region_options,
             "selected_region": selected_region or "",
+            "ticket_status_options": ticket_status_options,
+            "selected_ticket_status": selected_ticket_status.value if selected_ticket_status else "",
             "days": days,
             "start_date": start_date or "",
             "end_date": end_date or "",
@@ -1520,8 +1573,59 @@ def operations_sla_violations_report(
             "region_chart": region_chart,
             "trend_chart": trend_chart,
             "records": records,
+            "export_query": export_query,
         },
     )
+
+
+@router.get("/operations-sla-violations/export")
+def operations_sla_violations_export(
+    db: Session = Depends(get_db),
+    data_type: str = Query("ticket"),
+    region: str | None = Query(None),
+    ticket_status: str | None = Query(None),
+    days: int = Query(30, ge=1, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    _valid_types = {"ticket", "project", "project_task"}
+    selected_type: Literal["ticket", "project", "project_task"] = (
+        data_type if data_type in _valid_types else "ticket"  # type: ignore[assignment]
+    )
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+    report = operations_sla_reports_service.operations_sla_violations_report
+    region_options = report.region_options(db, selected_type)
+    selected_region = region if region in region_options else None
+    selected_ticket_status = None
+    if selected_type == "ticket" and ticket_status:
+        try:
+            selected_ticket_status = TicketStatus(ticket_status)
+        except ValueError:
+            selected_ticket_status = None
+    records = report.list_records(
+        db,
+        entity_type=selected_type,
+        region=selected_region,
+        start_at=start_dt,
+        end_at=end_dt,
+        ticket_status=selected_ticket_status,
+        open_only=True,
+        limit=10000,
+    )
+    export_data = [
+        {
+            "ID": record.get("id", ""),
+            "Title": record.get("title", ""),
+            "Project": record.get("project", "") or "",
+            "Region": record.get("region", ""),
+            "SLA Type": record.get("sla_type", ""),
+            "Status": str(record.get("ticket_status") or record.get("status") or "").replace("_", " ").title(),
+            "Breach Duration": record.get("breach_duration", ""),
+        }
+        for record in records
+    ]
+    filename = f"operations_sla_violations_{selected_type}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
+    return _csv_response(export_data, filename)
 
 
 # Legacy redirects point to new subscriber overview
@@ -1703,7 +1807,11 @@ def subscriber_overview_export(
 # =============================================================================
 
 
-@router.get("/subscribers/online-last-24h", response_class=HTMLResponse)
+@router.get(
+    "/subscribers/online-last-24h",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_READ_PERMISSIONS))],
+)
 def subscriber_online_last_24h(
     request: Request,
     db: Session = Depends(get_db),
@@ -1843,7 +1951,10 @@ def subscriber_online_last_24h(
     )
 
 
-@router.post("/subscribers/online-last-24h/outreach/settings")
+@router.post(
+    "/subscribers/online-last-24h/outreach/settings",
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS))],
+)
 def subscriber_online_last_24h_save_outreach_settings(
     request: Request,
     outreach_local_time: str = Form("10:00"),
@@ -1883,7 +1994,11 @@ def subscriber_online_last_24h_save_outreach_settings(
     )
 
 
-@router.get("/subscribers/online-last-24h/context/{subscriber_id}", response_class=JSONResponse)
+@router.get(
+    "/subscribers/online-last-24h/context/{subscriber_id}",
+    response_class=JSONResponse,
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_READ_PERMISSIONS))],
+)
 def subscriber_online_last_24h_notify_context(
     subscriber_id: UUID,
     last_seen_at: str | None = Query(None),
@@ -1901,7 +2016,11 @@ def subscriber_online_last_24h_notify_context(
     return JSONResponse(payload)
 
 
-@router.post("/subscribers/online-last-24h/templates", response_class=JSONResponse)
+@router.post(
+    "/subscribers/online-last-24h/templates",
+    response_class=JSONResponse,
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS))],
+)
 def subscriber_online_last_24h_save_template(
     template_key: str = Form(...),
     email_subject: str = Form(...),
@@ -1921,7 +2040,10 @@ def subscriber_online_last_24h_save_template(
     return JSONResponse({"ok": True, "template": saved})
 
 
-@router.post("/subscribers/online-last-24h/notify")
+@router.post(
+    "/subscribers/online-last-24h/notify",
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS))],
+)
 def subscriber_online_last_24h_notify(
     request: Request,
     subscriber_id: UUID = Form(...),
@@ -1971,7 +2093,10 @@ def subscriber_online_last_24h_notify(
     return _toast_redirect(next_url, message=message)
 
 
-@router.post("/subscribers/online-last-24h/notify/bulk")
+@router.post(
+    "/subscribers/online-last-24h/notify/bulk",
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS))],
+)
 def subscriber_online_last_24h_bulk_notify(
     request: Request,
     subscriber_ids: str = Form(...),
@@ -2023,7 +2148,10 @@ def subscriber_online_last_24h_bulk_notify(
     return _toast_redirect(next_url, message=message, toast_type=toast_type)
 
 
-@router.post("/subscribers/online-last-24h/outreach")
+@router.post(
+    "/subscribers/online-last-24h/outreach",
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS))],
+)
 def subscriber_online_last_24h_create_outreach(
     request: Request,
     db: Session = Depends(get_db),
@@ -2078,7 +2206,10 @@ def subscriber_online_last_24h_create_outreach(
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign.id}", status_code=303)
 
 
-@router.post("/subscribers/online-last-24h/notify/test-send")
+@router.post(
+    "/subscribers/online-last-24h/notify/test-send",
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS))],
+)
 def subscriber_online_last_24h_test_send(
     request: Request,
     subscriber_id: UUID = Form(...),
@@ -2113,7 +2244,10 @@ def subscriber_online_last_24h_test_send(
     )
 
 
-@router.get("/subscribers/online-last-24h/export")
+@router.get(
+    "/subscribers/online-last-24h/export",
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_READ_PERMISSIONS))],
+)
 def subscriber_online_last_24h_export(
     db: Session = Depends(get_db),
     status: str | None = Query(None),
@@ -2440,7 +2574,7 @@ def churned_subscribers_export(
 @router.get(
     "/subscribers/billing-risk",
     response_class=HTMLResponse,
-    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+    dependencies=[Depends(require_any_permission(*REPORTS_BILLING_RISK_READ_PERMISSIONS))],
 )
 def subscriber_billing_risk(
     request: Request,
@@ -2658,7 +2792,7 @@ def subscriber_billing_risk(
 def subscriber_billing_risk_refresh(
     request: Request,
     next_url: str = Form("/admin/reports/subscribers/billing-risk"),
-    _permission: dict = Depends(require_any_permission("reports:billing", "reports:subscribers", "reports")),
+    _permission: dict = Depends(require_any_permission(*REPORTS_BILLING_RISK_WRITE_PERMISSIONS)),
 ):
     if not next_url.startswith("/admin/reports/subscribers/billing-risk"):
         next_url = "/admin/reports/subscribers/billing-risk"
@@ -2673,7 +2807,7 @@ def subscriber_billing_risk_refresh(
 
 @router.get(
     "/subscribers/billing-risk/export",
-    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+    dependencies=[Depends(require_any_permission(*REPORTS_BILLING_RISK_READ_PERMISSIONS))],
 )
 def subscriber_billing_risk_export(
     request: Request,

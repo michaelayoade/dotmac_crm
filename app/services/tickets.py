@@ -52,6 +52,7 @@ from app.services.events import emit_event
 from app.services.events.types import EventType
 from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
+from app.services.sla_assignment import SLA_APPLICABLE_STATUSES, resolve_ticket_sla_target_minutes
 from app.services.workqueue.events import emit_change as _wq_emit
 from app.services.workqueue.types import ItemKind as _WQItemKind
 
@@ -624,7 +625,7 @@ def _complete_ticket_sla_clock(ticket: Ticket, clock: SlaClock, completed_at: da
     clock.paused_at = None
 
 
-def _reopen_ticket_sla_breaches(db: Session, clock: SlaClock) -> None:
+def _resolve_ticket_sla_breaches(db: Session, clock: SlaClock) -> None:
     open_breaches = (
         db.query(SlaBreach)
         .filter(SlaBreach.clock_id == clock.id)
@@ -633,6 +634,22 @@ def _reopen_ticket_sla_breaches(db: Session, clock: SlaClock) -> None:
     )
     for breach in open_breaches:
         breach.status = SlaBreachStatus.resolved
+
+
+def _reopen_ticket_sla_breaches(db: Session, clock: SlaClock) -> None:
+    _resolve_ticket_sla_breaches(db, clock)
+
+
+def _align_ticket_sla_breach_time(db: Session, clock: SlaClock, breached_at: datetime) -> None:
+    clock.breached_at = breached_at
+    open_breaches = (
+        db.query(SlaBreach)
+        .filter(SlaBreach.clock_id == clock.id)
+        .filter(SlaBreach.status != SlaBreachStatus.resolved)
+        .all()
+    )
+    for breach in open_breaches:
+        breach.breached_at = breached_at
 
 
 def _sync_ticket_sla_clock(db: Session, ticket: Ticket, *, reset_started_at: bool = False) -> None:
@@ -647,11 +664,15 @@ def _sync_ticket_sla_clock(db: Session, ticket: Ticket, *, reset_started_at: boo
     if ticket.status in TICKET_SLA_TERMINAL_STATUSES:
         if clock:
             _complete_ticket_sla_clock(ticket, clock, completed_at)
+            _resolve_ticket_sla_breaches(db, clock)
+        return
+
+    if ticket.status not in SLA_APPLICABLE_STATUSES:
         return
 
     priority = ticket.priority.value if ticket.priority else None
-    target = _resolve_ticket_sla_target(db, policy.id, priority)
-    if not target:
+    target_minutes = resolve_ticket_sla_target_minutes(db, policy.id, priority, ticket.ticket_type)
+    if target_minutes is None:
         return
 
     if not clock or clock.status == SlaClockStatus.completed:
@@ -664,18 +685,22 @@ def _sync_ticket_sla_clock(db: Session, ticket: Ticket, *, reset_started_at: boo
                 priority=priority,
                 status=SlaClockStatus.running,
                 started_at=started_at,
-                due_at=started_at + timedelta(minutes=target.target_minutes),
+                due_at=started_at + timedelta(minutes=target_minutes),
             )
         )
         return
 
-    due_at = clock.started_at + timedelta(minutes=target.target_minutes, seconds=clock.total_paused_seconds)
+    started_at = ticket.created_at or clock.started_at or now
+    clock.started_at = started_at
+    due_at = started_at + timedelta(minutes=target_minutes)
     if clock.status == SlaClockStatus.breached:
         if due_at > now:
             _reopen_ticket_sla_breaches(db, clock)
             clock.breached_at = None
             clock.status = SlaClockStatus.running
             clock.paused_at = None
+        else:
+            _align_ticket_sla_breach_time(db, clock, due_at)
         clock.priority = priority
         clock.completed_at = None
         clock.due_at = due_at
@@ -1348,8 +1373,9 @@ class Tickets(ListResponseMixin):
         try:
             from app.services.sla_assignment import check_sla_breaches, update_sla_clocks_for_status_change
 
-            # Status transitions can pause/resume/complete clocks, but every runtime update
-            # should also evaluate whether any active clock has already crossed due_at.
+            # Every runtime update should align the type-based SLA clock, then evaluate
+            # whether any active clock has crossed due_at.
+            _sync_ticket_sla_clock(db, ticket)
             if previous_status != ticket.status:
                 update_sla_clocks_for_status_change(db, ticket, previous_status, ticket.status)
             check_sla_breaches(db, ticket.id)

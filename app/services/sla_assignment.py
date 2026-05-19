@@ -18,7 +18,6 @@ from app.models.workflow import (
     SlaClock,
     SlaClockStatus,
     SlaPolicy,
-    SlaTarget,
     WorkflowEntityType,
 )
 
@@ -26,12 +25,21 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TICKET_SLA_POLICY_NAME = "Ticket Resolution SLA"
 
-# Ticket statuses that pause SLA clocks (waiting on external input)
-SLA_PAUSE_STATUSES = frozenset(
+CUSTOMER_AND_CABINET_TICKET_TYPES_24H = frozenset(
     {
-        TicketStatus.waiting_on_customer,
-        TicketStatus.on_hold,
-        TicketStatus.site_under_construction,
+        "customer link disconnection",
+        "multiple customer link disconnection",
+        "customer realignment",
+        "cabinet disconnection",
+        "multiple cabinet link disconnection",
+        "multiple cabinet disconnection",
+        "cabinet migration",
+    }
+)
+CORE_LINK_TICKET_TYPES_48H = frozenset(
+    {
+        "core link disconnection",
+        "multiple core link disconnection",
     }
 )
 
@@ -40,16 +48,20 @@ SLA_COMPLETE_STATUSES = frozenset(
     {
         TicketStatus.closed,
         TicketStatus.canceled,
+        TicketStatus.merged,
     }
 )
 
-# Ticket statuses where SLA clock should be running
-SLA_RUNNING_STATUSES = frozenset(
+# Ticket statuses where SLA breach tracking is active.
+SLA_APPLICABLE_STATUSES = frozenset(
     {
         TicketStatus.new,
         TicketStatus.open,
         TicketStatus.pending,
         TicketStatus.lastmile_rerun,
+        TicketStatus.waiting_on_customer,
+        TicketStatus.on_hold,
+        TicketStatus.site_under_construction,
     }
 )
 
@@ -77,17 +89,53 @@ def resolve_sla_policy(db: Session, ticket: Ticket) -> SlaPolicy | None:
     return None
 
 
-def _resolve_target(db: Session, policy_id, priority: str | None) -> SlaTarget | None:
-    """Find matching SLA target by priority, with fallback to null-priority."""
-    query = db.query(SlaTarget).filter(SlaTarget.policy_id == policy_id).filter(SlaTarget.is_active.is_(True))
-    if priority:
-        priority_key = priority.strip().lower()
-        match = (
-            query.filter(SlaTarget.priority.is_not(None)).filter(func.lower(SlaTarget.priority) == priority_key).first()
-        )
-        if match:
-            return match
-    return query.filter(SlaTarget.priority.is_(None)).first()
+def _normalize_ticket_type(ticket_type: str | None) -> str:
+    return " ".join(str(ticket_type or "").strip().lower().split())
+
+
+def ticket_type_sla_target_minutes(ticket_type: str | None) -> int | None:
+    """Return fixed SLA target minutes for ticket types with explicit operational windows."""
+    normalized = _normalize_ticket_type(ticket_type)
+    if normalized in CUSTOMER_AND_CABINET_TICKET_TYPES_24H:
+        return 24 * 60
+    if normalized in CORE_LINK_TICKET_TYPES_48H:
+        return 48 * 60
+    return None
+
+
+def smart_duration_label(started_at: datetime | None, ended_at: datetime | None = None) -> str | None:
+    """Format an elapsed duration as mins, hrs/mins, or days/hrs/mins."""
+    if not started_at:
+        return None
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=UTC)
+    end_value = ended_at or datetime.now(UTC)
+    if end_value.tzinfo is None:
+        end_value = end_value.replace(tzinfo=UTC)
+    total_minutes = max(int((end_value - started_at).total_seconds() // 60), 0)
+    if total_minutes < 60:
+        return f"{total_minutes} min" if total_minutes == 1 else f"{total_minutes} mins"
+    if total_minutes < 1440:
+        hours, minutes = divmod(total_minutes, 60)
+        hour_label = "hr" if hours == 1 else "hrs"
+        minute_label = "min" if minutes == 1 else "mins"
+        return f"{hours} {hour_label} {minutes} {minute_label}"
+    days, rem = divmod(total_minutes, 1440)
+    hours, minutes = divmod(rem, 60)
+    day_label = "day" if days == 1 else "days"
+    hour_label = "hr" if hours == 1 else "hrs"
+    minute_label = "min" if minutes == 1 else "mins"
+    return f"{days} {day_label} {hours} {hour_label} {minutes} {minute_label}"
+
+
+def resolve_ticket_sla_target_minutes(
+    db: Session,
+    policy_id,
+    priority: str | None,
+    ticket_type: str | None,
+) -> int | None:
+    """Resolve ticket SLA target minutes from explicit ticket-type windows only."""
+    return ticket_type_sla_target_minutes(ticket_type)
 
 
 def create_sla_clock_for_ticket(db: Session, ticket: Ticket) -> SlaClock | None:
@@ -99,10 +147,12 @@ def create_sla_clock_for_ticket(db: Session, ticket: Ticket) -> SlaClock | None:
     policy = resolve_sla_policy(db, ticket)
     if not policy:
         return None
+    if ticket.status not in SLA_APPLICABLE_STATUSES:
+        return None
 
     priority_value = ticket.priority.value if ticket.priority else None
-    target = _resolve_target(db, policy.id, priority_value)
-    if not target:
+    target_minutes = resolve_ticket_sla_target_minutes(db, policy.id, priority_value, ticket.ticket_type)
+    if target_minutes is None:
         logger.warning(
             "ticket_sla_target_not_found ticket_id=%s policy_id=%s policy_name=%s priority=%s",
             ticket.id,
@@ -123,15 +173,15 @@ def create_sla_clock_for_ticket(db: Session, ticket: Ticket) -> SlaClock | None:
     if existing:
         return existing
 
-    now = datetime.now(UTC)
-    due_at = now + timedelta(minutes=target.target_minutes)
+    started_at = ticket.created_at or datetime.now(UTC)
+    due_at = started_at + timedelta(minutes=target_minutes)
     clock = SlaClock(
         policy_id=policy.id,
         entity_type=WorkflowEntityType.ticket,
         entity_id=ticket.id,
         priority=priority_value,
         status=SlaClockStatus.running,
-        started_at=now,
+        started_at=started_at,
         due_at=due_at,
     )
     db.add(clock)
@@ -146,16 +196,14 @@ def update_sla_clocks_for_status_change(
 ) -> None:
     """Update SLA clocks when a ticket's status changes.
 
-    - Pause on waiting/hold statuses
-    - Resume on active statuses
-    - Complete on resolved/closed
-    - Check for breach on any transition
+    - Active statuses keep clocks running and eligible for breach
+    - Exempt statuses complete clocks and resolve open breaches
     """
     clocks = (
         db.query(SlaClock)
         .filter(SlaClock.entity_type == WorkflowEntityType.ticket)
         .filter(SlaClock.entity_id == ticket.id)
-        .filter(SlaClock.status.in_([SlaClockStatus.running, SlaClockStatus.paused]))
+        .filter(SlaClock.status.in_([SlaClockStatus.running, SlaClockStatus.paused, SlaClockStatus.breached]))
         .all()
     )
     if not clocks:
@@ -167,33 +215,21 @@ def update_sla_clocks_for_status_change(
         if new_status in SLA_COMPLETE_STATUSES:
             clock.status = SlaClockStatus.completed
             clock.completed_at = now
-            # Check if completed after due → breach
-            due_at = clock.due_at if clock.due_at.tzinfo else clock.due_at.replace(tzinfo=UTC)
-            if now > due_at and not clock.breached_at:
-                clock.status = SlaClockStatus.breached
-                clock.breached_at = now
-                db.add(
-                    SlaBreach(
-                        clock_id=clock.id,
-                        status=SlaBreachStatus.open,
-                        breached_at=now,
-                    )
-                )
+            clock.paused_at = None
+            open_breaches = (
+                db.query(SlaBreach)
+                .filter(SlaBreach.clock_id == clock.id)
+                .filter(SlaBreach.status != SlaBreachStatus.resolved)
+                .all()
+            )
+            for breach in open_breaches:
+                breach.status = SlaBreachStatus.resolved
 
-        elif new_status in SLA_PAUSE_STATUSES:
-            if clock.status == SlaClockStatus.running:
-                clock.status = SlaClockStatus.paused
-                clock.paused_at = now
-
-        elif new_status in SLA_RUNNING_STATUSES:
-            if clock.status == SlaClockStatus.paused and clock.paused_at:
-                paused_at = clock.paused_at if clock.paused_at.tzinfo else clock.paused_at.replace(tzinfo=UTC)
-                paused_seconds = int((now - paused_at).total_seconds())
-                clock.total_paused_seconds = (clock.total_paused_seconds or 0) + paused_seconds
-                due_at = clock.due_at if clock.due_at.tzinfo else clock.due_at.replace(tzinfo=UTC)
-                clock.due_at = due_at + timedelta(seconds=paused_seconds)
+        elif new_status in SLA_APPLICABLE_STATUSES:
+            clock.completed_at = None
+            clock.paused_at = None
+            if clock.status == SlaClockStatus.paused:
                 clock.status = SlaClockStatus.running
-                clock.paused_at = None
 
 
 def check_sla_breaches(db: Session, ticket_id) -> list[SlaClock]:
@@ -202,6 +238,9 @@ def check_sla_breaches(db: Session, ticket_id) -> list[SlaClock]:
     Returns list of newly breached clocks.
     """
     now = datetime.now(UTC)
+    ticket = db.get(Ticket, ticket_id)
+    if not ticket or ticket.status not in SLA_APPLICABLE_STATUSES:
+        return []
     clocks = (
         db.query(SlaClock)
         .filter(SlaClock.entity_type == WorkflowEntityType.ticket)
@@ -214,13 +253,14 @@ def check_sla_breaches(db: Session, ticket_id) -> list[SlaClock]:
 
     breached = []
     for clock in clocks:
+        due_at = clock.due_at if clock.due_at.tzinfo else clock.due_at.replace(tzinfo=UTC)
         clock.status = SlaClockStatus.breached
-        clock.breached_at = now
+        clock.breached_at = due_at
         db.add(
             SlaBreach(
                 clock_id=clock.id,
                 status=SlaBreachStatus.open,
-                breached_at=now,
+                breached_at=due_at,
             )
         )
         breached.append(clock)

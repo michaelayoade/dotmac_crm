@@ -552,6 +552,29 @@ def _whatsapp_template_named_values(
     }
 
 
+def _first_name_from_report_row(row: dict[str, Any] | None) -> str:
+    if not isinstance(row, dict):
+        return ""
+    for key in ("first_name", "customer_first_name"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    name = str(row.get("name") or "").strip()
+    if not name:
+        return ""
+    return name.split()[0].strip()
+
+
+def _subscriber_number_from_report_row(row: dict[str, Any] | None) -> str:
+    if not isinstance(row, dict):
+        return ""
+    for key in ("subscriber_number", "splynx_login", "id"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
 def _extract_template_placeholders(text: str | None) -> list[str]:
     if not text:
         return []
@@ -617,6 +640,7 @@ def _effective_whatsapp_template_parameters(
     person: Person | None,
     subscriber: Subscriber | None,
     base_station_label: str | None,
+    report_row: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     indexed_defaults = _whatsapp_template_token_values(
         person=person,
@@ -631,25 +655,29 @@ def _effective_whatsapp_template_parameters(
             base_station_label=base_station_label,
         )
     )
-    if not isinstance(template_payload, dict):
-        return defaults
-    configured = template_payload.get("parameter_values")
-    if not isinstance(configured, dict):
-        return defaults
-
     values = dict(defaults)
-    for raw_key, raw_value in configured.items():
-        key = str(raw_key or "").strip()
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*|\d+", key):
-            continue
-        rendered = _render_saved_template_parameter(
-            raw_value,
-            person=person,
-            subscriber=subscriber,
-            base_station_label=base_station_label,
-        )
-        if rendered:
-            values[key] = rendered
+    configured = template_payload.get("parameter_values") if isinstance(template_payload, dict) else None
+    if isinstance(configured, dict):
+        for raw_key, raw_value in configured.items():
+            key = str(raw_key or "").strip()
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*|\d+", key):
+                continue
+            rendered = _render_saved_template_parameter(
+                raw_value,
+                person=person,
+                subscriber=subscriber,
+                base_station_label=base_station_label,
+            )
+            if rendered:
+                values[key] = rendered
+    row_first_name = _first_name_from_report_row(report_row)
+    row_subscriber_number = _subscriber_number_from_report_row(report_row)
+    if row_first_name:
+        values["1"] = row_first_name
+        values["first_name"] = row_first_name
+    if row_subscriber_number:
+        values["2"] = row_subscriber_number
+        values["subscriber_number"] = row_subscriber_number
     return values
 
 
@@ -659,6 +687,7 @@ def _build_whatsapp_template_components(
     person: Person | None,
     subscriber: Subscriber | None,
     base_station_label: str | None,
+    report_row: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]] | None:
     if not isinstance(template_payload, dict):
         return None
@@ -671,6 +700,7 @@ def _build_whatsapp_template_components(
         person=person,
         subscriber=subscriber,
         base_station_label=base_station_label,
+        report_row=report_row,
     )
     outbound_components: list[dict[str, Any]] = []
     for component in components:
@@ -706,6 +736,7 @@ def _render_whatsapp_template_preview(
     person: Person | None,
     subscriber: Subscriber | None,
     base_station_label: str | None,
+    report_row: dict[str, Any] | None = None,
 ) -> str:
     if not isinstance(template_payload, dict):
         return ""
@@ -726,6 +757,7 @@ def _render_whatsapp_template_preview(
             person=person,
             subscriber=subscriber,
             base_station_label=base_station_label,
+            report_row=report_row,
         ),
     )
 
@@ -1392,6 +1424,7 @@ def run_daily_offline_outreach(
             person=person,
             subscriber=subscriber,
             base_station_label=base_station_label,
+            report_row=row if isinstance(row, dict) else None,
         )
         if not template_name or not template_language:
             _write_outreach_log(
@@ -1414,6 +1447,7 @@ def run_daily_offline_outreach(
             person=person,
             subscriber=subscriber,
             base_station_label=base_station_label,
+            report_row=row if isinstance(row, dict) else None,
         )
         conversation = resolve_open_conversation(db, str(person.id))
         if conversation is not None:
