@@ -43,6 +43,10 @@ def test_admin_router_matches_retention_engagements_before_customer_profile():
     assert paths.index("/admin/customer-retention/engagements") < paths.index("/admin/customer-retention/{customer_id}")
 
 
+def test_retention_pipeline_stage_maps_explicit_lost_outcome():
+    assert billing_risk_web._pipeline_stage_from_engagement({"outcome": "Lost", "followUp": None}) == "Lost"
+
+
 def test_retention_rep_options_include_fixed_reps_without_team_rows():
     class EmptyResult:
         def all(self):

@@ -14,10 +14,13 @@ from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingDomain
 from app.models.person import PartyStatus, Person
-from app.models.subscriber import SubscriberStatus
+from app.models.subscriber import Subscriber, SubscriberStatus
 from app.services import settings_spec
+from app.services.common import coerce_uuid
 
 logger = logging.getLogger(__name__)
+
+RETENTION_DEACTIVATED_STATUS = "disabled"
 
 
 def _get_config(db: Session) -> dict[str, Any] | None:
@@ -319,6 +322,295 @@ def fetch_customer(db: Session, splynx_id: str) -> dict[str, Any] | None:
     except Exception as exc:
         logger.error("splynx_fetch_customer_failed splynx_id=%s error=%s", splynx_id, str(exc))
         return None
+
+
+_CUSTOMER_STATUS_UPDATE_FIELDS = {
+    "name",
+    "email",
+    "phone",
+    "street_1",
+    "street",
+    "city",
+    "zip",
+    "zip_code",
+    "category",
+    "partner_id",
+    "location_id",
+    "billing_type",
+}
+
+
+def _build_customer_status_update_payload(customer: dict[str, Any], status: str) -> dict[str, Any]:
+    """
+    Build a narrow Splynx customer update payload.
+
+    Splynx customer updates may reject sparse requests on some deployments, but
+    blindly echoing the fetched payload risks writing read-only or computed
+    fields. Keep only known editable customer attributes, then override status.
+    """
+    payload = {
+        key: customer.get(key)
+        for key in _CUSTOMER_STATUS_UPDATE_FIELDS
+        if key in customer and customer.get(key) is not None
+    }
+    payload["status"] = status
+    return payload
+
+
+def set_customer_status(
+    db: Session,
+    *,
+    splynx_id: str,
+    status: str,
+    current_customer: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Set a Splynx customer status using a sanitized update payload."""
+    config = _get_config(db)
+    if not config:
+        return {"success": False, "error": "splynx_config_incomplete"}
+
+    customer = current_customer if isinstance(current_customer, dict) else fetch_customer(db, splynx_id)
+    if not customer:
+        return {"success": False, "error": "splynx_customer_not_found"}
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Basic {config['basic_token']}",
+    }
+    payload = _build_customer_status_update_payload(customer, status)
+    url = f"{_resolve_customer_url(config)}/{splynx_id}"
+
+    import requests
+
+    try:
+        response = requests.put(  # nosec B113 - timeout via config dict
+            url,
+            json=payload,
+            headers=headers,
+            timeout=config["timeout_seconds"],
+        )
+        response.raise_for_status()
+    except Exception as exc:
+        response = getattr(exc, "response", None)
+        status_code = getattr(response, "status_code", None)
+        response_text = None
+        if response is not None:
+            with contextlib.suppress(Exception):
+                response_text = response.text
+        logger.warning(
+            "splynx_customer_status_update_failed splynx_id=%s status=%s http_status=%s error=%s response=%s",
+            splynx_id,
+            status,
+            status_code,
+            str(exc),
+            response_text,
+        )
+        return {"success": False, "error": str(exc), "http_status": status_code}
+    verified_customer = fetch_customer(db, splynx_id)
+    verified_status = str((verified_customer or {}).get("status") or "").strip().lower()
+    expected_status = str(status or "").strip().lower()
+    if verified_status != expected_status:
+        logger.warning(
+            "splynx_customer_status_verification_failed splynx_id=%s expected_status=%s actual_status=%s",
+            splynx_id,
+            expected_status,
+            verified_status,
+        )
+        return {
+            "success": False,
+            "error": "splynx_status_update_verification_failed",
+            "status": expected_status,
+            "actual_status": verified_status,
+        }
+    return {"success": True, "status": expected_status, "actual_status": verified_status}
+
+
+def _retention_sync_audit(
+    *,
+    customer_id: str,
+    subscriber_id: str | None,
+    splynx_id: str,
+    engagement_id: str,
+    previous_status: str | None,
+    new_status: str | None,
+    success: bool,
+    message: str,
+    error: str | None = None,
+) -> None:
+    logger.info(
+        "retention_splynx_deactivation customer_id=%s subscriber_id=%s splynx_id=%s engagement_id=%s "
+        "previous_status=%s new_status=%s success=%s message=%s error=%s",
+        customer_id,
+        subscriber_id,
+        splynx_id,
+        engagement_id,
+        previous_status,
+        new_status,
+        success,
+        message,
+        error,
+    )
+
+
+def deactivate_customer_if_blocked(
+    db: Session,
+    *,
+    customer_id: str,
+    engagement_id: str,
+    subscriber_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Convert an explicitly Lost retention customer from Splynx blocked to inactive.
+
+    Splynx semantics used here:
+    - blocked = suspended/nonpayment account that should not receive service.
+    - inactive = terminated/disconnected customer.
+    - This Splynx API instance represents the inactive/disconnected customer
+      status with the API value `disabled`; sending `inactive` is not accepted
+      as a stable customer status value here.
+
+    For safety, this function only auto-converts a current Splynx status of
+    `blocked`; any other status is logged and skipped.
+    """
+    splynx_id = str(customer_id or "").strip()
+    result: dict[str, Any] = {
+        "customer_id": str(customer_id or "").strip(),
+        "subscriber_id": str(subscriber_id or "").strip() or None,
+        "splynx_id": splynx_id,
+        "engagement_id": str(engagement_id or "").strip(),
+        "success": False,
+        "skipped": False,
+    }
+    if not splynx_id:
+        result.update({"skipped": True, "reason": "missing_splynx_id"})
+        _retention_sync_audit(
+            customer_id=result["customer_id"],
+            subscriber_id=result["subscriber_id"],
+            splynx_id=splynx_id,
+            engagement_id=result["engagement_id"],
+            previous_status=None,
+            new_status=None,
+            success=False,
+            message="missing_splynx_id",
+        )
+        return result
+
+    subscriber = None
+    if subscriber_id:
+        with contextlib.suppress(ValueError):
+            subscriber = db.get(Subscriber, coerce_uuid(subscriber_id))
+    if subscriber is None:
+        subscriber = (
+            db.query(Subscriber)
+            .filter(Subscriber.external_system == "splynx")
+            .filter(Subscriber.external_id == splynx_id)
+            .first()
+        )
+    if subscriber is not None:
+        result["subscriber_id"] = str(subscriber.id)
+        if subscriber.status == SubscriberStatus.terminated:
+            result.update({"success": True, "skipped": True, "reason": "subscriber_already_terminated"})
+            _retention_sync_audit(
+                customer_id=result["customer_id"],
+                subscriber_id=result["subscriber_id"],
+                splynx_id=splynx_id,
+                engagement_id=result["engagement_id"],
+                previous_status=None,
+                new_status=RETENTION_DEACTIVATED_STATUS,
+                success=True,
+                message="subscriber_already_terminated",
+            )
+            return result
+
+    customer = fetch_customer(db, splynx_id)
+    if not customer:
+        result.update({"error": "splynx_customer_not_found"})
+        _retention_sync_audit(
+            customer_id=result["customer_id"],
+            subscriber_id=result["subscriber_id"],
+            splynx_id=splynx_id,
+            engagement_id=result["engagement_id"],
+            previous_status=None,
+            new_status=RETENTION_DEACTIVATED_STATUS,
+            success=False,
+            message="fetch_failed",
+            error="splynx_customer_not_found",
+        )
+        return result
+
+    previous_status = str(customer.get("status") or "").strip().lower()
+    if previous_status == RETENTION_DEACTIVATED_STATUS:
+        result.update({"success": True, "skipped": True, "reason": "splynx_already_deactivated"})
+        if subscriber is not None and subscriber.status != SubscriberStatus.terminated:
+            subscriber.status = SubscriberStatus.terminated
+            subscriber.sync_error = None
+            db.add(subscriber)
+            db.commit()
+        _retention_sync_audit(
+            customer_id=result["customer_id"],
+            subscriber_id=result["subscriber_id"],
+            splynx_id=splynx_id,
+            engagement_id=result["engagement_id"],
+            previous_status=previous_status,
+            new_status=RETENTION_DEACTIVATED_STATUS,
+            success=True,
+            message="splynx_already_deactivated",
+        )
+        return result
+    if previous_status != "blocked":
+        result.update({"skipped": True, "reason": "splynx_status_not_blocked", "previous_status": previous_status})
+        _retention_sync_audit(
+            customer_id=result["customer_id"],
+            subscriber_id=result["subscriber_id"],
+            splynx_id=splynx_id,
+            engagement_id=result["engagement_id"],
+            previous_status=previous_status,
+            new_status=None,
+            success=False,
+            message="splynx_status_not_blocked",
+        )
+        return result
+
+    update_result = set_customer_status(
+        db,
+        splynx_id=splynx_id,
+        status=RETENTION_DEACTIVATED_STATUS,
+        current_customer=customer,
+    )
+    if not update_result.get("success"):
+        error = str(update_result.get("error") or "splynx_update_failed")
+        result.update({"error": error, "previous_status": previous_status})
+        _retention_sync_audit(
+            customer_id=result["customer_id"],
+            subscriber_id=result["subscriber_id"],
+            splynx_id=splynx_id,
+            engagement_id=result["engagement_id"],
+            previous_status=previous_status,
+            new_status=RETENTION_DEACTIVATED_STATUS,
+            success=False,
+            message="splynx_update_failed",
+            error=error,
+        )
+        return result
+
+    if subscriber is not None:
+        subscriber.status = SubscriberStatus.terminated
+        subscriber.terminated_at = subscriber.terminated_at or datetime.now(UTC)
+        subscriber.sync_error = None
+        db.add(subscriber)
+        db.commit()
+    result.update({"success": True, "previous_status": previous_status, "new_status": RETENTION_DEACTIVATED_STATUS})
+    _retention_sync_audit(
+        customer_id=result["customer_id"],
+        subscriber_id=result["subscriber_id"],
+        splynx_id=splynx_id,
+        engagement_id=result["engagement_id"],
+        previous_status=previous_status,
+        new_status=RETENTION_DEACTIVATED_STATUS,
+        success=True,
+        message="splynx_deactivated",
+    )
+    return result
 
 
 def fetch_customer_internet_services(db: Session, splynx_id: str) -> list[dict[str, Any]]:

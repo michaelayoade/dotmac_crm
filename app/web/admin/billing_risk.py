@@ -24,6 +24,7 @@ from app.models.subscriber import Subscriber
 from app.services import billing_risk_reports as billing_risk_service
 from app.services.common import coerce_uuid
 from app.services.crm.web_campaigns import create_billing_risk_outreach_campaign, outreach_channel_target_options
+from app.services.customer_retention import create_retention_engagement_and_sync
 from app.tasks.subscribers import sync_subscribers_from_splynx
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.auth.rbac import require_web_role
@@ -762,7 +763,7 @@ def _pipeline_stage_from_engagement(engagement: dict[str, str | None] | None, ro
     follow_up = str(engagement.get("followUp") or "").strip()
     if outcome in {"Renewing", "Paid", "Resolved"}:
         return "Resolved"
-    if outcome in {"Churning", "Do Not Reach Out"}:
+    if outcome in {"Lost", "Churning", "Do Not Reach Out"}:
         return "Lost"
     if outcome == "Promised to Pay":
         return "Promised to Pay"
@@ -1355,33 +1356,17 @@ async def customer_retention_engagement_create(
     if not customer_id or not outcome:
         raise HTTPException(status_code=400, detail="Customer and outcome are required")
 
-    rep_person_id_raw = str(payload.get("repPersonId") or "").strip()
-    rep_label = str(payload.get("rep") or "").strip() or None
-    rep_person_id = _optional_uuid(rep_person_id_raw)
-    if rep_person_id is not None:
-        rep = db.get(Person, rep_person_id)
-        if rep is not None:
-            rep_label = (
-                str(
-                    rep.display_name or f"{rep.first_name or ''} {rep.last_name or ''}".strip() or rep.email or ""
-                ).strip()
-                or rep_label
-            )
-
-    engagement = CustomerRetentionEngagement(
-        customer_external_id=customer_id,
+    engagement = create_retention_engagement_and_sync(
+        db,
+        customer_id=customer_id,
         customer_name=str(payload.get("customerName") or "").strip() or None,
         outcome=outcome,
         note=str(payload.get("note") or "").strip() or None,
-        follow_up_date=_parse_follow_up_date(payload.get("followUp")),
-        rep_person_id=rep_person_id,
-        rep_label=rep_label,
-        created_by_person_id=_optional_uuid(_person_id_from_user(user)),
-        is_active=True,
+        follow_up=payload.get("followUp"),
+        rep_person_id=str(payload.get("repPersonId") or "").strip(),
+        rep=str(payload.get("rep") or "").strip() or None,
+        created_by_person_id=_person_id_from_user(user),
     )
-    db.add(engagement)
-    db.commit()
-    db.refresh(engagement)
     return JSONResponse({"engagement": _retention_engagement_payload(engagement)})
 
 
@@ -1404,34 +1389,17 @@ def customer_retention_profile_engagement_create(
     if not normalized_customer_id or not normalized_outcome:
         raise HTTPException(status_code=400, detail="Customer and outcome are required")
 
-    rep_label = str(rep or "").strip() or None
-    rep_person_id_value = _optional_uuid(rep_person_id)
-    if rep_person_id_value is not None:
-        rep_person = db.get(Person, rep_person_id_value)
-        if rep_person is not None:
-            rep_label = (
-                str(
-                    rep_person.display_name
-                    or f"{rep_person.first_name or ''} {rep_person.last_name or ''}".strip()
-                    or rep_person.email
-                    or ""
-                ).strip()
-                or rep_label
-            )
-
-    engagement = CustomerRetentionEngagement(
-        customer_external_id=normalized_customer_id,
+    create_retention_engagement_and_sync(
+        db,
+        customer_id=normalized_customer_id,
         customer_name=str(customer_name or "").strip() or None,
         outcome=normalized_outcome,
         note=str(note or "").strip() or None,
-        follow_up_date=_parse_follow_up_date(follow_up),
-        rep_person_id=rep_person_id_value,
-        rep_label=rep_label,
-        created_by_person_id=_optional_uuid(_person_id_from_user(user)),
-        is_active=True,
+        follow_up=follow_up,
+        rep_person_id=rep_person_id,
+        rep=rep,
+        created_by_person_id=_person_id_from_user(user),
     )
-    db.add(engagement)
-    db.commit()
 
     return RedirectResponse(
         url=f"/admin/customer-retention/{customer_id}?due_soon_days={due_soon_days}&saved=1",

@@ -218,12 +218,9 @@ async def inbox_conversation_retention_outcome(
     db: Session = Depends(get_db),
 ):
     from app.logic import private_note_logic
-    from app.models.customer_retention import CustomerRetentionEngagement
-    from app.models.person import Person
-    from app.services.common import coerce_uuid
     from app.services.crm.inbox.page_context import build_inbox_contact_detail_context
+    from app.services.customer_retention import create_retention_engagement_and_sync
     from app.web.admin._auth_helpers import get_current_user
-    from app.web.admin.billing_risk import _parse_follow_up_date
 
     current_user = get_current_user(request)
     try:
@@ -232,46 +229,17 @@ async def inbox_conversation_retention_outcome(
         if not normalized_customer_id or not normalized_outcome:
             raise HTTPException(status_code=400, detail="Customer and outcome are required")
 
-        rep_person_uuid = None
-        rep_label = str(rep or "").strip() or None
-        if rep_person_id:
-            try:
-                rep_person_uuid = coerce_uuid(str(rep_person_id).strip())
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail="Invalid person reference") from exc
-            rep_person = db.get(Person, rep_person_uuid)
-            if rep_person is not None:
-                rep_label = (
-                    str(
-                        rep_person.display_name
-                        or f"{rep_person.first_name or ''} {rep_person.last_name or ''}".strip()
-                        or rep_person.email
-                        or ""
-                    ).strip()
-                    or rep_label
-                )
-
-        created_by_person_id = None
-        created_by_raw = str(current_user.get("person_id") or current_user.get("id") or "").strip()
-        if created_by_raw:
-            try:
-                created_by_person_id = coerce_uuid(created_by_raw)
-            except ValueError:
-                created_by_person_id = None
-
-        engagement = CustomerRetentionEngagement(
-            customer_external_id=normalized_customer_id,
+        create_retention_engagement_and_sync(
+            db,
+            customer_id=normalized_customer_id,
             customer_name=str(customer_name or "").strip() or None,
             outcome=normalized_outcome,
             note=str(note or "").strip() or None,
-            follow_up_date=_parse_follow_up_date(follow_up),
-            rep_person_id=rep_person_uuid,
-            rep_label=rep_label,
-            created_by_person_id=created_by_person_id,
-            is_active=True,
+            follow_up=follow_up,
+            rep_person_id=rep_person_id,
+            rep=rep,
+            created_by_person_id=str(current_user.get("person_id") or current_user.get("id") or "").strip(),
         )
-        db.add(engagement)
-        db.commit()
         detail_context = build_inbox_contact_detail_context(
             db,
             contact_id=contact_id,
@@ -288,6 +256,16 @@ async def inbox_conversation_retention_outcome(
             conversation_id=conversation_id,
             current_user=current_user,
             retention_error_message=str(exc.detail),
+            open_retention_panel=True,
+        )
+    except ValueError as exc:
+        db.rollback()
+        detail_context = build_inbox_contact_detail_context(
+            db,
+            contact_id=contact_id,
+            conversation_id=conversation_id,
+            current_user=current_user,
+            retention_error_message=str(exc),
             open_retention_panel=True,
         )
     if not detail_context:
