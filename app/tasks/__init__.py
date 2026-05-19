@@ -24,6 +24,7 @@ from app.tasks.crm_inbox import (
     send_outbox_item_task,
     send_reply_reminders_task,
 )
+from app.tasks.customer_retention import sync_lost_retention_customer_to_splynx
 from app.tasks.gis import sync_gis_sources
 from app.tasks.integrations import (
     run_integration_job,
@@ -112,6 +113,7 @@ __all__ = [
     "sync_dotmac_erp_teams",
     "sync_dotmac_erp_technicians",
     "sync_gis_sources",
+    "sync_lost_retention_customer_to_splynx",
     "sync_material_request_to_erp",
     "sync_subscribers_from_splynx",
     "sync_subscribers_from_ucrm",
