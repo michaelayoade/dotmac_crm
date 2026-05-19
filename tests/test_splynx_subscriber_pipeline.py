@@ -23,6 +23,7 @@ from app.models.subscriber import (
     Subscriber,
     SubscriberStatus,
 )
+from app.services.customer_retention import create_retention_engagement_and_sync
 from app.services.events.handlers.splynx_customer import (
     SplynxCustomerHandler,
     _ensure_subscriber,
@@ -33,8 +34,10 @@ from app.services.events.handlers.splynx_customer import (
 from app.services.events.types import Event, EventType
 from app.services.splynx import (
     _build_customer_payload,
+    _build_customer_status_update_payload,
     _resolve_customer_url,
     _resolve_invoice_urls,
+    deactivate_customer_if_blocked,
     ensure_person_customer,
     map_customer_to_subscriber_data,
 )
@@ -302,6 +305,204 @@ class TestEnsurePersonCustomer:
         ensure_person_customer(db_session, person, None)
         db_session.refresh(person)
         assert person.party_status == PartyStatus.customer
+
+
+class TestRetentionSplynxDeactivation:
+    def test_explicit_lost_triggers_celery_sync(self, db_session, monkeypatch):
+        sub = _make_subscriber(db_session, external_id="ret-lost-1", status=SubscriberStatus.suspended)
+        enqueued = []
+
+        from app.tasks import customer_retention as retention_tasks
+
+        monkeypatch.setattr(
+            retention_tasks.sync_lost_retention_customer_to_splynx,
+            "delay",
+            lambda *args, **kwargs: enqueued.append((args, kwargs)),
+        )
+
+        engagement = create_retention_engagement_and_sync(
+            db_session,
+            customer_id="ret-lost-1",
+            customer_name="Lost Customer",
+            outcome="Lost",
+        )
+
+        assert engagement.id is not None
+        assert enqueued == [(("ret-lost-1", str(engagement.id)), {"subscriber_id": str(sub.id)})]
+        db_session.refresh(sub)
+        assert sub.sync_metadata["retention_splynx_deactivation"]["status"] == "queued"
+
+    def test_churning_does_not_trigger_sync(self, db_session, monkeypatch):
+        _make_subscriber(db_session, external_id="ret-churning-1", status=SubscriberStatus.suspended)
+        enqueued = []
+
+        from app.tasks import customer_retention as retention_tasks
+
+        monkeypatch.setattr(
+            retention_tasks.sync_lost_retention_customer_to_splynx,
+            "delay",
+            lambda *args, **kwargs: enqueued.append((args, kwargs)),
+        )
+
+        create_retention_engagement_and_sync(db_session, customer_id="ret-churning-1", outcome="Churning")
+
+        assert enqueued == []
+
+    def test_do_not_reach_out_does_not_trigger_sync(self, db_session, monkeypatch):
+        _make_subscriber(db_session, external_id="ret-dnro-1", status=SubscriberStatus.suspended)
+        enqueued = []
+
+        from app.tasks import customer_retention as retention_tasks
+
+        monkeypatch.setattr(
+            retention_tasks.sync_lost_retention_customer_to_splynx,
+            "delay",
+            lambda *args, **kwargs: enqueued.append((args, kwargs)),
+        )
+
+        create_retention_engagement_and_sync(db_session, customer_id="ret-dnro-1", outcome="Do Not Reach Out")
+
+        assert enqueued == []
+
+    def test_duplicate_lost_save_does_not_duplicate_deactivation(self, db_session, monkeypatch):
+        sub = _make_subscriber(db_session, external_id="ret-dupe-1", status=SubscriberStatus.suspended)
+        enqueued = []
+
+        from app.tasks import customer_retention as retention_tasks
+
+        monkeypatch.setattr(
+            retention_tasks.sync_lost_retention_customer_to_splynx,
+            "delay",
+            lambda *args, **kwargs: enqueued.append((args, kwargs)),
+        )
+
+        create_retention_engagement_and_sync(db_session, customer_id="ret-dupe-1", outcome="Lost")
+        create_retention_engagement_and_sync(db_session, customer_id="ret-dupe-1", outcome="Lost")
+
+        assert len(enqueued) == 1
+        db_session.refresh(sub)
+        assert sub.sync_metadata["retention_splynx_deactivation"]["status"] == "queued"
+
+    def test_local_terminated_subscriber_skips_enqueue(self, db_session, monkeypatch):
+        _make_subscriber(db_session, external_id="ret-terminated-1", status=SubscriberStatus.terminated)
+        enqueued = []
+
+        from app.tasks import customer_retention as retention_tasks
+
+        monkeypatch.setattr(
+            retention_tasks.sync_lost_retention_customer_to_splynx,
+            "delay",
+            lambda *args, **kwargs: enqueued.append((args, kwargs)),
+        )
+
+        create_retention_engagement_and_sync(db_session, customer_id="ret-terminated-1", outcome="Lost")
+
+        assert enqueued == []
+
+    def test_already_deactivated_splynx_customer_skips_and_marks_subscriber_terminated(self, db_session, monkeypatch):
+        sub = _make_subscriber(db_session, external_id="ret-disabled-1", status=SubscriberStatus.suspended)
+
+        monkeypatch.setattr("app.services.splynx.fetch_customer", lambda _db, _splynx_id: {"status": "disabled"})
+        monkeypatch.setattr(
+            "app.services.splynx.set_customer_status",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not update disabled customer")),
+        )
+
+        result = deactivate_customer_if_blocked(
+            db_session,
+            customer_id="ret-disabled-1",
+            engagement_id=str(uuid.uuid4()),
+            subscriber_id=str(sub.id),
+        )
+
+        assert result["success"] is True
+        assert result["skipped"] is True
+        assert result["reason"] == "splynx_already_deactivated"
+        db_session.refresh(sub)
+        assert sub.status == SubscriberStatus.terminated
+
+    def test_non_blocked_splynx_customer_skips(self, db_session, monkeypatch):
+        sub = _make_subscriber(db_session, external_id="ret-active-1", status=SubscriberStatus.suspended)
+
+        monkeypatch.setattr("app.services.splynx.fetch_customer", lambda _db, _splynx_id: {"status": "active"})
+        monkeypatch.setattr(
+            "app.services.splynx.set_customer_status",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not update active customer")),
+        )
+
+        result = deactivate_customer_if_blocked(
+            db_session,
+            customer_id="ret-active-1",
+            engagement_id=str(uuid.uuid4()),
+            subscriber_id=str(sub.id),
+        )
+
+        assert result["success"] is False
+        assert result["skipped"] is True
+        assert result["reason"] == "splynx_status_not_blocked"
+
+    def test_enqueue_failure_does_not_rollback_engagement_save(self, db_session, monkeypatch):
+        _make_subscriber(db_session, external_id="ret-enqueue-fail-1", status=SubscriberStatus.suspended)
+
+        from app.tasks import customer_retention as retention_tasks
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("broker unavailable")
+
+        monkeypatch.setattr(retention_tasks.sync_lost_retention_customer_to_splynx, "delay", _raise)
+
+        engagement = create_retention_engagement_and_sync(
+            db_session,
+            customer_id="ret-enqueue-fail-1",
+            outcome="Lost",
+        )
+
+        assert db_session.get(type(engagement), engagement.id) is not None
+
+    def test_splynx_update_failure_does_not_remove_saved_engagement(self, db_session, monkeypatch):
+        sub = _make_subscriber(db_session, external_id="ret-splynx-fail-1", status=SubscriberStatus.suspended)
+        engagement = create_retention_engagement_and_sync(
+            db_session,
+            customer_id="ret-splynx-fail-1",
+            outcome="Lost",
+            enqueue_sync=False,
+        )
+
+        monkeypatch.setattr("app.services.splynx.fetch_customer", lambda _db, _splynx_id: {"status": "blocked"})
+        monkeypatch.setattr(
+            "app.services.splynx.set_customer_status",
+            lambda *_args, **_kwargs: {"success": False, "error": "splynx unavailable"},
+        )
+
+        result = deactivate_customer_if_blocked(
+            db_session,
+            customer_id="ret-splynx-fail-1",
+            engagement_id=str(engagement.id),
+            subscriber_id=str(sub.id),
+        )
+
+        assert result["success"] is False
+        assert result["error"] == "splynx unavailable"
+        assert db_session.get(type(engagement), engagement.id) is not None
+
+    def test_safe_status_payload_whitelists_customer_fields(self):
+        payload = _build_customer_status_update_payload(
+            {
+                "id": "123",
+                "name": "Customer",
+                "email": "customer@example.com",
+                "status": "blocked",
+                "created_at": "2026-01-01",
+                "readonly_balance": "100.00",
+            },
+            "inactive",
+        )
+
+        assert payload == {
+            "name": "Customer",
+            "email": "customer@example.com",
+            "status": "inactive",
+        }
 
 
 # ===========================================================================
