@@ -16,7 +16,7 @@
     </div>
 
     {% call dashboard_filter_panel(color="rose", title="Filters") %}
-    <form method="get" class="grid grid-cols-1 gap-4 md:grid-cols-5 md:items-end">
+    <form method="get" class="grid grid-cols-1 gap-4 md:grid-cols-6 md:items-end">
         <div>
             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Data Type</label>
             <select name="data_type" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-rose-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
@@ -35,6 +35,15 @@
             </select>
         </div>
         <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Ticket Status</label>
+            <select name="ticket_status" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-rose-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                <option value="">All Statuses</option>
+                {% for option in ticket_status_options %}
+                <option value="{{ option.value }}" {% if selected_ticket_status == option.value %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
             <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
             <input type="date" name="start_date" value="{{ start_date }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-rose-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
         </div>
@@ -45,6 +54,7 @@
         </div>
         <div class="flex items-center gap-2 md:justify-end">
             <a href="/admin/reports/operations-sla-violations" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Reset</a>
+            <a href="/admin/reports/operations-sla-violations/export?{{ export_query }}" class="inline-flex items-center rounded-xl border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:bg-slate-700 dark:text-rose-300 dark:hover:bg-rose-950/30">Export CSV</a>
             <button type="submit" class="inline-flex items-center rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700">Apply Filter</button>
         </div>
     </form>
@@ -103,7 +113,14 @@
                 <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ record.project or "-" }}</td>
                 <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ record.region }}</td>
                 <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ record.sla_type }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ record.status | replace('_', ' ') | title }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">
+                    {% set display_status = (record.ticket_status | default(record.status, true)) | replace('_', ' ') | title %}
+                    {% if record.ticket_url %}
+                    <a href="{{ record.ticket_url }}" class="font-medium text-rose-600 hover:text-rose-700 hover:underline dark:text-rose-400 dark:hover:text-rose-300">{{ display_status }}</a>
+                    {% else %}
+                    {{ display_status }}
+                    {% endif %}
+                </td>
                 <td class="px-6 py-3 text-sm text-slate-900 dark:text-white">{{ record.breach_duration }}</td>
             {% endcall %}
             {% else %}
