@@ -1646,7 +1646,9 @@ def get_live_blocked_dates(
     blocked_dates: dict[str, str] = {}
     seen_ids: set[str] = set()
     blocking_only_set = {str(external_id).strip() for external_id in (blocking_only_external_ids or [])}
-    requested_ids = sorted({str(external_id or "").strip() for external_id in external_ids if str(external_id or "").strip()})
+    requested_ids = sorted(
+        {str(external_id or "").strip() for external_id in external_ids if str(external_id or "").strip()}
+    )
 
     preloaded_customers: dict[str, Mapping[str, Any]] = {}
     retained_blocked_dates: dict[str, str] = {}
