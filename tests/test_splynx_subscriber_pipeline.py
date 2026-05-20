@@ -14,6 +14,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from app.models.crm.sales import CrmQuoteLineItem, Quote
+from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.person import PartyStatus, Person
 from app.models.projects import Project
 from app.models.sales_order import SalesOrder, SalesOrderLine
@@ -23,7 +24,10 @@ from app.models.subscriber import (
     Subscriber,
     SubscriberStatus,
 )
-from app.services.customer_retention import create_retention_engagement_and_sync
+from app.services.customer_retention import (
+    create_retention_engagement_and_sync,
+    enqueue_existing_churning_deactivations,
+)
 from app.services.events.handlers.splynx_customer import (
     SplynxCustomerHandler,
     _ensure_subscriber,
@@ -332,8 +336,8 @@ class TestRetentionSplynxDeactivation:
         db_session.refresh(sub)
         assert sub.sync_metadata["retention_splynx_deactivation"]["status"] == "queued"
 
-    def test_churning_does_not_trigger_sync(self, db_session, monkeypatch):
-        _make_subscriber(db_session, external_id="ret-churning-1", status=SubscriberStatus.suspended)
+    def test_churning_triggers_celery_sync(self, db_session, monkeypatch):
+        sub = _make_subscriber(db_session, external_id="ret-churning-1", status=SubscriberStatus.suspended)
         enqueued = []
 
         from app.tasks import customer_retention as retention_tasks
@@ -344,9 +348,15 @@ class TestRetentionSplynxDeactivation:
             lambda *args, **kwargs: enqueued.append((args, kwargs)),
         )
 
-        create_retention_engagement_and_sync(db_session, customer_id="ret-churning-1", outcome="Churning")
+        engagement = create_retention_engagement_and_sync(
+            db_session,
+            customer_id="ret-churning-1",
+            outcome="Churning",
+        )
 
-        assert enqueued == []
+        assert enqueued == [(("ret-churning-1", str(engagement.id)), {"subscriber_id": str(sub.id)})]
+        db_session.refresh(sub)
+        assert sub.sync_metadata["retention_splynx_deactivation"]["status"] == "queued"
 
     def test_do_not_reach_out_does_not_trigger_sync(self, db_session, monkeypatch):
         _make_subscriber(db_session, external_id="ret-dnro-1", status=SubscriberStatus.suspended)
@@ -363,6 +373,70 @@ class TestRetentionSplynxDeactivation:
         create_retention_engagement_and_sync(db_session, customer_id="ret-dnro-1", outcome="Do Not Reach Out")
 
         assert enqueued == []
+
+    def test_existing_latest_churning_reconcile_enqueues(self, db_session, monkeypatch):
+        sub = _make_subscriber(db_session, external_id="ret-churn-backfill-1", status=SubscriberStatus.suspended)
+        older = CustomerRetentionEngagement(
+            customer_external_id="ret-churn-backfill-1",
+            customer_name="Backfill Customer",
+            outcome="No Response",
+            is_active=True,
+        )
+        latest = CustomerRetentionEngagement(
+            customer_external_id="ret-churn-backfill-1",
+            customer_name="Backfill Customer",
+            outcome="Churning",
+            is_active=True,
+        )
+        db_session.add_all([older, latest])
+        db_session.commit()
+        enqueued = []
+
+        from app.tasks import customer_retention as retention_tasks
+
+        monkeypatch.setattr(
+            retention_tasks.sync_lost_retention_customer_to_splynx,
+            "delay",
+            lambda *args, **kwargs: enqueued.append((args, kwargs)),
+        )
+
+        result = enqueue_existing_churning_deactivations(db_session)
+
+        assert result["evaluated"] == 1
+        assert result["eligible"] == 1
+        assert result["enqueued"] == 1
+        assert enqueued == [(("ret-churn-backfill-1", str(latest.id)), {"subscriber_id": str(sub.id)})]
+        db_session.refresh(sub)
+        assert sub.sync_metadata["retention_splynx_deactivation"]["status"] == "queued"
+
+    def test_existing_churning_reconcile_uses_latest_engagement_only(self, db_session, monkeypatch):
+        _make_subscriber(db_session, external_id="ret-churn-backfill-2", status=SubscriberStatus.suspended)
+        older = CustomerRetentionEngagement(
+            customer_external_id="ret-churn-backfill-2",
+            outcome="Churning",
+            is_active=True,
+        )
+        latest = CustomerRetentionEngagement(
+            customer_external_id="ret-churn-backfill-2",
+            outcome="Renewing",
+            is_active=True,
+        )
+        db_session.add_all([older, latest])
+        db_session.commit()
+
+        from app.tasks import customer_retention as retention_tasks
+
+        monkeypatch.setattr(
+            retention_tasks.sync_lost_retention_customer_to_splynx,
+            "delay",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("should not enqueue")),
+        )
+
+        result = enqueue_existing_churning_deactivations(db_session)
+
+        assert result["evaluated"] == 0
+        assert result["eligible"] == 0
+        assert result["enqueued"] == 0
 
     def test_duplicate_lost_save_does_not_duplicate_deactivation(self, db_session, monkeypatch):
         sub = _make_subscriber(db_session, external_id="ret-dupe-1", status=SubscriberStatus.suspended)
@@ -484,6 +558,39 @@ class TestRetentionSplynxDeactivation:
         assert result["success"] is False
         assert result["error"] == "splynx unavailable"
         assert db_session.get(type(engagement), engagement.id) is not None
+
+    def test_blocked_deactivation_retains_previous_last_update(self, db_session, monkeypatch):
+        sub = _make_subscriber(db_session, external_id="ret-blocked-date-1", status=SubscriberStatus.suspended)
+        engagement = create_retention_engagement_and_sync(
+            db_session,
+            customer_id="ret-blocked-date-1",
+            outcome="Lost",
+            enqueue_sync=False,
+        )
+
+        monkeypatch.setattr(
+            "app.services.splynx.fetch_customer",
+            lambda _db, _splynx_id: {"status": "blocked", "last_update": "2026-05-15 21:46:31"},
+        )
+        monkeypatch.setattr(
+            "app.services.splynx.set_customer_status",
+            lambda *_args, **_kwargs: {"success": True, "status": "disabled", "actual_status": "disabled"},
+        )
+
+        result = deactivate_customer_if_blocked(
+            db_session,
+            customer_id="ret-blocked-date-1",
+            engagement_id=str(engagement.id),
+            subscriber_id=str(sub.id),
+        )
+
+        assert result["success"] is True
+        assert result["retained_blocked_last_update"] == "2026-05-15 21:46:31"
+        assert result["retained_blocked_date"] == "2026-05-15"
+        db_session.refresh(sub)
+        marker = sub.sync_metadata["retention_splynx_deactivation"]
+        assert marker["retained_blocked_last_update"] == "2026-05-15 21:46:31"
+        assert marker["retained_blocked_date"] == "2026-05-15"
 
     def test_safe_status_payload_whitelists_customer_fields(self):
         payload = _build_customer_status_update_payload(

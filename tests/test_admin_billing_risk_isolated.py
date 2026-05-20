@@ -481,6 +481,7 @@ def test_subscriber_billing_risk_page_uses_single_cached_dataset_load(monkeypatc
         )
 
     monkeypatch.setattr(billing_risk_cache, "list_cached_rows", fake_list_cached_rows)
+    monkeypatch.setattr(billing_risk_cache, "all_cached_rows", lambda *_args, **_kwargs: [row])
     monkeypatch.setattr(billing_risk_cache, "cache_metadata", lambda _db: {"row_count": 1})
     monkeypatch.setattr(billing_risk_cache, "location_options_cached", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(
@@ -574,7 +575,19 @@ def test_subscriber_billing_risk_export_matches_visible_columns_and_filters(monk
                 "open_tickets": 2,
                 "closed_tickets": 5,
                 "total_tickets": 7,
-            }
+            },
+            {
+                "name": "Suspended Segment Active Customer",
+                "_external_id": "12346",
+                "subscriber_status": "Active",
+                "risk_segment": "Suspended",
+            },
+            {
+                "name": "Suspended Status Due Soon Customer",
+                "_external_id": "12347",
+                "subscriber_status": "Suspended",
+                "risk_segment": "Due Soon",
+            },
         ]
 
     monkeypatch.setattr(billing_risk_service, "get_billing_risk_table", fake_table)
@@ -632,6 +645,7 @@ def test_subscriber_billing_risk_export_matches_visible_columns_and_filters(monk
     assert captured_kwargs["mrr_sort"] == "desc"
     assert captured_kwargs["limit"] == 6000
     assert response.status_code == 200
+    assert len(response.data) == 1
     assert list(response.data[0]) == [
         "Name",
         "Phone",
@@ -795,8 +809,8 @@ def test_subscriber_billing_risk_segment_links_preserve_enterprise_filter(monkey
 
     body = response.body.decode()
     assert "bucket=8-30" in body
-    assert 'data-segment-filter="overdue"' in body
-    assert 'data-segment-filter="suspended"' in body
+    assert 'data-segment-filter="overdue"' not in body
+    assert 'data-segment-filter="suspended"' not in body
 
 
 def test_subscriber_billing_risk_rows_combines_bucket_segment_and_customer_segment(monkeypatch):
@@ -996,6 +1010,7 @@ def test_billing_risk_search_rows_skip_live_enrichment(monkeypatch):
                 "balance": 1000.0,
                 "days_past_due": 8,
                 "risk_segment": "Suspended",
+                "subscriber_status": "Suspended",
             }
         ],
     )
@@ -1578,6 +1593,42 @@ def test_get_live_blocked_dates_prefers_billing_blocking_date_over_customer_last
     assert billing_risk_service.get_live_blocked_dates(["25678"], force_live=True) == {"25678": "2026-05-16"}
 
 
+def test_get_live_blocked_dates_prefers_retained_deactivation_last_update(monkeypatch):
+    class FakeResult:
+        def all(self):
+            return [
+                (
+                    "10633",
+                    {
+                        "retention_splynx_deactivation": {
+                            "previous_status": "blocked",
+                            "new_status": "disabled",
+                            "retained_blocked_last_update": "2026-05-15 21:46:31",
+                        }
+                    },
+                )
+            ]
+
+    class FakeSession:
+        def execute(self, _statement):
+            return FakeResult()
+
+        def close(self):
+            return None
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(
+        splynx_service,
+        "fetch_customers",
+        lambda _db: [{"id": "10633", "status": "disabled", "last_update": "2026-05-20 11:17:41"}],
+    )
+    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+
+    assert billing_risk_service.get_live_blocked_dates(["10633"], force_live=True) == {"10633": "2026-05-15"}
+
+
 def test_enrich_missing_blocked_fields_hides_blocked_for_for_active_due_soon(monkeypatch):
     monkeypatch.setattr(
         billing_risk_web,
@@ -1683,6 +1734,96 @@ def test_get_billing_risk_table_prefers_live_customer_status_date_over_local_upd
     assert len(rows) == 1
     assert rows[0]["blocked_date"] == "2026-03-20"
     assert rows[0]["blocked_date"] != "2026-04-13"
+
+
+def test_get_billing_risk_table_uses_retained_blocked_last_update_for_disabled_customer(monkeypatch):
+    class FakeSession:
+        def close(self):
+            return None
+
+    class Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+        def scalars(self):
+            return self._rows
+
+    class FakeDb:
+        def __init__(self):
+            self.calls = 0
+
+        def execute(self, _statement):
+            self.calls += 1
+            if self.calls == 1:
+                return Result(
+                    [
+                        (
+                            "sub-1",
+                            None,
+                            "10633",
+                            "100010633",
+                            {
+                                "retention_splynx_deactivation": {
+                                    "previous_status": "blocked",
+                                    "new_status": "disabled",
+                                    "retained_blocked_last_update": "2026-05-15 21:46:31",
+                                }
+                            },
+                            None,
+                            None,
+                            0,
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            None,
+                            datetime(2026, 5, 20, tzinfo=UTC),
+                            datetime(2026, 1, 10, tzinfo=UTC),
+                            "",
+                        )
+                    ]
+                )
+            return Result([])
+
+    customer_payload = {
+        "id": "10633",
+        "name": "National Tuberculosis and Leprosy Control Programme",
+        "email": "",
+        "phone": "",
+        "status": "disabled",
+        "last_update": "2026-05-20 11:17:41",
+        "billing": {"blocking_date": "0000-00-00"},
+    }
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(splynx_service, "fetch_customers", lambda _db: [customer_payload])
+    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(
+        splynx_service,
+        "map_customer_to_subscriber_data",
+        lambda _db, _customer, include_remote_details=False: {
+            "status": "suspended",
+            "subscriber_number": "100010633",
+            "sync_metadata": {},
+        },
+    )
+
+    rows = billing_risk_service.get_billing_risk_table(
+        FakeDb(),
+        segment="suspended",
+        limit=10,
+        enrich_visible_rows=False,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["blocked_date"] == "2026-05-15"
+    assert rows[0]["blocked_date"] != "2026-05-20"
 
 
 def test_get_billing_risk_table_normalizes_street_display_symbols(monkeypatch):
@@ -2139,13 +2280,62 @@ def test_subscriber_billing_risk_rows_returns_html(monkeypatch):
     assert "/admin/support/tickets/19815" in body
     assert "/admin/support/tickets/19816" in body
     assert "/admin/support/tickets/19817" in body
+
+
+def test_subscriber_billing_risk_rows_only_shows_suspended_segment_and_status(monkeypatch):
+    monkeypatch.setattr(billing_risk_web, "get_current_user", lambda _request: {"id": "test-user"})
+
+    def fake_table(*_args, **_kwargs):
+        return [
+            {
+                "name": "Valid Suspended Customer",
+                "_external_id": "12345",
+                "subscriber_status": "Suspended",
+                "risk_segment": "Suspended",
+                "balance": 1000.0,
+            },
+            {
+                "name": "Wrong Status Customer",
+                "_external_id": "12346",
+                "subscriber_status": "Active",
+                "risk_segment": "Suspended",
+                "balance": 1000.0,
+            },
+            {
+                "name": "Wrong Segment Customer",
+                "_external_id": "12347",
+                "subscriber_status": "Suspended",
+                "risk_segment": "Due Soon",
+                "balance": 1000.0,
+            },
+        ]
+
+    monkeypatch.setattr(billing_risk_service, "get_billing_risk_table", fake_table)
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/admin/reports/subscribers/billing-risk/rows",
+            "headers": [],
+            "query_string": b"page=1&page_size=50",
+            "server": ("testserver", 80),
+            "client": ("testclient", 50000),
+            "scheme": "http",
+        }
+    )
+    response = billing_risk_web.subscriber_billing_risk_rows(request=request, db=None, page=1, page_size=50)
+
+    assert response.status_code == 200
+    body = response.body.decode()
+    assert "Valid Suspended Customer" in body
+    assert "Wrong Status Customer" not in body
+    assert "Wrong Segment Customer" not in body
     assert ">Balance<" not in body
     assert "Page 1" in body
     assert "billing-risk-metric-count" in body
     assert "Last Outcome" in body
     assert "View tracker" in body
-    assert captured_kwargs["enterprise_only"] is False
-    assert captured_kwargs["mrr_sort"] == "desc"
 
 
 def test_customer_retention_tracker_detail_renders_customer_profile(monkeypatch):

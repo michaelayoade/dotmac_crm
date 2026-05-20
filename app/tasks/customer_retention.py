@@ -66,6 +66,34 @@ def sync_lost_retention_customer_to_splynx(
         observe_job("retention_splynx_deactivation", status, time.monotonic() - start)
 
 
+@celery_app.task(name="app.tasks.customer_retention.reconcile_churning_retention_customers_to_splynx")
+def reconcile_churning_retention_customers_to_splynx(
+    limit: int | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Queue existing latest-Churning retention customers for the guarded Splynx disable flow."""
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    try:
+        from app.services.customer_retention import enqueue_existing_churning_deactivations
+
+        return enqueue_existing_churning_deactivations(session, limit=limit, dry_run=dry_run)
+    except Exception as exc:
+        status = "error"
+        session.rollback()
+        logger.exception(
+            "retention_splynx_churning_reconcile_error limit=%s dry_run=%s error=%s",
+            limit,
+            dry_run,
+            str(exc),
+        )
+        return {"success": False, "error": str(exc), "dry_run": dry_run}
+    finally:
+        session.close()
+        observe_job("retention_splynx_churning_reconcile", status, time.monotonic() - start)
+
+
 def _mark_deactivation_result(
     session,
     *,
@@ -102,6 +130,10 @@ def _mark_deactivation_result(
             "new_status": result.get("new_status") or ("disabled" if result.get("success") else None),
         }
     )
+    if result.get("retained_blocked_last_update") and not marker.get("retained_blocked_last_update"):
+        marker["retained_blocked_last_update"] = result.get("retained_blocked_last_update")
+    if result.get("retained_blocked_date") and not marker.get("retained_blocked_date"):
+        marker["retained_blocked_date"] = result.get("retained_blocked_date")
     metadata["retention_splynx_deactivation"] = marker
     subscriber.sync_metadata = metadata
     if result.get("success") and not result.get("skipped"):

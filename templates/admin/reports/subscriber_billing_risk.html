@@ -46,42 +46,6 @@
         {{ stats_card("High Balance Risk", kpis.high_balance_risk_count|default(0), color="slate", color2="gray") }}
     {% endcall %}
 
-    {% call dashboard_kpi_grid(cols="4") %}
-        {% for bucket in aging_buckets|default([]) %}
-            {% set label = bucket.label|default('Blocked') %}
-            {% if label == "Blocked 0-7 Days" %}
-                {{ stats_card(label, bucket.count|default(0), color="amber", color2="orange") }}
-            {% elif label == "Blocked 8-30 Days" %}
-                {{ stats_card(label, bucket.count|default(0), color="rose", color2="red") }}
-            {% elif label == "Blocked 31-60 Days" %}
-                {{ stats_card(label, bucket.count|default(0), color="slate", color2="gray") }}
-            {% elif label == "Blocked 61+ Days" %}
-                {{ stats_card(label, bucket.count|default(0), color="emerald", color2="teal") }}
-            {% else %}
-                {{ stats_card(label, bucket.count|default(0), color="slate", color2="gray") }}
-            {% endif %}
-        {% endfor %}
-    {% endcall %}
-
-    {% call dashboard_filter_panel(color="rose", title="Computed Segment Filter") %}
-    <div class="flex flex-wrap items-center gap-2">
-        <button type="button" data-segment-filter="" 
-           class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
-           {{ 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200'
-           if not selected_segments else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
-            All Segments
-        </button>
-        {% for key, label, query_string in [("overdue", "Due Soon", segment_due_soon_query), ("suspended", "Suspended", segment_suspended_query)] %}
-        <button type="button" data-segment-filter="{{ key }}"
-           class="inline-flex items-center rounded-full border px-3 py-1.5 text-sm font-medium transition
-           {{ 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200'
-           if key in selected_segments else 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700' }}">
-            {{ label }}
-        </button>
-        {% endfor %}
-    </div>
-    {% endcall %}
-
     {% call dashboard_filter_panel(color="rose", title="Blocked Customer Live Filters") %}
     <div id="billing-risk-live-controls" class="space-y-4">
         <div class="grid grid-cols-1 gap-3 lg:grid-cols-4">
@@ -127,15 +91,6 @@
                     Showing <span id="billing-risk-tier-count" class="font-semibold text-slate-700 dark:text-slate-200">0</span> customers on this page
                 </p>
             </div>
-            <div>
-                <label for="billing-risk-location-filter" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Location</label>
-                <select id="billing-risk-location-filter" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
-                    <option value="">All locations</option>
-                    {% for location in live_location_options|default([]) %}
-                    <option value="{{ location }}" {% if location == live_location|default('') %}selected{% endif %}>{{ location }}</option>
-                    {% endfor %}
-                </select>
-            </div>
         </div>
         <div>
                 <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Blocked For Buckets</label>
@@ -163,7 +118,6 @@
         data-search="{{ live_search|default('') }}"
         data-location="{{ live_location|default('') }}"
         data-mrr-sort="{{ live_mrr }}"
-        data-location="{{ live_location|default('') }}"
         data-segments="{{ selected_segments|join(',') }}"
         data-customer-tier="all"
     >
@@ -251,7 +205,6 @@
             const searchInput = document.getElementById('billing-risk-search');
             const searchButton = document.getElementById('billing-risk-search-button');
             const bucketButtons = Array.from(document.querySelectorAll('.billing-risk-bucket'));
-            const segmentButtons = Array.from(document.querySelectorAll('[data-segment-filter]'));
             const tierButtons = Array.from(document.querySelectorAll('.billing-risk-tier-toggle'));
             const tierCount = document.getElementById('billing-risk-tier-count');
             const locationSelect = document.getElementById('billing-risk-location-filter');
@@ -558,25 +511,6 @@
                 }
             }
 
-            function applySegmentButtonState() {
-                const activeSegment = filterState.segments[0] || '';
-                for (const candidate of segmentButtons) {
-                    const active = (candidate.dataset.segmentFilter || '') === activeSegment;
-                    candidate.classList.toggle('border-rose-300', active);
-                    candidate.classList.toggle('bg-rose-50', active);
-                    candidate.classList.toggle('text-rose-700', active);
-                    candidate.classList.toggle('dark:border-rose-700', active);
-                    candidate.classList.toggle('dark:bg-rose-900/30', active);
-                    candidate.classList.toggle('dark:text-rose-200', active);
-                    candidate.classList.toggle('border-slate-300', !active);
-                    candidate.classList.toggle('bg-white', !active);
-                    candidate.classList.toggle('text-slate-700', !active);
-                    candidate.classList.toggle('dark:border-slate-600', !active);
-                    candidate.classList.toggle('dark:bg-slate-800', !active);
-                    candidate.classList.toggle('dark:text-slate-300', !active);
-                }
-            }
-
             function applyTierButtonState() {
                 for (const candidate of tierButtons) {
                     const active = (candidate.dataset.customerTier || 'all') === filterState.customerTier;
@@ -605,7 +539,6 @@
                 params.set('location', filterState.location);
                 params.set('mrr_sort', filterState.mrrSort);
                 params.set('search', filterState.search);
-                params.set('location', filterState.location);
                 for (const segment of filterState.segments) {
                     params.append('segments', segment);
                 }
@@ -868,18 +801,15 @@
                 results.dataset.pageSize = String(filterState.pageSize);
                 results.dataset.search = filterState.search;
                 results.dataset.customerTier = filterState.customerTier;
-                results.dataset.location = filterState.location;
                 syncUrlState();
                 syncExportLink();
                 applyBucketButtonState();
-                applySegmentButtonState();
                 applyTierButtonState();
                 hydrateResults();
             }
 
             hydrateResults();
             applyBucketButtonState();
-            applySegmentButtonState();
             applyTierButtonState();
             if (searchInput) {
                 searchInput.value = filterState.search;
@@ -906,14 +836,6 @@
                     loadResults(1, true, { bucket: button.dataset.blockedBucket || 'all' });
                 });
             }
-            for (const button of segmentButtons) {
-                button.addEventListener('click', () => {
-                    const nextSegment = (button.dataset.segmentFilter || '').trim();
-                    filterState.segments = nextSegment ? [nextSegment] : [];
-                    applySegmentButtonState();
-                    loadResults(1, true, { segments: nextSegment ? [nextSegment] : [] });
-                });
-            }
             for (const button of tierButtons) {
                 button.addEventListener('click', () => {
                     filterState.customerTier = button.dataset.customerTier || 'all';
@@ -929,10 +851,6 @@
             mrrSortSelect?.addEventListener('change', () => {
                 filterState.mrrSort = mrrSortSelect.value || '';
                 loadResults(1, true, { mrrSort: mrrSortSelect.value || '' });
-            });
-            locationSelect?.addEventListener('change', () => {
-                filterState.location = locationSelect.value || '';
-                loadResults(1, true);
             });
             exportLink?.addEventListener('click', (event) => {
                 event.preventDefault();

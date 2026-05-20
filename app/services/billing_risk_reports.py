@@ -80,6 +80,21 @@ def _normalize_customer_name_for_exclusion(name: object) -> str:
     return re.sub(r"\s+", " ", normalized).strip()
 
 
+def _retained_blocked_last_update_from_metadata(sync_metadata: object) -> str:
+    if not isinstance(sync_metadata, Mapping):
+        return ""
+    marker = sync_metadata.get("retention_splynx_deactivation")
+    if not isinstance(marker, Mapping):
+        return ""
+    for key in ("retained_blocked_last_update", "retained_blocked_date"):
+        candidate = str(marker.get(key) or "").strip()
+        if candidate and candidate != "0000-00-00":
+            parsed = _parse_iso_date_text(candidate)
+            if parsed is not None:
+                return parsed.strftime("%Y-%m-%d")
+    return ""
+
+
 def _is_excluded_report_customer(name: object) -> bool:
     normalized = _normalize_customer_name_for_exclusion(name)
     return bool(normalized) and (normalized in _EXCLUDED_REPORT_CUSTOMER_NAMES or normalized.startswith("test account"))
@@ -1114,7 +1129,8 @@ def get_billing_risk_table(
         invoiced_until_date = _parse_iso_date_text(invoiced_until_text)
         days_since_last_payment = max(0, (today - invoiced_until_date).days) if invoiced_until_date else None
         row_days_past_due = days_since_last_payment
-        customer_last_update = _live_billing_text(customer, "last_update")
+        retained_blocked_last_update = _retained_blocked_last_update_from_metadata(sync_metadata)
+        customer_last_update = retained_blocked_last_update or _live_billing_text(customer, "last_update")
         customer_last_online = _live_billing_text(customer, "last_online")
         embedded_blocking_date = _live_blocked_date_from_billing(embedded_billing)
         blocking_period_days = (
@@ -1630,8 +1646,26 @@ def get_live_blocked_dates(
     blocked_dates: dict[str, str] = {}
     seen_ids: set[str] = set()
     blocking_only_set = {str(external_id).strip() for external_id in (blocking_only_external_ids or [])}
+    requested_ids = sorted({str(external_id or "").strip() for external_id in external_ids if str(external_id or "").strip()})
 
     preloaded_customers: dict[str, Mapping[str, Any]] = {}
+    retained_blocked_dates: dict[str, str] = {}
+    if requested_ids:
+        retained_db = SessionLocal()
+        try:
+            retained_rows = retained_db.execute(
+                select(Subscriber.external_id, Subscriber.sync_metadata)
+                .where(Subscriber.external_system == "splynx")
+                .where(Subscriber.external_id.in_(requested_ids))
+            ).all()
+        except Exception:
+            retained_rows = []
+        finally:
+            retained_db.close()
+        for retained_external_id, retained_sync_metadata in retained_rows:
+            retained_date = _retained_blocked_last_update_from_metadata(retained_sync_metadata)
+            if retained_date:
+                retained_blocked_dates[str(retained_external_id or "").strip()] = retained_date
 
     def _customers_loader():
         splynx_db = SessionLocal()
@@ -1665,6 +1699,9 @@ def get_live_blocked_dates(
         if not external_id or external_id in seen_ids:
             continue
         seen_ids.add(external_id)
+        if external_id in retained_blocked_dates:
+            blocked_dates[external_id] = retained_blocked_dates[external_id]
+            continue
 
         def _billing_loader(bound_external_id: str = external_id):
             splynx_db = SessionLocal()

@@ -589,6 +589,7 @@ def deactivate_customer_if_blocked(
         return result
 
     previous_status = str(customer.get("status") or "").strip().lower()
+    retained_blocked_last_update = str(customer.get("last_update") or "").strip()
     if previous_status == RETENTION_DEACTIVATED_STATUS:
         result.update({"success": True, "skipped": True, "reason": "splynx_already_deactivated"})
         if subscriber is not None and subscriber.status != SubscriberStatus.terminated:
@@ -644,12 +645,28 @@ def deactivate_customer_if_blocked(
         return result
 
     if subscriber is not None:
+        metadata = dict(subscriber.sync_metadata or {})
+        marker = dict(metadata.get("retention_splynx_deactivation") or {})
+        if retained_blocked_last_update and not marker.get("retained_blocked_last_update"):
+            marker["retained_blocked_last_update"] = retained_blocked_last_update
+        if retained_blocked_last_update and not marker.get("retained_blocked_date"):
+            marker["retained_blocked_date"] = retained_blocked_last_update[:10]
+        metadata["retention_splynx_deactivation"] = marker
+        subscriber.sync_metadata = metadata
         subscriber.status = SubscriberStatus.terminated
         subscriber.terminated_at = subscriber.terminated_at or datetime.now(UTC)
         subscriber.sync_error = None
         db.add(subscriber)
         db.commit()
-    result.update({"success": True, "previous_status": previous_status, "new_status": RETENTION_DEACTIVATED_STATUS})
+    result.update(
+        {
+            "success": True,
+            "previous_status": previous_status,
+            "new_status": RETENTION_DEACTIVATED_STATUS,
+            "retained_blocked_last_update": retained_blocked_last_update or None,
+            "retained_blocked_date": retained_blocked_last_update[:10] if retained_blocked_last_update else None,
+        }
+    )
     _retention_sync_audit(
         customer_id=result["customer_id"],
         subscriber_id=result["subscriber_id"],

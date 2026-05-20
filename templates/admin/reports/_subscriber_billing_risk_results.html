@@ -1,4 +1,4 @@
-{% from "components/ui/macros.html" import table_shell, table_row, empty_state, status_badge %}
+{% from "components/ui/macros.html" import dashboard_kpi_grid, stats_card, table_shell, table_row, empty_state, status_badge %}
 
 {% set fallback_total_balance = 0 %}
 {% if kpis is defined %}
@@ -15,6 +15,7 @@
 {% set show_prev = has_prev|default(false) %}
 {% set show_next = has_next|default(false) %}
 {% set enterprise_threshold = enterprise_mrr_threshold|default(70000) %}
+{% set current_aging_buckets = aging_buckets|default([]) %}
 {% set page_size_control %}
 <label class="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
     Show
@@ -30,7 +31,26 @@
 </label>
 {% endset %}
 
-<div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+{% call dashboard_kpi_grid(cols="4") %}
+    {% for bucket in current_aging_buckets %}
+        {% set label = bucket.label|default('Blocked') %}
+        {% if label == "No Blocked Date" %}
+            {# Hidden because this page is scoped to blocked/suspended customers only. #}
+        {% elif label == "Blocked 0-7 Days" %}
+            {{ stats_card(label, bucket.count|default(0), color="amber", color2="orange") }}
+        {% elif label == "Blocked 8-30 Days" %}
+            {{ stats_card(label, bucket.count|default(0), color="rose", color2="red") }}
+        {% elif label == "Blocked 31-60 Days" %}
+            {{ stats_card(label, bucket.count|default(0), color="slate", color2="gray") }}
+        {% elif label == "Blocked 61+ Days" %}
+            {{ stats_card(label, bucket.count|default(0), color="emerald", color2="teal") }}
+        {% else %}
+            {{ stats_card(label, bucket.count|default(0), color="slate", color2="gray") }}
+        {% endif %}
+    {% endfor %}
+{% endcall %}
+
+<div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
     <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
         <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Blocked Customers</div>
         <div id="billing-risk-metric-count" class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ metrics.total_count }}</div>
@@ -105,7 +125,6 @@
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">City</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Location</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Street</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Location</th>
             <th class="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Area</th>
             <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
             <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">MRR Total</th>
@@ -145,7 +164,6 @@
                 data-city="{{ (row.city or '')|lower }}"
                 data-location="{{ (row.location or '')|lower }}"
                 data-street="{{ (row.street or '')|lower }}"
-                data-location="{{ (row.location or '')|lower }}"
                 data-area="{{ (row.area or '')|lower }}"
                 data-plan="{{ (row.plan or '')|lower }}"
                 data-balance="{{ (row.balance or 0)|float }}"
@@ -169,7 +187,6 @@
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.city or "-" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.location or "-" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.street or "-" }}</td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.location or "-" }}</td>
             <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.area or "-" }}</td>
             <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan or "-" }}</td>
             <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">₦{{ "{:,.2f}".format((row.mrr_total or 0)|float) }}</td>
