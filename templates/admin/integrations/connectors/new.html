@@ -70,6 +70,22 @@
                             class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white font-mono">
                     </div>
 
+                    <div id="zabbix-auth-fields" class="contents">
+                        <div>
+                            <label for="zabbix_username" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Zabbix Username</label>
+                            <input type="text" name="zabbix_username" id="zabbix_username"
+                                value="{{ form.zabbix_username if form is defined else '' }}"
+                                placeholder="Admin"
+                                class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </div>
+                        <div>
+                            <label for="zabbix_password" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Zabbix Password</label>
+                            <input type="password" name="zabbix_password" id="zabbix_password"
+                                placeholder="Enter Zabbix password"
+                                class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </div>
+                    </div>
+
                     <div>
                         <label for="timeout_sec" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Timeout (seconds)</label>
                         <input type="number" name="timeout_sec" id="timeout_sec" min="1" step="1"
@@ -78,7 +94,7 @@
                             class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     </div>
 
-                    <div class="sm:col-span-2">
+                    <div id="generic-auth-config" class="sm:col-span-2">
                         <label for="auth_config" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Auth Config (JSON)</label>
                         <textarea name="auth_config" id="auth_config" rows="3"
                             placeholder='{"api_key":"sk_live_..."}'
@@ -138,4 +154,37 @@
         </div>
     </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+    (() => {
+        const connectorType = document.getElementById("connector_type");
+        const authType = document.getElementById("auth_type");
+        const genericAuthConfig = document.getElementById("generic-auth-config");
+        const zabbixFields = document.getElementById("zabbix-auth-fields");
+
+        function syncConnectorType() {
+            const isZabbix = connectorType && connectorType.value === "zabbix";
+            if (zabbixFields) {
+                zabbixFields.style.display = isZabbix ? "" : "none";
+            }
+            if (genericAuthConfig) {
+                genericAuthConfig.style.display = isZabbix ? "none" : "";
+            }
+            if (authType && isZabbix) {
+                authType.value = "basic";
+            }
+            if (authType) {
+                authType.disabled = isZabbix;
+            }
+        }
+
+        if (connectorType) {
+            connectorType.addEventListener("change", syncConnectorType);
+            syncConnectorType();
+        }
+    })();
+</script>
 {% endblock %}

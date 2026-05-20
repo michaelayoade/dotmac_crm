@@ -13,6 +13,13 @@ from app.services.ai.engine import intelligence_engine
 from app.services.ai.use_cases.ticket_summary import summarize_ticket
 from app.services.ai.use_cases.voice_sentence_suggestion import suggest_voice_sentence
 from app.services.ai.use_cases.voice_transcription import transcribe_voice_audio
+from app.services.crm.ai_intake_runtime import (
+    ai_circuit_state_snapshot,
+    ai_intake_runtime_audit,
+    ai_provider_connection_pool_state,
+    ai_queue_depth_snapshot,
+    ai_worker_health_snapshot,
+)
 from app.web.admin._auth_helpers import get_current_user
 from app.web.templates import Jinja2Templates
 
@@ -217,3 +224,49 @@ def intelligence_insights_placeholder(
 ):
     # Backward-compatible alias for old link.
     return RedirectResponse(url="/admin/intelligence/insights", status_code=302)
+
+
+@router.get("/runtime-audit")
+def runtime_audit(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    get_current_user(request)
+    return JSONResponse(ai_intake_runtime_audit(db))
+
+
+@router.get("/provider-pool-state")
+def provider_pool_state(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    get_current_user(request)
+    return JSONResponse(ai_provider_connection_pool_state(db))
+
+
+@router.get("/worker-health")
+def worker_health(
+    request: Request,
+    _db: Session = Depends(get_db),
+):
+    get_current_user(request)
+    return JSONResponse(ai_worker_health_snapshot())
+
+
+@router.get("/circuit-state")
+def circuit_state(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    get_current_user(request)
+    return JSONResponse(ai_circuit_state_snapshot(db))
+
+
+@router.get("/queue-depth")
+def queue_depth(
+    request: Request,
+    _db: Session = Depends(get_db),
+):
+    get_current_user(request)
+    worker_snapshot = ai_worker_health_snapshot()
+    return JSONResponse(ai_queue_depth_snapshot(worker_snapshot.get("queue_names")))

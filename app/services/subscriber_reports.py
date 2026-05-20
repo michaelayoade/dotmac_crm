@@ -30,20 +30,6 @@ from app.models.workforce import WorkOrder, WorkOrderStatus
 # =====================================================================
 
 _ONLINE_REPORT_TEST_SUBSCRIBER_NUMBER = "TEST-NOTIFY-001"
-_BASE_STATION_KEYS = (
-    "base_station",
-    "base station",
-    "nas_name",
-    "nas",
-    "router_name",
-    "router",
-    "access_router",
-    "access name",
-    "pop",
-    "olt",
-    "tower",
-    "sector",
-)
 
 
 class ConversionBucket(TypedDict):
@@ -92,53 +78,6 @@ def online_customers_last_24h_count(db: Session, subscriber_ids: list | None = N
     return _online_customers_last_24h(db, subscriber_ids=subscriber_ids)
 
 
-def _clean_base_station_value(value: object) -> str:
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    text = re.sub(r"\s*\([^)]*\)", "", text).strip()
-    text = re.sub(r"\s+access\b", "", text, flags=re.IGNORECASE).strip()
-    return re.sub(r"\s+", " ", text).strip(" -")
-
-
-def _payload_key(value: object) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
-
-
-def _extract_base_station_from_payload(payload: object) -> str:
-    aliases = {_payload_key(key) for key in _BASE_STATION_KEYS}
-    if isinstance(payload, Mapping):
-        for key, value in payload.items():
-            cleaned = _clean_base_station_value(value)
-            key_text = _payload_key(key)
-            if cleaned and (
-                key_text in aliases
-                or any(
-                    token in key_text
-                    for token in ("basestation", "station", "nas", "router", "access", "pop", "olt", "tower")
-                )
-            ):
-                return cleaned
-        label = _first_nonempty_text(
-            payload.get("name"), payload.get("label"), payload.get("key"), payload.get("field")
-        )
-        if label and _payload_key(label) in aliases:
-            cleaned = _clean_base_station_value(_first_nonempty_text(payload.get("value"), payload.get("content")))
-            if cleaned:
-                return cleaned
-        for nested in payload.values():
-            if isinstance(nested, Mapping | list):
-                cleaned = _extract_base_station_from_payload(nested)
-                if cleaned:
-                    return cleaned
-    elif isinstance(payload, list):
-        for item in payload:
-            cleaned = _extract_base_station_from_payload(item)
-            if cleaned:
-                return cleaned
-    return ""
-
-
 def _online_last_24h_test_account_row(db: Session, now: datetime) -> dict[str, Any] | None:
     subscriber = db.scalar(
         select(Subscriber)
@@ -167,7 +106,6 @@ def _online_last_24h_test_account_row(db: Session, now: datetime) -> dict[str, A
         "plan": subscriber.service_plan or "",
         "status": subscriber.status.value if subscriber.status else "active",
         "region": _first_nonempty_text(subscriber.service_region, subscriber.service_city),
-        "base_station": "",
         "email": person.email if person else "",
         "phone": person.phone if person and person.phone else "",
         "avatar_url": person.avatar_url if person and person.avatar_url else "",
@@ -201,7 +139,7 @@ def online_customers_last_24h_rows(
     start = now - timedelta(hours=24)
 
     # Source of truth for this report: live Splynx customer LAST ONLINE minus customer-online.
-    from app.services.splynx import fetch_customers, fetch_online_customers
+    from app.services.splynx import customer_base_station, fetch_customers, fetch_online_customers
 
     def _parse_online_dt(value: object) -> datetime | None:
         text = str(value or "").strip()
@@ -461,16 +399,15 @@ def online_customers_last_24h_rows(
         status_value = str(customer.get("status") or "").strip().lower()
         if status_value != "active" or currently_online:
             continue
-        base_station_value = _extract_base_station_from_payload(customer)
         customer_payload = {
             "external_id": external_id,
             "login": login,
             "email": email,
             "name": str(customer.get("name") or "").strip(),
             "status": status_value,
-            "base_station": base_station_value,
             "currently_online": currently_online,
             "last_seen_at": last_online,
+            "base_station": customer_base_station(customer),
         }
         if external_id:
             customer_online_map[("external_id", external_id)] = max(
@@ -633,16 +570,18 @@ def online_customers_last_24h_rows(
             "subscriber_id": matched_subscriber_id or str(customer.get("external_id") or customer.get("login") or ""),
             "can_notify": bool(matched_subscriber_id),
             "id": str(customer.get("external_id") or customer.get("login") or ""),
+            "splynx_customer_id": str(customer.get("external_id") or ""),
+            "splynx_login": str(customer.get("login") or ""),
             "name": _clean_report_name(str(customer.get("name") or "").strip() or "Unknown"),
             "subscriber_number": str(customer.get("login") or ""),
             "plan": "",
             "status": str(customer.get("status") or ""),
             "region": "",
-            "base_station": str(customer.get("base_station") or ""),
             "email": str(customer.get("email") or ""),
             "phone": "",
             "avatar_url": "",
             "timezone": "UTC",
+            "base_station": str(customer.get("base_station") or "").strip(),
             "last_seen_at": _format_datetime_value(last_seen_value),
             "last_seen_at_iso": last_seen_value.isoformat(),
             "last_activity": _format_datetime_value(last_seen_value),
@@ -668,7 +607,6 @@ def online_customers_last_24h_rows(
                     str(row.get("id") or ""),
                     str(row.get("name") or ""),
                     str(row.get("status") or ""),
-                    str(row.get("base_station") or ""),
                     str(row.get("subscriber_number") or ""),
                     str(row.get("email") or ""),
                 ]
@@ -683,7 +621,7 @@ def online_customers_last_24h_rows(
                 row
                 for row in live_rows
                 if str(row.get("ticket_status") or "").strip()
-                and str(row.get("ticket_status") or "").strip().lower() != TicketStatus.closed.value
+                and str(row.get("ticket_status") or "").strip().lower().replace(" ", "_") != "closed"
             ]
         else:
             live_rows = [

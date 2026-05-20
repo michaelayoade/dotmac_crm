@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
+from app.db import get_db
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox.formatting import (
     filter_messages_for_user,
@@ -22,14 +22,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["web-admin-crm"])
 templates = Jinja2Templates(directory="templates")
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("/inbox/conversation/{conversation_id}/message", response_class=HTMLResponse)

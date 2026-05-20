@@ -85,6 +85,7 @@ def build_email_state_for_target(
     return {
         "target_id": str(target.id),
         "connector_id": str(config.id),
+        "connector_config_id": str(config.id),
         "name": target.name or config.name,
         "auth_config": auth_config,
         "smtp": metadata.get("smtp"),
@@ -108,6 +109,7 @@ def build_whatsapp_state_for_target(
     return {
         "target_id": str(target.id),
         "connector_id": str(config.id),
+        "connector_config_id": str(config.id),
         "name": target.name or config.name,
         "auth_config": auth_config,
         "base_url": config.base_url,
@@ -149,6 +151,7 @@ def list_channel_targets(db: Session, connector_type: ConnectorType) -> list[dic
                 {
                     "target_id": str(target.id),
                     "connector_id": str(config.id),
+                    "connector_config_id": str(config.id),
                     "name": name,
                     "channel": connector_type.value,
                     "kind": "inbox",

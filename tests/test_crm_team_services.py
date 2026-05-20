@@ -6,6 +6,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.models.crm.enums import ChannelType
+from app.models.crm.team import CrmAgent
+from app.models.service_team import ServiceTeam, ServiceTeamMember, ServiceTeamType
 from app.schemas.crm.team import (
     AgentCreate,
     AgentTeamCreate,
@@ -16,6 +18,7 @@ from app.schemas.crm.team import (
     TeamCreate,
     TeamUpdate,
 )
+from app.services.common import coerce_uuid
 from app.services.crm import team as team_service
 
 # =============================================================================
@@ -202,6 +205,29 @@ def test_list_agents_filter_inactive(db_session, person):
         offset=0,
     )
     assert any(a.id == agent.id for a in agents)
+
+
+def test_get_agent_team_options_includes_active_sales_service_team_members_with_inactive_agent(db_session, person):
+    sales_team = ServiceTeam(
+        id=coerce_uuid("7ba88183-1f51-438c-b81c-02f90cbd5287"),
+        name="Sales",
+        team_type=ServiceTeamType.operations,
+        is_active=True,
+    )
+    db_session.add(sales_team)
+    db_session.flush()
+
+    agent = CrmAgent(person_id=person.id, is_active=False, title="Sales")
+    db_session.add(agent)
+    db_session.flush()
+
+    db_session.add(ServiceTeamMember(team_id=sales_team.id, person_id=person.id, is_active=True))
+    db_session.commit()
+
+    options = team_service.get_agent_team_options(db_session)
+
+    assert any(str(item.id) == str(agent.id) for item in options["agents"])
+    assert options["agent_labels"].get(str(agent.id)) is not None
 
 
 def test_update_agent(db_session, crm_agent):

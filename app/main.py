@@ -27,7 +27,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy.orm import Session
-from starlette.responses import Response
+from starlette.responses import RedirectResponse, Response
 
 from app.api.ai import router as ai_router
 from app.api.analytics import router as analytics_router
@@ -82,7 +82,7 @@ from app.csrf import (
     generate_csrf_token,
     set_csrf_cookie,
 )
-from app.db import SessionLocal
+from app.db import SessionLocal, collect_db_runtime_snapshot, end_read_only_transaction
 from app.errors import register_error_handlers
 from app.logging import configure_logging, get_logger
 from app.middleware.api_rate_limit import APIRateLimitMiddleware, WebhookRateLimitMiddleware
@@ -125,6 +125,7 @@ _AUDIT_SETTINGS_CACHE: dict | None = None
 _AUDIT_SETTINGS_CACHE_AT: float | None = None
 _AUDIT_SETTINGS_CACHE_TTL_SECONDS = 30.0
 _AUDIT_SETTINGS_LOCK = Lock()
+_AUDIT_SETTINGS_LOG_THRESHOLD_MS = 100.0
 
 configure_logging()
 setup_monitoring()
@@ -147,6 +148,16 @@ app.add_middleware(ObservabilityMiddleware)
 app.add_middleware(APIRateLimitMiddleware)  # Global API rate limiting
 app.add_middleware(WebhookRateLimitMiddleware)  # Per-IP limits for inbound CRM webhooks
 register_error_handlers(app)
+
+
+@app.middleware("http")
+async def normalize_duplicate_slashes_middleware(request: Request, call_next):
+    path = request.url.path
+    if path != "/" and "//" in path:
+        normalized_path = "/" + "/".join(segment for segment in path.split("/") if segment)
+        normalized_url = str(request.url.replace(path=normalized_path))
+        return RedirectResponse(url=normalized_url, status_code=307)
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -174,6 +185,7 @@ async def audit_middleware(request: Request, call_next):
     owns_db = not hasattr(request.state, "middleware_db")
     try:
         audit_settings = _load_audit_settings(db)
+        end_read_only_transaction(db)
         if not audit_settings["enabled"]:
             return await call_next(request)
         track_read = request.method == "GET" and (
@@ -210,6 +222,7 @@ async def branding_middleware(request: Request, call_next):
     owns_db = not hasattr(request.state, "middleware_db")
     try:
         branding = branding_state.load_branding_settings(db)
+        end_read_only_transaction(db)
     finally:
         if owns_db:
             db.close()
@@ -324,11 +337,15 @@ def _load_audit_settings(db: Session):
     """
     global _AUDIT_SETTINGS_CACHE, _AUDIT_SETTINGS_CACHE_AT
     now = monotonic()
+    started_at = now
+    cache_hit = False
 
     # Fast path: check cache validity without lock (read is atomic for these types)
     cache = _AUDIT_SETTINGS_CACHE
     cache_at = _AUDIT_SETTINGS_CACHE_AT
     if cache is not None and cache_at is not None and now - cache_at < _AUDIT_SETTINGS_CACHE_TTL_SECONDS:
+        cache_hit = True
+        _log_audit_settings_timing(cache_hit=cache_hit, duration_ms=(monotonic() - started_at) * 1000.0)
         return cache
 
     # Slow path: acquire lock and recheck (double-checked locking)
@@ -339,6 +356,8 @@ def _load_audit_settings(db: Session):
             and _AUDIT_SETTINGS_CACHE_AT is not None
             and now - _AUDIT_SETTINGS_CACHE_AT < _AUDIT_SETTINGS_CACHE_TTL_SECONDS
         ):
+            cache_hit = True
+            _log_audit_settings_timing(cache_hit=cache_hit, duration_ms=(monotonic() - started_at) * 1000.0)
             return _AUDIT_SETTINGS_CACHE
 
         # Cache miss - query database
@@ -369,7 +388,18 @@ def _load_audit_settings(db: Session):
 
         _AUDIT_SETTINGS_CACHE = defaults
         _AUDIT_SETTINGS_CACHE_AT = now
+        _log_audit_settings_timing(cache_hit=cache_hit, duration_ms=(monotonic() - started_at) * 1000.0)
         return defaults
+
+
+def _log_audit_settings_timing(*, cache_hit: bool, duration_ms: float) -> None:
+    if duration_ms < _AUDIT_SETTINGS_LOG_THRESHOLD_MS:
+        return
+    logger.info(
+        "audit_settings_load_slow cache_hit=%s duration_ms=%.2f",
+        cache_hit,
+        duration_ms,
+    )
 
 
 def _to_bool(setting: DomainSetting) -> bool:
@@ -545,6 +575,7 @@ def head_health():
 def metrics(request: Request):
     if not is_bearer_token_authorized(request.headers.get("authorization"), settings.metrics_token):
         raise HTTPException(status_code=401, detail="Unauthorized")
+    collect_db_runtime_snapshot()
     data = generate_latest()
     return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 

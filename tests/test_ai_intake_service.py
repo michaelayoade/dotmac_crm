@@ -28,6 +28,7 @@ from app.services.crm.ai_intake import (
     escalate_expired_pending_intakes,
     make_scope_key,
     process_pending_intake,
+    recover_ai_error_escalations,
     save_ai_intake_config,
     send_due_handoff_reassurance_followups,
 )
@@ -768,6 +769,297 @@ def test_process_pending_intake_ignores_offline_agents_for_round_robin(db_sessio
     assert assignment.agent_id == online_agent.id
 
 
+def test_process_pending_intake_does_not_assign_selected_department_when_team_has_no_members(
+    db_session,
+    monkeypatch,
+    caplog,
+):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+
+    sales_team = CrmTeam(name="Sales Queue", is_active=True)
+    support_team = CrmTeam(name="Customer Support", is_active=True)
+    db_session.add_all([sales_team, support_team])
+    db_session.commit()
+    _make_agent(db_session, support_team, label="SupportOnline", status=AgentPresenceStatus.online)
+    _make_split_billing_config(
+        db_session,
+        scope_key=f"widget:{widget_id}",
+        sales_team_id=sales_team.id,
+        fallback_team_id=support_team.id,
+    )
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
+        lambda db, **kwargs: (
+            SimpleNamespace(
+                content='{"department":"billing_payment","confidence":0.98,"reason":"payment request","needs_followup":false,"followup_question":""}'
+            ),
+            {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+
+    def _fake_send_message(db, payload, author_id=None, trace_id=None):
+        outbound = Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+        )
+        db.add(outbound)
+        db.commit()
+        db.refresh(outbound)
+        return outbound
+
+    monkeypatch.setattr("app.services.crm.ai_intake.send_message", _fake_send_message)
+    caplog.set_level("INFO")
+
+    result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    db_session.refresh(conversation)
+    assignment = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .first()
+    )
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+
+    assert result.handled is True
+    assert result.resolved is True
+    assert assignment is None
+    assert state["department"] == "billing_payment"
+    assert state["routing_state"] == "waiting_for_agent"
+    assert state["routing_selected_team_id"] == str(sales_team.id)
+    assert state["routing_assigned_team_id"] is None
+    assert state["routing_assigned_agent_id"] is None
+    assert state["routing_assignment_skipped_reason"] == "no_team_members"
+    assert state["routing_department_preserved"] is True
+    assert state["routing_fallback_blocked"] is True
+    assert "routing_no_eligible_agents" in caplog.text
+    assert "routing_department_preserved" in caplog.text
+    assert "routing_fallback_blocked" in caplog.text
+
+
+def test_process_pending_intake_preserves_selected_department_when_team_agents_are_offline(
+    db_session,
+    monkeypatch,
+):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+
+    sales_team = CrmTeam(name="Sales Queue", is_active=True)
+    support_team = CrmTeam(name="Customer Support", is_active=True)
+    db_session.add_all([sales_team, support_team])
+    db_session.commit()
+    _make_agent(db_session, sales_team, label="SalesOffline", status=AgentPresenceStatus.offline)
+    support_agent = _make_agent(db_session, support_team, label="SupportOnline", status=AgentPresenceStatus.online)
+    _make_split_billing_config(
+        db_session,
+        scope_key=f"widget:{widget_id}",
+        sales_team_id=sales_team.id,
+        fallback_team_id=support_team.id,
+    )
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
+        lambda db, **kwargs: (
+            SimpleNamespace(
+                content='{"department":"billing_payment","confidence":0.99,"reason":"payment follow-up","needs_followup":false,"followup_question":""}'
+            ),
+            {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.send_message",
+        lambda db, payload, author_id=None, trace_id=None: Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+        ),
+    )
+
+    result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    db_session.refresh(conversation)
+    assignment = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .first()
+    )
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+
+    assert result.handled is True
+    assert result.resolved is True
+    assert assignment is not None
+    assert assignment.team_id == sales_team.id
+    assert assignment.agent_id is None
+    assert state["routing_state"] == "waiting_for_agent"
+    assert state["routing_assignment_skipped_reason"] == "no_eligible_agents"
+    assert state["routing_assigned_team_id"] == str(sales_team.id)
+    assert state["routing_fallback_blocked"] is True
+    assert state["routing_assigned_agent_id"] != str(support_agent.id)
+
+
+def test_process_pending_intake_timeout_escalation_does_not_assign_empty_selected_department_team(
+    db_session,
+    monkeypatch,
+):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    support_team = CrmTeam(name="Customer Support", is_active=True)
+    sales_team = CrmTeam(name="Sales Queue", is_active=True)
+    db_session.add_all([support_team, sales_team])
+    db_session.commit()
+    _make_agent(db_session, support_team, label="FallbackOnline", status=AgentPresenceStatus.online)
+    _make_split_billing_config(
+        db_session,
+        scope_key=f"widget:{widget_id}",
+        sales_team_id=sales_team.id,
+        fallback_team_id=support_team.id,
+    )
+
+    conversation.status = ConversationStatus.pending
+    conversation.metadata_ = {
+        AI_INTAKE_METADATA_KEY: {
+            "status": "awaiting_timeout",
+            "scope_key": f"widget:{widget_id}",
+            "started_at": (datetime.now(UTC) - timedelta(minutes=10)).isoformat(),
+            "escalate_at": (datetime.now(UTC) - timedelta(minutes=5)).isoformat(),
+            "department": "billing_payment",
+            "channel": ChannelType.chat_widget.value,
+        }
+    }
+    db_session.commit()
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+
+    result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=False,
+    )
+
+    db_session.refresh(conversation)
+    assignment = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .first()
+    )
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+
+    assert result.handled is True
+    assert result.escalated is True
+    assert result.fallback_used is False
+    assert assignment is None
+    assert state["status"] == "escalated"
+    assert state["department"] == "billing_payment"
+    assert state["routing_state"] == "waiting_for_agent"
+    assert state["routing_fallback_blocked"] is True
+    assert state["routing_selected_team_id"] == str(sales_team.id)
+    assert state["routing_assigned_team_id"] is None
+    assert state["routing_assignment_skipped_reason"] == "no_team_members"
+
+
+def test_manual_assignment_still_works_after_ai_leaves_team_only_queue(db_session, monkeypatch):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+
+    sales_team = CrmTeam(name="Sales Queue", is_active=True)
+    support_team = CrmTeam(name="Customer Support", is_active=True)
+    db_session.add_all([sales_team, support_team])
+    db_session.commit()
+    support_agent = _make_agent(db_session, support_team, label="ManualSupport", status=AgentPresenceStatus.online)
+    actor = _make_person(db_session)
+    _make_split_billing_config(
+        db_session,
+        scope_key=f"widget:{widget_id}",
+        sales_team_id=sales_team.id,
+        fallback_team_id=support_team.id,
+    )
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
+        lambda db, **kwargs: (
+            SimpleNamespace(
+                content='{"department":"billing_payment","confidence":0.95,"reason":"payment request","needs_followup":false,"followup_question":""}'
+            ),
+            {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.send_message",
+        lambda db, payload, author_id=None, trace_id=None: Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+        ),
+    )
+
+    process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+    manual_assignment = conversation_service.assign_conversation(
+        db_session,
+        conversation_id=str(conversation.id),
+        agent_id=str(support_agent.id),
+        team_id=str(support_team.id),
+        assigned_by_id=str(actor.id),
+        update_lead_owner=False,
+    )
+
+    active_assignment = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .first()
+    )
+    assert manual_assignment is not None
+    assert active_assignment is not None
+    assert active_assignment.team_id == support_team.id
+    assert active_assignment.agent_id == support_agent.id
+
+
 def test_process_pending_intake_sends_followup_when_uncertain(db_session, monkeypatch):
     person = _make_person(db_session)
     conversation = _make_conversation(db_session, person)
@@ -889,8 +1181,10 @@ def test_process_pending_intake_escalates_after_single_followup_retry_limit(db_s
     assert result.followup_sent is False
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["status"] == "escalated"
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["escalated_reason"] == "timeout"
-    assert assignment is not None
-    assert assignment.team_id == team.id
+    assert assignment is None
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_assignment_skipped_reason"] == "no_team_members"
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_selected_team_id"] == str(team.id)
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_assigned_team_id"] is None
 
 
 def test_process_pending_intake_existing_without_state_skips(db_session, monkeypatch):
@@ -1404,6 +1698,7 @@ def test_process_pending_intake_existing_pending_state_continues(db_session, mon
     team = CrmTeam(name="Support", is_active=True)
     db_session.add(team)
     db_session.commit()
+    _make_agent(db_session, team, label="SupportOnline", status=AgentPresenceStatus.online)
     _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
     conversation.status = ConversationStatus.pending
     conversation.metadata_ = {
@@ -1552,8 +1847,10 @@ def test_process_pending_intake_ai_failure_escalates_safely(db_session, monkeypa
     assert result.escalated is True
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["status"] == "escalated"
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["escalated_reason"] == "ai_error"
-    assert assignment is not None
-    assert assignment.team_id == team.id
+    assert assignment is None
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_assignment_skipped_reason"] == "no_team_members"
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_selected_team_id"] == str(team.id)
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_assigned_team_id"] is None
 
 
 def test_process_pending_intake_timeout_error_escalates_safely(db_session, monkeypatch):
@@ -1572,7 +1869,7 @@ def test_process_pending_intake_timeout_error_escalates_safely(db_session, monke
     monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
 
     def _raise_timeout(db, **kwargs):
-        raise AIClientError("timeout")
+        raise AIClientError("timeout", failure_type="timeout", timeout_type="read", transient=True)
 
     monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.generate_with_fallback", _raise_timeout)
     before = AI_INTAKE_ESCALATIONS.labels(reason="ai_error")._value.get()
@@ -1589,7 +1886,114 @@ def test_process_pending_intake_timeout_error_escalates_safely(db_session, monke
     assert result.handled is True
     assert result.escalated is True
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["status"] == "escalated"
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["failure_type"] == "timeout"
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["error_class"] == "AIClientError"
     assert AI_INTAKE_ESCALATIONS.labels(reason="ai_error")._value.get() == before + 1
+
+
+def test_recover_ai_error_escalations_reprocesses_eligible_conversation(db_session, monkeypatch):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+    team = CrmTeam(name="Recovery Support", is_active=True)
+    db_session.add(team)
+    db_session.commit()
+    _make_agent(db_session, team, label="Recovery", status=AgentPresenceStatus.online)
+    _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
+
+    now = datetime.now(UTC)
+    conversation.metadata_ = {
+        AI_INTAKE_METADATA_KEY: {
+            "status": "escalated",
+            "scope_key": f"widget:{widget_id}",
+            "started_at": (now - timedelta(minutes=2)).isoformat(),
+            "escalated_at": now.isoformat(),
+            "escalated_reason": "ai_error",
+            "failure_type": "provider_billing",
+            "response_preview": '{"error":{"message":"Insufficient Balance"}}',
+            "handoff_state": "none",
+            "handoff_sent": False,
+        }
+    }
+    db_session.commit()
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
+        lambda db, **kwargs: (
+            SimpleNamespace(
+                content='{"department":"support","confidence":0.92,"reason":"service issue","needs_followup":false,"followup_question":""}'
+            ),
+            {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.send_message",
+        lambda db, payload, author_id=None, trace_id=None: Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+        ),
+    )
+
+    result = recover_ai_error_escalations(db_session, limit=10)
+
+    conversation = db_session.get(Conversation, conversation.id)
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    assert result["retried"] == 1
+    assert result["recovered"] == 1
+    assert state["status"] == "resolved"
+    assert state["recovery_attempt_count"] == 1
+
+
+def test_recover_ai_error_escalations_skips_active_assignments(db_session, monkeypatch):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+    team = CrmTeam(name="Assigned Recovery", is_active=True)
+    db_session.add(team)
+    db_session.commit()
+    agent = _make_agent(db_session, team, label="AssignedRecovery", status=AgentPresenceStatus.online)
+    _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
+    db_session.add(
+        ConversationAssignment(
+            conversation_id=conversation.id,
+            agent_id=agent.id,
+            team_id=team.id,
+            is_active=True,
+        )
+    )
+    now = datetime.now(UTC)
+    conversation.metadata_ = {
+        AI_INTAKE_METADATA_KEY: {
+            "status": "escalated",
+            "scope_key": f"widget:{widget_id}",
+            "started_at": (now - timedelta(minutes=2)).isoformat(),
+            "escalated_at": now.isoformat(),
+            "escalated_reason": "ai_error",
+            "failure_type": "provider_billing",
+            "response_preview": '{"error":{"message":"Insufficient Balance"}}',
+            "handoff_state": "none",
+            "handoff_sent": False,
+        }
+    }
+    db_session.commit()
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+
+    result = recover_ai_error_escalations(db_session, limit=10)
+
+    db_session.refresh(conversation)
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    assert result["retried"] == 0
+    assert result["skipped"] >= 1
+    assert state["status"] == "escalated"
 
 
 def test_history_and_prompt_include_chronological_transcript(db_session):
@@ -1649,6 +2053,7 @@ def test_process_pending_intake_does_not_duplicate_handoff_or_assignment(db_sess
     team = CrmTeam(name="Support", is_active=True)
     db_session.add(team)
     db_session.commit()
+    _make_agent(db_session, team, label="DuplicateGuard", status=AgentPresenceStatus.online)
     _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
 
     monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
@@ -1707,7 +2112,7 @@ def test_process_pending_intake_does_not_duplicate_handoff_or_assignment(db_sess
     assert sent_messages.count("A member of our support team will respond within 15-30 minutes.") == 1
 
 
-def test_escalate_expired_pending_intakes_opens_and_assigns_fallback_team(db_session, monkeypatch):
+def test_escalate_expired_pending_intakes_opens_without_assigning_empty_fallback_team(db_session, monkeypatch):
     person = _make_person(db_session)
     conversation = _make_conversation(db_session, person)
     team = CrmTeam(name="Fallback", is_active=True)
@@ -1741,8 +2146,10 @@ def test_escalate_expired_pending_intakes_opens_and_assigns_fallback_team(db_ses
     assert result["escalated"] == 1
     assert conversation.status == ConversationStatus.open
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["status"] == "escalated"
-    assert assignment is not None
-    assert assignment.team_id == team.id
+    assert assignment is None
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_assignment_skipped_reason"] == "no_team_members"
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_selected_team_id"] == str(team.id)
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_assigned_team_id"] is None
 
 
 def test_save_ai_intake_config_requires_fallback_team_when_enabled(db_session):

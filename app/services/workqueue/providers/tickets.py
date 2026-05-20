@@ -9,14 +9,16 @@ references ``people.id`` directly through ``person_id``.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.tickets import Ticket, TicketAssignee, TicketPriority, TicketStatus
+from app.models.tickets import Ticket, TicketPriority, TicketStatus
 from app.services.workqueue.providers import register
+from app.services.workqueue.scope import WorkqueueScope, apply_ticket_scope
 from app.services.workqueue.scoring_config import (
     PROVIDER_LIMIT,
     TICKET_SCORES,
@@ -37,6 +39,7 @@ _OPEN_STATUSES = (
     TicketStatus.pending,
     TicketStatus.waiting_on_customer,
 )
+logger = logging.getLogger(__name__)
 
 
 def _parse_dt(value) -> datetime | None:
@@ -109,6 +112,22 @@ def _active_assignee_person_id(t: Ticket) -> UUID | None:
     return getattr(t, "assigned_to_person_id", None)
 
 
+def _visibility_source(t: Ticket, scope: WorkqueueScope) -> str:
+    assignee = _active_assignee_person_id(t)
+    ticket_region = (t.region or "").strip().lower()
+    if assignee == scope.person_id:
+        return "direct_assignment"
+    if scope.audience is WorkqueueAudience.self_:
+        return "person_region"
+    if t.service_team_id is not None and t.service_team_id in scope.accessible_service_team_ids:
+        return "service_team_ownership"
+    if ticket_region and ticket_region == (scope.person_region or "").strip().lower():
+        return "person_region"
+    if ticket_region and ticket_region in scope.accessible_service_team_regions:
+        return "service_team_region"
+    return "unknown"
+
+
 def _title(t: Ticket) -> str:
     number = getattr(t, "number", None)
     prefix = f"T-{number}" if number else f"T-{t.id}"
@@ -147,6 +166,7 @@ class TicketsProvider:
         *,
         user,
         audience: WorkqueueAudience,
+        scope: WorkqueueScope,
         snoozed_ids: set[UUID],
         limit: int = PROVIDER_LIMIT,
     ) -> list[WorkqueueItem]:
@@ -158,14 +178,7 @@ class TicketsProvider:
             .where(Ticket.status.in_(_OPEN_STATUSES))
             .where(Ticket.is_active.is_(True))
         )
-
-        if audience is WorkqueueAudience.self_:
-            stmt = stmt.join(TicketAssignee, TicketAssignee.ticket_id == Ticket.id).where(
-                TicketAssignee.person_id == user.person_id
-            )
-        # WorkqueueAudience.team / org: surface every actionable ticket;
-        # team scoping is layered on later when the workqueue gains
-        # team-aware filters (matches conversations provider precedent).
+        stmt = apply_ticket_scope(stmt, scope)
 
         if snoozed_ids:
             stmt = stmt.where(~Ticket.id.in_(snoozed_ids))
@@ -181,8 +194,17 @@ class TicketsProvider:
             reason, score = verdict
             assignee = _active_assignee_person_id(t)
             actions = {ActionKind.open, ActionKind.snooze, ActionKind.complete}
-            if assignee is None:
+            if assignee is None and "workqueue:claim" in getattr(user, "permissions", set()):
                 actions.add(ActionKind.claim)
+            visibility_source = _visibility_source(t, scope)
+            logger.info(
+                "workqueue_item_included kind=ticket user_id=%s item_id=%s visibility_source=%s assignee_source=%s team_source=%s",
+                scope.person_id,
+                t.id,
+                visibility_source,
+                assignee,
+                t.service_team_id,
+            )
             items.append(
                 WorkqueueItem(
                     kind=ItemKind.ticket,
@@ -192,13 +214,14 @@ class TicketsProvider:
                     score=score,
                     reason=reason,
                     urgency=urgency_for_score(score),
-                    deep_link=f"/admin/support/tickets/{t.number or t.id}",
+                    deep_link=f"/admin/tickets/{t.id}",
                     assignee_id=assignee,
                     is_unassigned=assignee is None,
                     happened_at=t.updated_at or now,
                     actions=frozenset(actions),
                     metadata={
                         "priority": getattr(t.priority, "value", None) if t.priority is not None else None,
+                        "visibility_source": visibility_source,
                     },
                 )
             )

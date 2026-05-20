@@ -10,6 +10,7 @@ from app.models.projects import Project, ProjectTask
 from app.models.tickets import Ticket, TicketStatus
 from app.models.workflow import SlaBreach, SlaBreachStatus, SlaClock, WorkflowEntityType
 from app.services.regions import REGION_OPTIONS
+from app.services.sla_assignment import smart_duration_label
 
 SlaReportType = Literal["ticket", "project", "project_task"]
 
@@ -20,25 +21,18 @@ def _base_query(db: Session, entity_type: SlaReportType):
 
 
 def _duration_label(started_at: datetime | None, ended_at: datetime | None) -> str:
+    return smart_duration_label(started_at, ended_at) or "-"
+
+
+def _duration_minutes(started_at: datetime | None, ended_at: datetime | None = None) -> int:
     if not started_at:
-        return "-"
+        return 0
     if started_at.tzinfo is None:
         started_at = started_at.replace(tzinfo=UTC)
     end_value = ended_at or datetime.now(UTC)
     if end_value.tzinfo is None:
         end_value = end_value.replace(tzinfo=UTC)
-    delta = end_value - started_at
-    total_seconds = max(int(delta.total_seconds()), 0)
-    days, rem = divmod(total_seconds, 86400)
-    hours, rem = divmod(rem, 3600)
-    minutes = rem // 60
-    parts: list[str] = []
-    if days:
-        parts.append(f"{days}d")
-    if hours or days:
-        parts.append(f"{hours}h")
-    parts.append(f"{minutes}m")
-    return " ".join(parts)
+    return max(int((end_value - started_at).total_seconds() // 60), 0)
 
 
 class OperationsSlaViolationsReport:
@@ -68,6 +62,7 @@ class OperationsSlaViolationsReport:
         region: str | None,
         start_at: datetime | None,
         end_at: datetime | None,
+        ticket_status: TicketStatus | None = None,
         limit: int = 200,
         open_only: bool = False,
     ) -> list[dict]:
@@ -83,7 +78,11 @@ class OperationsSlaViolationsReport:
         if entity_type == "ticket":
             rows = query.join(Ticket, Ticket.id == SlaClock.entity_id)
             if open_only:
-                rows = rows.filter(Ticket.status != TicketStatus.closed)
+                rows = rows.filter(
+                    Ticket.status.notin_([TicketStatus.closed, TicketStatus.canceled, TicketStatus.merged])
+                )
+            if ticket_status:
+                rows = rows.filter(Ticket.status == ticket_status)
             rows = (
                 rows.filter(Ticket.region == region if region else True)
                 .with_entities(SlaBreach, SlaClock, Ticket)
@@ -105,9 +104,17 @@ class OperationsSlaViolationsReport:
                         "entity_type": "ticket",
                         "status": breach.status.value,
                         "sla_status": breach.status.value,
+                        "ticket_status": ticket.status.value if ticket.status else "",
+                        "ticket_id": str(ticket.id),
+                        "ticket_reference": ref,
+                        "ticket_url": f"/admin/support/tickets/{ref}",
+                        "created_at": ticket.created_at,
+                        "sla_deadline": clock.due_at,
                         "breached_at": breach.breached_at,
+                        "breach_minutes": _duration_minutes(breach.breached_at, ended_at),
                         "breach_duration": _duration_label(breach.breached_at, ended_at),
                         "time_over_target": _duration_label(breach.breached_at, ended_at),
+                        "time_remaining": None,
                         "detail_url": f"/admin/support/tickets/{ref}",
                     }
                 )
@@ -137,6 +144,7 @@ class OperationsSlaViolationsReport:
                         "status": breach.status.value,
                         "sla_status": breach.status.value,
                         "breached_at": breach.breached_at,
+                        "breach_minutes": _duration_minutes(breach.breached_at, ended_at),
                         "breach_duration": _duration_label(breach.breached_at, ended_at),
                         "time_over_target": _duration_label(breach.breached_at, ended_at),
                         "detail_url": f"/admin/projects/{ref}",
@@ -168,6 +176,7 @@ class OperationsSlaViolationsReport:
                     "status": breach.status.value,
                     "sla_status": breach.status.value,
                     "breached_at": breach.breached_at,
+                    "breach_minutes": _duration_minutes(breach.breached_at, ended_at),
                     "breach_duration": _duration_label(breach.breached_at, ended_at),
                     "time_over_target": _duration_label(breach.breached_at, ended_at),
                     "detail_url": f"/admin/projects/tasks/{ref}",
@@ -183,12 +192,14 @@ class OperationsSlaViolationsReport:
         region: str | None,
         start_at: datetime | None,
         end_at: datetime | None,
+        ticket_status: TicketStatus | None = None,
         open_only: bool = False,
     ) -> dict:
         records = self.list_records(
             db,
             entity_type=entity_type,
             region=region,
+            ticket_status=ticket_status,
             start_at=start_at,
             end_at=end_at,
             limit=1000,
@@ -197,19 +208,8 @@ class OperationsSlaViolationsReport:
         open_count = sum(1 for record in records if record["status"] != SlaBreachStatus.resolved.value)
         longest = "-"
         if records:
-
-            def _duration_minutes(value: str) -> int:
-                total = 0
-                for part in value.split():
-                    if part.endswith("d"):
-                        total += int(part[:-1]) * 1440
-                    elif part.endswith("h"):
-                        total += int(part[:-1]) * 60
-                    elif part.endswith("m"):
-                        total += int(part[:-1])
-                return total
-
-            longest = max((record["breach_duration"] for record in records), key=_duration_minutes, default="-")
+            longest_record = max(records, key=lambda record: int(record.get("breach_minutes") or 0), default=None)
+            longest = str(longest_record.get("breach_duration") or "-") if longest_record else "-"
         return {
             "total_violations": len(records),
             "open_violations": open_count,
@@ -227,6 +227,7 @@ class OperationsSlaViolationsReport:
         region: str | None,
         start_at: datetime | None,
         end_at: datetime | None,
+        ticket_status: TicketStatus | None = None,
         open_only: bool = False,
     ) -> list[dict]:
         query = _base_query(db, entity_type)
@@ -240,7 +241,11 @@ class OperationsSlaViolationsReport:
         if entity_type == "ticket":
             rows = query.join(Ticket, Ticket.id == SlaClock.entity_id)
             if open_only:
-                rows = rows.filter(Ticket.status != TicketStatus.closed)
+                rows = rows.filter(
+                    Ticket.status.notin_([TicketStatus.closed, TicketStatus.canceled, TicketStatus.merged])
+                )
+            if ticket_status:
+                rows = rows.filter(Ticket.status == ticket_status)
             rows = (
                 rows.filter(Ticket.region == region if region else True)
                 .with_entities(Ticket.region, func.count(SlaBreach.id))
@@ -277,6 +282,7 @@ class OperationsSlaViolationsReport:
         region: str | None,
         start_at: datetime | None,
         end_at: datetime | None,
+        ticket_status: TicketStatus | None = None,
         open_only: bool = False,
     ) -> list[dict]:
         query = _base_query(db, entity_type)
@@ -290,7 +296,11 @@ class OperationsSlaViolationsReport:
         if entity_type == "ticket":
             query = query.join(Ticket, Ticket.id == SlaClock.entity_id)
             if open_only:
-                query = query.filter(Ticket.status != TicketStatus.closed)
+                query = query.filter(
+                    Ticket.status.notin_([TicketStatus.closed, TicketStatus.canceled, TicketStatus.merged])
+                )
+            if ticket_status:
+                query = query.filter(Ticket.status == ticket_status)
             if region:
                 query = query.filter(Ticket.region == region)
         elif entity_type == "project":

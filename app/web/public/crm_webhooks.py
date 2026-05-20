@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import json
 import random
 import time
@@ -11,6 +13,7 @@ from sqlalchemy.orm import Session
 from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
 
+from app.config import settings
 from app.db import SessionLocal
 from app.logging import get_logger
 from app.schemas.crm.inbox import EmailWebhookPayload, MetaWebhookPayload, WhatsAppWebhookPayload
@@ -201,6 +204,90 @@ def _webhook_tasks():
     from app.tasks import webhooks as webhook_tasks
 
     return webhook_tasks
+
+
+def _meta_signature_debug_enabled() -> bool:
+    return settings.meta_webhook_debug
+
+
+def _meta_signature_compare_debug_enabled() -> bool:
+    return settings.meta_webhook_debug_signatures
+
+
+def _raw_body_sha256(body: bytes) -> str:
+    return hashlib.sha256(body).hexdigest()
+
+
+def _fingerprint_secret(secret: str | None) -> str | None:
+    if not secret:
+        return None
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()[:12]
+
+
+def _extract_meta_signature_debug_context(body: bytes, headers: dict[str, str]) -> dict[str, str | None]:
+    payload_object: str | None = None
+    entry_id: str | None = None
+    page_id: str | None = None
+    instagram_account_id: str | None = None
+    payload_app_id: str | None = None
+    header_app_id = headers.get("X-App-Id") or headers.get("X-Meta-App-Id") or headers.get("X-FB-App-Id")
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        payload = None
+
+    if isinstance(payload, dict):
+        payload_object = _coerce_text(payload.get("object"))
+        payload_app_id = _coerce_text(payload.get("app_id"))
+        entry = payload.get("entry")
+        if isinstance(entry, list) and entry:
+            first_entry = entry[0]
+            if isinstance(first_entry, dict):
+                entry_id = _coerce_text(first_entry.get("id"))
+                page_id = _coerce_text(first_entry.get("id"))
+                if payload_app_id is None:
+                    payload_app_id = _coerce_text(first_entry.get("app_id"))
+
+                messaging = first_entry.get("messaging")
+                if isinstance(messaging, list) and messaging:
+                    first_event = messaging[0]
+                    if isinstance(first_event, dict):
+                        if payload_app_id is None:
+                            payload_app_id = _coerce_text(first_event.get("app_id"))
+                        recipient = first_event.get("recipient")
+                        if isinstance(recipient, dict):
+                            recipient_id = _coerce_text(recipient.get("id"))
+                            if payload_object == "instagram":
+                                instagram_account_id = recipient_id
+                            else:
+                                page_id = page_id or recipient_id
+                        referral = first_event.get("referral")
+                        if isinstance(referral, dict) and payload_app_id is None:
+                            payload_app_id = _coerce_text(referral.get("app_id"))
+
+                changes = first_entry.get("changes")
+                if isinstance(changes, list) and changes:
+                    first_change = changes[0]
+                    if isinstance(first_change, dict):
+                        value = first_change.get("value")
+                        if isinstance(value, dict):
+                            metadata = value.get("metadata")
+                            if isinstance(metadata, dict):
+                                page_id = page_id or _coerce_text(metadata.get("phone_number_id"))
+                                instagram_account_id = instagram_account_id or _coerce_text(
+                                    metadata.get("instagram_account_id")
+                                )
+                            if payload_app_id is None:
+                                payload_app_id = _coerce_text(value.get("app_id"))
+
+    return {
+        "object": payload_object,
+        "entry_id": entry_id,
+        "page_id": page_id,
+        "instagram_account_id": instagram_account_id,
+        "app_id": payload_app_id or _coerce_text(header_app_id),
+    }
 
 
 def _get_verify_token(db: Session, channel: str = "meta") -> str | None:
@@ -783,6 +870,7 @@ async def meta_webhook(
         # Get settings from database
         settings = meta_oauth.get_meta_settings(db)
         app_secret = settings.get("meta_app_secret")
+        wa_secret = settings.get("whatsapp_app_secret")
 
         if not app_secret:
             logger.warning("meta_webhook_secret_missing")
@@ -801,34 +889,30 @@ async def meta_webhook(
             # Return 500 so the provider retries — body was not fully read.
             return Response(status_code=500)
 
-        wa_secret = settings.get("whatsapp_app_secret")
-
-        # Pick primary secret by payload object when available:
-        # - whatsapp_business_account -> WhatsApp app secret
-        # - instagram/page (or unknown) -> Meta app secret
         payload_object: str | None = None
-        try:
-            envelope = json.loads(body.decode("utf-8"))
-            if isinstance(envelope, dict):
-                raw_object = envelope.get("object")
-                if isinstance(raw_object, str) and raw_object:
-                    payload_object = raw_object
-        except Exception:
-            payload_object = None
-
         primary_name = "meta_app_secret"
         primary_secret = app_secret
         secondary_name = "whatsapp_app_secret"
         secondary_secret = wa_secret
-        if payload_object == "whatsapp_business_account" and wa_secret:
-            primary_name = "whatsapp_app_secret"
-            primary_secret = wa_secret
-            secondary_name = "meta_app_secret"
-            secondary_secret = app_secret
 
         verified_with: str | None = None
-        tried_whatsapp_secret = False
+        tried_whatsapp_secret = bool(secondary_secret and secondary_secret != primary_secret)
         signature_valid = False
+        debug_enabled = _meta_signature_debug_enabled()
+        signature_debug_enabled = _meta_signature_compare_debug_enabled()
+        raw_body_hash = _raw_body_sha256(body)
+        raw_body_hash_prefix = raw_body_hash[:20]
+        expected_hash_prefix: str | None = None
+        secondary_hash_prefix: str | None = None
+        expected_signature: str | None = None
+        secondary_signature: str | None = None
+        primary_secret_fingerprint = _fingerprint_secret(primary_secret)
+        secondary_secret_fingerprint = _fingerprint_secret(secondary_secret)
+        content_length = request.headers.get("content-length")
+        cf_connecting_ip_present = bool(request.headers.get("CF-Connecting-IP"))
+        x_forwarded_for_present = bool(request.headers.get("X-Forwarded-For"))
+        primary_signature_valid = False
+        secondary_signature_valid = False
 
         def _verify_signature(secret: str) -> bool:
             try:
@@ -847,8 +931,33 @@ async def meta_webhook(
                     secret,
                 )
 
+        def _signature_prefix(secret: str | None) -> str | None:
+            if not (debug_enabled or signature_debug_enabled) or not secret:
+                return None
+            try:
+                return meta_webhooks.compute_webhook_signature(body, secret)[:12]
+            except Exception:
+                logger.debug("meta_webhook_signature_prefix_failed trace_id=%s", trace_id, exc_info=True)
+                return None
+
+        def _signature_value(secret: str | None) -> str | None:
+            if not signature_debug_enabled or not secret:
+                return None
+            try:
+                return meta_webhooks.compute_webhook_signature(body, secret)
+            except Exception:
+                logger.debug("meta_webhook_signature_value_failed trace_id=%s", trace_id, exc_info=True)
+                return None
+
+        expected_hash_prefix = _signature_prefix(primary_secret)
+        expected_signature = _signature_value(primary_secret)
+        if secondary_secret and secondary_secret != primary_secret:
+            secondary_hash_prefix = _signature_prefix(secondary_secret)
+            secondary_signature = _signature_value(secondary_secret)
+
         try:
             signature_valid = _verify_signature(primary_secret)
+            primary_signature_valid = signature_valid
             if signature_valid:
                 verified_with = primary_name
         except Exception as exc:
@@ -859,27 +968,98 @@ async def meta_webhook(
             tried_whatsapp_secret = secondary_name == "whatsapp_app_secret" or primary_name == "whatsapp_app_secret"
             try:
                 signature_valid = _verify_signature(secondary_secret)
+                secondary_signature_valid = signature_valid
                 if signature_valid:
                     verified_with = secondary_name
                     if secondary_name == "whatsapp_app_secret":
                         logger.info("meta_webhook_verified_with_whatsapp_secret")
             except Exception:
                 logger.debug("meta_webhook_secondary_signature_check_failed trace_id=%s", trace_id, exc_info=True)
+        if debug_enabled:
+            logger.info(
+                "meta_webhook_signature_debug trace_id=%s signature_present=%s signature_valid=%s "
+                "raw_body_hash=%s expected_hash_prefix=%s secondary_hash_prefix=%s verified_with=%s",
+                trace_id,
+                bool(signature),
+                signature_valid,
+                raw_body_hash,
+                expected_hash_prefix,
+                secondary_hash_prefix,
+                verified_with,
+            )
+        if signature_debug_enabled:
+            expected_header = f"sha256={expected_signature}" if expected_signature else None
+            secondary_header = f"sha256={secondary_signature}" if secondary_signature else None
+            signature_match = bool(signature and expected_header and hmac.compare_digest(signature, expected_header))
+            secondary_signature_match = bool(
+                signature and secondary_header and hmac.compare_digest(signature, secondary_header)
+            )
+            signature_header_prefix = signature[:19] if signature else None
+            computed_signature_prefix = expected_header[:19] if expected_header else None
+            secondary_computed_signature_prefix = secondary_header[:19] if secondary_header else None
+            debug_context = _extract_meta_signature_debug_context(body, dict(request.headers))
+            logger.info(
+                "meta_webhook_signature_compare trace_id=%s signature_match=%s secondary_signature_match=%s "
+                "signature_header_prefix=%s computed_signature_prefix=%s secondary_computed_signature_prefix=%s "
+                "body_hash_prefix=%s content_length=%s body_bytes=%s "
+                "cf_connecting_ip_present=%s x_forwarded_for_present=%s object=%s entry_id=%s "
+                "app_id=%s page_id=%s instagram_account_id=%s primary_secret_fingerprint=%s "
+                "secondary_secret_fingerprint=%s primary_signature_valid=%s secondary_signature_valid=%s "
+                "final_verified_with=%s",
+                trace_id,
+                signature_match,
+                secondary_signature_match,
+                signature_header_prefix,
+                computed_signature_prefix,
+                secondary_computed_signature_prefix,
+                raw_body_hash_prefix,
+                content_length,
+                len(body or b""),
+                cf_connecting_ip_present,
+                x_forwarded_for_present,
+                debug_context.get("object"),
+                debug_context.get("entry_id"),
+                debug_context.get("app_id"),
+                debug_context.get("page_id"),
+                debug_context.get("instagram_account_id"),
+                primary_secret_fingerprint,
+                secondary_secret_fingerprint,
+                primary_signature_valid,
+                secondary_signature_valid,
+                verified_with,
+            )
         if not signature_valid:
+            invalid_context = _extract_meta_signature_debug_context(body, dict(request.headers))
             logger.info(
                 "meta_webhook_signature_invalid trace_id=%s signature_present=%s body_bytes=%s "
-                "payload_object=%s tried_whatsapp_secret=%s verified_with=%s",
+                "payload_object=%s tried_whatsapp_secret=%s verified_with=%s raw_body_hash=%s "
+                "expected_hash_prefix=%s secondary_hash_prefix=%s object=%s entry_id=%s app_id=%s "
+                "page_id=%s instagram_account_id=%s primary_secret_fingerprint=%s "
+                "secondary_secret_fingerprint=%s primary_signature_valid=%s secondary_signature_valid=%s",
                 trace_id,
                 bool(signature),
                 len(body or b""),
                 payload_object,
                 tried_whatsapp_secret,
                 verified_with,
+                raw_body_hash,
+                expected_hash_prefix,
+                secondary_hash_prefix,
+                invalid_context.get("object"),
+                invalid_context.get("entry_id"),
+                invalid_context.get("app_id"),
+                invalid_context.get("page_id"),
+                invalid_context.get("instagram_account_id"),
+                primary_secret_fingerprint,
+                secondary_secret_fingerprint,
+                primary_signature_valid,
+                secondary_signature_valid,
             )
             return Response(status_code=401)
 
         try:
             payload = MetaWebhookPayload.model_validate_json(body)
+            payload_object = payload.object
         except Exception as exc:
             logger.warning("meta_webhook_invalid_payload error=%s", exc)
             _record_channel_stat("meta", ok=False)

@@ -55,7 +55,7 @@
                             hx-post="/admin/crm/quotes/{{ quote.id }}/status"
                             hx-swap="none"
                             hx-trigger="change"
-                            class="rounded-lg border border-slate-200 bg-slate-50/50 py-1.5 pl-3 pr-8 text-sm font-semibold text-slate-900 transition-all focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-primary-500">
+                            class="quote-detail-select rounded-lg border border-slate-200 bg-slate-50/50 py-1.5 pl-3 pr-8 text-sm font-semibold text-slate-900 transition-all focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:border-primary-500">
                         <option value="draft" {% if status_val == 'draft' %}selected{% endif %}>Draft</option>
                         <option value="sent" {% if status_val == 'sent' %}selected{% endif %}>Sent</option>
                         <option value="accepted" {% if status_val == 'accepted' %}selected{% endif %}>Accepted</option>

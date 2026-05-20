@@ -6,12 +6,13 @@ import pytest
 
 from app.models.projects import TaskStatus
 from app.services.workqueue.providers.tasks import tasks_provider
+from app.services.workqueue.scope import get_workqueue_scope
 from app.services.workqueue.types import ItemKind, WorkqueueAudience
 
 
 @pytest.fixture
 def user():
-    return SimpleNamespace(person_id=uuid4(), permissions={"workqueue:view"})
+    return SimpleNamespace(person_id=uuid4(), permissions={"workqueue:view"}, roles=set())
 
 
 def test_kind(user):
@@ -24,7 +25,14 @@ def test_overdue_task(db_session, user, project_task_factory):
         status=TaskStatus.in_progress,
         due_at=datetime.now(UTC) - timedelta(hours=1),
     )
-    items = tasks_provider.fetch(db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set())
+    audience = WorkqueueAudience.self_
+    items = tasks_provider.fetch(
+        db_session,
+        user=user,
+        audience=audience,
+        scope=get_workqueue_scope(db_session, user, audience),
+        snoozed_ids=set(),
+    )
     assert items[0].reason == "overdue" and items[0].score == 80
 
 
@@ -34,5 +42,12 @@ def test_due_today_task(db_session, user, project_task_factory):
         status=TaskStatus.in_progress,
         due_at=datetime.now(UTC) + timedelta(hours=4),
     )
-    items = tasks_provider.fetch(db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set())
+    audience = WorkqueueAudience.self_
+    items = tasks_provider.fetch(
+        db_session,
+        user=user,
+        audience=audience,
+        scope=get_workqueue_scope(db_session, user, audience),
+        snoozed_ids=set(),
+    )
     assert items[0].reason == "due_today" and items[0].score == 70

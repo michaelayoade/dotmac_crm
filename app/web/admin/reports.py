@@ -4,16 +4,19 @@ import csv
 import io
 import json
 import logging
+import threading
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 from urllib.parse import quote, urlencode
 from uuid import UUID
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape  # nosec B406 - only XML-escapes generated workbook values
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import APIRouter, Depends, Form, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.csrf import get_csrf_token
@@ -23,7 +26,7 @@ from app.models.dispatch import TechnicianProfile
 from app.models.person import Person, PersonChannel
 from app.models.projects import ProjectTask, ProjectTaskAssignee, TaskStatus
 from app.models.subscriber import Subscriber, SubscriberStatus
-from app.models.tickets import Ticket, TicketComment
+from app.models.tickets import Ticket, TicketComment, TicketStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services import operations_sla_reports as operations_sla_reports_service
 from app.services.auth_dependencies import require_any_permission
@@ -38,6 +41,31 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
 templates = Jinja2Templates(directory="templates")
+
+REPORTS_ONLINE_LAST_24H_READ_PERMISSIONS = (
+    "reports:online-last-24h:read",
+    "reports:operations",
+    "reports:subscribers",
+    "reports",
+)
+REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS = (
+    "reports:online-last-24h:write",
+    "reports:operations",
+    "reports:subscribers",
+    "reports",
+)
+REPORTS_BILLING_RISK_READ_PERMISSIONS = (
+    "reports:billing-risk:read",
+    "reports:billing",
+    "reports:subscribers",
+    "reports",
+)
+REPORTS_BILLING_RISK_WRITE_PERMISSIONS = (
+    "reports:billing-risk:write",
+    "reports:billing",
+    "reports:subscribers",
+    "reports",
+)
 
 
 class _ProjectTaskPersonAccumulator(TypedDict):
@@ -112,6 +140,58 @@ _ONLINE_LAST_24H_ACTIVITY_SEGMENT_OPTIONS = [
 ]
 _ONLINE_LAST_24H_WHATSAPP_TARGET_NAMES = {"dotmac fiber helpdesk"}
 _ONLINE_LAST_24H_EMAIL_TARGET_NAMES = {"sales mail", "noc mail", "support mail"}
+_ONLINE_LAST_24H_ROWS_TTL_SECONDS = 120.0
+_ONLINE_LAST_24H_ROWS_CACHE: dict[tuple[Any, ...], tuple[float, list[dict[str, Any]]]] = {}
+_ONLINE_LAST_24H_ROWS_CACHE_LOCK = threading.Lock()
+
+
+def _clone_report_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [dict(row) for row in rows]
+
+
+def _online_last_24h_cache_key(
+    *,
+    status: str,
+    region: str,
+    search: str,
+    ticket_status: str,
+    notification_state: str,
+    activity_segment: str,
+    subscriber_ids: list[Any] | None,
+) -> tuple[Any, ...]:
+    subscriber_scope = None if subscriber_ids is None else tuple(sorted(str(value) for value in subscriber_ids))
+    return (
+        status,
+        region,
+        search.strip().lower(),
+        ticket_status,
+        notification_state,
+        activity_segment,
+        subscriber_scope,
+    )
+
+
+def _online_last_24h_cached_rows(
+    cache_key: tuple[Any, ...],
+    builder: Callable[[], list[dict[str, Any]]],
+) -> tuple[list[dict[str, Any]], bool]:
+    now = time.monotonic()
+    with _ONLINE_LAST_24H_ROWS_CACHE_LOCK:
+        cached = _ONLINE_LAST_24H_ROWS_CACHE.get(cache_key)
+        if cached is not None:
+            expires_at, rows = cached
+            if expires_at > now:
+                return _clone_report_rows(rows), True
+            _ONLINE_LAST_24H_ROWS_CACHE.pop(cache_key, None)
+
+    rows = builder()
+    safe_rows = _clone_report_rows(rows)
+    with _ONLINE_LAST_24H_ROWS_CACHE_LOCK:
+        _ONLINE_LAST_24H_ROWS_CACHE[cache_key] = (
+            time.monotonic() + _ONLINE_LAST_24H_ROWS_TTL_SECONDS,
+            safe_rows,
+        )
+    return _clone_report_rows(safe_rows), False
 
 
 def _online_last_24h_allowed_target_ids(db: Session, channel: str) -> set[str]:
@@ -162,8 +242,7 @@ def _online_last_24h_ticket_status_cards(rows: list[dict]) -> list[dict[str, int
 
 def _online_last_24h_base_station_options(rows: list[dict]) -> list[str]:
     return sorted(
-        {str(row.get("base_station") or "").strip() for row in rows if str(row.get("base_station") or "").strip()},
-        key=str.lower,
+        {str(row.get("base_station") or "").strip() for row in rows if str(row.get("base_station") or "").strip()}
     )
 
 
@@ -174,7 +253,13 @@ def _normalize_online_last_24h_base_station_values(base_station: list[str] | str
         values = [base_station]
     else:
         values = []
-    return [value for value in dict.fromkeys(str(item).strip() for item in values if str(item).strip())]
+    normalized: list[str] = []
+    for value in values:
+        for part in str(value).split(","):
+            candidate = part.strip()
+            if candidate and candidate not in normalized:
+                normalized.append(candidate)
+    return normalized
 
 
 def _filter_online_last_24h_base_stations(rows: list[dict], selected_base_stations: list[str]) -> list[dict]:
@@ -182,61 +267,6 @@ def _filter_online_last_24h_base_stations(rows: list[dict], selected_base_statio
     if not selected:
         return rows
     return [row for row in rows if str(row.get("base_station") or "").strip().lower() in selected]
-
-
-def _enrich_online_last_24h_campaign_status(rows: list[dict], db: Session) -> list[dict]:
-    """Attach latest online-last-24h campaign recipient status to report rows."""
-    from app.models.crm.campaign import Campaign, CampaignRecipient
-    from app.services.crm.web_campaigns import OUTREACH_SOURCE_ONLINE_LAST_24H
-
-    if db is None:
-        return rows
-
-    subscriber_ids: list[UUID] = []
-    for row in rows:
-        try:
-            subscriber_ids.append(UUID(str(row.get("subscriber_id") or "").strip()))
-        except (TypeError, ValueError):
-            continue
-    if not subscriber_ids:
-        return rows
-
-    subscriber_person_rows = db.execute(
-        select(Subscriber.id, Subscriber.person_id).where(Subscriber.id.in_(subscriber_ids))
-    ).all()
-    person_to_subscribers: dict[str, list[str]] = {}
-    for subscriber_id, person_id in subscriber_person_rows:
-        if person_id:
-            person_to_subscribers.setdefault(str(person_id), []).append(str(subscriber_id))
-    if not person_to_subscribers:
-        return rows
-
-    recipient_rows = (
-        db.query(CampaignRecipient, Campaign)
-        .join(Campaign, Campaign.id == CampaignRecipient.campaign_id)
-        .filter(CampaignRecipient.person_id.in_([UUID(person_id) for person_id in person_to_subscribers]))
-        .order_by(func.coalesce(CampaignRecipient.sent_at, CampaignRecipient.created_at).desc())
-        .all()
-    )
-    latest_by_subscriber: dict[str, CampaignRecipient] = {}
-    for recipient, campaign in recipient_rows:
-        metadata = campaign.metadata_ or {}
-        if not isinstance(metadata, dict) or metadata.get("source_report") != OUTREACH_SOURCE_ONLINE_LAST_24H:
-            continue
-        for subscriber_id in person_to_subscribers.get(str(recipient.person_id), []):
-            latest_by_subscriber.setdefault(subscriber_id, recipient)
-
-    for row in rows:
-        recipient = latest_by_subscriber.get(str(row.get("subscriber_id") or ""))
-        if not recipient:
-            row.setdefault("latest_notification_sent_status", "")
-            row.setdefault("latest_notification_sent_for", "")
-            continue
-        status = recipient.status.value if hasattr(recipient.status, "value") else str(recipient.status or "")
-        sent_at = recipient.sent_at or recipient.delivered_at or recipient.created_at
-        row["latest_notification_sent_status"] = status
-        row["latest_notification_sent_for"] = sent_at.strftime("%Y-%m-%d %H:%M") if sent_at else ""
-    return rows
 
 
 def _filter_online_last_24h_notification_state(rows: list[dict], notification_state: str) -> list[dict]:
@@ -1441,6 +1471,7 @@ def operations_sla_violations_report(
     db: Session = Depends(get_db),
     data_type: str = Query("ticket"),
     region: str | None = Query(None),
+    ticket_status: str | None = Query(None),
     days: int = Query(30, ge=1, le=365),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
@@ -1455,6 +1486,22 @@ def operations_sla_violations_report(
     report = operations_sla_reports_service.operations_sla_violations_report
     region_options = report.region_options(db, selected_type)
     selected_region = region if region in region_options else None
+    selected_ticket_status = None
+    if selected_type == "ticket" and ticket_status:
+        try:
+            selected_ticket_status = TicketStatus(ticket_status)
+        except ValueError:
+            selected_ticket_status = None
+    export_query = urlencode(
+        {
+            "data_type": selected_type,
+            "region": selected_region or "",
+            "ticket_status": selected_ticket_status.value if selected_ticket_status else "",
+            "days": str(days),
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+        }
+    )
 
     summary = report.summary(
         db,
@@ -1462,6 +1509,7 @@ def operations_sla_violations_report(
         region=selected_region,
         start_at=start_dt,
         end_at=end_dt,
+        ticket_status=selected_ticket_status,
         open_only=True,
     )
     region_chart = report.by_region(
@@ -1470,6 +1518,7 @@ def operations_sla_violations_report(
         region=selected_region,
         start_at=start_dt,
         end_at=end_dt,
+        ticket_status=selected_ticket_status,
         open_only=True,
     )
     trend_chart = report.trend_daily(
@@ -1478,6 +1527,7 @@ def operations_sla_violations_report(
         region=selected_region,
         start_at=start_dt,
         end_at=end_dt,
+        ticket_status=selected_ticket_status,
         open_only=True,
     )
     records = report.list_records(
@@ -1486,6 +1536,7 @@ def operations_sla_violations_report(
         region=selected_region,
         start_at=start_dt,
         end_at=end_dt,
+        ticket_status=selected_ticket_status,
         open_only=True,
     )
 
@@ -1493,6 +1544,11 @@ def operations_sla_violations_report(
         {"value": "ticket", "label": "Tickets"},
         {"value": "project", "label": "Projects"},
         {"value": "project_task", "label": "Project Tasks"},
+    ]
+    ticket_status_options = [
+        {"value": status.value, "label": status.value.replace("_", " ").title()}
+        for status in TicketStatus
+        if status != TicketStatus.closed
     ]
 
     return templates.TemplateResponse(
@@ -1508,6 +1564,8 @@ def operations_sla_violations_report(
             "selected_data_type": selected_type,
             "region_options": region_options,
             "selected_region": selected_region or "",
+            "ticket_status_options": ticket_status_options,
+            "selected_ticket_status": selected_ticket_status.value if selected_ticket_status else "",
             "days": days,
             "start_date": start_date or "",
             "end_date": end_date or "",
@@ -1515,8 +1573,59 @@ def operations_sla_violations_report(
             "region_chart": region_chart,
             "trend_chart": trend_chart,
             "records": records,
+            "export_query": export_query,
         },
     )
+
+
+@router.get("/operations-sla-violations/export")
+def operations_sla_violations_export(
+    db: Session = Depends(get_db),
+    data_type: str = Query("ticket"),
+    region: str | None = Query(None),
+    ticket_status: str | None = Query(None),
+    days: int = Query(30, ge=1, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    _valid_types = {"ticket", "project", "project_task"}
+    selected_type: Literal["ticket", "project", "project_task"] = (
+        data_type if data_type in _valid_types else "ticket"  # type: ignore[assignment]
+    )
+    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+    report = operations_sla_reports_service.operations_sla_violations_report
+    region_options = report.region_options(db, selected_type)
+    selected_region = region if region in region_options else None
+    selected_ticket_status = None
+    if selected_type == "ticket" and ticket_status:
+        try:
+            selected_ticket_status = TicketStatus(ticket_status)
+        except ValueError:
+            selected_ticket_status = None
+    records = report.list_records(
+        db,
+        entity_type=selected_type,
+        region=selected_region,
+        start_at=start_dt,
+        end_at=end_dt,
+        ticket_status=selected_ticket_status,
+        open_only=True,
+        limit=10000,
+    )
+    export_data = [
+        {
+            "ID": record.get("id", ""),
+            "Title": record.get("title", ""),
+            "Project": record.get("project", "") or "",
+            "Region": record.get("region", ""),
+            "SLA Type": record.get("sla_type", ""),
+            "Status": str(record.get("ticket_status") or record.get("status") or "").replace("_", " ").title(),
+            "Breach Duration": record.get("breach_duration", ""),
+        }
+        for record in records
+    ]
+    filename = f"operations_sla_violations_{selected_type}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
+    return _csv_response(export_data, filename)
 
 
 # Legacy redirects point to new subscriber overview
@@ -1694,11 +1803,15 @@ def subscriber_overview_export(
 
 
 # =============================================================================
-# Inactive Last 24h Report
+# Online Last 24h Report
 # =============================================================================
 
 
-@router.get("/subscribers/online-last-24h", response_class=HTMLResponse)
+@router.get(
+    "/subscribers/online-last-24h",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_READ_PERMISSIONS))],
+)
 def subscriber_online_last_24h(
     request: Request,
     db: Session = Depends(get_db),
@@ -1712,14 +1825,17 @@ def subscriber_online_last_24h(
 ):
     """Subscribers with online/session activity in the last 24 hours."""
     from app.services import subscriber_notifications as subscriber_notifications_service
+    from app.services import subscriber_offline_outreach as subscriber_offline_outreach_service
     from app.services import subscriber_reports as sr
     from app.services.crm.web_campaigns import outreach_channel_target_options
 
     user = get_current_user(request)
     filter_opts = sr.overview_filter_options(db)
+    region_options = filter_opts.get("regions", [])
     status_value = (status or "").strip().lower()
+    selected_region = region if isinstance(region, str) and region in region_options else None
     selected_status = next((item for item in SubscriberStatus if item.value == status_value), None)
-    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=None)
+    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=selected_region)
 
     selected_ticket_status = (ticket_status or "all").strip().lower()
     valid_ticket_values = {item["value"] for item in _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS}
@@ -1735,17 +1851,45 @@ def subscriber_online_last_24h(
         selected_activity_segment = "active_last24_not_online"
     search_value = (search or "").strip()
 
-    online_customers = sr.online_customers_last_24h_rows(
-        db,
-        subscriber_ids=subscriber_ids,
+    cache_key = _online_last_24h_cache_key(
+        status=selected_status.value if selected_status else "",
+        region=selected_region or "",
         search=search_value,
         ticket_status=selected_ticket_status,
         notification_state=selected_notification_state,
         activity_segment=selected_activity_segment,
-        limit=None,
+        subscriber_ids=subscriber_ids,
     )
-    online_customers = subscriber_notifications_service.enrich_notification_rows(online_customers, db)
-    online_customers = _enrich_online_last_24h_campaign_status(online_customers, db)
+    online_customers, cache_hit = _online_last_24h_cached_rows(
+        cache_key,
+        lambda: subscriber_notifications_service.enrich_notification_rows(
+            subscriber_offline_outreach_service.enrich_rows_with_station_status(
+                db,
+                sr.online_customers_last_24h_rows(
+                    db,
+                    subscriber_ids=subscriber_ids,
+                    search=search_value,
+                    ticket_status=selected_ticket_status,
+                    notification_state=selected_notification_state,
+                    activity_segment=selected_activity_segment,
+                    limit=None,
+                ),
+            )
+            if hasattr(db, "execute")
+            else sr.online_customers_last_24h_rows(
+                db,
+                subscriber_ids=subscriber_ids,
+                search=search_value,
+                ticket_status=selected_ticket_status,
+                notification_state=selected_notification_state,
+                activity_segment=selected_activity_segment,
+                limit=None,
+            ),
+            db,
+        ),
+    )
+    if cache_hit:
+        logger.info("online_last_24h_rows_cache_hit rows=%s", len(online_customers))
     base_station_options = _online_last_24h_base_station_options(online_customers)
     selected_base_stations = [
         value for value in _normalize_online_last_24h_base_station_values(base_station) if value in base_station_options
@@ -1753,6 +1897,26 @@ def subscriber_online_last_24h(
     online_customers = _filter_online_last_24h_base_stations(online_customers, selected_base_stations)
     online_customers = _filter_online_last_24h_notification_state(online_customers, selected_notification_state)
     online_customers = _sort_online_last_24h_rows(online_customers)
+    has_db_session = hasattr(db, "execute")
+    outreach_settings = (
+        subscriber_offline_outreach_service.get_outreach_settings_snapshot(db)
+        if has_db_session
+        else {
+            "enabled": False,
+            "interval_seconds": 0,
+            "local_time": "10:00",
+            "timezone": "Africa/Lagos",
+            "channel_target_id": "",
+            "cooldown_hours": 0,
+            "template_name": "",
+            "template_language": "",
+            "template_body": "",
+            "template_parameter_values": {},
+            "template_parameter_indexes": [],
+            "template_payload": None,
+        }
+    )
+    outreach_channel_targets = outreach_channel_target_options(db) if has_db_session else {}
 
     return templates.TemplateResponse(
         "admin/reports/subscriber_online_last_24h.html",
@@ -1769,22 +1933,72 @@ def subscriber_online_last_24h(
             "ticket_status_kpis": _online_last_24h_ticket_status_cards(online_customers),
             "filter_opts": filter_opts,
             "selected_status": selected_status.value if selected_status else "",
+            "selected_region": selected_region or "",
             "search": search_value,
-            "base_station_options": base_station_options,
-            "selected_base_stations": selected_base_stations,
             "selected_ticket_status": selected_ticket_status,
             "ticket_status_options": _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS,
             "selected_notification_state": selected_notification_state,
             "notification_state_options": _ONLINE_LAST_24H_NOTIFICATION_STATE_OPTIONS,
             "selected_activity_segment": selected_activity_segment,
             "activity_segment_options": _ONLINE_LAST_24H_ACTIVITY_SEGMENT_OPTIONS,
-            "outreach_channel_targets": outreach_channel_target_options(db),
+            "base_station_options": base_station_options,
+            "selected_base_stations": selected_base_stations,
+            "selected_base_station_query": "".join(f"&base_station={quote(value)}" for value in selected_base_stations),
+            "outreach_channel_targets": outreach_channel_targets,
+            "outreach_settings": outreach_settings,
             "current_query": request.url.path + (f"?{request.url.query}" if request.url.query else ""),
         },
     )
 
 
-@router.get("/subscribers/online-last-24h/context/{subscriber_id}", response_class=JSONResponse)
+@router.post(
+    "/subscribers/online-last-24h/outreach/settings",
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS))],
+)
+def subscriber_online_last_24h_save_outreach_settings(
+    request: Request,
+    outreach_local_time: str = Form("10:00"),
+    outreach_timezone: str = Form("Africa/Lagos"),
+    outreach_channel_target_id: str = Form(""),
+    outreach_whatsapp_template_name: str = Form(""),
+    outreach_whatsapp_template_language: str = Form(""),
+    outreach_whatsapp_template_parameters: str = Form("{}"),
+    next_url: str = Form("/admin/reports/subscribers/online-last-24h"),
+    db: Session = Depends(get_db),
+):
+    from app.services import subscriber_offline_outreach as subscriber_offline_outreach_service
+
+    if not next_url.startswith("/admin/reports/subscribers/online-last-24h"):
+        next_url = "/admin/reports/subscribers/online-last-24h"
+
+    try:
+        subscriber_offline_outreach_service.save_outreach_settings(
+            db,
+            local_time=outreach_local_time,
+            timezone=outreach_timezone,
+            channel_target_id=outreach_channel_target_id,
+            whatsapp_template_name=outreach_whatsapp_template_name,
+            whatsapp_template_language=outreach_whatsapp_template_language,
+            whatsapp_template_parameters=outreach_whatsapp_template_parameters,
+        )
+    except Exception as exc:
+        db.rollback()
+        detail = getattr(exc, "detail", None) or str(exc)
+        return _toast_redirect(next_url, message=str(detail), toast_type="error", status_code=303)
+
+    return _toast_redirect(
+        next_url,
+        message="Offline outreach settings saved. The scheduler will check every 5 minutes and run once per day after the selected time.",
+        toast_type="success",
+        status_code=303,
+    )
+
+
+@router.get(
+    "/subscribers/online-last-24h/context/{subscriber_id}",
+    response_class=JSONResponse,
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_READ_PERMISSIONS))],
+)
 def subscriber_online_last_24h_notify_context(
     subscriber_id: UUID,
     last_seen_at: str | None = Query(None),
@@ -1802,7 +2016,11 @@ def subscriber_online_last_24h_notify_context(
     return JSONResponse(payload)
 
 
-@router.post("/subscribers/online-last-24h/templates", response_class=JSONResponse)
+@router.post(
+    "/subscribers/online-last-24h/templates",
+    response_class=JSONResponse,
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS))],
+)
 def subscriber_online_last_24h_save_template(
     template_key: str = Form(...),
     email_subject: str = Form(...),
@@ -1822,7 +2040,10 @@ def subscriber_online_last_24h_save_template(
     return JSONResponse({"ok": True, "template": saved})
 
 
-@router.post("/subscribers/online-last-24h/notify")
+@router.post(
+    "/subscribers/online-last-24h/notify",
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS))],
+)
 def subscriber_online_last_24h_notify(
     request: Request,
     subscriber_id: UUID = Form(...),
@@ -1872,7 +2093,10 @@ def subscriber_online_last_24h_notify(
     return _toast_redirect(next_url, message=message)
 
 
-@router.post("/subscribers/online-last-24h/notify/bulk")
+@router.post(
+    "/subscribers/online-last-24h/notify/bulk",
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS))],
+)
 def subscriber_online_last_24h_bulk_notify(
     request: Request,
     subscriber_ids: str = Form(...),
@@ -1924,11 +2148,14 @@ def subscriber_online_last_24h_bulk_notify(
     return _toast_redirect(next_url, message=message, toast_type=toast_type)
 
 
-@router.post("/subscribers/online-last-24h/outreach")
+@router.post(
+    "/subscribers/online-last-24h/outreach",
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS))],
+)
 def subscriber_online_last_24h_create_outreach(
     request: Request,
     db: Session = Depends(get_db),
-    name: str = Form("Inactive Last 24H Outreach"),
+    name: str = Form("Online Last 24H Outreach"),
     channel: str = Form("whatsapp"),
     channel_target_id: str = Form(""),
     subscriber_id: list[str] = Form(default=[]),
@@ -1979,7 +2206,10 @@ def subscriber_online_last_24h_create_outreach(
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign.id}", status_code=303)
 
 
-@router.post("/subscribers/online-last-24h/notify/test-send")
+@router.post(
+    "/subscribers/online-last-24h/notify/test-send",
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS))],
+)
 def subscriber_online_last_24h_test_send(
     request: Request,
     subscriber_id: UUID = Form(...),
@@ -2014,7 +2244,10 @@ def subscriber_online_last_24h_test_send(
     )
 
 
-@router.get("/subscribers/online-last-24h/export")
+@router.get(
+    "/subscribers/online-last-24h/export",
+    dependencies=[Depends(require_any_permission(*REPORTS_ONLINE_LAST_24H_READ_PERMISSIONS))],
+)
 def subscriber_online_last_24h_export(
     db: Session = Depends(get_db),
     status: str | None = Query(None),
@@ -2027,11 +2260,15 @@ def subscriber_online_last_24h_export(
 ):
     """Export last-24h online subscribers report."""
     from app.services import subscriber_notifications as subscriber_notifications_service
+    from app.services import subscriber_offline_outreach as subscriber_offline_outreach_service
     from app.services import subscriber_reports as sr
 
+    filter_opts = sr.overview_filter_options(db)
+    region_options = filter_opts.get("regions", [])
     status_value = (status or "").strip().lower()
+    selected_region = region if isinstance(region, str) and region in region_options else None
     selected_status = next((item for item in SubscriberStatus if item.value == status_value), None)
-    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=None)
+    subscriber_ids = sr.overview_filtered_subscriber_ids(db, status=selected_status, region=selected_region)
     selected_ticket_status = (ticket_status or "all").strip().lower()
     valid_ticket_values = {item["value"] for item in _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS}
     if selected_ticket_status not in valid_ticket_values:
@@ -2045,17 +2282,44 @@ def subscriber_online_last_24h_export(
     if selected_activity_segment not in valid_activity_segments:
         selected_activity_segment = "active_last24_not_online"
 
-    online_customers = sr.online_customers_last_24h_rows(
-        db,
-        subscriber_ids=subscriber_ids,
-        search=(search or "").strip(),
+    search_value = (search or "").strip()
+    cache_key = _online_last_24h_cache_key(
+        status=selected_status.value if selected_status else "",
+        region=selected_region or "",
+        search=search_value,
         ticket_status=selected_ticket_status,
         notification_state=selected_notification_state,
         activity_segment=selected_activity_segment,
-        limit=None,
+        subscriber_ids=subscriber_ids,
     )
-    online_customers = subscriber_notifications_service.enrich_notification_rows(online_customers, db)
-    online_customers = _enrich_online_last_24h_campaign_status(online_customers, db)
+    online_customers, _cache_hit = _online_last_24h_cached_rows(
+        cache_key,
+        lambda: subscriber_notifications_service.enrich_notification_rows(
+            subscriber_offline_outreach_service.enrich_rows_with_station_status(
+                db,
+                sr.online_customers_last_24h_rows(
+                    db,
+                    subscriber_ids=subscriber_ids,
+                    search=search_value,
+                    ticket_status=selected_ticket_status,
+                    notification_state=selected_notification_state,
+                    activity_segment=selected_activity_segment,
+                    limit=None,
+                ),
+            )
+            if hasattr(db, "execute")
+            else sr.online_customers_last_24h_rows(
+                db,
+                subscriber_ids=subscriber_ids,
+                search=search_value,
+                ticket_status=selected_ticket_status,
+                notification_state=selected_notification_state,
+                activity_segment=selected_activity_segment,
+                limit=None,
+            ),
+            db,
+        ),
+    )
     base_station_options = _online_last_24h_base_station_options(online_customers)
     selected_base_stations = [
         value for value in _normalize_online_last_24h_base_station_values(base_station) if value in base_station_options
@@ -2069,11 +2333,13 @@ def subscriber_online_last_24h_export(
             "Name": row.get("name", ""),
             "Subscriber Number": row.get("subscriber_number", ""),
             "Status": row.get("status", ""),
-            "Base Station": row.get("base_station", ""),
+            "Region": row.get("region", ""),
             "Email": row.get("email", ""),
             "Phone": row.get("phone", ""),
             "Last Seen At": row.get("last_seen_at", ""),
             "Last Activity": row.get("last_activity", ""),
+            "Base Station": row.get("base_station", ""),
+            "Base Station Status": row.get("station_status", ""),
             "Currently Online": "Yes" if row.get("currently_online") else "No",
             "Ticket Status": row.get("ticket_status", ""),
         }
@@ -2308,7 +2574,7 @@ def churned_subscribers_export(
 @router.get(
     "/subscribers/billing-risk",
     response_class=HTMLResponse,
-    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+    dependencies=[Depends(require_any_permission(*REPORTS_BILLING_RISK_READ_PERMISSIONS))],
 )
 def subscriber_billing_risk(
     request: Request,
@@ -2526,7 +2792,7 @@ def subscriber_billing_risk(
 def subscriber_billing_risk_refresh(
     request: Request,
     next_url: str = Form("/admin/reports/subscribers/billing-risk"),
-    _permission: dict = Depends(require_any_permission("reports:billing", "reports:subscribers", "reports")),
+    _permission: dict = Depends(require_any_permission(*REPORTS_BILLING_RISK_WRITE_PERMISSIONS)),
 ):
     if not next_url.startswith("/admin/reports/subscribers/billing-risk"):
         next_url = "/admin/reports/subscribers/billing-risk"
@@ -2541,7 +2807,7 @@ def subscriber_billing_risk_refresh(
 
 @router.get(
     "/subscribers/billing-risk/export",
-    dependencies=[Depends(require_any_permission("reports:billing", "reports:subscribers", "reports"))],
+    dependencies=[Depends(require_any_permission(*REPORTS_BILLING_RISK_READ_PERMISSIONS))],
 )
 def subscriber_billing_risk_export(
     request: Request,
@@ -3029,6 +3295,14 @@ def _metric_float(row: dict[str, object], key: str) -> float:
     return float(value) if isinstance(value, int | float | str) else 0.0
 
 
+def _project_task_window_clause(start_date: datetime, end_date: datetime):
+    """Select tasks that were active at any point in the requested window."""
+    return and_(
+        ProjectTask.created_at <= end_date,
+        or_(ProjectTask.completed_at.is_(None), ProjectTask.completed_at >= start_date),
+    )
+
+
 def _get_project_task_people_performance(
     db: Session,
     start_date: datetime,
@@ -3044,8 +3318,7 @@ def _get_project_task_people_performance(
             )
             .where(
                 ProjectTask.is_active.is_(True),
-                ProjectTask.created_at >= start_date,
-                ProjectTask.created_at <= end_date,
+                _project_task_window_clause(start_date, end_date),
             )
         )
         .unique()
@@ -3103,9 +3376,17 @@ def _get_project_task_people_performance(
         if not assignee_ids:
             continue
 
-        is_done = task.status == TaskStatus.done
+        is_done = bool(
+            task.status == TaskStatus.done
+            and task.completed_at
+            and not _datetime_after(start_date, task.completed_at)
+            and not _datetime_after(task.completed_at, end_date)
+        )
         is_blocked = task.status == TaskStatus.blocked
-        is_overdue = bool(task.due_at and _datetime_after(task.completed_at or now, task.due_at) and not is_done)
+        completed_or_window_end = task.completed_at or now
+        if _datetime_after(completed_or_window_end, end_date):
+            completed_or_window_end = end_date
+        is_overdue = bool(task.due_at and _datetime_after(completed_or_window_end, task.due_at) and not is_done)
         is_on_time = bool(
             is_done and task.due_at and task.completed_at and not _datetime_after(task.completed_at, task.due_at)
         )

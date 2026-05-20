@@ -308,8 +308,8 @@
                     <span class="text-[10px] text-slate-400 dark:text-slate-500 truncate w-full">{{ macro.description }}</span>
                     {% endif %}
                     <span class="text-[10px] text-slate-400 dark:text-slate-500">
-                        {{ macro.actions|length }} action{{ 's' if macro.actions|length != 1 else '' }}
-                        {% if macro.visibility.value == 'shared' %} · Shared{% endif %}
+                        {{ macro.action_count }} action{{ 's' if macro.action_count != 1 else '' }}
+                        {% if macro.visibility == 'shared' %} · Shared{% endif %}
                     </span>
                 </button>
                 {% endfor %}
@@ -1085,7 +1085,7 @@
                     {% for tmpl in message_templates or [] %}
                     <option value="{{ tmpl.id }}"
                             data-body="{{ tmpl.body | e }}">
-                        {% if tmpl.channel_type %}{{ tmpl.channel_type.value }} · {% endif %}{{ tmpl.name }}
+                        {% if tmpl.channel_type %}{{ tmpl.channel_type }} · {% endif %}{{ tmpl.name }}
                     </option>
                     {% endfor %}
                 </select>
