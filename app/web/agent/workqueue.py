@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 
@@ -38,6 +39,8 @@ class _WorkqueueUser:
 
     person_id: UUID
     permissions: set[str]
+    roles: set[str]
+    region: str | None = None
 
 
 def _get_db():
@@ -62,11 +65,10 @@ def _build_user(request: Request) -> tuple[dict, _WorkqueueUser]:
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=403) from exc
     perms = set(raw.get("permissions") or [])
-    return raw, _WorkqueueUser(person_id=person_uuid, permissions=perms)
-
-
-def _csrf_token(request: Request) -> str:
-    return str(getattr(request.state, "csrf_token", None) or request.cookies.get("csrf_token", ""))
+    roles = {str(role) for role in (raw.get("roles") or []) if str(role).strip()}
+    user = getattr(request.state, "user", None)
+    region = getattr(user, "region", None) if user is not None else raw.get("region")
+    return raw, _WorkqueueUser(person_id=person_uuid, permissions=perms, roles=roles, region=region)
 
 
 @router.get("", response_class=HTMLResponse)
@@ -82,19 +84,19 @@ def page(
         raw_user, wq_user = _build_user(request)
         if not has_workqueue_view(wq_user):
             raise HTTPException(status_code=403)
-        view = build_workqueue(db, wq_user, requested_audience="self")
+        view = build_workqueue(db, wq_user, requested_audience=audience)
         audience_label = view.audience.value
         return templates.TemplateResponse(
             "agent/workqueue/index.html",
             {
                 "request": request,
                 "current_user": raw_user,
-                "sidebar_stats": get_sidebar_stats(db, raw_user),
+                "sidebar_stats": get_sidebar_stats(db, raw_user, workqueue_attention_override=len(view.right_now)),
                 "active_page": "workqueue",
                 "view": view,
                 "right_now": view.right_now,
-                "workqueue_audience": view.audience,
-                "csrf_token": _csrf_token(request),
+                "audience_value": view.audience.value,
+                "csrf_token": request.cookies.get("csrf_token", ""),
             },
         )
     finally:
@@ -114,15 +116,15 @@ def partial_right_now(
         _, wq_user = _build_user(request)
         if not has_workqueue_view(wq_user):
             raise HTTPException(status_code=403)
-        view = build_workqueue(db, wq_user, requested_audience="self")
+        view = build_workqueue(db, wq_user, requested_audience=audience)
         audience_label = view.audience.value
         return templates.TemplateResponse(
             "agent/workqueue/_right_now.html",
             {
                 "request": request,
                 "right_now": view.right_now,
-                "workqueue_audience": view.audience,
-                "csrf_token": _csrf_token(request),
+                "audience_value": view.audience.value,
+                "csrf_token": request.cookies.get("csrf_token", ""),
             },
         )
     finally:
@@ -150,7 +152,7 @@ def partial_section(
         _, wq_user = _build_user(request)
         if not has_workqueue_view(wq_user):
             raise HTTPException(status_code=403)
-        view = build_workqueue(db, wq_user, requested_audience="self")
+        view = build_workqueue(db, wq_user, requested_audience=audience)
         audience_label = view.audience.value
         section = next((s for s in view.sections if s.kind is item_kind), None)
         if section is None:
@@ -160,8 +162,8 @@ def partial_section(
             {
                 "request": request,
                 "section": section,
-                "workqueue_audience": view.audience,
-                "csrf_token": _csrf_token(request),
+                "audience_value": view.audience.value,
+                "csrf_token": request.cookies.get("csrf_token", ""),
             },
         )
     finally:
@@ -183,6 +185,13 @@ def _refresh_response(message: str) -> Response:
             )
         },
     )
+
+
+def _item_ref_from_form(
+    kind: Annotated[ItemKind, Form(...)],
+    item_id: Annotated[UUID, Form(...)],
+) -> ItemRef:
+    return ItemRef(kind=kind, item_id=item_id)
 
 
 @router.post("/snooze")
@@ -230,7 +239,7 @@ def post_clear_snooze(
 
 @router.post("/claim")
 def post_claim(
-    payload: ItemRef,
+    payload: Annotated[ItemRef, Depends(_item_ref_from_form)],
     request: Request,
     db: Session = Depends(_get_db),
 ):
@@ -242,6 +251,8 @@ def post_claim(
         workqueue_actions.claim(db, wq_user, payload.kind, payload.item_id)
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
+    except NotImplementedError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     observe_workqueue_action(kind=payload.kind.value, action="claim")

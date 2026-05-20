@@ -4,6 +4,7 @@
 {% set user_roles_lower = user_roles | map('lower') | list %}
 {% set can_delete_quotes = 'admin' in user_roles_lower %}
 
+<div id="quotes-table" class="animate-fade-in-up" style="animation-delay: 150ms;">
 {% call table_shell(table_id="quotes-table", color="cyan", bulk_selectable=False, search=False) %}
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
             <thead>
@@ -186,3 +187,4 @@
     });
 })();
 </script>
+</div>

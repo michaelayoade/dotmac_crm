@@ -56,14 +56,40 @@ def test_ticket_create_auto_starts_sla_clock(db_session):
     assert clock.status == SlaClockStatus.running
     assert clock.priority == "high"
     assert clock.started_at is not None
-    assert clock.due_at == clock.started_at + timedelta(minutes=240)
+    assert clock.due_at == clock.started_at + timedelta(hours=24)
 
 
-def test_ticket_terminal_status_completes_existing_sla_clock(db_session):
+def test_core_link_ticket_create_uses_48_hour_sla_clock(db_session):
+    _seed_ticket_sla(db_session)
+
+    ticket = tickets_service.tickets.create(
+        db_session,
+        TicketCreate(
+            title="Core link down",
+            priority=TicketPriority.high,
+            ticket_type="Core Link Disconnection",
+            metadata_={"base_station_details": "ASOKORO (D-AFR2)"},
+        ),
+    )
+
+    clock = _latest_ticket_clock(db_session, ticket.id)
+
+    assert clock is not None
+    assert clock.status == SlaClockStatus.running
+    assert clock.priority == "high"
+    assert clock.due_at == clock.started_at + timedelta(hours=48)
+
+
+def test_ticket_terminal_status_completes_existing_sla_clock(db_session, subscriber):
     _seed_ticket_sla(db_session)
     ticket = tickets_service.tickets.create(
         db_session,
-        TicketCreate(title="AP outage", priority=TicketPriority.urgent),
+        TicketCreate(
+            title="Customer link down",
+            priority=TicketPriority.urgent,
+            ticket_type="Customer Link Disconnection",
+            subscriber_id=subscriber.id,
+        ),
     )
 
     before_close = datetime.now(UTC)
@@ -113,12 +139,17 @@ def test_ticket_update_closed_backfills_resolved_timestamp(db_session):
     assert ticket_resolved_at == closed_at
 
 
-def test_ticket_close_and_reopen_keeps_clock_state(db_session):
+def test_ticket_close_and_reopen_keeps_clock_state(db_session, subscriber):
     """Closing a ticket completes the SLA clock; reopening resumes via status change."""
     _seed_ticket_sla(db_session)
     ticket = tickets_service.tickets.create(
         db_session,
-        TicketCreate(title="Billing complaint", priority=TicketPriority.lower),
+        TicketCreate(
+            title="Billing complaint",
+            priority=TicketPriority.lower,
+            ticket_type="Customer Link Disconnection",
+            subscriber_id=subscriber.id,
+        ),
     )
 
     # Close ticket — clock should be completed

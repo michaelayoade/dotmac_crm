@@ -23,6 +23,7 @@ from app.services import crm as crm_service
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
+from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.agents import get_current_agent_id, list_active_agents_for_mentions
 from app.services.crm.inbox.comments_context import list_comment_inboxes, load_comments_context
 from app.services.crm.inbox.csat import get_conversation_csat_event
@@ -36,7 +37,7 @@ from app.services.crm.inbox.formatting import (
 )
 from app.services.crm.inbox.inboxes import get_email_channel_state, list_channel_targets
 from app.services.crm.inbox.labels import enrich_formatted_conversations_with_labels
-from app.services.crm.inbox.listing import load_inbox_list
+from app.services.crm.inbox.listing import DEFAULT_INBOX_PAGE_SIZE, load_inbox_list
 from app.services.crm.inbox.macros import conversation_macros
 from app.services.crm.inbox.queries import get_assignment_counts
 from app.services.crm.inbox.templates import message_templates
@@ -44,6 +45,7 @@ from app.services.settings_spec import resolve_value
 from app.services.time_preferences import resolve_company_time_prefs
 
 logger = logging.getLogger(__name__)
+_DETAIL_CHOICES_TTL_SECONDS = 30
 
 
 def _load_retention_billing_risk_helpers():
@@ -54,6 +56,69 @@ def _load_retention_billing_risk_helpers():
     )
 
     return RETENTION_PIPELINE_STEPS, _retention_engagement_payload, _retention_rep_options
+
+
+def _message_template_choice_payload(template) -> dict[str, str]:
+    channel_type = getattr(template, "channel_type", None)
+    return {
+        "id": str(getattr(template, "id", "") or ""),
+        "name": str(getattr(template, "name", "") or ""),
+        "body": str(getattr(template, "body", "") or ""),
+        "channel_type": getattr(channel_type, "value", "") or "",
+    }
+
+
+def _load_message_template_choices(db: Session) -> list[dict[str, str]]:
+    return inbox_cache.get_or_set(
+        "inbox_detail:message_templates:v1",
+        _DETAIL_CHOICES_TTL_SECONDS,
+        lambda: [
+            _message_template_choice_payload(template)
+            for template in message_templates.list(
+                db,
+                channel_type=None,
+                is_active=True,
+                limit=200,
+                offset=0,
+            )
+        ],
+    )
+
+
+def _macro_choice_payload(macro) -> dict[str, str | int]:
+    visibility = getattr(macro, "visibility", None)
+    actions = getattr(macro, "actions", None) or []
+    return {
+        "id": str(getattr(macro, "id", "") or ""),
+        "name": str(getattr(macro, "name", "") or ""),
+        "description": str(getattr(macro, "description", "") or ""),
+        "visibility": getattr(visibility, "value", "") or "",
+        "action_count": len(actions) if isinstance(actions, list) else 0,
+    }
+
+
+def _load_macro_choices(db: Session, current_agent_id: str | None) -> list[dict[str, str | int]]:
+    key = f"inbox_detail:macros:v1:{current_agent_id or 'shared'}"
+    return inbox_cache.get_or_set(
+        key,
+        _DETAIL_CHOICES_TTL_SECONDS,
+        lambda: [
+            _macro_choice_payload(macro)
+            for macro in (
+                conversation_macros.list_for_agent(db, str(current_agent_id))
+                if current_agent_id
+                else conversation_macros.list(db, visibility="shared", is_active=True, limit=200)
+            )
+        ],
+    )
+
+
+def _load_mention_agent_choices(db: Session) -> list[dict]:
+    return inbox_cache.get_or_set(
+        "inbox_detail:mention_agents:v1",
+        _DETAIL_CHOICES_TTL_SECONDS,
+        lambda: list_active_agents_for_mentions(db),
+    )
 
 
 def _person_label(person: Person | None) -> str | None:
@@ -269,7 +334,7 @@ async def build_inbox_page_context(
     limit: int | None = None,
     page: int | None = None,
 ) -> dict:
-    page_limit = max(int(limit or 150), 1)
+    page_limit = max(int(limit or DEFAULT_INBOX_PAGE_SIZE), 1)
     safe_page = max(int(page or 1), 1)
     safe_offset = max(int(offset or ((safe_page - 1) * page_limit)), 0)
     assigned_person_id = (current_user or {}).get("person_id")
@@ -527,9 +592,11 @@ async def build_inbox_conversations_partial_context(
     limit: int | None = None,
     page: int | None = None,
 ) -> tuple[str, dict]:
-    page_limit = max(int(limit or 150), 1)
+    page_limit = max(int(limit or DEFAULT_INBOX_PAGE_SIZE), 1)
     safe_page = max(int(page or 1), 1)
     safe_offset = max(int(offset or ((safe_page - 1) * page_limit)), 0)
+    inbox_timezone, _date_format, time_format, _week_start = resolve_company_time_prefs(db)
+    inbox_time_hour12 = "%I" in time_format
     listing = await load_inbox_list(
         db,
         channel=channel,
@@ -606,8 +673,8 @@ async def build_inbox_conversations_partial_context(
         "conversations_page": (safe_offset // page_limit) + 1,
         "conversations_prev_page": (safe_page - 1) if safe_page > 1 else None,
         "conversations_next_page": (safe_page + 1) if listing.has_more else None,
-        "inbox_timezone": resolve_company_time_prefs(db)[0],
-        "inbox_time_hour12": "%I" in resolve_company_time_prefs(db)[2],
+        "inbox_timezone": inbox_timezone,
+        "inbox_time_hour12": inbox_time_hour12,
     }
     return template_name, context
 
@@ -747,14 +814,8 @@ def build_inbox_conversation_detail_context(
         current_person_id,
         current_roles,
     )
-    templates_list = message_templates.list(
-        db,
-        channel_type=None,
-        is_active=True,
-        limit=200,
-        offset=0,
-    )
-    mention_agents = list_active_agents_for_mentions(db)
+    templates_list = _load_message_template_choices(db)
+    mention_agents = _load_mention_agent_choices(db)
     assignment_options = crm_service.get_agent_team_options(db)
     agent_labels = assignment_options.get("agent_labels") or {}
     talk_escalation_recipients: list[dict[str, str]] = []
@@ -772,11 +833,7 @@ def build_inbox_conversation_detail_context(
             }
         )
     talk_escalation_recipients.sort(key=lambda item: item.get("label", "").lower())
-    macros = (
-        conversation_macros.list_for_agent(db, str(current_agent_id))
-        if current_agent_id
-        else conversation_macros.list(db, visibility="shared", is_active=True, limit=200)
-    )
+    macros = _load_macro_choices(db, str(current_agent_id) if current_agent_id else None)
     raw_metadata = thread.conversation.metadata_ if isinstance(thread.conversation.metadata_, dict) else {}
     raw_attribution_value = raw_metadata.get("attribution")
     raw_attribution = raw_attribution_value if isinstance(raw_attribution_value, dict) else {}

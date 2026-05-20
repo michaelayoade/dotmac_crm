@@ -1,18 +1,24 @@
 {% from "components/ui/workqueue_macros.html" import workqueue_item with context %}
-{% set _audience = workqueue_audience.value if workqueue_audience is defined and workqueue_audience else 'self' %}
 {% set kind_labels = {
   'conversation': 'Conversations', 'ticket': 'Tickets',
   'lead': 'Leads', 'quote': 'Quotes', 'task': 'Tasks'
 } %}
+{% set audience = audience_value if audience_value is defined else view.audience.value %}
+{% set conversation_link = '/admin/crm/inbox?assignment=assigned_to_me' %}
+{% if audience == 'team' %}
+  {% set conversation_link = '/admin/crm/inbox?assignment=my_team' %}
+{% elif audience == 'org' %}
+  {% set conversation_link = '/admin/crm/inbox' %}
+{% endif %}
 {% set show_all_links = {
-  'conversation': '/admin/inbox?assignee=me',
+  'conversation': conversation_link,
   'ticket': '/admin/tickets?assignee=me&status=open',
-  'lead': '/admin/crm/leads',
-  'quote': '/admin/crm/quotes?status=sent',
+  'lead': '/admin/leads?assignee=me',
+  'quote': '/admin/quotes?status=sent',
   'task': '/admin/projects/tasks?assignee=me'
 } %}
 <section id="workqueue-section-{{ section.kind.value }}"
-         hx-get="/agent/workqueue/_section/{{ section.kind.value }}?as={{ _audience }}"
+         hx-get="/agent/workqueue/_section/{{ section.kind.value }}?as={{ audience }}"
          hx-trigger="every 60s, workqueue:refresh from:body"
          hx-swap="outerHTML"
          class="space-y-2">

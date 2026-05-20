@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
-from xml.etree import ElementTree as ET
+from xml.etree import ElementTree as ET  # nosec B405 - parses trusted bundled XLSX XML only
 from zipfile import ZipFile
 
 CUSTOMER_WORKBOOK = "Dotmac Customer internet usage.xlsx"

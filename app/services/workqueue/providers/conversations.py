@@ -10,13 +10,14 @@ what we need without altering the schema:
   populate these alongside other conversation metadata.
 * Assignment to the current user is resolved via a join through
   `ConversationAssignment` and `CrmAgent` on ``person_id``.
-* The "assigned unread" classification path is intentionally omitted here
-  until we have a clean way to compute it without N+1 queries; the plan
-  explicitly allows skipping it in this slice.
+* Conversations assigned to the current user are included even when they do
+  not yet have an SLA or old-reply signal, matching the CRM inbox assignment
+  view agents work from.
 """
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -25,8 +26,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.enums import ConversationStatus
-from app.models.crm.team import CrmAgent
 from app.services.workqueue.providers import register
+from app.services.workqueue.scope import WorkqueueScope, apply_conversation_scope
 from app.services.workqueue.scoring_config import (
     CONV_SLA_IMMINENT_SEC,
     CONV_SLA_SOON_SEC,
@@ -42,6 +43,7 @@ from app.services.workqueue.types import (
 )
 
 _OPEN_STATUSES = (ConversationStatus.open, ConversationStatus.pending)
+logger = logging.getLogger(__name__)
 
 
 def _parse_dt(value) -> datetime | None:
@@ -86,7 +88,27 @@ def _active_assignee_person_id(conv: Conversation) -> UUID | None:
     return None
 
 
-def _classify(conv: Conversation, now: datetime) -> tuple[str, int] | None:
+def _visibility_source(conv: Conversation, scope: WorkqueueScope) -> str:
+    assignee = _active_assignee_person_id(conv)
+    team_ids = {
+        assignment.team_id for assignment in (conv.assignments or ()) if assignment.is_active and assignment.team_id
+    }
+    if assignee == scope.person_id:
+        return "direct_assignment"
+    if assignee is not None and assignee in scope.accessible_person_ids:
+        return "profile_related_assignment"
+    if scope.accessible_crm_team_ids and team_ids.intersection(scope.accessible_crm_team_ids):
+        return "department_team_assignment"
+    return "unknown"
+
+
+def _classify(
+    conv: Conversation,
+    now: datetime,
+    *,
+    assigned_to_user: bool = False,
+    include_visible_inbox: bool = False,
+) -> tuple[str, int] | None:
     sla_due = _sla_due_at(conv)
     if sla_due is not None:
         delta = (sla_due - now).total_seconds()
@@ -101,11 +123,17 @@ def _classify(conv: Conversation, now: datetime) -> tuple[str, int] | None:
     if last_in is not None and (now - last_in).total_seconds() > 4 * 3600:
         return "awaiting_reply_long", CONVERSATION_SCORES["awaiting_reply_long"]
 
+    if assigned_to_user:
+        return "assigned_to_me", CONVERSATION_SCORES["assigned_unread"]
+
+    if include_visible_inbox:
+        return "in_inbox", CONVERSATION_SCORES["in_inbox"]
+
     return None
 
 
 def _deep_link(conv: Conversation) -> str:
-    return f"/admin/inbox/conversations/{conv.id}"
+    return f"/admin/crm/inbox?conversation_id={conv.id}"
 
 
 def _title(conv: Conversation) -> str:
@@ -122,6 +150,10 @@ def _subtitle(reason: str, conv: Conversation, now: datetime) -> str:
         return f"SLA in {secs // 60}m"
     if reason == "awaiting_reply_long":
         return "Awaiting reply > 4h"
+    if reason == "assigned_to_me":
+        return "Assigned to you"
+    if reason == "in_inbox":
+        return "In inbox"
     return reason.replace("_", " ").title()
 
 
@@ -136,6 +168,7 @@ class ConversationsProvider:
         *,
         user,
         audience: WorkqueueAudience,
+        scope: WorkqueueScope,
         snoozed_ids: set[UUID],
         limit: int = PROVIDER_LIMIT,
     ) -> list[WorkqueueItem]:
@@ -147,20 +180,7 @@ class ConversationsProvider:
             .where(Conversation.status.in_(_OPEN_STATUSES))
             .where(Conversation.is_active.is_(True))
         )
-
-        if audience is WorkqueueAudience.self_:
-            stmt = (
-                stmt.join(
-                    ConversationAssignment,
-                    ConversationAssignment.conversation_id == Conversation.id,
-                )
-                .join(CrmAgent, CrmAgent.id == ConversationAssignment.agent_id)
-                .where(ConversationAssignment.is_active.is_(True))
-                .where(CrmAgent.person_id == user.person_id)
-            )
-        # WorkqueueAudience.team / org: surface every actionable conversation;
-        # routing/team scoping is layered on later when the workqueue gains
-        # team-aware filters.
+        stmt = apply_conversation_scope(stmt, scope)
 
         if snoozed_ids:
             stmt = stmt.where(~Conversation.id.in_(snoozed_ids))
@@ -170,14 +190,32 @@ class ConversationsProvider:
 
         items: list[WorkqueueItem] = []
         for conv in rows:
-            verdict = _classify(conv, now)
+            assignee = _active_assignee_person_id(conv)
+            verdict = _classify(
+                conv,
+                now,
+                assigned_to_user=assignee == scope.person_id,
+                include_visible_inbox=audience is not WorkqueueAudience.self_,
+            )
             if verdict is None:
                 continue
             reason, score = verdict
-            assignee = _active_assignee_person_id(conv)
             actions = {ActionKind.open, ActionKind.snooze, ActionKind.complete}
             if assignee is None:
                 actions.add(ActionKind.claim)
+            visibility_source = _visibility_source(conv, scope)
+            logger.info(
+                "workqueue_item_included kind=conversation user_id=%s item_id=%s visibility_source=%s assignee_source=%s team_source=%s",
+                scope.person_id,
+                conv.id,
+                visibility_source,
+                assignee,
+                [
+                    str(assignment.team_id)
+                    for assignment in (conv.assignments or ())
+                    if assignment.is_active and assignment.team_id
+                ],
+            )
             items.append(
                 WorkqueueItem(
                     kind=ItemKind.conversation,
@@ -194,6 +232,7 @@ class ConversationsProvider:
                     actions=frozenset(actions),
                     metadata={
                         "priority": getattr(conv.priority, "value", None) if conv.priority is not None else None,
+                        "visibility_source": visibility_source,
                     },
                 )
             )

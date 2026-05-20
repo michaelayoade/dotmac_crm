@@ -423,6 +423,8 @@ def _probe_endpoint(
         )
 
     latency_ms = (perf_counter() - start) * 1000.0
+    ai_gateway.mark_endpoint_healthy(db, endpoint_name)
+    circuit_state = ai_gateway.circuit_state(db, endpoint_name)
     set_ai_provider_circuit_open(
         provider=cfg.label,
         model=cfg.model,

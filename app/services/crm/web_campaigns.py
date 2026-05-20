@@ -129,6 +129,7 @@ def outreach_channel_target_options(db: Session) -> dict[str, list[dict[str, str
             "name": str(target.get("name") or "").strip(),
             "channel": str(target.get("channel") or "").strip(),
             "kind": str(target.get("kind") or "").strip(),
+            "connector_config_id": str(target.get("connector_config_id") or "").strip(),
             "is_active": bool(target.get("is_active")),
             "connector_active": bool(target.get("connector_active")),
         }
@@ -815,7 +816,7 @@ def create_retention_outreach_campaign(
                     subscriber_id=UUID(normalized_subscriber_id),
                     channel=selected_channel.value,
                 )
-            except Exception:
+            except Exception:  # nosec B112 - skip subscribers whose preview cannot be rendered
                 continue
     for index, subscriber_id in enumerate(subscriber_ids):
         normalized_subscriber_id = str(subscriber_id).strip()

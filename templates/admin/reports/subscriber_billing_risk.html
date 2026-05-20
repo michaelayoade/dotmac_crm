@@ -127,6 +127,15 @@
                     Showing <span id="billing-risk-tier-count" class="font-semibold text-slate-700 dark:text-slate-200">0</span> customers on this page
                 </p>
             </div>
+            <div>
+                <label for="billing-risk-location-filter" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Location</label>
+                <select id="billing-risk-location-filter" class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                    <option value="">All locations</option>
+                    {% for location in live_location_options|default([]) %}
+                    <option value="{{ location }}" {% if location == live_location|default('') %}selected{% endif %}>{{ location }}</option>
+                    {% endfor %}
+                </select>
+            </div>
         </div>
         <div>
                 <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Blocked For Buckets</label>
@@ -152,6 +161,7 @@
         data-page="{{ live_page }}"
         data-bucket="{{ live_bucket }}"
         data-search="{{ live_search|default('') }}"
+        data-location="{{ live_location|default('') }}"
         data-mrr-sort="{{ live_mrr }}"
         data-location="{{ live_location|default('') }}"
         data-segments="{{ selected_segments|join(',') }}"
@@ -592,6 +602,7 @@
                 params.set('high_balance_only', results.dataset.highBalanceOnly || 'false');
                 params.set('days_past_due', results.dataset.daysPastDue || '');
                 params.set('bucket', filterState.bucket);
+                params.set('location', filterState.location);
                 params.set('mrr_sort', filterState.mrrSort);
                 params.set('search', filterState.search);
                 params.set('location', filterState.location);
@@ -851,6 +862,7 @@
                 results.innerHTML = await response.text();
                 results.dataset.page = String(currentPage);
                 results.dataset.bucket = filterState.bucket;
+                results.dataset.location = filterState.location;
                 results.dataset.mrrSort = filterState.mrrSort;
                 results.dataset.segments = filterState.segments.join(',');
                 results.dataset.pageSize = String(filterState.pageSize);
@@ -910,6 +922,10 @@
                     applyCustomerTierFilter();
                 });
             }
+            locationSelect?.addEventListener('change', () => {
+                filterState.location = locationSelect.value || '';
+                loadResults(1, true);
+            });
             mrrSortSelect?.addEventListener('change', () => {
                 filterState.mrrSort = mrrSortSelect.value || '';
                 loadResults(1, true, { mrrSort: mrrSortSelect.value || '' });

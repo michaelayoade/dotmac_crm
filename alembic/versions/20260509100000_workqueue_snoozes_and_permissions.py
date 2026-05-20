@@ -1,7 +1,7 @@
 """workqueue snoozes table and permissions
 
 Revision ID: 20260509100000
-Revises: 20260508133000
+Revises: 20260508133001
 Create Date: 2026-05-09 10:00:00.000000
 
 """
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "20260509100000"
-down_revision = "20260508133000"
+down_revision = "20260508133001"
 branch_labels = None
 depends_on = None
 

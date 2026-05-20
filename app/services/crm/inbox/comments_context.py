@@ -32,7 +32,7 @@ def _hydrate_comments_by_ids(db: Session, comment_ids: list[str]) -> list[Social
     for raw_id in comment_ids:
         try:
             parsed_ids.append(coerce_uuid(raw_id))
-        except Exception:
+        except Exception:  # nosec B112 - skip invalid cached IDs
             continue
     if not parsed_ids:
         return []
@@ -48,7 +48,7 @@ def _hydrate_comment_replies_by_ids(db: Session, reply_ids: list[str]) -> list[S
     for raw_id in reply_ids:
         try:
             parsed_ids.append(coerce_uuid(raw_id))
-        except Exception:
+        except Exception:  # nosec B112 - skip invalid cached IDs
             continue
     if not parsed_ids:
         return []

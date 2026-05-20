@@ -728,7 +728,7 @@ def enrich_notification_rows(rows: list[dict[str, Any]], db: Session) -> list[di
     for row in rows:
         try:
             subscriber_ids.append(UUID(str(row["subscriber_id"])))
-        except Exception:
+        except Exception:  # nosec B112 - skip malformed report rows
             continue
 
     latest_logs: dict[str, SubscriberNotificationLog] = {}
@@ -759,7 +759,7 @@ def enrich_notification_rows(rows: list[dict[str, Any]], db: Session) -> list[di
     for row in rows:
         try:
             prepared = prepare_subscriber_notification(db, UUID(str(row["subscriber_id"])))
-        except Exception:
+        except Exception:  # nosec B112 - skip rows that cannot be prepared
             continue
         last_seen_iso = row.get("last_seen_at_iso")
         last_seen_value = None
@@ -814,20 +814,6 @@ def _effective_send_at(
 
     send_local = _next_allowed_send_time(now_local)
     return send_local.astimezone(UTC), send_local.strftime("%Y-%m-%dT%H:%M")
-
-
-def _recent_notification_exists(db: Session, subscriber_id: UUID, now_utc: datetime | None = None) -> bool:
-    now_utc = _coerce_utc(now_utc) or datetime.now(UTC)
-    cutoff = now_utc - DEDUPLICATE_WINDOW
-    existing = db.scalar(
-        select(SubscriberNotificationLog.id)
-        .where(
-            SubscriberNotificationLog.subscriber_id == subscriber_id,
-            SubscriberNotificationLog.created_at >= cutoff,
-        )
-        .limit(1)
-    )
-    return existing is not None
 
 
 def _create_notification(

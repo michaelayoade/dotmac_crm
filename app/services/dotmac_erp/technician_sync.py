@@ -102,19 +102,44 @@ class DotMacERPTechnicianSync:
         return (str(value).strip() if value else "Projects") or "Projects"
 
     def _resolve_department_members(self, departments: list[dict]) -> tuple[dict | None, list[dict]]:
-        """Return (department, active_members) for the configured technician department name."""
+        """Return (representative_department, active_members) for the configured technician department name.
+
+        Some ERP deployments currently return duplicate department rows with the same name, where one row can
+        be empty and a later row contains the real roster. Aggregate all matching rows and de-duplicate members
+        by employee_id so the sync does not depend on first-match ordering.
+        """
         target = self._normalize(self._technician_department_name())
+        matched_departments: list[dict] = []
         for dept in departments:
             name = self._normalize(dept.get("department_name") or dept.get("name"))
             if not name:
                 continue
             if name == target:
-                members = dept.get("members") or []
-                if not isinstance(members, list):
-                    members = []
-                active_members = [m for m in members if isinstance(m, dict) and m.get("is_active", True)]
-                return dept, active_members
-        return None, []
+                matched_departments.append(dept)
+
+        if not matched_departments:
+            return None, []
+
+        representative = max(
+            matched_departments,
+            key=lambda dept: len(dept.get("members") or []) if isinstance(dept.get("members"), list) else 0,
+        )
+        active_members_by_employee_id: dict[str, dict] = {}
+        fallback_members: list[dict] = []
+        for dept in matched_departments:
+            members = dept.get("members") or []
+            if not isinstance(members, list):
+                continue
+            for member in members:
+                if not isinstance(member, dict) or not member.get("is_active", True):
+                    continue
+                employee_id = str(member.get("employee_id") or "").strip()
+                if employee_id:
+                    active_members_by_employee_id.setdefault(employee_id, member)
+                else:
+                    fallback_members.append(member)
+
+        return representative, [*active_members_by_employee_id.values(), *fallback_members]
 
     @staticmethod
     def _split_name(full_name: str | None) -> tuple[str, str, str | None]:
@@ -399,14 +424,30 @@ class DotMacERPTechnicianSync:
                 continue
             self._upsert_technician(emp, person, result)
 
-        # Deactivate ERP-linked technicians that are no longer eligible.
-        # We only act on technicians that have erp_employee_id set, leaving manual/unlinked technicians alone.
         active_linked = (
             self.db.query(TechnicianProfile)
             .filter(TechnicianProfile.is_active.is_(True))
             .filter(TechnicianProfile.erp_employee_id.isnot(None))
             .all()
         )
+        # Guard against destructive roster anomalies. If the configured department resolves successfully but
+        # returns zero active members while we still have active linked technicians, skip deactivation rather
+        # than mass-disabling production technicians from a brittle upstream payload.
+        if dept is not None and not eligible_employee_ids and active_linked:
+            result.errors.append(
+                {
+                    "type": "data",
+                    "error": "technician_department_resolved_empty",
+                    "department_name": self._technician_department_name(),
+                    "active_linked_count": len(active_linked),
+                }
+            )
+            self.db.commit()
+            result.duration_seconds = (datetime.now(UTC) - start).total_seconds()
+            return result
+
+        # Deactivate ERP-linked technicians that are no longer eligible.
+        # We only act on technicians that have erp_employee_id set, leaving manual/unlinked technicians alone.
         for tech in active_linked:
             if not tech.erp_employee_id:
                 continue

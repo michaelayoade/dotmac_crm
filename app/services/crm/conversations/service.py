@@ -768,6 +768,27 @@ def assign_conversation(
     agent_uuid = coerce_uuid(agent_value) if agent_value else None
     team_uuid = coerce_uuid(team_value) if team_value else None
 
+    if team_uuid is not None:
+        from app.models.crm.team import CrmAgent, CrmAgentTeam
+
+        active_team_members = (
+            db.query(CrmAgentTeam.id)
+            .join(CrmAgent, CrmAgent.id == CrmAgentTeam.agent_id)
+            .filter(CrmAgentTeam.team_id == team_uuid)
+            .filter(CrmAgentTeam.is_active.is_(True))
+            .filter(CrmAgent.is_active.is_(True))
+            .limit(1)
+            .first()
+        )
+        if active_team_members is None:
+            if assigned_by_id is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Team has no active agents and cannot be assigned",
+                )
+            team_uuid = None
+            team_value = ""
+
     if agent_value or team_value:
         # Defense-in-depth: never assign directly to an unavailable agent.
         if agent_uuid is not None:

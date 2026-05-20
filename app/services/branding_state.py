@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from threading import Lock
 from time import monotonic
@@ -9,11 +10,14 @@ from sqlalchemy.orm import Session
 from app.models.domain_settings import SettingDomain
 from app.services import settings_spec
 
+logger = logging.getLogger(__name__)
+
 # Branding rarely changes; cache it to avoid DB work on every request.
 _BRANDING_CACHE: dict | None = None
 _BRANDING_CACHE_AT: float | None = None
 _BRANDING_CACHE_TTL_SECONDS = 300.0  # 5 minutes
 _BRANDING_LOCK = Lock()
+_BRANDING_LOG_THRESHOLD_MS = 100.0
 
 
 def invalidate_branding_cache() -> None:
@@ -31,10 +35,15 @@ def load_branding_settings(db: Session, *, force: bool = False) -> dict:
     global _BRANDING_CACHE, _BRANDING_CACHE_AT
     now = monotonic()
 
+    started_at = monotonic()
+    cache_hit = False
+
     if not force:
         cache = _BRANDING_CACHE
         cache_at = _BRANDING_CACHE_AT
         if cache is not None and cache_at is not None and now - cache_at < _BRANDING_CACHE_TTL_SECONDS:
+            cache_hit = True
+            _log_branding_timing(cache_hit=cache_hit, force=force, duration_ms=(monotonic() - started_at) * 1000.0)
             return cache
 
     with _BRANDING_LOCK:
@@ -44,6 +53,8 @@ def load_branding_settings(db: Session, *, force: bool = False) -> dict:
             and _BRANDING_CACHE_AT is not None
             and now - _BRANDING_CACHE_AT < _BRANDING_CACHE_TTL_SECONDS
         ):
+            cache_hit = True
+            _log_branding_timing(cache_hit=cache_hit, force=force, duration_ms=(monotonic() - started_at) * 1000.0)
             return _BRANDING_CACHE
 
         try:
@@ -78,4 +89,16 @@ def load_branding_settings(db: Session, *, force: bool = False) -> dict:
 
         _BRANDING_CACHE = result
         _BRANDING_CACHE_AT = now
+        _log_branding_timing(cache_hit=cache_hit, force=force, duration_ms=(monotonic() - started_at) * 1000.0)
         return result
+
+
+def _log_branding_timing(*, cache_hit: bool, force: bool, duration_ms: float) -> None:
+    if duration_ms < _BRANDING_LOG_THRESHOLD_MS:
+        return
+    logger.info(
+        "branding_settings_load_slow cache_hit=%s force=%s duration_ms=%.2f",
+        cache_hit,
+        force,
+        duration_ms,
+    )

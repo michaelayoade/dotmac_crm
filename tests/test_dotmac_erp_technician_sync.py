@@ -138,3 +138,47 @@ class TestSyncAll:
         assert result.technicians_deactivated == 1
         db_session.refresh(tech)
         assert tech.is_active is False
+
+    def test_aggregates_duplicate_projects_departments_before_deactivating(self, sync_service, db_session):
+        email = f"dup-{uuid.uuid4().hex[:6]}@example.com"
+        sync_service._client.get_departments.return_value = [
+            _make_department(name="Projects", members=[]),
+            _make_department(
+                name="Projects",
+                members=[
+                    _make_employee(employee_id="EMP-DUP", email=email, full_name="Dup Tech"),
+                    _make_employee(employee_id="EMP-DUP", email=email, full_name="Dup Tech"),
+                ],
+            ),
+        ]
+
+        result = sync_service.sync_all()
+
+        assert result.errors == []
+        assert result.employees_seen == 1
+        assert result.employees_eligible == 1
+        assert result.technicians_created == 1
+        person = db_session.query(Person).filter(Person.email == email).first()
+        assert person is not None
+        tech = db_session.query(TechnicianProfile).filter(TechnicianProfile.person_id == person.id).first()
+        assert tech is not None
+        assert tech.is_active is True
+        assert tech.erp_employee_id == "EMP-DUP"
+
+    def test_skips_mass_deactivation_when_projects_resolves_empty(self, sync_service, db_session):
+        person = Person(first_name="Guard", last_name="Tech", email=f"guard-{uuid.uuid4().hex[:6]}@example.com")
+        db_session.add(person)
+        db_session.flush()
+        tech = TechnicianProfile(person_id=person.id, erp_employee_id="EMP-GUARD", is_active=True)
+        db_session.add(tech)
+        db_session.commit()
+
+        sync_service._client.get_departments.return_value = [_make_department(name="Projects", members=[])]
+
+        result = sync_service.sync_all()
+
+        assert result.technicians_deactivated == 0
+        assert result.errors
+        assert result.errors[0]["error"] == "technician_department_resolved_empty"
+        db_session.refresh(tech)
+        assert tech.is_active is True

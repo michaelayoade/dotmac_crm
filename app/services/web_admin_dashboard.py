@@ -1,6 +1,8 @@
 """Service helpers for admin dashboard routes."""
 
+import logging
 from datetime import UTC, datetime, timedelta
+from time import monotonic
 
 from fastapi import Request
 from sqlalchemy import func
@@ -43,6 +45,12 @@ from app.services.crm.inbox.queries import get_inbox_stats, get_waiting_queue_co
 from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
+logger = logging.getLogger(__name__)
+_DASHBOARD_LOG_THRESHOLD_MS = 500.0
+_DASHBOARD_STATS_TTL_SECONDS = 30.0
+_DASHBOARD_LIVE_STATS_TTL_SECONDS = 60.0
+_DASHBOARD_STATS_CACHE: tuple[datetime, dict] | None = None
+_DASHBOARD_LIVE_STATS_CACHE: tuple[datetime, dict] | None = None
 
 
 def _get_status(obj) -> str:
@@ -65,6 +73,12 @@ def _is_user_actor(actor_type) -> bool:
 
 def _build_stats_context(db: Session) -> dict:
     """Build only stats-related context (counts and network health)."""
+    global _DASHBOARD_STATS_CACHE
+    now = datetime.now(UTC)
+    cached = _DASHBOARD_STATS_CACHE
+    if cached and (now - cached[0]).total_seconds() < _DASHBOARD_STATS_TTL_SECONDS:
+        return dict(cached[1])
+
     inbox_stats = get_inbox_stats(db)
     inbox_metrics = get_inbox_metrics(db)
     customers_count = db.query(func.count(Person.id)).scalar() or 0
@@ -201,7 +215,7 @@ def _build_stats_context(db: Session) -> dict:
         "percent": 100 if active_olts > 0 else 0,
     }
 
-    return {
+    payload = {
         "stats": stats,
         "network_health": network_health,
         "customers_count": customers_count,
@@ -211,11 +225,20 @@ def _build_stats_context(db: Session) -> dict:
         "inbox_metrics": inbox_metrics,
         "inbox_stats": inbox_stats,
     }
+    _DASHBOARD_STATS_CACHE = (now, dict(payload))
+    return payload
 
 
 def _build_live_stats_context(db: Session) -> dict:
     """Build lightweight context for high-priority agent metrics."""
-    return {"high_priority_stats": get_high_priority_stats(db)}
+    global _DASHBOARD_LIVE_STATS_CACHE
+    now = datetime.now(UTC)
+    cached = _DASHBOARD_LIVE_STATS_CACHE
+    if cached and (now - cached[0]).total_seconds() < _DASHBOARD_LIVE_STATS_TTL_SECONDS:
+        return {"high_priority_stats": dict(cached[1])}
+    payload = get_high_priority_stats(db)
+    _DASHBOARD_LIVE_STATS_CACHE = (now, dict(payload))
+    return {"high_priority_stats": payload}
 
 
 def get_high_priority_stats(db: Session) -> dict:
@@ -369,9 +392,6 @@ def _build_dashboard_context(db: Session) -> dict:
     """Build full dashboard context for initial page load."""
     context = {}
     context.update(_build_stats_context(db))
-    context.update(_build_live_stats_context(db))
-    context.update(_build_activity_context(db))
-    context.update(_build_server_health_context(db))
     context["now"] = datetime.now()
     context["alarms"] = []
     return context
@@ -411,13 +431,23 @@ def dashboard_activity_partial(request: Request, db: Session):
 
 def dashboard_live_stats_partial(request: Request, db: Session):
     """HTMX partial for high-priority live stats cards."""
-    context = web_admin_service.build_admin_context(request, db)
-    context.update(_build_live_stats_context(db))
-    return templates.TemplateResponse(
-        request,
-        "admin/dashboard/_live_stats_cards.html",
-        context,
-    )
+    started_at = monotonic()
+    try:
+        context = web_admin_service.build_admin_context(request, db)
+        context.update(_build_live_stats_context(db))
+        return templates.TemplateResponse(
+            request,
+            "admin/dashboard/_live_stats_cards.html",
+            context,
+        )
+    finally:
+        duration_ms = (monotonic() - started_at) * 1000.0
+        if duration_ms >= _DASHBOARD_LOG_THRESHOLD_MS:
+            logger.info(
+                "dashboard_live_stats_partial_slow duration_ms=%.2f request_id=%s",
+                duration_ms,
+                getattr(request.state, "request_id", None),
+            )
 
 
 def dashboard_server_health_partial(request: Request, db: Session):

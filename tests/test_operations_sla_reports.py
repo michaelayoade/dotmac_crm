@@ -65,6 +65,12 @@ def test_operations_sla_report_lists_ticket_violations(db_session):
     assert len(records) == 1
     assert records[0]["title"] == "Ticket breach"
     assert records[0]["region"] == "Lagos"
+    assert records[0]["status"] == SlaBreachStatus.open.value
+    assert records[0]["sla_status"] == SlaBreachStatus.open.value
+    assert records[0]["ticket_status"] == TicketStatus.open.value
+    assert records[0]["ticket_id"] == str(ticket.id)
+    assert records[0]["ticket_reference"] == str(ticket.id)
+    assert records[0]["ticket_url"] == f"/admin/support/tickets/{ticket.id}"
     assert records[0]["detail_url"] == f"/admin/support/tickets/{ticket.id}"
     assert summary["total_violations"] == 1
     assert summary["open_violations"] == 1
@@ -142,6 +148,73 @@ def test_operations_sla_report_excludes_closed_tickets_when_open_only(db_session
     assert records[0]["title"] == "Active ticket breach"
     assert summary["total_violations"] == 1
     assert summary["open_violations"] == 1
+
+
+def test_operations_sla_report_filters_ticket_violations_by_ticket_status(db_session):
+    policy = _seed_policy(db_session, "Ticket Resolution SLA", WorkflowEntityType.ticket)
+    open_ticket = Ticket(
+        title="Open ticket breach",
+        status=TicketStatus.open,
+        priority=TicketPriority.high,
+        region="Lagos",
+    )
+    pending_ticket = Ticket(
+        title="Pending ticket breach",
+        status=TicketStatus.pending,
+        priority=TicketPriority.high,
+        region="Abuja",
+    )
+    db_session.add_all([open_ticket, pending_ticket])
+    db_session.flush()
+
+    for ticket in (open_ticket, pending_ticket):
+        clock = SlaClock(
+            policy_id=policy.id,
+            entity_type=WorkflowEntityType.ticket,
+            entity_id=ticket.id,
+            priority="high",
+            status=SlaClockStatus.breached,
+            started_at=datetime.now(UTC) - timedelta(hours=8),
+            due_at=datetime.now(UTC) - timedelta(hours=4),
+            breached_at=datetime.now(UTC) - timedelta(hours=3),
+        )
+        db_session.add(clock)
+        db_session.flush()
+        db_session.add(SlaBreach(clock_id=clock.id, status=SlaBreachStatus.open, breached_at=clock.breached_at))
+    db_session.commit()
+
+    records = operations_sla_violations_report.list_records(
+        db_session,
+        entity_type="ticket",
+        region=None,
+        start_at=None,
+        end_at=None,
+        ticket_status=TicketStatus.pending,
+        open_only=True,
+    )
+    summary = operations_sla_violations_report.summary(
+        db_session,
+        entity_type="ticket",
+        region=None,
+        start_at=None,
+        end_at=None,
+        ticket_status=TicketStatus.pending,
+        open_only=True,
+    )
+    region_chart = operations_sla_violations_report.by_region(
+        db_session,
+        entity_type="ticket",
+        region=None,
+        start_at=None,
+        end_at=None,
+        ticket_status=TicketStatus.pending,
+        open_only=True,
+    )
+
+    assert [record["title"] for record in records] == ["Pending ticket breach"]
+    assert records[0]["ticket_status"] == TicketStatus.pending.value
+    assert summary["total_violations"] == 1
+    assert region_chart == [{"label": "Abuja", "count": 1}]
 
 
 def test_operations_sla_report_groups_project_violations_by_region(db_session):

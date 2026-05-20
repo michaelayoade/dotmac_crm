@@ -11,14 +11,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models.connector import ConnectorConfig
+from app.models.connector import ConnectorAuthType, ConnectorConfig, ConnectorType
 from app.models.domain_settings import DomainSetting, SettingDomain, SettingValueType
-from app.schemas.connector import ConnectorConfigCreate
+from app.schemas.connector import ConnectorConfigCreate, ConnectorConfigUpdate
 from app.schemas.integration import IntegrationJobCreate, IntegrationTargetCreate
 from app.schemas.webhook import WebhookEndpointCreate, WebhookSubscriptionCreate
 from app.services import connector as connector_service
 from app.services import integration as integration_service
 from app.services import webhook as webhook_service
+from app.services import zabbix as zabbix_service
 from app.services.audit_helpers import recent_activity_for_paths
 from app.web.templates import Jinja2Templates
 
@@ -120,6 +121,17 @@ def _provider_view(provider: dict, connector: ConnectorConfig | None):
     )
 
 
+def _zabbix_connector_context(connector: ConnectorConfig | None) -> dict[str, object]:
+    auth_config = connector.auth_config if connector and isinstance(connector.auth_config, dict) else {}
+    token_refreshed = str(auth_config.get("token_last_refreshed_at") or "").strip()
+    return {
+        "zabbix_username": str(auth_config.get("username") or "").strip(),
+        "zabbix_has_password": bool(auth_config.get("password_enc") or auth_config.get("password")),
+        "zabbix_has_token": bool(auth_config.get("token_enc") or auth_config.get("token")),
+        "zabbix_token_last_refreshed_at": token_refreshed,
+    }
+
+
 # ==================== Connectors ====================
 
 
@@ -161,8 +173,6 @@ def connectors_list(request: Request, db: Session = Depends(get_db)):
 @router.get("/connectors/new", response_class=HTMLResponse)
 def connector_new(request: Request, db: Session = Depends(get_db)):
     """New connector form."""
-    from app.models.connector import ConnectorAuthType, ConnectorType
-
     context = _base_context(request, db, active_page="connectors")
     context.update(
         {
@@ -186,29 +196,63 @@ def connector_create(
     retry_policy: str | None = Form(None),
     metadata: str | None = Form(None),
     notes: str | None = Form(None),
+    zabbix_username: str | None = Form(None),
+    zabbix_password: str | None = Form(None),
     is_active: bool = Form(False),
     db: Session = Depends(get_db),
 ):
     try:
-        from app.models.connector import ConnectorAuthType, ConnectorType
-
-        payload = ConnectorConfigCreate(
-            name=name.strip(),
-            connector_type=ConnectorType(connector_type),
-            auth_type=ConnectorAuthType(auth_type),
-            base_url=base_url.strip() if base_url else None,
-            timeout_sec=int(timeout_sec) if timeout_sec else None,
-            auth_config=_parse_json(auth_config, "auth_config"),
-            headers=_parse_json(headers, "headers"),
-            retry_policy=_parse_json(retry_policy, "retry_policy"),
-            metadata_=_parse_json(metadata, "metadata"),
-            notes=notes.strip() if notes else None,
-            is_active=is_active,
-        )
-        connector = connector_service.connector_configs.create(db, payload)
+        connector_kind = ConnectorType(connector_type)
+        if connector_kind == ConnectorType.zabbix:
+            username = str(zabbix_username or "").strip()
+            password = str(zabbix_password or "")
+            if not base_url or not base_url.strip():
+                raise ValueError("base_url is required for Zabbix")
+            if not username:
+                raise ValueError("username is required for Zabbix")
+            if not password:
+                raise ValueError("password is required for Zabbix")
+            payload = ConnectorConfigCreate(
+                name=name.strip(),
+                connector_type=ConnectorType.zabbix,
+                auth_type=ConnectorAuthType.basic,
+                base_url=base_url.strip(),
+                timeout_sec=int(timeout_sec) if timeout_sec else None,
+                auth_config={},
+                headers=None,
+                retry_policy=_parse_json(retry_policy, "retry_policy"),
+                metadata_=_parse_json(metadata, "metadata"),
+                notes=notes.strip() if notes else None,
+                is_active=is_active,
+            )
+            connector = connector_service.connector_configs.create(db, payload)
+            connector = zabbix_service.configure_connector(
+                db,
+                connector,
+                name=name.strip(),
+                base_url=base_url.strip(),
+                username=username,
+                password=password,
+                timeout_sec=int(timeout_sec) if timeout_sec else None,
+                notes=notes.strip() if notes else None,
+                is_active=is_active,
+            )
+        else:
+            payload = ConnectorConfigCreate(
+                name=name.strip(),
+                connector_type=connector_kind,
+                auth_type=ConnectorAuthType(auth_type),
+                base_url=base_url.strip() if base_url else None,
+                timeout_sec=int(timeout_sec) if timeout_sec else None,
+                auth_config=_parse_json(auth_config, "auth_config"),
+                headers=_parse_json(headers, "headers"),
+                retry_policy=_parse_json(retry_policy, "retry_policy"),
+                metadata_=_parse_json(metadata, "metadata"),
+                notes=notes.strip() if notes else None,
+                is_active=is_active,
+            )
+            connector = connector_service.connector_configs.create(db, payload)
     except Exception as exc:
-        from app.models.connector import ConnectorAuthType, ConnectorType
-
         context = _base_context(request, db, active_page="connectors")
         context.update(
             {
@@ -227,6 +271,7 @@ def connector_create(
                     "metadata": metadata or "",
                     "notes": notes or "",
                     "is_active": is_active,
+                    "zabbix_username": zabbix_username or "",
                 },
             }
         )
@@ -247,8 +292,104 @@ def connector_detail(request: Request, connector_id: str, db: Session = Depends(
         return templates.TemplateResponse("admin/errors/404.html", context, status_code=404)
 
     context = _base_context(request, db, active_page="connectors")
-    context.update({"connector": connector})
+    context.update({"connector": connector, **_zabbix_connector_context(connector)})
     return templates.TemplateResponse("admin/integrations/connectors/detail.html", context)
+
+
+@router.post("/connectors/{connector_id}", response_class=HTMLResponse)
+def connector_update(
+    request: Request,
+    connector_id: str,
+    name: str = Form(...),
+    base_url: str | None = Form(None),
+    timeout_sec: str | None = Form(None),
+    notes: str | None = Form(None),
+    zabbix_username: str | None = Form(None),
+    zabbix_password: str | None = Form(None),
+    is_active: bool = Form(False),
+    db: Session = Depends(get_db),
+):
+    connector = connector_service.connector_configs.get(db, connector_id)
+    try:
+        if connector.connector_type == ConnectorType.zabbix:
+            if not base_url or not base_url.strip():
+                raise ValueError("base_url is required for Zabbix")
+            if not str(zabbix_username or "").strip():
+                raise ValueError("username is required for Zabbix")
+            connector = zabbix_service.configure_connector(
+                db,
+                connector,
+                name=name.strip(),
+                base_url=base_url.strip(),
+                username=str(zabbix_username or "").strip(),
+                password=str(zabbix_password or "") or None,
+                timeout_sec=int(timeout_sec) if timeout_sec else None,
+                notes=notes.strip() if notes else None,
+                is_active=is_active,
+            )
+        else:
+            connector = connector_service.connector_configs.update(
+                db,
+                connector_id,
+                ConnectorConfigUpdate(
+                    name=name.strip(),
+                    base_url=base_url.strip() if base_url else None,
+                    timeout_sec=int(timeout_sec) if timeout_sec else None,
+                    notes=notes.strip() if notes else None,
+                    is_active=is_active,
+                ),
+            )
+    except Exception as exc:
+        context = _base_context(request, db, active_page="connectors")
+        context.update(
+            {
+                "connector": connector,
+                "error": str(exc),
+                "zabbix_username": zabbix_username or _zabbix_connector_context(connector)["zabbix_username"],
+                "zabbix_has_password": _zabbix_connector_context(connector)["zabbix_has_password"],
+                "zabbix_has_token": _zabbix_connector_context(connector)["zabbix_has_token"],
+                "zabbix_token_last_refreshed_at": _zabbix_connector_context(connector)[
+                    "zabbix_token_last_refreshed_at"
+                ],
+            }
+        )
+        return templates.TemplateResponse("admin/integrations/connectors/detail.html", context, status_code=400)
+    return RedirectResponse(url=f"/admin/integrations/connectors/{connector.id}", status_code=303)
+
+
+@router.post("/connectors/{connector_id}/test", response_class=HTMLResponse)
+def connector_test(
+    request: Request,
+    connector_id: str,
+    db: Session = Depends(get_db),
+):
+    connector = connector_service.connector_configs.get(db, connector_id)
+    if connector.connector_type != ConnectorType.zabbix:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-400">'
+            "Connector test is currently implemented for Zabbix only."
+            "</div>",
+            status_code=200,
+        )
+
+    try:
+        token = zabbix_service.refresh_api_token(db, connector)
+        rows = zabbix_service.fetch_monitoring_devices(db)
+        if not token:
+            raise ValueError("Token refresh returned no token")
+        return HTMLResponse(
+            '<div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400">'
+            f"Zabbix connected successfully. Token refreshed and {len(rows)} hosts were readable."
+            "</div>",
+            status_code=200,
+        )
+    except Exception as exc:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            f"Zabbix connection failed: {html_escape(str(exc))}"
+            "</div>",
+            status_code=400,
+        )
 
 
 # ==================== Integration Targets ====================

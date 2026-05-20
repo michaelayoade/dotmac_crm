@@ -287,6 +287,7 @@ def get_billing_risk_table(
                 str(row.get("street") or ""),
                 str(row.get("location") or ""),
                 str(row.get("area") or ""),
+                str(row.get("location") or ""),
                 str(row.get("plan") or ""),
             ]
         ).lower()
@@ -1015,7 +1016,7 @@ def get_billing_risk_table(
             text = str(customer_payload.get(key) or "").strip()
             if text:
                 return text
-        location_id = str(customer_payload.get("location_id") or "").strip()
+        location_id = str(customer_payload.get("location_id") or customer_payload.get("locationId") or "").strip()
         if location_id:
             return locations_by_id.get(location_id) or location_id
         return ""
@@ -1262,6 +1263,10 @@ def get_billing_risk_table(
                 live_results = list(executor.map(_resolve_row_mrr, live_results))
     if normalized_customer_segment in {"enterprise", "non_enterprise"}:
         live_results = [row for row in live_results if _matches_customer_segment(float(row.get("mrr_total") or 0))]
+    if normalized_location:
+        live_results = [
+            row for row in live_results if str(row.get("location") or "").strip().casefold() == normalized_location
+        ]
     live_results = [
         row
         for row in live_results

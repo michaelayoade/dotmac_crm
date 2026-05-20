@@ -6,12 +6,13 @@ import pytest
 
 from app.models.crm.enums import LeadStatus, QuoteStatus
 from app.services.workqueue.providers.leads_quotes import leads_quotes_provider
+from app.services.workqueue.scope import get_workqueue_scope
 from app.services.workqueue.types import ItemKind, WorkqueueAudience
 
 
 @pytest.fixture
 def user():
-    return SimpleNamespace(person_id=uuid4(), permissions={"workqueue:view"})
+    return SimpleNamespace(person_id=uuid4(), permissions={"workqueue:view"}, roles=set(), region="North")
 
 
 def test_kind(user):
@@ -24,64 +25,96 @@ def test_quote_expires_today(db_session, user, quote_factory):
         status=QuoteStatus.sent,
         expires_at=datetime.now(UTC) + timedelta(hours=4),
     )
-    items = leads_quotes_provider.fetch(db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set())
+    audience = WorkqueueAudience.self_
+    items = leads_quotes_provider.fetch(
+        db_session,
+        user=user,
+        audience=audience,
+        scope=get_workqueue_scope(db_session, user, audience),
+        snoozed_ids=set(),
+    )
     assert any(i.reason == "quote_expires_today" and i.score == 85 for i in items)
 
 
 def test_lead_overdue_followup(db_session, user, lead_factory):
     lead_factory(
+        owner_person_id=uuid4(),
+        status=LeadStatus.contacted,
+        next_action_at=datetime.now(UTC) - timedelta(hours=1),
+        region="North",
+    )
+    audience = WorkqueueAudience.self_
+    items = leads_quotes_provider.fetch(
+        db_session,
+        user=user,
+        audience=audience,
+        scope=get_workqueue_scope(db_session, user, audience),
+        snoozed_ids=set(),
+    )
+    assert any(i.reason == "lead_overdue_followup" and i.score == 70 for i in items)
+
+
+def test_self_leads_filter_by_user_region_case_insensitive(db_session, user, lead_factory):
+    matching = lead_factory(
+        owner_person_id=uuid4(),
+        status=LeadStatus.contacted,
+        next_action_at=datetime.now(UTC) - timedelta(hours=1),
+        region=" north ",
+    )
+    lead_factory(
         owner_person_id=user.person_id,
         status=LeadStatus.contacted,
         next_action_at=datetime.now(UTC) - timedelta(hours=1),
+        region="South",
     )
-    items = leads_quotes_provider.fetch(db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set())
-    assert any(i.reason == "lead_overdue_followup" and i.score == 70 for i in items)
+    audience = WorkqueueAudience.self_
+    items = leads_quotes_provider.fetch(
+        db_session,
+        user=user,
+        audience=audience,
+        scope=get_workqueue_scope(db_session, user, audience),
+        snoozed_ids=set(),
+    )
+    assert {item.item_id for item in items if item.kind is ItemKind.lead} == {matching.id}
+
+
+def test_self_leads_without_user_region_returns_no_leads(db_session, lead_factory):
+    user = SimpleNamespace(person_id=uuid4(), permissions={"workqueue:view"}, roles=set(), region=None)
+    lead_factory(
+        owner_person_id=user.person_id,
+        status=LeadStatus.contacted,
+        next_action_at=datetime.now(UTC) - timedelta(hours=1),
+        region="North",
+    )
+    audience = WorkqueueAudience.self_
+    items = leads_quotes_provider.fetch(
+        db_session,
+        user=user,
+        audience=audience,
+        scope=get_workqueue_scope(db_session, user, audience),
+        snoozed_ids=set(),
+    )
+    assert [item for item in items if item.kind is ItemKind.lead] == []
 
 
 def test_returns_two_kinds_in_one_call(db_session, user, lead_factory, quote_factory):
     lead_factory(
         owner_person_id=user.person_id,
         next_action_at=datetime.now(UTC) - timedelta(minutes=5),
+        region="North",
     )
     quote_factory(
         owner_person_id=user.person_id,
         status=QuoteStatus.sent,
         expires_at=datetime.now(UTC) + timedelta(hours=2),
     )
-    items = leads_quotes_provider.fetch(db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set())
+    audience = WorkqueueAudience.self_
+    items = leads_quotes_provider.fetch(
+        db_session,
+        user=user,
+        audience=audience,
+        scope=get_workqueue_scope(db_session, user, audience),
+        snoozed_ids=set(),
+    )
     kinds = {i.kind for i in items}
     assert {ItemKind.lead, ItemKind.quote} <= kinds
-
-
-def test_self_audience_excludes_other_users_leads_and_quotes(db_session, user, lead_factory, quote_factory):
-    other_person_id = uuid4()
-    lead_factory(
-        owner_person_id=other_person_id,
-        next_action_at=datetime.now(UTC) - timedelta(minutes=5),
-    )
-    quote_factory(
-        owner_person_id=other_person_id,
-        status=QuoteStatus.sent,
-        expires_at=datetime.now(UTC) + timedelta(hours=2),
-    )
-
-    items = leads_quotes_provider.fetch(db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set())
-
-    assert items == []
-
-
-def test_quote_owner_can_fall_back_to_linked_lead_owner(db_session, user, lead_factory, quote_factory):
-    lead = lead_factory(
-        owner_person_id=user.person_id,
-        next_action_at=datetime.now(UTC) - timedelta(minutes=5),
-    )
-    quote_factory(
-        lead_id=lead.id,
-        owner_person_id=None,
-        status=QuoteStatus.sent,
-        expires_at=datetime.now(UTC) + timedelta(hours=2),
-    )
-
-    items = leads_quotes_provider.fetch(db_session, user=user, audience=WorkqueueAudience.self_, snoozed_ids=set())
-
-    assert any(i.kind is ItemKind.quote and i.assignee_id == user.person_id for i in items)
