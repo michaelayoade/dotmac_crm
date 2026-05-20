@@ -3383,7 +3383,7 @@ def test_subscriber_billing_risk_page_renders(monkeypatch):
     assert "Blocked Customer" in body
 
 
-def test_subscriber_billing_risk_page_preserves_bucket_and_enterprise_in_segment_links(monkeypatch):
+def test_subscriber_billing_risk_page_preserves_bucket_without_segment_links(monkeypatch):
     monkeypatch.setattr(reports_web, "get_sidebar_stats", lambda _db: {"open_tickets": 0, "dispatch_jobs": 0})
     monkeypatch.setattr(
         subscriber_reports_service,
@@ -3446,7 +3446,7 @@ def test_subscriber_billing_risk_page_preserves_bucket_and_enterprise_in_segment
     assert response.status_code == 200
     body = response.body.decode()
     assert "bucket=8-30" in body
-    assert 'data-segment-filter="suspended"' in body
+    assert 'data-segment-filter="suspended"' not in body
 
 
 def test_subscriber_billing_risk_export_returns_csv(monkeypatch):
