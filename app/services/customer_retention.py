@@ -132,8 +132,7 @@ def enqueue_existing_churning_deactivations(
         )
         .join(
             Subscriber,
-            (Subscriber.external_system == "splynx")
-            & (Subscriber.external_id == latest_ranked.c.customer_external_id),
+            (Subscriber.external_system == "splynx") & (Subscriber.external_id == latest_ranked.c.customer_external_id),
         )
         .where(latest_ranked.c.rn == 1)
         .where(latest_ranked.c.outcome == "Churning")
