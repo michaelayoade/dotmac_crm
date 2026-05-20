@@ -6,6 +6,7 @@ import logging
 from datetime import UTC, date, datetime
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.customer_retention import CustomerRetentionEngagement
@@ -14,6 +15,8 @@ from app.models.subscriber import Subscriber, SubscriberStatus
 from app.services.common import coerce_uuid
 
 logger = logging.getLogger(__name__)
+
+RETENTION_SPLYNX_DEACTIVATION_OUTCOMES = frozenset({"Lost", "Churning"})
 
 
 def parse_follow_up_date(value: object) -> date | None:
@@ -42,8 +45,9 @@ def create_retention_engagement_and_sync(
     """
     Create a retention engagement and enqueue Splynx deactivation after commit.
 
-    Only an exact explicit `outcome == "Lost"` triggers the Splynx flow.
-    Derived pipeline stages and other loss-like outcomes intentionally do not.
+    Explicit Lost outcomes and Churning outcomes that map to the Lost pipeline
+    stage trigger the Splynx flow. Do Not Reach Out remains excluded because it
+    is a contact preference, not necessarily a disconnect decision.
     """
     normalized_customer_id = str(customer_id or "").strip()
     normalized_outcome = str(outcome or "").strip()
@@ -80,9 +84,108 @@ def create_retention_engagement_and_sync(
     db.commit()
     db.refresh(engagement)
 
-    if enqueue_sync and normalized_outcome == "Lost":
+    if enqueue_sync and should_enqueue_splynx_deactivation(normalized_outcome):
         _enqueue_splynx_deactivation(db, engagement)
     return engagement
+
+
+def should_enqueue_splynx_deactivation(outcome: str) -> bool:
+    """Return true when a retention outcome should enter the Splynx disable flow."""
+    return str(outcome or "").strip() in RETENTION_SPLYNX_DEACTIVATION_OUTCOMES
+
+
+def enqueue_existing_churning_deactivations(
+    db: Session,
+    *,
+    limit: int | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """
+    Reconcile existing latest-Churning customers into the Splynx disable flow.
+
+    This is the backfill counterpart to the create-time gate. It only considers
+    the latest active engagement per customer, and it leaves the final Splynx
+    safety check to ``deactivate_customer_if_blocked``.
+    """
+    latest_ranked = (
+        select(
+            CustomerRetentionEngagement.id.label("engagement_id"),
+            CustomerRetentionEngagement.customer_external_id.label("customer_external_id"),
+            CustomerRetentionEngagement.outcome.label("outcome"),
+            func.row_number()
+            .over(
+                partition_by=CustomerRetentionEngagement.customer_external_id,
+                order_by=CustomerRetentionEngagement.created_at.desc(),
+            )
+            .label("rn"),
+        )
+        .where(CustomerRetentionEngagement.is_active.is_(True))
+        .subquery()
+    )
+    stmt = (
+        select(
+            latest_ranked.c.engagement_id,
+            latest_ranked.c.customer_external_id,
+            Subscriber.id.label("subscriber_id"),
+            Subscriber.status.label("subscriber_status"),
+            Subscriber.sync_metadata.label("sync_metadata"),
+        )
+        .join(
+            Subscriber,
+            (Subscriber.external_system == "splynx")
+            & (Subscriber.external_id == latest_ranked.c.customer_external_id),
+        )
+        .where(latest_ranked.c.rn == 1)
+        .where(latest_ranked.c.outcome == "Churning")
+        .order_by(latest_ranked.c.customer_external_id)
+    )
+    if limit is not None:
+        stmt = stmt.limit(max(0, int(limit)))
+
+    rows = db.execute(stmt).mappings().all()
+    result: dict[str, Any] = {
+        "evaluated": len(rows),
+        "eligible": 0,
+        "enqueued": 0,
+        "skipped": 0,
+        "dry_run": dry_run,
+        "items": [],
+    }
+    for row in rows:
+        sync_metadata = row["sync_metadata"] if isinstance(row["sync_metadata"], dict) else {}
+        marker_value = sync_metadata.get("retention_splynx_deactivation")
+        marker = marker_value if isinstance(marker_value, dict) else {}
+        marker_status = str(marker.get("status") or "").strip()
+        item = {
+            "customer_id": str(row["customer_external_id"] or "").strip(),
+            "subscriber_id": str(row["subscriber_id"] or "").strip(),
+            "engagement_id": str(row["engagement_id"] or "").strip(),
+            "status": "eligible",
+        }
+        subscriber_status = row["subscriber_status"]
+        subscriber_status_value = (
+            subscriber_status.value if isinstance(subscriber_status, SubscriberStatus) else str(subscriber_status or "")
+        )
+        if subscriber_status_value == SubscriberStatus.terminated.value:
+            item.update({"status": "skipped", "reason": "subscriber_already_terminated"})
+            result["skipped"] += 1
+            result["items"].append(item)
+            continue
+        if marker_status:
+            item.update({"status": "skipped", "reason": f"deactivation_already_{marker_status}"})
+            result["skipped"] += 1
+            result["items"].append(item)
+            continue
+
+        result["eligible"] += 1
+        if not dry_run:
+            engagement = db.get(CustomerRetentionEngagement, row["engagement_id"])
+            if engagement is not None:
+                _enqueue_splynx_deactivation(db, engagement)
+                item["status"] = "enqueued"
+                result["enqueued"] += 1
+        result["items"].append(item)
+    return result
 
 
 def _enqueue_splynx_deactivation(db: Session, engagement: CustomerRetentionEngagement) -> None:

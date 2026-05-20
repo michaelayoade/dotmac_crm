@@ -110,6 +110,19 @@ def _segment_labels(selected_segments: list[str]) -> set[str]:
     return {mapping[key] for key in selected_segments if key in mapping}
 
 
+def _billing_risk_required_segments() -> list[str]:
+    return ["suspended"]
+
+
+def _billing_risk_suspended_status_rows(rows: list[dict]) -> list[dict]:
+    return [
+        row
+        for row in rows
+        if str(row.get("risk_segment") or "").strip().lower() == "suspended"
+        and str(row.get("subscriber_status") or row.get("status") or "").strip().lower() == "suspended"
+    ]
+
+
 def _csv_response(data: list[dict], filename: str) -> StreamingResponse:
     if not data:
         output = io.StringIO()
@@ -202,6 +215,7 @@ def _billing_risk_page_rows(
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
+    churn_rows = _billing_risk_suspended_status_rows(churn_rows)
     has_next = len(churn_rows) > requested_page_size
     visible_rows = [dict(row) for row in churn_rows[:requested_page_size]]
     if not str(search or "").strip():
@@ -295,8 +309,9 @@ def _billing_risk_cached_page_rows(
         location=location,
     )
     visible_rows = [dict(row) for row in cached_page.rows]
+    visible_rows = _billing_risk_suspended_status_rows(visible_rows)
     _enrich_missing_blocked_fields(visible_rows, force_live=False)
-    return visible_rows, cached_page.page_metrics, cached_page.has_next
+    return visible_rows, _billing_risk_page_metrics(visible_rows), cached_page.has_next
 
 
 def _billing_risk_initial_rows(
@@ -304,11 +319,40 @@ def _billing_risk_initial_rows(
     *,
     page_size: int,
 ) -> tuple[list[dict], dict[str, int | float], bool]:
+    churn_rows = _billing_risk_suspended_status_rows(churn_rows)
     has_next = len(churn_rows) > page_size
     visible_rows = [dict(row) for row in churn_rows[:page_size]]
     billing_risk_service.enrich_billing_risk_rows(visible_rows)
     _enrich_missing_blocked_fields(visible_rows, force_live=False)
     return visible_rows, _billing_risk_page_metrics(visible_rows), has_next
+
+
+def _billing_risk_unfiltered_at_risk_count(
+    db: Session,
+    *,
+    due_soon_days: int,
+    segment: str | None,
+    selected_segments: list[str],
+) -> int:
+    rows, _route_state = _billing_risk_rows_source(
+        db,
+        due_soon_days=due_soon_days,
+        high_balance_only=False,
+        segment=segment,
+        selected_segments=selected_segments,
+        days_past_due=None,
+        search=None,
+        overdue_bucket="all",
+        enterprise_only=False,
+        customer_segment="all",
+        location="",
+        mrr_sort=None,
+        limit=10000,
+    )
+    selected_labels = _segment_labels(selected_segments)
+    if selected_labels:
+        rows = [row for row in rows if str(row.get("risk_segment") or "") in selected_labels]
+    return len(_billing_risk_suspended_status_rows(rows))
 
 
 def _retention_rep_options(db: Session) -> list[dict[str, str]]:
@@ -1162,8 +1206,6 @@ def subscriber_billing_risk(
     mrr_sort: str | None = Query(None),
 ):
     user = get_current_user(request)
-    query_segments = request.query_params.getlist("segments")
-    query_segment = request.query_params.get("segment")
     query_days_past_due = request.query_params.get("days_past_due")
     query_bucket = request.query_params.get("bucket")
     normalized_bucket = (
@@ -1187,10 +1229,7 @@ def subscriber_billing_risk(
         .strip()
         .lower()
     )
-    selected_segments = _normalize_segment_filters(
-        query_segments if query_segments else segments,
-        query_segment or segment,
-    )
+    selected_segments = _billing_risk_required_segments()
     selected_labels = _segment_labels(selected_segments)
     cache_eligible = (
         settings.billing_risk_route_use_cache
@@ -1212,14 +1251,27 @@ def subscriber_billing_risk(
             page_size=50,
         )
         page_rows = [dict(row) for row in cached_page.rows]
-        page_metrics = cached_page.page_metrics
+        page_rows = _billing_risk_suspended_status_rows(page_rows)
+        page_metrics = _billing_risk_page_metrics(page_rows)
         has_next = cached_page.has_next
-        full_metric_rows: list[dict] = []
+        full_metric_rows = _billing_risk_suspended_status_rows(
+            billing_risk_cache.all_cached_rows(
+                db,
+                due_soon_days=due_soon_days,
+                high_balance_only=high_balance_only,
+                selected_segments=selected_segments,
+                days_past_due=query_days_past_due or days_past_due,
+                search=normalized_search,
+                overdue_bucket=normalized_bucket,
+                location=normalized_location,
+                limit=10000,
+            )
+        )
         end_read_only_transaction(db)
         billing_risk_route_state = {
             "mode": "cache",
             "metadata": billing_risk_cache.cache_metadata(db),
-            "cached_metrics": True,
+            "cached_metrics": False,
         }
     else:
         initial_rows, _initial_route_state = _billing_risk_rows_source(
@@ -1239,6 +1291,7 @@ def subscriber_billing_risk(
         )
         if selected_labels:
             initial_rows = [row for row in initial_rows if str(row.get("risk_segment") or "") in selected_labels]
+        initial_rows = _billing_risk_suspended_status_rows(initial_rows)
         full_metric_rows, billing_risk_route_state = _billing_risk_rows_source(
             db,
             due_soon_days=due_soon_days,
@@ -1259,6 +1312,7 @@ def subscriber_billing_risk(
             full_metric_rows = [
                 row for row in full_metric_rows if str(row.get("risk_segment") or "") in selected_labels
             ]
+        full_metric_rows = _billing_risk_suspended_status_rows(full_metric_rows)
         page_rows, page_metrics, has_next = _billing_risk_initial_rows(initial_rows, page_size=50)
     overdue_invoices = billing_risk_service.get_overdue_invoices_table(
         db,
@@ -1307,6 +1361,26 @@ def subscriber_billing_risk(
         kpis = billing_risk_service.get_billing_risk_summary(full_metric_rows, overdue_invoices)
         segment_breakdown = billing_risk_service.get_billing_risk_segment_breakdown(full_metric_rows)
         aging_buckets = billing_risk_service.get_billing_risk_aging_buckets(full_metric_rows)
+    kpis = dict(kpis)
+    normalized_days_past_due_filter = query_days_past_due or (days_past_due if isinstance(days_past_due, str) else "")
+    at_risk_filters_active = any(
+        [
+            high_balance_only is True,
+            bool(str(normalized_days_past_due_filter or "").strip()),
+            normalized_bucket != "all",
+            bool(str(normalized_search or "").strip()),
+            bool(normalized_location),
+        ]
+    )
+    if at_risk_filters_active:
+        kpis["total_at_risk"] = _billing_risk_unfiltered_at_risk_count(
+            db,
+            due_soon_days=due_soon_days,
+            segment=segment,
+            selected_segments=selected_segments,
+        )
+    else:
+        kpis["total_at_risk"] = len(full_metric_rows)
 
     export_query = urlencode(
         {
@@ -1955,8 +2029,6 @@ def subscriber_billing_risk_rows(
     mrr_sort: str | None = Query(None),
 ):
     get_current_user(request)
-    query_segments = request.query_params.getlist("segments")
-    query_segment = request.query_params.get("segment")
     query_days_past_due = request.query_params.get("days_past_due")
     query_search = request.query_params.get("search")
     normalized_search = query_search if query_search is not None else (search if isinstance(search, str) else None)
@@ -1980,10 +2052,7 @@ def subscriber_billing_risk_rows(
         .strip()
         .lower()
     )
-    selected_segments = _normalize_segment_filters(
-        query_segments if query_segments else segments,
-        query_segment or segment,
-    )
+    selected_segments = _billing_risk_required_segments()
     if (
         settings.billing_risk_route_use_cache
         and _billing_risk_cache_available(db)
@@ -2025,6 +2094,7 @@ def subscriber_billing_risk_rows(
             "request": request,
             "churn_rows": page_rows,
             "page_metrics": page_metrics,
+            "aging_buckets": _blocked_days_buckets(page_rows),
             "page": page,
             "page_size": page_size,
             "has_prev": page > 1,
@@ -2062,8 +2132,6 @@ def subscriber_billing_risk_export(
     location: str | None = Query(None),
     mrr_sort: str | None = Query(None),
 ):
-    query_segments = request.query_params.getlist("segments")
-    query_segment = request.query_params.get("segment")
     query_days_past_due = request.query_params.get("days_past_due")
     query_search = request.query_params.get("search")
     normalized_search = query_search if query_search is not None else (search if isinstance(search, str) else None)
@@ -2084,10 +2152,7 @@ def subscriber_billing_risk_export(
         .strip()
         .lower()
     )
-    selected_segments = _normalize_segment_filters(
-        query_segments if query_segments else segments,
-        query_segment or segment,
-    )
+    selected_segments = _billing_risk_required_segments()
 
     churn_rows, _route_state = _billing_risk_rows_source(
         db,
@@ -2107,6 +2172,7 @@ def subscriber_billing_risk_export(
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
+    churn_rows = _billing_risk_suspended_status_rows(churn_rows)
     _enrich_missing_blocked_fields(churn_rows, force_live=False)
     export_data = _billing_risk_visible_export_rows(db, churn_rows)
     filename = f"subscriber_billing_risk_{datetime.now(UTC).strftime('%Y%m%d')}.csv"
