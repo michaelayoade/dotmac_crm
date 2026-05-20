@@ -15,6 +15,7 @@ from app.schemas.settings import DomainSettingUpdate
 from app.services.domain_settings import workflow_settings
 from app.services.settings_cache import SettingsCache
 from app.web.agent import workqueue as workqueue_web
+from app.web.templates import Jinja2Templates
 
 
 def _set_workqueue_enabled(db_session, enabled: bool) -> None:
@@ -29,10 +30,18 @@ def _set_workqueue_enabled(db_session, enabled: bool) -> None:
     SettingsCache.invalidate(SettingDomain.workflow.value, "workqueue.enabled")
 
 
-def _make_request(*, permissions: list[str] | None = None, person_id: str | None = None) -> Request:
+def _make_request(
+    *, permissions: list[str] | None = None, person_id: str | None = None, region: str | None = None
+) -> Request:
     person_id = person_id or str(uuid.uuid4())
     perms = list(permissions if permissions is not None else ["workqueue:view"])
-    fake_person = SimpleNamespace(id=person_id, first_name="Test", last_name="User", email="t@example.com")
+    fake_person = SimpleNamespace(
+        id=person_id,
+        first_name="Test",
+        last_name="User",
+        email="t@example.com",
+        region=region,
+    )
     request = Request(
         {
             "type": "http",
@@ -106,12 +115,45 @@ def test_workqueue_renders_with_flag_on(db_session, set_setting, monkeypatch):
     assert b"Right now" in resp.content
 
 
+def test_build_user_includes_person_region():
+    person_id = str(uuid.uuid4())
+    _, user = workqueue_web._build_user(_make_request(person_id=person_id, region="Garki"))
+    assert str(user.person_id) == person_id
+    assert user.region == "Garki"
+
+
 def test_partial_right_now(db_session, set_setting, monkeypatch):
     _stub_templates(monkeypatch)
     set_setting("workqueue.enabled", True)
     resp = workqueue_web.partial_right_now(request=_make_request(), db=db_session)
     assert resp.status_code == 200, resp.text
     assert b"workqueue-right-now" in resp.content
+    assert resp.context["audience_value"] == "self"
+
+
+def test_partial_right_now_preserves_requested_audience(db_session, set_setting, monkeypatch):
+    _stub_templates(monkeypatch)
+    set_setting("workqueue.enabled", True)
+    resp = workqueue_web.partial_right_now(
+        request=_make_request(permissions=["workqueue:view", "workqueue:audience:team"]),
+        db=db_session,
+        audience="team",
+    )
+    assert resp.context["audience_value"] == "team"
+
+
+def test_partial_right_now_template_renders_without_view():
+    html = (
+        Jinja2Templates(directory="templates")
+        .env.get_template("agent/workqueue/_right_now.html")
+        .render(
+            request={},
+            right_now=(),
+            audience_value="team",
+            csrf_token="",
+        )
+    )
+    assert 'hx-get="/agent/workqueue/_right_now?as=team"' in html
 
 
 @pytest.mark.parametrize("kind", ["conversation", "ticket", "lead", "quote", "task"])
@@ -120,6 +162,7 @@ def test_partial_section(db_session, set_setting, kind, monkeypatch):
     set_setting("workqueue.enabled", True)
     resp = workqueue_web.partial_section(kind=kind, request=_make_request(), db=db_session)
     assert resp.status_code == 200, resp.text
+    assert resp.context["audience_value"] == "self"
 
 
 def test_partial_section_unknown_kind_404(db_session, set_setting):
@@ -127,6 +170,22 @@ def test_partial_section_unknown_kind_404(db_session, set_setting):
     with pytest.raises(HTTPException) as exc:
         workqueue_web.partial_section(kind="bogus", request=_make_request(), db=db_session)
     assert exc.value.status_code == 404
+
+
+def test_team_conversation_section_links_to_my_team_inbox():
+    from app.services.workqueue.types import ItemKind, WorkqueueSection
+
+    html = (
+        Jinja2Templates(directory="templates")
+        .env.get_template("agent/workqueue/_section.html")
+        .render(
+            request={},
+            section=WorkqueueSection(kind=ItemKind.conversation, items=(), total=0),
+            audience_value="team",
+            csrf_token="",
+        )
+    )
+    assert 'href="/admin/crm/inbox?assignment=my_team"' in html
 
 
 def test_workqueue_view_permission_required(db_session, set_setting):

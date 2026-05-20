@@ -54,6 +54,27 @@ def test_sla_breach_scores_100(db_session, user, crm_conversation_factory):
     assert item.urgency == "critical"
 
 
+def test_directly_assigned_recent_conversation_is_included(db_session, user, crm_conversation_factory):
+    conv = crm_conversation_factory(
+        assignee_person_id=user.person_id,
+        last_inbound_at=datetime.now(UTC) - timedelta(minutes=5),
+    )
+    audience = WorkqueueAudience.self_
+    items = conversations_provider.fetch(
+        db_session,
+        user=user,
+        audience=audience,
+        scope=get_workqueue_scope(db_session, user, audience),
+        snoozed_ids=set(),
+    )
+    assert len(items) == 1
+    item = items[0]
+    assert item.item_id == conv.id
+    assert item.reason == "assigned_to_me"
+    assert item.subtitle == "Assigned to you"
+    assert item.deep_link == f"/admin/crm/inbox?conversation_id={conv.id}"
+
+
 def test_snoozed_ids_excluded(db_session, user, crm_conversation_factory):
     conv = crm_conversation_factory(assignee_person_id=user.person_id)
     items = conversations_provider.fetch(
@@ -89,6 +110,21 @@ def test_audience_team_includes_unassigned(db_session, user, crm_conversation_fa
         snoozed_ids=set(),
     )
     assert len(items) == 1
+
+
+def test_audience_org_includes_recent_unassigned_inbox_conversation(db_session, user, crm_conversation_factory):
+    conv = crm_conversation_factory(last_inbound_at=datetime.now(UTC) - timedelta(minutes=5))
+    items = conversations_provider.fetch(
+        db_session,
+        user=user,
+        audience=WorkqueueAudience.org,
+        scope=get_workqueue_scope(db_session, user, WorkqueueAudience.org),
+        snoozed_ids=set(),
+    )
+    assert len(items) == 1
+    assert items[0].item_id == conv.id
+    assert items[0].reason == "in_inbox"
+    assert items[0].subtitle == "In inbox"
 
 
 def test_results_sorted_by_score_desc(db_session, user, crm_conversation_factory):

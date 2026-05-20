@@ -37,6 +37,7 @@ def get_current_user(request) -> dict:
             "initials": _get_initials(name),
             "name": name,
             "email": getattr(user, "email", ""),
+            "region": getattr(user, "region", None),
             "roles": roles,
             "permissions": permissions,
         }
@@ -47,6 +48,7 @@ def get_current_user(request) -> dict:
         "initials": "??",
         "name": "Unknown User",
         "email": "",
+        "region": None,
         "roles": roles,
         "permissions": permissions,
     }

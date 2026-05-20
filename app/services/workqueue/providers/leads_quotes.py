@@ -92,8 +92,13 @@ def _quote_owner_person_id(q: Quote) -> UUID | None:
 def _lead_visibility_source(lead: Lead, assignee_person_id: UUID | None, scope: WorkqueueScope) -> str:
     if assignee_person_id == scope.person_id:
         return "direct_profile_owner"
+    if scope.audience is WorkqueueAudience.self_:
+        return "person_region"
     if assignee_person_id is not None and assignee_person_id in scope.accessible_person_ids:
         return "team_profile_owner"
+    lead_region = (lead.region or "").strip().lower()
+    if lead_region and lead_region in scope.accessible_service_team_regions:
+        return "service_team_region"
     return "unknown"
 
 

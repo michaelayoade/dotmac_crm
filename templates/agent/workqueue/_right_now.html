@@ -1,6 +1,6 @@
 {% from "components/ui/workqueue_macros.html" import workqueue_item with context %}
 <section id="workqueue-right-now"
-         hx-get="/agent/workqueue/_right_now"
+         hx-get="/agent/workqueue/_right_now?as={{ audience_value if audience_value is defined else view.audience.value }}"
          hx-trigger="every 60s, workqueue:refresh from:body"
          hx-swap="outerHTML"
          class="space-y-2">

@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import false, or_
+from sqlalchemy import false, func, or_
 from sqlalchemy.orm import Session, aliased
 
 from app.models.crm.conversation import Conversation, ConversationAssignment
@@ -23,11 +23,13 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class WorkqueueScope:
     person_id: UUID
+    person_region: str | None
     audience: WorkqueueAudience
     roles: frozenset[str]
     permissions: frozenset[str]
     crm_agent_ids: frozenset[UUID]
     accessible_service_team_ids: frozenset[UUID]
+    accessible_service_team_regions: frozenset[str]
     accessible_crm_team_ids: frozenset[UUID]
     accessible_crm_agent_ids: frozenset[UUID]
     accessible_person_ids: frozenset[UUID]
@@ -45,8 +47,10 @@ class WorkqueueScope:
     def applied_filters(self) -> dict[str, object]:
         return {
             "audience": self.audience.value,
+            "person_region": self.person_region,
             "crm_agent_ids": [str(agent_id) for agent_id in sorted(self.crm_agent_ids, key=str)],
             "service_team_ids": list(self.department_ids),
+            "service_team_regions": sorted(self.accessible_service_team_regions),
             "crm_team_ids": list(self.crm_team_ids),
             "accessible_crm_agent_ids": [str(agent_id) for agent_id in sorted(self.accessible_crm_agent_ids, key=str)],
             "accessible_person_ids": [str(person_id) for person_id in sorted(self.accessible_person_ids, key=str)],
@@ -98,6 +102,22 @@ def _managed_service_team_ids(db: Session, person_id: UUID) -> set[UUID]:
         )
     }
     return membership_ids | manager_ids
+
+
+def _service_team_regions(db: Session, service_team_ids: set[UUID]) -> set[str]:
+    if not service_team_ids:
+        return set()
+    return {
+        region.strip().lower()
+        for (region,) in (
+            db.query(ServiceTeam.region)
+            .filter(ServiceTeam.id.in_(service_team_ids))
+            .filter(ServiceTeam.is_active.is_(True))
+            .filter(ServiceTeam.region.isnot(None))
+            .all()
+        )
+        if region and region.strip()
+    }
 
 
 def _person_crm_agent_ids(db: Session, person_id: UUID) -> set[UUID]:
@@ -183,6 +203,13 @@ def _crm_agent_person_ids(db: Session, crm_agent_ids: set[UUID]) -> set[UUID]:
     }
 
 
+def _normalize_region(value: object) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
 def get_workqueue_scope(db: Session, user, audience_mode: WorkqueueAudience) -> WorkqueueScope:
     roles = {str(role).strip().lower() for role in (getattr(user, "roles", None) or []) if str(role).strip()}
     permissions = {
@@ -194,6 +221,7 @@ def get_workqueue_scope(db: Session, user, audience_mode: WorkqueueAudience) -> 
     member_service_team_ids = _active_person_service_team_ids(db, person_id)
     managed_service_team_ids = _managed_service_team_ids(db, person_id)
     accessible_service_team_ids = member_service_team_ids | managed_service_team_ids
+    accessible_service_team_regions = _service_team_regions(db, accessible_service_team_ids)
 
     member_crm_team_ids = _crm_team_ids_for_agents(db, crm_agent_ids)
     linked_crm_team_ids = _crm_team_ids_for_service_teams(db, accessible_service_team_ids)
@@ -208,11 +236,13 @@ def get_workqueue_scope(db: Session, user, audience_mode: WorkqueueAudience) -> 
     is_admin = "admin" in roles or "workqueue:audience:org" in permissions
     scope = WorkqueueScope(
         person_id=person_id,
+        person_region=_normalize_region(getattr(user, "region", None)),
         audience=audience_mode,
         roles=frozenset(roles),
         permissions=frozenset(permissions),
         crm_agent_ids=frozenset(crm_agent_ids),
         accessible_service_team_ids=frozenset(accessible_service_team_ids),
+        accessible_service_team_regions=frozenset(accessible_service_team_regions),
         accessible_crm_team_ids=frozenset(accessible_crm_team_ids),
         accessible_crm_agent_ids=frozenset(accessible_crm_agent_ids),
         accessible_person_ids=frozenset(accessible_person_ids),
@@ -283,30 +313,27 @@ def apply_conversation_scope(stmt, scope: WorkqueueScope):
     _log_scope_decision(
         scope,
         "conversation",
-        "include_owned_records_only",
-        resolved_assignment_source="active_assignment_agent_or_team",
+        "include_all_active_inbox_records",
     )
-    return (
-        stmt.join(
-            ConversationAssignment,
-            ConversationAssignment.conversation_id == Conversation.id,
-        )
-        .where(ConversationAssignment.is_active.is_(True))
-        .where(or_(ConversationAssignment.team_id.isnot(None), ConversationAssignment.agent_id.isnot(None)))
-    )
+    return stmt
 
 
 def apply_ticket_scope(stmt, scope: WorkqueueScope):
     if scope.audience is WorkqueueAudience.self_:
+        filters = [
+            Ticket.assigned_to_person_id == scope.person_id,
+            TicketAssignee.person_id == scope.person_id,
+        ]
+        if scope.person_region:
+            filters.append(func.lower(func.trim(Ticket.region)) == scope.person_region.lower())
         _log_scope_decision(
             scope,
             "ticket",
-            "include_direct_assignment",
+            "include_direct_assignment_or_person_region",
             resolved_assignment_source="ticket_assignee_or_assigned_to_person_id",
+            resolved_region_source="person.region",
         )
-        return stmt.outerjoin(TicketAssignee, TicketAssignee.ticket_id == Ticket.id).where(
-            or_(TicketAssignee.person_id == scope.person_id, Ticket.assigned_to_person_id == scope.person_id)
-        )
+        return stmt.outerjoin(TicketAssignee, TicketAssignee.ticket_id == Ticket.id).where(or_(*filters))
 
     if scope.audience is WorkqueueAudience.team:
         filters = [
@@ -315,12 +342,18 @@ def apply_ticket_scope(stmt, scope: WorkqueueScope):
         ]
         if scope.accessible_service_team_ids:
             filters.append(Ticket.service_team_id.in_(scope.accessible_service_team_ids))
+        region_filters = set(scope.accessible_service_team_regions)
+        if scope.person_region:
+            region_filters.add(scope.person_region.lower())
+        if region_filters:
+            filters.append(func.lower(func.trim(Ticket.region)).in_(region_filters))
         _log_scope_decision(
             scope,
             "ticket",
-            "include_direct_assignment_or_service_team",
+            "include_direct_assignment_or_service_team_or_region",
             resolved_assignment_source="ticket_assignee_or_assigned_to_person_id",
             resolved_team_source="ticket.service_team_id",
+            resolved_region_source="person.region_or_service_team.region",
         )
         return stmt.outerjoin(TicketAssignee, TicketAssignee.ticket_id == Ticket.id).where(or_(*filters))
 
@@ -338,33 +371,41 @@ def apply_lead_scope(stmt, scope: WorkqueueScope):
     stmt = stmt.outerjoin(owner_agent, owner_agent.id == Lead.owner_agent_id)
 
     if scope.audience is WorkqueueAudience.self_:
-        _log_scope_decision(
-            scope,
-            "lead",
-            "include_profile_owned_records",
-            resolved_profile_source="lead.owner_agent.person_id",
-        )
-        return stmt.where(owner_agent.person_id == scope.person_id)
-
-    if scope.audience is WorkqueueAudience.team:
-        if not scope.accessible_person_ids:
-            _log_scope_decision(scope, "lead", "exclude_all", reason="no_accessible_people")
+        if not scope.person_region:
+            _log_scope_decision(scope, "lead", "exclude_all", reason="missing_person_region")
             return stmt.where(false())
         _log_scope_decision(
             scope,
             "lead",
-            "include_team_profile_owned_records",
-            resolved_profile_source="lead.owner_agent.person_id",
+            "include_person_region",
+            resolved_region_source="person.region",
         )
-        return stmt.where(owner_agent.person_id.in_(scope.accessible_person_ids))
+        return stmt.where(func.lower(func.trim(Lead.region)) == scope.person_region.lower())
+
+    if scope.audience is WorkqueueAudience.team:
+        filters = []
+        if scope.accessible_person_ids:
+            filters.append(owner_agent.person_id.in_(scope.accessible_person_ids))
+        if scope.accessible_service_team_regions:
+            filters.append(func.lower(func.trim(Lead.region)).in_(scope.accessible_service_team_regions))
+        if not filters:
+            _log_scope_decision(scope, "lead", "exclude_all", reason="no_accessible_people_or_regions")
+            return stmt.where(false())
+        _log_scope_decision(
+            scope,
+            "lead",
+            "include_team_profile_or_region_records",
+            resolved_profile_source="lead.owner_agent.person_id",
+            resolved_region_source="service_team.region",
+        )
+        return stmt.where(or_(*filters))
 
     _log_scope_decision(
         scope,
         "lead",
-        "include_owned_records_only",
-        resolved_profile_source="lead.owner_agent.person_id",
+        "include_all_active_records",
     )
-    return stmt.where(Lead.owner_agent_id.isnot(None))
+    return stmt
 
 
 def apply_quote_scope(stmt, scope: WorkqueueScope):

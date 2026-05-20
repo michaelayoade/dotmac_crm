@@ -10,9 +10,9 @@ what we need without altering the schema:
   populate these alongside other conversation metadata.
 * Assignment to the current user is resolved via a join through
   `ConversationAssignment` and `CrmAgent` on ``person_id``.
-* The "assigned unread" classification path is intentionally omitted here
-  until we have a clean way to compute it without N+1 queries; the plan
-  explicitly allows skipping it in this slice.
+* Conversations assigned to the current user are included even when they do
+  not yet have an SLA or old-reply signal, matching the CRM inbox assignment
+  view agents work from.
 """
 
 from __future__ import annotations
@@ -102,7 +102,13 @@ def _visibility_source(conv: Conversation, scope: WorkqueueScope) -> str:
     return "unknown"
 
 
-def _classify(conv: Conversation, now: datetime) -> tuple[str, int] | None:
+def _classify(
+    conv: Conversation,
+    now: datetime,
+    *,
+    assigned_to_user: bool = False,
+    include_visible_inbox: bool = False,
+) -> tuple[str, int] | None:
     sla_due = _sla_due_at(conv)
     if sla_due is not None:
         delta = (sla_due - now).total_seconds()
@@ -117,11 +123,17 @@ def _classify(conv: Conversation, now: datetime) -> tuple[str, int] | None:
     if last_in is not None and (now - last_in).total_seconds() > 4 * 3600:
         return "awaiting_reply_long", CONVERSATION_SCORES["awaiting_reply_long"]
 
+    if assigned_to_user:
+        return "assigned_to_me", CONVERSATION_SCORES["assigned_unread"]
+
+    if include_visible_inbox:
+        return "in_inbox", CONVERSATION_SCORES["in_inbox"]
+
     return None
 
 
 def _deep_link(conv: Conversation) -> str:
-    return f"/admin/inbox/conversations/{conv.id}"
+    return f"/admin/crm/inbox?conversation_id={conv.id}"
 
 
 def _title(conv: Conversation) -> str:
@@ -138,6 +150,10 @@ def _subtitle(reason: str, conv: Conversation, now: datetime) -> str:
         return f"SLA in {secs // 60}m"
     if reason == "awaiting_reply_long":
         return "Awaiting reply > 4h"
+    if reason == "assigned_to_me":
+        return "Assigned to you"
+    if reason == "in_inbox":
+        return "In inbox"
     return reason.replace("_", " ").title()
 
 
@@ -174,11 +190,16 @@ class ConversationsProvider:
 
         items: list[WorkqueueItem] = []
         for conv in rows:
-            verdict = _classify(conv, now)
+            assignee = _active_assignee_person_id(conv)
+            verdict = _classify(
+                conv,
+                now,
+                assigned_to_user=assignee == scope.person_id,
+                include_visible_inbox=audience is not WorkqueueAudience.self_,
+            )
             if verdict is None:
                 continue
             reason, score = verdict
-            assignee = _active_assignee_person_id(conv)
             actions = {ActionKind.open, ActionKind.snooze, ActionKind.complete}
             if assignee is None:
                 actions.add(ActionKind.claim)

@@ -11,6 +11,7 @@ CONVERSATION_SCORES: dict[str, int] = {
     "mention": 65,
     "awaiting_reply_long": 55,
     "assigned_unread": 45,
+    "in_inbox": 35,
 }
 
 TICKET_SCORES: dict[str, int] = {
