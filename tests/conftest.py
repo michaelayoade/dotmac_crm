@@ -728,6 +728,7 @@ def lead_factory(db_session):
         title: str | None = None,
         estimated_value: float | None = None,
         probability: int | None = None,
+        region: str | None = None,
     ) -> Lead:
         # Lead requires a Person (the contact)
         contact = Person(
@@ -781,6 +782,7 @@ def lead_factory(db_session):
             title=title or "Workqueue test lead",
             estimated_value=estimated_value,
             probability=probability,
+            region=region,
             metadata_=meta or None,
         )
         db_session.add(lead)
@@ -890,6 +892,7 @@ def ticket_factory(db_session):
         sla_due_at: _dt | None = None,
         due_at: _dt | None = None,
         last_customer_reply_at: _dt | None = None,
+        region: str | None = None,
         title: str | None = None,
     ) -> Ticket:
         meta: dict = {}
@@ -903,6 +906,7 @@ def ticket_factory(db_session):
             status=status,
             priority=priority,
             service_team_id=service_team_id,
+            region=region,
             due_at=due_at,
             metadata_=meta or None,
         )

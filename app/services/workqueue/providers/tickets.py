@@ -114,10 +114,17 @@ def _active_assignee_person_id(t: Ticket) -> UUID | None:
 
 def _visibility_source(t: Ticket, scope: WorkqueueScope) -> str:
     assignee = _active_assignee_person_id(t)
+    ticket_region = (t.region or "").strip().lower()
     if assignee == scope.person_id:
         return "direct_assignment"
+    if scope.audience is WorkqueueAudience.self_:
+        return "person_region"
     if t.service_team_id is not None and t.service_team_id in scope.accessible_service_team_ids:
         return "service_team_ownership"
+    if ticket_region and ticket_region == (scope.person_region or "").strip().lower():
+        return "person_region"
+    if ticket_region and ticket_region in scope.accessible_service_team_regions:
+        return "service_team_region"
     return "unknown"
 
 
@@ -187,7 +194,7 @@ class TicketsProvider:
             reason, score = verdict
             assignee = _active_assignee_person_id(t)
             actions = {ActionKind.open, ActionKind.snooze, ActionKind.complete}
-            if assignee is None:
+            if assignee is None and "workqueue:claim" in getattr(user, "permissions", set()):
                 actions.add(ActionKind.claim)
             visibility_source = _visibility_source(t, scope)
             logger.info(

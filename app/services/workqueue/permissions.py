@@ -24,6 +24,9 @@ def has_workqueue_view(user: _UserLike) -> bool:
 
 
 def _natural_audience(user: _UserLike) -> WorkqueueAudience:
+    roles = {str(role).strip().lower() for role in (getattr(user, "roles", None) or []) if str(role).strip()}
+    if "admin" in roles:
+        return WorkqueueAudience.org
     for perm, audience in _NATURAL_BY_PRIORITY:
         if perm in user.permissions:
             return audience
@@ -34,7 +37,7 @@ def resolve_audience(user: _UserLike, requested: str | None = None) -> Workqueue
     """Highest-tier audience the user holds; query param can downscope only."""
     natural = _natural_audience(user)
     if requested is None:
-        return natural
+        return WorkqueueAudience.self_
 
     try:
         wanted = WorkqueueAudience(requested)

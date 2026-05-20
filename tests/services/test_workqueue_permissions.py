@@ -12,7 +12,11 @@ from app.services.workqueue.types import WorkqueueAudience
 
 
 def _user(*permissions: str, person_id=None):
-    return SimpleNamespace(person_id=person_id or uuid4(), permissions=set(permissions))
+    return SimpleNamespace(person_id=person_id or uuid4(), permissions=set(permissions), roles=set())
+
+
+def _admin(*permissions: str, person_id=None):
+    return SimpleNamespace(person_id=person_id or uuid4(), permissions=set(permissions), roles={"admin"})
 
 
 def test_default_audience_is_self():
@@ -20,14 +24,29 @@ def test_default_audience_is_self():
 
 
 def test_team_permission_resolves_to_team():
-    assert resolve_audience(_user("workqueue:view", "workqueue:audience:team")) is WorkqueueAudience.team
+    assert resolve_audience(_user("workqueue:view", "workqueue:audience:team")) is WorkqueueAudience.self_
 
 
 def test_org_outranks_team():
     assert (
         resolve_audience(_user("workqueue:view", "workqueue:audience:team", "workqueue:audience:org"))
+        is WorkqueueAudience.self_
+    )
+
+
+def test_explicit_team_permission_resolves_to_team():
+    assert resolve_audience(_user("workqueue:view", "workqueue:audience:team"), "team") is WorkqueueAudience.team
+
+
+def test_explicit_org_outranks_team():
+    assert (
+        resolve_audience(_user("workqueue:view", "workqueue:audience:team", "workqueue:audience:org"), "org")
         is WorkqueueAudience.org
     )
+
+
+def test_admin_role_can_request_org_audience_without_org_permission():
+    assert resolve_audience(_admin("workqueue:view"), "org") is WorkqueueAudience.org
 
 
 @pytest.mark.parametrize(

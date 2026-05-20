@@ -14,19 +14,24 @@ from app.services.workqueue.aggregator import build_workqueue
 from app.services.workqueue.types import ItemKind
 
 
-def _user(person_id, *permissions, roles: list[str] | None = None):
-    return SimpleNamespace(person_id=person_id, permissions=set(permissions), roles=set(roles or []))
+def _user(person_id, *permissions, roles: list[str] | None = None, region: str | None = None):
+    return SimpleNamespace(person_id=person_id, permissions=set(permissions), roles=set(roles or []), region=region)
 
 
-def _person(db_session, *, first_name: str) -> Person:
-    person = Person(first_name=first_name, last_name="WQ", email=f"{first_name.lower()}-{uuid4().hex[:8]}@example.com")
+def _person(db_session, *, first_name: str, region: str | None = None) -> Person:
+    person = Person(
+        first_name=first_name,
+        last_name="WQ",
+        email=f"{first_name.lower()}-{uuid4().hex[:8]}@example.com",
+        region=region,
+    )
     db_session.add(person)
     db_session.flush()
     return person
 
 
-def _service_team(db_session, *, name: str) -> ServiceTeam:
-    team = ServiceTeam(name=name, team_type=ServiceTeamType.support, is_active=True)
+def _service_team(db_session, *, name: str, region: str | None = None) -> ServiceTeam:
+    team = ServiceTeam(name=name, team_type=ServiceTeamType.support, region=region, is_active=True)
     db_session.add(team)
     db_session.flush()
     return team
@@ -174,7 +179,7 @@ def test_my_items_audience_only_returns_users_owned_records(
     quote_factory,
     project_task_factory,
 ):
-    viewer = _person(db_session, first_name="ViewerSelf")
+    viewer = _person(db_session, first_name="ViewerSelf", region="North")
     teammate = _person(db_session, first_name="TeammateSelf")
     team = _service_team(db_session, name="Support Self")
     crm_team = _crm_team(db_session, service_team=team, name="CRM Self")
@@ -191,27 +196,31 @@ def test_my_items_audience_only_returns_users_owned_records(
     crm_conversation_factory(assignee_person_id=teammate.id, assignment_team_id=crm_team.id)
 
     ticket_self = ticket_factory(
-        assignee_person_id=viewer.id,
-        service_team_id=team.id,
-        status=TicketStatus.open,
-        sla_due_at=datetime.now(UTC) - timedelta(minutes=5),
-    )
-    ticket_factory(
         assignee_person_id=teammate.id,
         service_team_id=team.id,
         status=TicketStatus.open,
         sla_due_at=datetime.now(UTC) - timedelta(minutes=5),
+        region="north",
+    )
+    ticket_assigned = ticket_factory(
+        assignee_person_id=viewer.id,
+        service_team_id=team.id,
+        status=TicketStatus.open,
+        sla_due_at=datetime.now(UTC) - timedelta(minutes=5),
+        region="South",
     )
 
     lead_self = lead_factory(
-        owner_person_id=viewer.id,
-        owner_crm_team_id=crm_team.id,
-        next_action_at=datetime.now(UTC) - timedelta(hours=1),
-    )
-    lead_factory(
         owner_person_id=teammate.id,
         owner_crm_team_id=crm_team.id,
         next_action_at=datetime.now(UTC) - timedelta(hours=1),
+        region="North",
+    )
+    lead_factory(
+        owner_person_id=viewer.id,
+        owner_crm_team_id=crm_team.id,
+        next_action_at=datetime.now(UTC) - timedelta(hours=1),
+        region="South",
     )
 
     quote_self = quote_factory(
@@ -231,12 +240,14 @@ def test_my_items_audience_only_returns_users_owned_records(
     )
 
     view = build_workqueue(
-        db_session, _user(viewer.id, "workqueue:view", "workqueue:audience:team"), requested_audience="self"
+        db_session,
+        _user(viewer.id, "workqueue:view", "workqueue:audience:team", region=viewer.region),
+        requested_audience="self",
     )
     sections = _section_map(view)
 
     assert {item.item_id for item in sections[ItemKind.conversation].items} == {conv_self.id}
-    assert {item.item_id for item in sections[ItemKind.ticket].items} == {ticket_self.id}
+    assert {item.item_id for item in sections[ItemKind.ticket].items} == {ticket_self.id, ticket_assigned.id}
     assert {item.item_id for item in sections[ItemKind.lead].items} == {lead_self.id}
     assert {item.item_id for item in sections[ItemKind.quote].items} == {quote_self.id}
     assert {item.item_id for item in sections[ItemKind.task].items} == {task_self.id}
@@ -420,7 +431,38 @@ def test_team_audience_uses_profile_owned_leads_quotes_and_tasks_without_crm_tea
     }
 
 
-def test_org_audience_excludes_orphan_records_and_includes_owned_department_records(
+def test_team_audience_includes_leads_by_service_team_region(
+    db_session,
+    lead_factory,
+):
+    viewer = _person(db_session, first_name="RegionalLeadViewer")
+    team = _service_team(db_session, name="Regional Lead Team", region="Garki")
+    _link_service_team_member(db_session, service_team=team, person=viewer)
+    db_session.commit()
+
+    visible_lead = lead_factory(
+        owner_person_id=uuid4(),
+        next_action_at=datetime.now(UTC) - timedelta(hours=1),
+        region=" garki ",
+    )
+    lead_factory(
+        owner_person_id=uuid4(),
+        next_action_at=datetime.now(UTC) - timedelta(hours=1),
+        region="Wuse",
+    )
+
+    view = build_workqueue(
+        db_session,
+        _user(viewer.id, "workqueue:view", "workqueue:audience:team"),
+        requested_audience="team",
+    )
+    sections = _section_map(view)
+
+    assert {item.item_id for item in sections[ItemKind.lead].items} == {visible_lead.id}
+    assert {item.metadata.get("visibility_source") for item in sections[ItemKind.lead].items} == {"service_team_region"}
+
+
+def test_org_audience_includes_all_active_inbox_records(
     db_session,
     crm_conversation_factory,
     ticket_factory,
@@ -465,7 +507,7 @@ def test_org_audience_excludes_orphan_records_and_includes_owned_department_reco
         owner_crm_team_id=crm_team_b.id,
         next_action_at=datetime.now(UTC) - timedelta(hours=1),
     )
-    lead_factory(next_action_at=datetime.now(UTC) - timedelta(hours=1))
+    orphan_lead = lead_factory(next_action_at=datetime.now(UTC) - timedelta(hours=1))
 
     quote_factory(owner_person_id=person_a.id, sent_at=datetime.now(UTC) - timedelta(days=8), status=QuoteStatus.sent)
     quote_factory(owner_person_id=person_b.id, sent_at=datetime.now(UTC) - timedelta(days=8), status=QuoteStatus.sent)
@@ -485,8 +527,9 @@ def test_org_audience_excludes_orphan_records_and_includes_owned_department_reco
     )
     sections = _section_map(view)
 
-    assert sections[ItemKind.conversation].total == 2
+    assert sections[ItemKind.conversation].total == 3
     assert sections[ItemKind.ticket].total == 2
-    assert sections[ItemKind.lead].total == 2
+    assert sections[ItemKind.lead].total == 3
+    assert orphan_lead.id in {item.item_id for item in sections[ItemKind.lead].items}
     assert sections[ItemKind.quote].total == 2
     assert sections[ItemKind.task].total == 2

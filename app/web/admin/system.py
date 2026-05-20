@@ -386,7 +386,7 @@ def _humanize_integrity_error(exc: IntegrityError) -> str:
     return "Could not save this user because the record already exists."
 
 
-def _error_banner(message: str, status_code: int = 409) -> HTMLResponse:
+def _error_banner(message: str, status_code: int = 200) -> HTMLResponse:
     return HTMLResponse(
         f'<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{message}</div>',
         status_code=status_code,
@@ -1903,7 +1903,7 @@ def user_create(
     role = rbac_service.roles.get(db, role_id)
     temp_password = secrets.token_urlsafe(16)
 
-    def _promote_existing_person(existing_person: Person) -> HTMLResponse | None:
+    def _promote_existing_person(existing_person: Person) -> Response | HTMLResponse | None:
         existing_credential = (
             db.query(UserCredential)
             .filter(UserCredential.person_id == existing_person.id)
@@ -1911,6 +1911,32 @@ def user_create(
             .first()
         )
         if existing_credential:
+            if send_invite and existing_credential.must_change_password and existing_person.email:
+                reset = auth_flow_service.request_password_reset(db=db, email=existing_person.email)
+                if reset and reset.get("token"):
+                    sent = email_service.send_user_invite_email(
+                        db,
+                        to_email=existing_person.email,
+                        reset_token=reset["token"],
+                        person_name=reset.get("person_name"),
+                    )
+                    if sent:
+                        trigger = {
+                            "showToast": {
+                                "type": "success",
+                                "title": "Invitation sent",
+                                "message": "User already exists. Invitation email resent.",
+                                "duration": 8000,
+                            }
+                        }
+                        return Response(
+                            status_code=200,
+                            headers={
+                                "HX-Redirect": "/admin/system/users",
+                                "HX-Trigger": json.dumps(trigger),
+                            },
+                        )
+                return _error_banner("User already exists, but the invitation email could not be sent.")
             return _error_banner("User already exists for this email.")
 
         existing_role = (
