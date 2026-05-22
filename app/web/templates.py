@@ -5,9 +5,15 @@ from typing import Any, cast
 from fastapi.templating import Jinja2Templates as FastAPIJinja2Templates
 from starlette.templating import _TemplateResponse
 
+from app.version import get_app_version
+
 
 class Jinja2Templates(FastAPIJinja2Templates):
     """Compatibility wrapper that accepts legacy TemplateResponse argument order."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.env.globals["app_version"] = get_app_version()
 
     def TemplateResponse(self, *args: Any, **kwargs: Any) -> _TemplateResponse:
         if args and isinstance(args[0], str):
