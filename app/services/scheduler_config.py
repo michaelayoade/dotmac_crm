@@ -254,6 +254,13 @@ def build_beat_schedule() -> dict:
             enabled=offline_outreach_enabled,
             interval_seconds=max(offline_outreach_interval_seconds, 300),
         )
+        _sync_scheduled_task(
+            session,
+            name="subscriber_offline_outreach_auto_resolve",
+            task_name="app.tasks.subscriber_outreach.resolve_stale_offline_outreach_conversations",
+            enabled=offline_outreach_enabled,
+            interval_seconds=3600,
+        )
 
         billing_risk_cache_enabled = _effective_bool(
             session,

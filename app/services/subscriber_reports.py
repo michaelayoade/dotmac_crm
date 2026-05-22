@@ -134,9 +134,10 @@ def online_customers_last_24h_rows(
     activity_segment: str | None = None,
     limit: int | None = 200,
 ) -> list[dict]:
-    """Return active Splynx customers last seen within 24h but not currently online."""
+    """Return active Splynx customers by recent/offline activity segment."""
     now = datetime.now(UTC)
     start = now - timedelta(hours=24)
+    selected_activity_segment = (activity_segment or "active_last24_not_online").strip().lower()
 
     # Source of truth for this report: live Splynx customer LAST ONLINE minus customer-online.
     from app.services.splynx import customer_base_station, fetch_customers, fetch_online_customers
@@ -388,7 +389,12 @@ def online_customers_last_24h_rows(
         last_online = _parse_online_dt(
             customer.get("last_online") or customer.get("last_seen") or customer.get("updated_at")
         )
-        if last_online is None or last_online < start or last_online > now:
+        if last_online is None or last_online > now:
+            continue
+        if selected_activity_segment == "inactive_24h_not_online":
+            if last_online > start:
+                continue
+        elif last_online < start:
             continue
         external_id = str(customer.get("id") or "").strip()
         login = str(customer.get("login") or "").strip()

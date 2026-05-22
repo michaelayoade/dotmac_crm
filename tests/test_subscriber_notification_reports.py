@@ -659,6 +659,58 @@ def test_online_last_24h_rows_use_strict_splynx_active_recent_offline_conditions
     assert rows[0]["currently_online"] is False
 
 
+def test_online_last_24h_rows_support_inactive_24h_offline_segment(db_session, monkeypatch):
+    from app.services import subscriber_reports as subscriber_reports_service
+
+    now = datetime.now(UTC)
+    monkeypatch.setattr(
+        "app.services.splynx.fetch_customers",
+        lambda _db: [
+            {
+                "id": "active-recent-offline",
+                "login": "active-recent-offline",
+                "name": "Active Recent Offline",
+                "status": "active",
+                "last_online": (now - timedelta(hours=2)).isoformat(),
+            },
+            {
+                "id": "active-inactive-24h",
+                "login": "active-inactive-24h",
+                "name": "Active Inactive 24h",
+                "status": "active",
+                "last_online": (now - timedelta(hours=25)).isoformat(),
+            },
+            {
+                "id": "inactive-old",
+                "login": "inactive-old",
+                "name": "Inactive Old",
+                "status": "inactive",
+                "last_online": (now - timedelta(hours=25)).isoformat(),
+            },
+            {
+                "id": "active-old-online",
+                "login": "active-old-online",
+                "name": "Active Old Online",
+                "status": "active",
+                "last_online": (now - timedelta(hours=25)).isoformat(),
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        "app.services.splynx.fetch_online_customers",
+        lambda _db: [{"customer_id": "active-old-online", "login": "active-old-online"}],
+    )
+
+    rows = subscriber_reports_service.online_customers_last_24h_rows(
+        db_session,
+        activity_segment="inactive_24h_not_online",
+        limit=None,
+    )
+
+    assert [row["id"] for row in rows] == ["active-inactive-24h"]
+    assert rows[0]["currently_online"] is False
+
+
 def test_subscriber_online_last_24h_notify_context_route_returns_templates_and_activity(db_session):
     subscriber = _subscriber(db_session)
     ticket = Ticket(

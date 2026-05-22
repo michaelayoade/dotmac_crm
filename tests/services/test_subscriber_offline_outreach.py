@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from app.models.connector import ConnectorAuthType, ConnectorConfig, ConnectorType
-from app.models.crm.conversation import Conversation
-from app.models.crm.enums import ConversationPriority, ConversationStatus, MessageStatus
+from app.models.crm.conversation import Conversation, Message
+from app.models.crm.enums import ChannelType, ConversationPriority, ConversationStatus, MessageDirection, MessageStatus
 from app.models.domain_settings import SettingValueType
 from app.models.integration import IntegrationTarget, IntegrationTargetType
 from app.models.person import ChannelType as PersonChannelType
@@ -797,3 +797,370 @@ def test_run_daily_offline_outreach_resolves_created_conversation_when_send_fail
     log = db_session.query(SubscriberOfflineOutreachLog).one()
     assert log.decision_status == "failed"
     assert log.decision_reason == "send_failed"
+
+
+def _create_sent_outreach_log(
+    db_session,
+    person,
+    *,
+    sent_at: datetime,
+    subscriber: Subscriber | None = None,
+    status: ConversationStatus = ConversationStatus.open,
+    automation_kind: str = "subscriber_offline_outreach",
+):
+    conversation = Conversation(
+        person_id=person.id,
+        status=status,
+        priority=ConversationPriority.none,
+        is_active=True,
+        is_muted=False,
+        created_at=sent_at,
+        last_message_at=sent_at,
+        metadata_={"automation_kind": automation_kind},
+    )
+    db_session.add(conversation)
+    db_session.flush()
+    log = SubscriberOfflineOutreachLog(
+        subscriber_id=subscriber.id if subscriber else None,
+        person_id=person.id,
+        conversation_id=conversation.id,
+        run_local_date=sent_at.date(),
+        external_customer_id=f"customer-{uuid.uuid4().hex[:8]}",
+        decision_status="sent",
+        message_template="Hello",
+        sent_at=sent_at,
+        is_active=True,
+    )
+    db_session.add(log)
+    db_session.commit()
+    db_session.refresh(conversation)
+    db_session.refresh(log)
+    return conversation, log
+
+
+def _prepare_sendable_offline_outreach(db_session, person, monkeypatch, *, subscriber: Subscriber | None = None):
+    subscriber = subscriber or _create_subscriber(
+        db_session,
+        person,
+        external_id=f"splynx-{uuid.uuid4().hex[:8]}",
+        subscriber_number=f"SUB-{uuid.uuid4().hex[:8]}",
+    )
+    target = _create_whatsapp_target(db_session)
+    _configure_outreach(db_session, target_id=str(target.id))
+    _set_outreach_template_payload(
+        db_session,
+        {
+            "name": "offline_outreach",
+            "language": "en",
+            "body": "Hello {{1}}, subscriber {{2}} on {{3}}",
+            "components": [
+                {"type": "BODY", "text": "Hello {{1}}, subscriber {{2}} on {{3}}"},
+            ],
+        },
+    )
+    person_channel = PersonChannel(
+        person_id=person.id,
+        channel_type=PersonChannelType.whatsapp,
+        address="+2348030000000",
+        is_primary=True,
+    )
+    db_session.add(person_channel)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        service.subscriber_reports,
+        "online_customers_last_24h_rows",
+        lambda *args, **kwargs: [{"subscriber_id": str(subscriber.id)}],
+    )
+    monkeypatch.setattr(
+        service.splynx,
+        "fetch_customers",
+        lambda _db: [
+            {
+                "id": str(subscriber.external_id),
+                "login": str(subscriber.subscriber_number),
+                "name": "Test User",
+                "additional_attributes": {"base_station": "ASOKORO (D-AFR2)"},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        service.splynx,
+        "fetch_monitoring_devices",
+        lambda _db: [{"id": "9", "title": "DAFR-2", "ping_state": "up", "snmp_state": "up"}],
+    )
+    return subscriber
+
+
+def test_run_daily_offline_outreach_suppresses_recent_customer_reply(db_session, person, monkeypatch):
+    subscriber = _prepare_sendable_offline_outreach(db_session, person, monkeypatch)
+    sent_at = datetime(2026, 5, 10, 9, 0, tzinfo=UTC)
+    conversation, _log = _create_sent_outreach_log(
+        db_session,
+        person,
+        subscriber=subscriber,
+        sent_at=sent_at,
+        status=ConversationStatus.resolved,
+    )
+    db_session.add(
+        Message(
+            conversation_id=conversation.id,
+            channel_type=ChannelType.whatsapp,
+            direction=MessageDirection.inbound,
+            status=MessageStatus.received,
+            body="I still need help",
+            received_at=sent_at + timedelta(hours=2),
+        )
+    )
+    db_session.commit()
+
+    def _unexpected_send(*args, **kwargs):
+        raise AssertionError("send_message should not be called after recent customer engagement")
+
+    monkeypatch.setattr(service.inbox_service, "send_message", _unexpected_send)
+
+    result = service.run_daily_offline_outreach(
+        db_session,
+        now_utc=sent_at + timedelta(hours=49),
+    )
+
+    assert result["sent"] == 0
+    assert result["skipped"] == 1
+    latest_log = (
+        db_session.query(SubscriberOfflineOutreachLog).order_by(SubscriberOfflineOutreachLog.created_at.desc()).first()
+    )
+    assert latest_log.decision_status == "skipped"
+    assert latest_log.decision_reason == "recent_customer_engagement"
+
+
+def test_run_daily_offline_outreach_sends_after_engagement_and_cooldown_expire(db_session, person, monkeypatch):
+    subscriber = _prepare_sendable_offline_outreach(db_session, person, monkeypatch)
+    sent_at = datetime(2026, 5, 10, 9, 0, tzinfo=UTC)
+    conversation, _log = _create_sent_outreach_log(
+        db_session,
+        person,
+        subscriber=subscriber,
+        sent_at=sent_at,
+        status=ConversationStatus.resolved,
+    )
+    db_session.add(
+        Message(
+            conversation_id=conversation.id,
+            channel_type=ChannelType.whatsapp,
+            direction=MessageDirection.inbound,
+            status=MessageStatus.received,
+            body="Thanks",
+            received_at=sent_at + timedelta(hours=1),
+        )
+    )
+    db_session.commit()
+    monkeypatch.setattr(
+        service.inbox_service,
+        "send_message",
+        lambda *args, **kwargs: SimpleNamespace(id=None, status=MessageStatus.sent),
+    )
+
+    result = service.run_daily_offline_outreach(
+        db_session,
+        now_utc=sent_at + timedelta(hours=74),
+    )
+
+    assert result["sent"] == 1
+    latest_log = (
+        db_session.query(SubscriberOfflineOutreachLog).order_by(SubscriberOfflineOutreachLog.created_at.desc()).first()
+    )
+    assert latest_log.decision_status == "sent"
+
+
+def test_run_daily_offline_outreach_suppression_matches_different_conversation_same_person(
+    db_session, person, monkeypatch
+):
+    subscriber = _prepare_sendable_offline_outreach(db_session, person, monkeypatch)
+    sent_at = datetime(2026, 5, 10, 9, 0, tzinfo=UTC)
+    conversation, _log = _create_sent_outreach_log(
+        db_session,
+        person,
+        subscriber=None,
+        sent_at=sent_at,
+        status=ConversationStatus.resolved,
+    )
+    db_session.add(
+        Message(
+            conversation_id=conversation.id,
+            channel_type=ChannelType.whatsapp,
+            direction=MessageDirection.inbound,
+            status=MessageStatus.received,
+            body="I replied in another outreach conversation",
+            received_at=sent_at + timedelta(hours=3),
+        )
+    )
+    db_session.commit()
+
+    def _unexpected_send(*args, **kwargs):
+        raise AssertionError("send_message should not be called when same person recently replied")
+
+    monkeypatch.setattr(service.inbox_service, "send_message", _unexpected_send)
+
+    result = service.run_daily_offline_outreach(
+        db_session,
+        now_utc=sent_at + timedelta(hours=50),
+    )
+
+    assert result["sent"] == 0
+    assert result["skipped"] == 1
+    latest_log = (
+        db_session.query(SubscriberOfflineOutreachLog).order_by(SubscriberOfflineOutreachLog.created_at.desc()).first()
+    )
+    assert latest_log.subscriber_id == subscriber.id
+    assert latest_log.decision_reason == "recent_customer_engagement"
+
+
+def test_resolve_stale_offline_outreach_conversations_resolves_without_reply(db_session, person):
+    sent_at = datetime(2026, 5, 20, 9, 0, tzinfo=UTC)
+    conversation, outreach_log = _create_sent_outreach_log(db_session, person, sent_at=sent_at)
+
+    result = service.resolve_stale_offline_outreach_conversations(
+        db_session,
+        now_utc=sent_at + timedelta(hours=25),
+    )
+
+    assert result["resolved"] == 1
+    db_session.refresh(conversation)
+    assert conversation.status == ConversationStatus.resolved
+    assert conversation.resolved_at is not None
+    metadata = dict(conversation.metadata_ or {})
+    assert metadata["auto_resolved_reason"] == "offline_outreach_no_customer_reply"
+    assert metadata["offline_outreach_log_id"] == str(outreach_log.id)
+
+
+def test_resolve_stale_offline_outreach_conversations_processes_all_eligible_batches(db_session, person):
+    sent_at = datetime(2026, 5, 20, 9, 0, tzinfo=UTC)
+    conversation_one, _log_one = _create_sent_outreach_log(db_session, person, sent_at=sent_at)
+    conversation_two, _log_two = _create_sent_outreach_log(db_session, person, sent_at=sent_at - timedelta(hours=1))
+    conversation_three, _log_three = _create_sent_outreach_log(
+        db_session,
+        person,
+        sent_at=sent_at - timedelta(hours=2),
+    )
+
+    result = service.resolve_stale_offline_outreach_conversations(
+        db_session,
+        now_utc=sent_at + timedelta(hours=25),
+        limit=1,
+    )
+
+    assert result["resolved"] == 3
+    for conversation in (conversation_one, conversation_two, conversation_three):
+        db_session.refresh(conversation)
+        assert conversation.status == ConversationStatus.resolved
+
+
+def test_resolve_stale_offline_outreach_conversations_waits_25_hours(db_session, person):
+    sent_at = datetime(2026, 5, 20, 9, 0, tzinfo=UTC)
+    conversation, _outreach_log = _create_sent_outreach_log(db_session, person, sent_at=sent_at)
+
+    result = service.resolve_stale_offline_outreach_conversations(
+        db_session,
+        now_utc=sent_at + timedelta(hours=24, minutes=30),
+    )
+
+    assert result["resolved"] == 0
+    db_session.refresh(conversation)
+    assert conversation.status == ConversationStatus.open
+
+
+def test_resolve_stale_offline_outreach_conversations_keeps_customer_reply_open(db_session, person):
+    sent_at = datetime(2026, 5, 20, 9, 0, tzinfo=UTC)
+    conversation, _outreach_log = _create_sent_outreach_log(db_session, person, sent_at=sent_at)
+    db_session.add(
+        Message(
+            conversation_id=conversation.id,
+            channel_type=ChannelType.whatsapp,
+            direction=MessageDirection.inbound,
+            status=MessageStatus.received,
+            body="I still need help",
+            received_at=sent_at + timedelta(hours=2),
+        )
+    )
+    db_session.commit()
+
+    result = service.resolve_stale_offline_outreach_conversations(
+        db_session,
+        now_utc=sent_at + timedelta(hours=25),
+    )
+
+    assert result["resolved"] == 0
+    assert result["skipped_replied"] == 1
+    db_session.refresh(conversation)
+    assert conversation.status == ConversationStatus.open
+
+
+def test_resolve_stale_offline_outreach_conversations_keeps_late_customer_reply_open(db_session, person):
+    sent_at = datetime(2026, 5, 20, 9, 0, tzinfo=UTC)
+    conversation, _outreach_log = _create_sent_outreach_log(db_session, person, sent_at=sent_at)
+    db_session.add(
+        Message(
+            conversation_id=conversation.id,
+            channel_type=ChannelType.whatsapp,
+            direction=MessageDirection.inbound,
+            status=MessageStatus.received,
+            body="Reply synced shortly before auto-resolve",
+            received_at=sent_at + timedelta(hours=24, minutes=55),
+        )
+    )
+    db_session.commit()
+
+    result = service.resolve_stale_offline_outreach_conversations(
+        db_session,
+        now_utc=sent_at + timedelta(hours=25, minutes=5),
+    )
+
+    assert result["resolved"] == 0
+    assert result["skipped_replied"] == 1
+    db_session.refresh(conversation)
+    assert conversation.status == ConversationStatus.open
+
+
+def test_resolve_stale_offline_outreach_conversations_ignores_agent_outbound(db_session, person):
+    sent_at = datetime(2026, 5, 20, 9, 0, tzinfo=UTC)
+    conversation, _outreach_log = _create_sent_outreach_log(db_session, person, sent_at=sent_at)
+    db_session.add(
+        Message(
+            conversation_id=conversation.id,
+            channel_type=ChannelType.whatsapp,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body="Following up internally",
+            sent_at=sent_at + timedelta(hours=2),
+        )
+    )
+    db_session.commit()
+
+    result = service.resolve_stale_offline_outreach_conversations(
+        db_session,
+        now_utc=sent_at + timedelta(hours=25),
+    )
+
+    assert result["resolved"] == 1
+    db_session.refresh(conversation)
+    assert conversation.status == ConversationStatus.resolved
+
+
+def test_resolve_stale_offline_outreach_conversations_ignores_normal_conversation(db_session, person):
+    sent_at = datetime(2026, 5, 20, 9, 0, tzinfo=UTC)
+    conversation, _outreach_log = _create_sent_outreach_log(
+        db_session,
+        person,
+        sent_at=sent_at,
+        automation_kind="manual",
+    )
+
+    result = service.resolve_stale_offline_outreach_conversations(
+        db_session,
+        now_utc=sent_at + timedelta(hours=25),
+    )
+
+    assert result["resolved"] == 0
+    assert result["skipped_non_outreach"] == 1
+    db_session.refresh(conversation)
+    assert conversation.status == ConversationStatus.open

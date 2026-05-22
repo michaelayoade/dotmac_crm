@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
@@ -8,12 +9,12 @@ from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import false, or_, select
+from sqlalchemy import false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorConfig, ConnectorType
-from app.models.crm.conversation import Conversation
-from app.models.crm.enums import ChannelType, ConversationStatus, MessageStatus
+from app.models.crm.conversation import Conversation, Message
+from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.domain_settings import SettingValueType
 from app.models.integration import IntegrationTarget
 from app.models.person import ChannelType as PersonChannelType
@@ -29,17 +30,22 @@ from app.services import settings_spec, splynx, subscriber_reports, zabbix
 from app.services.common import coerce_uuid
 from app.services.crm import inbox as inbox_service
 from app.services.crm.conversations.service import Conversations, resolve_open_conversation
+from app.services.crm.inbox import cache as inbox_cache
 from app.services.crm.inbox.summaries import recompute_conversation_summary
 from app.services.crm.inbox.whatsapp_templates import list_whatsapp_templates
 from app.services.domain_settings import notification_settings
 from app.services.person_identity import ensure_person_channel
 
 DEFAULT_TIMEZONE = "Africa/Lagos"
+logger = logging.getLogger(__name__)
 DEFAULT_TEMPLATE = (
     "Hello {first_name}, we noticed your Dotmac service was offline in the last 24 hours. "
     "If you need help getting back online, reply here and we will assist."
 )
 OFFLINE_OUTREACH_TASK_NAME = "app.tasks.subscriber_outreach.run_daily_offline_outreach"
+OFFLINE_OUTREACH_AUTO_RESOLVE_TASK_NAME = "app.tasks.subscriber_outreach.resolve_stale_offline_outreach_conversations"
+OFFLINE_OUTREACH_AUTOMATION_KIND = "subscriber_offline_outreach"
+RECENT_CUSTOMER_ENGAGEMENT_SUPPRESSION_HOURS = 72
 OPEN_TICKET_STATUSES = {
     TicketStatus.new,
     TicketStatus.open,
@@ -780,6 +786,151 @@ def _cleanup_failed_outreach_conversation(db: Session, conversation: Conversatio
     db.commit()
 
 
+def resolve_stale_offline_outreach_conversations(
+    db: Session,
+    *,
+    older_than_hours: int = 25,
+    now_utc: datetime | None = None,
+    limit: int = 500,
+) -> dict[str, Any]:
+    """Resolve successful offline outreach conversations with no customer reply."""
+    threshold_hours = max(int(older_than_hours or 25), 1)
+    batch_size = max(min(int(limit or 500), 1000), 1)
+    now = now_utc.astimezone(UTC) if now_utc else datetime.now(UTC)
+    threshold = now - timedelta(hours=threshold_hours)
+
+    resolved = 0
+    skipped_replied = 0
+    skipped_non_outreach = 0
+    errors: list[str] = []
+    processed_conversation_ids: set[UUID] = set()
+
+    while True:
+        query = (
+            db.query(SubscriberOfflineOutreachLog, Conversation)
+            .join(Conversation, Conversation.id == SubscriberOfflineOutreachLog.conversation_id)
+            .filter(SubscriberOfflineOutreachLog.is_active.is_(True))
+            .filter(SubscriberOfflineOutreachLog.decision_status == "sent")
+            .filter(SubscriberOfflineOutreachLog.sent_at.is_not(None))
+            .filter(SubscriberOfflineOutreachLog.sent_at <= threshold)
+            .filter(Conversation.is_active.is_(True))
+            .filter(Conversation.status.in_([ConversationStatus.open, ConversationStatus.pending]))
+        )
+        if processed_conversation_ids:
+            query = query.filter(Conversation.id.notin_(processed_conversation_ids))
+        rows = (
+            query.order_by(SubscriberOfflineOutreachLog.sent_at.asc())
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+            .all()
+        )
+        if not rows:
+            break
+
+        batch_resolved_conversation_ids: list[str] = []
+        for outreach_log, selected_conversation in rows:
+            conversation_id = selected_conversation.id
+            if conversation_id in processed_conversation_ids:
+                continue
+            processed_conversation_ids.add(conversation_id)
+
+            conversation = (
+                db.query(Conversation)
+                .filter(Conversation.id == selected_conversation.id)
+                .filter(Conversation.is_active.is_(True))
+                .filter(Conversation.status.in_([ConversationStatus.open, ConversationStatus.pending]))
+                .with_for_update(skip_locked=True)
+                .first()
+            )
+            if conversation is None:
+                continue
+
+            metadata = dict(conversation.metadata_ or {}) if isinstance(conversation.metadata_, dict) else {}
+            if metadata.get("automation_kind") != OFFLINE_OUTREACH_AUTOMATION_KIND:
+                skipped_non_outreach += 1
+                continue
+
+            sent_at = outreach_log.sent_at
+            if sent_at is None:
+                continue
+            if sent_at.tzinfo is None:
+                sent_at = sent_at.replace(tzinfo=UTC)
+            else:
+                sent_at = sent_at.astimezone(UTC)
+
+            inbound_reply_exists = (
+                db.query(Message.id)
+                .filter(Message.conversation_id == conversation.id)
+                .filter(Message.direction == MessageDirection.inbound)
+                .filter(func.coalesce(Message.received_at, Message.created_at) > sent_at)
+                .first()
+                is not None
+            )
+            if inbound_reply_exists:
+                skipped_replied += 1
+                logger.info(
+                    "OFFLINE_OUTREACH_AUTO_RESOLVE_SKIPPED reason=recent_inbound_detected_before_resolve conversation_id=%s outreach_log_id=%s",
+                    conversation.id,
+                    outreach_log.id,
+                )
+                continue
+
+            try:
+                conversation.status = ConversationStatus.resolved
+                conversation.resolved_at = now
+                created_at = conversation.created_at
+                if created_at is not None and created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=UTC)
+                conversation.resolution_time_seconds = int((now - created_at).total_seconds()) if created_at else 0
+                metadata["auto_resolved_reason"] = "offline_outreach_no_customer_reply"
+                metadata["auto_resolved_at"] = now.isoformat()
+                metadata["offline_outreach_sent_at"] = sent_at.isoformat()
+                metadata["offline_outreach_log_id"] = str(outreach_log.id)
+                conversation.metadata_ = metadata
+                batch_resolved_conversation_ids.append(str(conversation_id))
+                logger.info(
+                    "OFFLINE_OUTREACH_AUTO_RESOLVED_25H conversation_id=%s outreach_log_id=%s threshold_hours=%d",
+                    conversation.id,
+                    outreach_log.id,
+                    threshold_hours,
+                )
+            except Exception as exc:
+                errors.append(f"{conversation.id}: {exc}")
+
+        if batch_resolved_conversation_ids:
+            try:
+                db.commit()
+                resolved += len(batch_resolved_conversation_ids)
+                for conversation_id in batch_resolved_conversation_ids:
+                    recompute_conversation_summary(db, conversation_id)
+                db.commit()
+                inbox_cache.invalidate_inbox_list()
+            except Exception as exc:
+                db.rollback()
+                logger.exception(
+                    "OFFLINE_OUTREACH_AUTO_RESOLVE_COMMIT_FAILED count=%d", len(batch_resolved_conversation_ids)
+                )
+                errors.append(f"commit: {exc}")
+        else:
+            db.commit()
+
+    logger.info(
+        "OFFLINE_OUTREACH_AUTO_RESOLVE_COMPLETE resolved=%d skipped_replied=%d skipped_non_outreach=%d errors=%d threshold_hours=%d",
+        resolved,
+        skipped_replied,
+        skipped_non_outreach,
+        len(errors),
+        threshold_hours,
+    )
+    return {
+        "resolved": resolved,
+        "skipped_replied": skipped_replied,
+        "skipped_non_outreach": skipped_non_outreach,
+        "errors": errors,
+        "threshold_hours": threshold_hours,
+    }
+
+
 def _validate_whatsapp_target_for_settings(db: Session, target_id: str) -> IntegrationTarget:
     target = db.get(IntegrationTarget, coerce_uuid(target_id))
     if not target or not target.is_active or not target.connector_config_id:
@@ -1014,6 +1165,57 @@ def _recently_contacted_subscribers(db: Session, subscriber_ids: list[UUID], *, 
     return {str(subscriber_id) for (subscriber_id,) in rows if subscriber_id}
 
 
+def _recent_customer_engagement(
+    db: Session,
+    *,
+    subscriber_ids: list[UUID],
+    person_ids: list[UUID],
+    now_utc: datetime,
+    hours: int = RECENT_CUSTOMER_ENGAGEMENT_SUPPRESSION_HOURS,
+) -> tuple[set[str], set[str]]:
+    if (not subscriber_ids and not person_ids) or hours <= 0:
+        return set(), set()
+
+    threshold = now_utc - timedelta(hours=hours)
+    message_at = func.coalesce(Message.received_at, Message.created_at)
+    rows = (
+        db.query(
+            SubscriberOfflineOutreachLog.subscriber_id,
+            SubscriberOfflineOutreachLog.person_id,
+            Conversation.person_id,
+            Conversation.metadata_,
+            message_at,
+        )
+        .join(Conversation, Conversation.id == SubscriberOfflineOutreachLog.conversation_id)
+        .join(Message, Message.conversation_id == Conversation.id)
+        .filter(SubscriberOfflineOutreachLog.is_active.is_(True))
+        .filter(SubscriberOfflineOutreachLog.decision_status == "sent")
+        .filter(Message.direction == MessageDirection.inbound)
+        .filter(message_at >= threshold)
+        .filter(
+            or_(
+                SubscriberOfflineOutreachLog.subscriber_id.in_(subscriber_ids) if subscriber_ids else false(),
+                SubscriberOfflineOutreachLog.person_id.in_(person_ids) if person_ids else false(),
+                Conversation.person_id.in_(person_ids) if person_ids else false(),
+            )
+        )
+        .all()
+    )
+
+    suppressed_subscriber_ids: set[str] = set()
+    suppressed_person_ids: set[str] = set()
+    for subscriber_id, log_person_id, conversation_person_id, metadata, _message_at in rows:
+        if not isinstance(metadata, dict) or metadata.get("automation_kind") != OFFLINE_OUTREACH_AUTOMATION_KIND:
+            continue
+        if subscriber_id:
+            suppressed_subscriber_ids.add(str(subscriber_id))
+        if log_person_id:
+            suppressed_person_ids.add(str(log_person_id))
+        if conversation_person_id:
+            suppressed_person_ids.add(str(conversation_person_id))
+    return suppressed_subscriber_ids, suppressed_person_ids
+
+
 def _write_outreach_log(
     db: Session,
     *,
@@ -1185,7 +1387,7 @@ def run_daily_offline_outreach(
 
     offline_rows = subscriber_reports.online_customers_last_24h_rows(
         db,
-        activity_segment="active_last24_not_online",
+        activity_segment="inactive_24h_not_online",
         limit=10000,
     )
     if not offline_rows:
@@ -1221,6 +1423,12 @@ def run_daily_offline_outreach(
         db, subscriber_uuid_ids, person_uuid_ids
     )
     open_conversation_person_ids = _open_conversation_people(db, person_uuid_ids)
+    engagement_subscriber_ids, engagement_person_ids = _recent_customer_engagement(
+        db,
+        subscriber_ids=subscriber_uuid_ids,
+        person_ids=person_uuid_ids,
+        now_utc=now,
+    )
     cooldown_subscriber_ids = _recently_contacted_subscribers(db, subscriber_uuid_ids, hours=config.cooldown_hours)
     target = _resolve_whatsapp_target(db, config.channel_target_id)
 
@@ -1351,6 +1559,28 @@ def run_daily_offline_outreach(
             )
             result["skipped"] += 1
             continue
+        if (subscriber and str(subscriber.id) in engagement_subscriber_ids) or (
+            person and str(person.id) in engagement_person_ids
+        ):
+            logger.info(
+                "SUBSCRIBER_OFFLINE_OUTREACH_SUPPRESSED_RECENT_REPLY subscriber_id=%s person_id=%s",
+                subscriber.id if subscriber else None,
+                person.id if person else None,
+            )
+            _write_outreach_log(
+                db,
+                run_local_date=run_local_date,
+                subscriber=subscriber,
+                person=person,
+                customer=customer,
+                base_station_label=base_station_label,
+                match=match,
+                decision_status="skipped",
+                decision_reason="recent_customer_engagement",
+                message_template=config.message_template,
+            )
+            result["skipped"] += 1
+            continue
         if subscriber and str(subscriber.id) in cooldown_subscriber_ids:
             _write_outreach_log(
                 db,
@@ -1472,7 +1702,7 @@ def run_daily_offline_outreach(
                 person_id=person.id,
                 metadata_={
                     "automation_kind": "subscriber_offline_outreach",
-                    "source_report": "online_last_24h",
+                    "source_report": "inactive_24h_not_online",
                     "subscriber_id": str(subscriber.id) if subscriber else None,
                     "external_customer_id": str(customer.get("id") or "").strip() or None,
                     "base_station": base_station_label,
