@@ -87,6 +87,48 @@ def test_snoozed_ids_excluded(db_session, user, crm_conversation_factory):
     assert items == []
 
 
+def test_self_audience_includes_assigned_chat_without_sla_metadata(db_session, user, crm_conversation_factory):
+    conv = crm_conversation_factory(
+        assignee_person_id=user.person_id,
+        last_inbound_at=datetime.now(UTC) - timedelta(minutes=10),
+    )
+    audience = WorkqueueAudience.self_
+
+    items = conversations_provider.fetch(
+        db_session,
+        user=user,
+        audience=audience,
+        scope=get_workqueue_scope(db_session, user, audience),
+        snoozed_ids=set(),
+    )
+
+    assert len(items) == 1
+    assert items[0].item_id == conv.id
+    assert items[0].reason == "assigned_to_me"
+    assert items[0].subtitle == "Assigned to you"
+    assert items[0].deep_link == f"/admin/crm/inbox?conversation_id={conv.id}"
+
+
+def test_self_audience_excludes_chat_assigned_to_other_agent_without_sla_metadata(
+    db_session, user, crm_conversation_factory
+):
+    crm_conversation_factory(
+        assignee_person_id=uuid4(),
+        last_inbound_at=datetime.now(UTC) - timedelta(minutes=10),
+    )
+    audience = WorkqueueAudience.self_
+
+    items = conversations_provider.fetch(
+        db_session,
+        user=user,
+        audience=audience,
+        scope=get_workqueue_scope(db_session, user, audience),
+        snoozed_ids=set(),
+    )
+
+    assert items == []
+
+
 def test_audience_team_includes_unassigned(db_session, user, crm_conversation_factory):
     service_team = ServiceTeam(name="Support", team_type=ServiceTeamType.support, is_active=True)
     db_session.add(service_team)

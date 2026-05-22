@@ -10,6 +10,20 @@ from app.services.response import ListResponseMixin
 class ConnectorConfigs(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: ConnectorConfigCreate):
+        if payload.connector_type == ConnectorType.zabbix:
+            existing = db.query(ConnectorConfig).filter(ConnectorConfig.name == payload.name).first()
+            if existing:
+                data = payload.model_dump(exclude_unset=True)
+                if data.get("auth_config"):
+                    merged = dict(existing.auth_config or {})
+                    merged.update(data["auth_config"])
+                    data["auth_config"] = merged
+                for key, value in data.items():
+                    setattr(existing, key, value)
+                db.commit()
+                db.refresh(existing)
+                return existing
+
         config = ConnectorConfig(**payload.model_dump())
         db.add(config)
         db.commit()

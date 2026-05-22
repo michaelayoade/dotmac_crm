@@ -68,6 +68,29 @@ def _parse_json(value: str | None, field: str) -> dict | None:
     return parsed
 
 
+def _connector_form_context(
+    request: Request,
+    db: Session,
+    *,
+    connector: ConnectorConfig | None = None,
+    form: dict | None = None,
+    error: str | None = None,
+) -> dict:
+    from app.models.connector import ConnectorAuthType, ConnectorType
+
+    context = _base_context(request, db, active_page="connectors")
+    context.update(
+        {
+            "connector": connector,
+            "connector_types": [t.value for t in ConnectorType],
+            "auth_types": [t.value for t in ConnectorAuthType],
+            "form": form,
+            "error": error,
+        }
+    )
+    return context
+
+
 def _load_payment_providers(db: Session) -> tuple[list[dict], DomainSetting | None]:
     setting = (
         db.query(DomainSetting)
@@ -173,13 +196,7 @@ def connectors_list(request: Request, db: Session = Depends(get_db)):
 @router.get("/connectors/new", response_class=HTMLResponse)
 def connector_new(request: Request, db: Session = Depends(get_db)):
     """New connector form."""
-    context = _base_context(request, db, active_page="connectors")
-    context.update(
-        {
-            "connector_types": [t.value for t in ConnectorType],
-            "auth_types": [t.value for t in ConnectorAuthType],
-        }
-    )
+    context = _connector_form_context(request, db)
     return templates.TemplateResponse("admin/integrations/connectors/new.html", context)
 
 
@@ -253,27 +270,24 @@ def connector_create(
             )
             connector = connector_service.connector_configs.create(db, payload)
     except Exception as exc:
-        context = _base_context(request, db, active_page="connectors")
-        context.update(
-            {
-                "connector_types": [t.value for t in ConnectorType],
-                "auth_types": [t.value for t in ConnectorAuthType],
-                "error": str(exc),
-                "form": {
-                    "name": name,
-                    "connector_type": connector_type,
-                    "auth_type": auth_type,
-                    "base_url": base_url or "",
-                    "timeout_sec": timeout_sec or "",
-                    "auth_config": auth_config or "",
-                    "headers": headers or "",
-                    "retry_policy": retry_policy or "",
-                    "metadata": metadata or "",
-                    "notes": notes or "",
-                    "is_active": is_active,
-                    "zabbix_username": zabbix_username or "",
-                },
-            }
+        context = _connector_form_context(
+            request,
+            db,
+            error=str(exc),
+            form={
+                "name": name,
+                "connector_type": connector_type,
+                "auth_type": auth_type,
+                "base_url": base_url or "",
+                "timeout_sec": timeout_sec or "",
+                "auth_config": auth_config or "",
+                "headers": headers or "",
+                "retry_policy": retry_policy or "",
+                "metadata": metadata or "",
+                "notes": notes or "",
+                "is_active": is_active,
+                "zabbix_username": zabbix_username or "",
+            },
         )
         return templates.TemplateResponse("admin/integrations/connectors/new.html", context, status_code=400)
     return RedirectResponse(url=f"/admin/integrations/connectors/{connector.id}", status_code=303)
@@ -296,13 +310,40 @@ def connector_detail(request: Request, connector_id: str, db: Session = Depends(
     return templates.TemplateResponse("admin/integrations/connectors/detail.html", context)
 
 
+@router.get("/connectors/{connector_id}/edit", response_class=HTMLResponse)
+def connector_edit(request: Request, connector_id: str, db: Session = Depends(get_db)):
+    """Edit connector form."""
+    connector = connector_service.connector_configs.get(db, connector_id)
+    form = {
+        "name": connector.name,
+        "connector_type": connector.connector_type.value if connector.connector_type else "custom",
+        "auth_type": connector.auth_type.value if connector.auth_type else "none",
+        "base_url": connector.base_url or "",
+        "timeout_sec": str(connector.timeout_sec or ""),
+        "auth_config": json.dumps(connector.auth_config or {}, indent=2) if connector.auth_config else "",
+        "headers": json.dumps(connector.headers or {}, indent=2) if connector.headers else "",
+        "retry_policy": json.dumps(connector.retry_policy or {}, indent=2) if connector.retry_policy else "",
+        "metadata": json.dumps(connector.metadata_ or {}, indent=2) if connector.metadata_ else "",
+        "notes": connector.notes or "",
+        "is_active": connector.is_active,
+    }
+    context = _connector_form_context(request, db, connector=connector, form=form)
+    return templates.TemplateResponse("admin/integrations/connectors/edit.html", context)
+
+
 @router.post("/connectors/{connector_id}", response_class=HTMLResponse)
 def connector_update(
     request: Request,
     connector_id: str,
     name: str = Form(...),
+    connector_type: str = Form("custom"),
+    auth_type: str = Form("none"),
     base_url: str | None = Form(None),
     timeout_sec: str | None = Form(None),
+    auth_config: str | None = Form(None),
+    headers: str | None = Form(None),
+    retry_policy: str | None = Form(None),
+    metadata: str | None = Form(None),
     notes: str | None = Form(None),
     zabbix_username: str | None = Form(None),
     zabbix_password: str | None = Form(None),
@@ -310,13 +351,26 @@ def connector_update(
     db: Session = Depends(get_db),
 ):
     connector = connector_service.connector_configs.get(db, connector_id)
+    form = {
+        "name": name,
+        "connector_type": connector_type,
+        "auth_type": auth_type,
+        "base_url": base_url or "",
+        "timeout_sec": timeout_sec or "",
+        "auth_config": auth_config or "",
+        "headers": headers or "",
+        "retry_policy": retry_policy or "",
+        "metadata": metadata or "",
+        "notes": notes or "",
+        "is_active": is_active,
+    }
     try:
         if connector.connector_type == ConnectorType.zabbix:
             if not base_url or not base_url.strip():
                 raise ValueError("base_url is required for Zabbix")
             if not str(zabbix_username or "").strip():
                 raise ValueError("username is required for Zabbix")
-            connector = zabbix_service.configure_connector(
+            zabbix_service.configure_connector(
                 db,
                 connector,
                 name=name.strip(),
@@ -328,33 +382,39 @@ def connector_update(
                 is_active=is_active,
             )
         else:
-            connector = connector_service.connector_configs.update(
-                db,
-                connector_id,
-                ConnectorConfigUpdate(
-                    name=name.strip(),
-                    base_url=base_url.strip() if base_url else None,
-                    timeout_sec=int(timeout_sec) if timeout_sec else None,
-                    notes=notes.strip() if notes else None,
-                    is_active=is_active,
-                ),
+            payload = ConnectorConfigUpdate(
+                name=name.strip(),
+                connector_type=ConnectorType(connector_type),
+                auth_type=ConnectorAuthType(auth_type),
+                base_url=base_url.strip() if base_url else None,
+                timeout_sec=int(timeout_sec) if timeout_sec else None,
+                auth_config=_parse_json(auth_config, "auth_config"),
+                headers=_parse_json(headers, "headers"),
+                retry_policy=_parse_json(retry_policy, "retry_policy"),
+                metadata_=_parse_json(metadata, "metadata"),
+                notes=notes.strip() if notes else None,
+                is_active=is_active,
             )
+            connector_service.connector_configs.update(db, connector_id, payload)
     except Exception as exc:
-        context = _base_context(request, db, active_page="connectors")
-        context.update(
-            {
-                "connector": connector,
-                "error": str(exc),
-                "zabbix_username": zabbix_username or _zabbix_connector_context(connector)["zabbix_username"],
-                "zabbix_has_password": _zabbix_connector_context(connector)["zabbix_has_password"],
-                "zabbix_has_token": _zabbix_connector_context(connector)["zabbix_has_token"],
-                "zabbix_token_last_refreshed_at": _zabbix_connector_context(connector)[
-                    "zabbix_token_last_refreshed_at"
-                ],
-            }
-        )
-        return templates.TemplateResponse("admin/integrations/connectors/detail.html", context, status_code=400)
-    return RedirectResponse(url=f"/admin/integrations/connectors/{connector.id}", status_code=303)
+        if connector.connector_type == ConnectorType.zabbix:
+            context = _base_context(request, db, active_page="connectors")
+            context.update(
+                {
+                    "connector": connector,
+                    "error": str(exc),
+                    "zabbix_username": zabbix_username or _zabbix_connector_context(connector)["zabbix_username"],
+                    "zabbix_has_password": _zabbix_connector_context(connector)["zabbix_has_password"],
+                    "zabbix_has_token": _zabbix_connector_context(connector)["zabbix_has_token"],
+                    "zabbix_token_last_refreshed_at": _zabbix_connector_context(connector)[
+                        "zabbix_token_last_refreshed_at"
+                    ],
+                }
+            )
+            return templates.TemplateResponse("admin/integrations/connectors/detail.html", context, status_code=400)
+        context = _connector_form_context(request, db, connector=connector, form=form, error=str(exc))
+        return templates.TemplateResponse("admin/integrations/connectors/edit.html", context, status_code=400)
+    return RedirectResponse(url=f"/admin/integrations/connectors/{connector_id}", status_code=303)
 
 
 @router.post("/connectors/{connector_id}/test", response_class=HTMLResponse)
