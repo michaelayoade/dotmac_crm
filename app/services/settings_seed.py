@@ -1034,6 +1034,14 @@ def seed_integration_settings(db: Session) -> None:
         value_text=customer_success_persona_raw,
         value_json=customer_success_persona_raw.lower() in {"1", "true", "yes", "on"},
     )
+    ai_intake_watchdog_raw = os.getenv("AI_INTAKE_HEALTH_WATCHDOG_ENABLED", "false")
+    integration_settings.ensure_by_key(
+        db,
+        key="ai_intake_health_watchdog_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=ai_intake_watchdog_raw,
+        value_json=ai_intake_watchdog_raw.lower() in {"1", "true", "yes", "on"},
+    )
     integration_settings.ensure_by_key(
         db,
         key="intelligence_daily_token_budget",
@@ -1249,6 +1257,8 @@ def seed_integration_settings(db: Session) -> None:
         )
 
     api_key = (os.getenv("VLLM_API_KEY") or "").strip()
+    if not api_key and "deepseek" in base_url.lower():
+        api_key = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
     if api_key and is_openbao_ref(api_key):
         integration_settings.ensure_by_key(
             db,

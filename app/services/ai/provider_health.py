@@ -18,6 +18,7 @@ from app.metrics import (
 )
 from app.services.ai.client import AIClientError
 from app.services.ai.gateway import AIEndpoint, AIEndpointConfig, ai_gateway
+from app.services.ai.security import ai_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -475,6 +476,9 @@ def run_provider_healthcheck(
     respect_circuit: bool = True,
     simulate_primary_failure: SimulatedFailureMode = "none",
 ) -> ProviderHealthReport:
+    if not ai_enabled(db):
+        return ProviderHealthReport(mode=mode, overall_success=False, fallback_used=False, results=[])
+
     if mode == "primary":
         primary_result = _probe_endpoint(
             db,

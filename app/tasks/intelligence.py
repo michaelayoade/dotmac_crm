@@ -138,6 +138,8 @@ def run_ai_intake_health_watchdog(
 ) -> dict[str, Any]:
     session = SessionLocal()
     try:
+        if not ai_gateway.enabled(session):
+            return {"enabled": False, "reason": "ai_disabled"}
         mode: Literal["primary", "fallback"] = (
             "fallback" if ai_gateway.endpoint_ready(session, "secondary") else "primary"
         )

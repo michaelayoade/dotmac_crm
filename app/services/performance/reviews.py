@@ -16,8 +16,10 @@ from app.models.person import Person
 from app.models.tickets import Ticket
 from app.models.workforce import WorkOrder
 from app.services.ai import AIClientError, build_ai_client
+from app.services.ai.gateway import ai_gateway
 from app.services.ai.prompts import build_performance_review_prompts
 from app.services.ai.redaction import redact_text
+from app.services.ai.security import resolve_provider_api_key
 from app.services.audit_helpers import log_audit_event
 from app.services.common import coerce_uuid
 from app.services.settings_spec import resolve_value
@@ -59,6 +61,8 @@ def _safe_json(text: str) -> dict[str, Any]:
 
 class PerformanceReviewsService:
     def _llm_ready(self, db: Session) -> bool:
+        if not ai_gateway.enabled(db):
+            return False
         provider = str(resolve_value(db, SettingDomain.integration, "llm_provider") or "vllm").strip().lower()
         if provider != "vllm":
             return False
@@ -68,7 +72,11 @@ class PerformanceReviewsService:
             return False
         require_key = bool(resolve_value(db, SettingDomain.integration, "vllm_require_api_key") or False)
         if require_key:
-            api_key = str(resolve_value(db, SettingDomain.integration, "vllm_api_key") or "").strip()
+            api_key = resolve_provider_api_key(
+                configured_api_key=resolve_value(db, SettingDomain.integration, "vllm_api_key"),
+                base_url=base_url,
+                env_var="VLLM_API_KEY",
+            )
             return bool(api_key)
         return True
 

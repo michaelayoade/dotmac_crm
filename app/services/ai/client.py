@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.metrics import observe_ai_provider_failure, observe_ai_provider_request, observe_ai_provider_retry_exhaustion
 from app.models.domain_settings import SettingDomain
 from app.services import settings_spec
+from app.services.ai.security import ai_disabled_by_env, redact_secret_text, resolve_provider_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +163,9 @@ class _BaseHttpAIClient:
         timeout_type = None
         status_code = response.status_code if response is not None else None
         request_id = self._extract_request_id(response)
-        response_preview = self._truncate_response_body(response.text if response is not None else None)
+        response_preview = redact_secret_text(
+            self._truncate_response_body(response.text if response is not None else None)
+        )
 
         if isinstance(exc, httpx.TimeoutException):
             failure_type = "timeout"
@@ -171,7 +174,7 @@ class _BaseHttpAIClient:
         elif isinstance(exc, httpx.HTTPStatusError):
             status_code = exc.response.status_code
             request_id = self._extract_request_id(exc.response)
-            response_preview = self._truncate_response_body(exc.response.text)
+            response_preview = redact_secret_text(self._truncate_response_body(exc.response.text))
             if status_code in {401, 403}:
                 failure_type = "auth"
             elif status_code == 402 or (response_preview and "insufficient balance" in response_preview.lower()):
@@ -249,12 +252,20 @@ class _BaseHttpAIClient:
             parts.append(f"latency_ms={error.latency_ms:.1f}")
         parts.append(f"retry_count={error.retry_count}")
         if error.response_preview:
-            parts.append(f"response_preview={error.response_preview!r}")
+            parts.append(f"response_preview={redact_secret_text(error.response_preview)!r}")
         level(" ".join(parts))
 
     def _request_json(
         self, *, method: str, url: str, headers: dict[str, str], payload: dict[str, Any]
     ) -> dict[str, Any]:
+        if ai_disabled_by_env():
+            raise AIClientError(
+                "AI features are disabled (AI_ENABLED=false)",
+                provider=self.provider,
+                model=self.model,
+                endpoint=url,
+                failure_type="ai_disabled",
+            )
         attempts = max(self.max_retries, 0) + 1
         for attempt in range(1, attempts + 1):
             start = perf_counter()
@@ -491,7 +502,11 @@ def build_ai_client(db: Session) -> VllmClient:
         raise AIClientError("Missing integration setting: vllm_model")
 
     return VllmClient(
-        api_key=str(values.get("vllm_api_key") or "").strip() or None,
+        api_key=resolve_provider_api_key(
+            configured_api_key=values.get("vllm_api_key"),
+            base_url=base_url,
+            env_var="VLLM_API_KEY",
+        ),
         model=model,
         base_url=base_url,
         timeout_seconds=_coerce_float(values.get("vllm_timeout_seconds"), default=30.0, minimum=1.0),

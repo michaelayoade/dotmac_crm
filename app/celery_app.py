@@ -19,6 +19,7 @@ if sys.version_info >= (3, 12) and platform.system() == "Linux":
             with suppress(NotImplementedError):
                 _policy.set_child_watcher(asyncio.ThreadedChildWatcher())
 
+from app.services.ai.security import validate_deepseek_startup_env
 from app.services.scheduler_config import get_celery_config
 
 
@@ -65,6 +66,7 @@ def configure_celery_app(*, use_db: bool = False) -> Celery:
 
 
 celery_app = Celery("dotmac_crm")
+validate_deepseek_startup_env()
 configure_celery_app()
 celery_app.conf.beat_schedule = {}
 celery_app.autodiscover_tasks(["app.tasks"])

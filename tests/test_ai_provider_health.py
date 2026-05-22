@@ -11,6 +11,13 @@ def _seed_provider_settings(db_session) -> None:
     ai_gateway._circuit_states.clear()
     integration_settings.ensure_by_key(
         db_session,
+        key="ai_enabled",
+        value_type=SettingValueType.boolean,
+        value_text="true",
+        value_json=True,
+    )
+    integration_settings.ensure_by_key(
+        db_session,
         key="vllm_label",
         value_type=SettingValueType.string,
         value_text="primary",

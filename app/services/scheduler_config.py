@@ -887,6 +887,13 @@ def build_beat_schedule() -> dict:
             "INTELLIGENCE_ENABLED",
             False,
         )
+        ai_intake_watchdog_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "ai_intake_health_watchdog_enabled",
+            "AI_INTAKE_HEALTH_WATCHDOG_ENABLED",
+            False,
+        )
         _sync_scheduled_task(
             session,
             name="intelligence_scheduled_analysis",
@@ -912,7 +919,7 @@ def build_beat_schedule() -> dict:
             session,
             name="ai_intake_health_watchdog",
             task_name="app.tasks.intelligence.run_ai_intake_health_watchdog",
-            enabled=ai_enabled,
+            enabled=ai_enabled and ai_intake_watchdog_enabled,
             interval_seconds=600,
         )
 
