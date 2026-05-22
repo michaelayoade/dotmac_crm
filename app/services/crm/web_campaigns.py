@@ -13,15 +13,17 @@ from sqlalchemy import String, cast, select
 from sqlalchemy.orm import Session
 
 from app.models.connector import ConnectorConfig, ConnectorType
+from app.models.crm.campaign import CampaignRecipient
 from app.models.crm.campaign_sender import CampaignSender
 from app.models.crm.campaign_smtp import CampaignSmtpConfig
 from app.models.crm.conversation import Message
-from app.models.crm.enums import CampaignChannel, CampaignType, MessageDirection, MessageStatus
+from app.models.crm.enums import CampaignChannel, CampaignStatus, CampaignType, MessageDirection, MessageStatus
 from app.models.crm.sales import Pipeline, PipelineStage
 from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.integration import IntegrationTarget
 from app.models.person import PartyStatus, Person
 from app.schemas.crm.campaign import CampaignCreate, CampaignStepCreate, CampaignStepUpdate, CampaignUpdate
+from app.services.common import coerce_uuid
 from app.services.crm.campaign_senders import campaign_senders
 from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
 from app.services.crm.campaigns import Campaigns
@@ -33,6 +35,7 @@ from app.services.crm.inbox.inboxes import list_channel_targets
 OUTREACH_KIND = "outreach"
 OUTREACH_SOURCE_BILLING_RISK = "billing_risk"
 OUTREACH_SOURCE_ONLINE_LAST_24H = "online_last_24h"
+OUTREACH_SOURCE_SERP_GOOGLE = "serp_google"
 
 
 @dataclass(slots=True)
@@ -67,7 +70,7 @@ class CampaignUpsertResolution:
     whatsapp_connector_id_value: str
     whatsapp_template_name: str | None
     whatsapp_template_language: str | None
-    whatsapp_template_components: dict | None
+    whatsapp_template_components: list[dict] | dict | None
     sender: CampaignSender | None
     smtp_profile: CampaignSmtpConfig | None
     whatsapp_connector: ConnectorConfig | None
@@ -220,7 +223,7 @@ def resolve_campaign_upsert(db: Session, *, form: CampaignUpsertInput) -> Campai
 
     wa_template_name = _form_str_opt(form.whatsapp_template_name)
     wa_template_lang = _form_str_opt(form.whatsapp_template_language)
-    wa_template_components: dict | None = None
+    wa_template_components: list[dict] | dict | None = None
     if (form.whatsapp_template_components or "").strip():
         try:
             wa_template_components = json.loads(form.whatsapp_template_components)
@@ -408,6 +411,7 @@ def campaign_detail_page_data(db: Session, *, campaign_id: str) -> dict:
             snapshot_rows=audience_snapshot_rows,
         )
     inbox_metrics = outreach_inbox_metrics(db, campaign_id=campaign_id) if _is_outreach(campaign) else None
+    serp_last_query = metadata.get("serp_last_query") if isinstance(metadata.get("serp_last_query"), dict) else None
     return {
         "campaign": campaign,
         "stats": stats,
@@ -425,6 +429,7 @@ def campaign_detail_page_data(db: Session, *, campaign_id: str) -> dict:
             else None
         ),
         "outreach_inbox_metrics": inbox_metrics,
+        "serp_last_query": serp_last_query,
     }
 
 
@@ -474,12 +479,60 @@ def campaign_recipients_table_data(
                 "follow_up_date": engagement.follow_up_date.isoformat() if engagement.follow_up_date else "",
             }
     return {
+        "campaign": campaign,
         "recipients": recipients,
         "person_map": person_map,
         "campaign_id": campaign_id,
         "retention_by_person_id": retention_by_person_id,
         "retention_profile_by_person_id": retention_profile_by_person_id,
     }
+
+
+def keep_selected_campaign_recipients(
+    db: Session,
+    *,
+    campaign_id: str,
+    recipient_ids: list[str],
+) -> dict[str, int]:
+    campaign = campaigns_service.get(db, campaign_id)
+    if campaign.status != CampaignStatus.draft:
+        raise HTTPException(status_code=400, detail="Recipients can only be changed on draft campaigns.")
+
+    selected_ids = {coerce_uuid(recipient_id) for recipient_id in recipient_ids if str(recipient_id or "").strip()}
+    if not selected_ids:
+        raise HTTPException(status_code=400, detail="Select at least one recipient to keep.")
+
+    recipients = (
+        db.query(CampaignRecipient)
+        .filter(CampaignRecipient.campaign_id == campaign.id, CampaignRecipient.step_id.is_(None))
+        .all()
+    )
+    removed = 0
+    for recipient in recipients:
+        if recipient.id not in selected_ids:
+            db.delete(recipient)
+            removed += 1
+
+    db.flush()
+    remaining = (
+        db.query(CampaignRecipient)
+        .filter(CampaignRecipient.campaign_id == campaign.id, CampaignRecipient.step_id.is_(None))
+        .all()
+    )
+    campaign.total_recipients = len(remaining)
+
+    metadata = _campaign_metadata(campaign)
+    snapshot = metadata.get("audience_snapshot")
+    if isinstance(snapshot, list):
+        remaining_person_ids = {str(recipient.person_id) for recipient in remaining}
+        metadata["audience_snapshot"] = [
+            row for row in snapshot if isinstance(row, dict) and str(row.get("person_id") or "") in remaining_person_ids
+        ]
+        metadata["audience_snapshot_count"] = len(metadata["audience_snapshot"])
+        campaign.metadata_ = metadata
+
+    db.commit()
+    return {"kept": len(remaining), "removed": removed}
 
 
 def campaign_preview_audience_data(db: Session, *, campaign_id: str) -> dict:
@@ -754,6 +807,27 @@ def create_campaign(
         resolved=resolved,
     )
     return campaigns_service.create(db, payload, created_by_id=created_by_id)
+
+
+def seed_serp_targets_for_campaign(
+    db: Session,
+    *,
+    campaign_id: str,
+    query: str,
+    location: str | None,
+    max_results: int,
+    email_pattern: str,
+) -> dict[str, int]:
+    from app.services.crm.serp_targets import seed_campaign_from_serp
+
+    return seed_campaign_from_serp(
+        db,
+        campaign_id=campaign_id,
+        query=query,
+        location=location,
+        max_results=max_results,
+        email_pattern=email_pattern,
+    )
 
 
 def create_retention_outreach_campaign(

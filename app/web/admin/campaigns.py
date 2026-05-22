@@ -5,6 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
+from app.models.crm.enums import CampaignStatus
 from app.services.crm.campaign_permissions import can_view_campaigns, can_write_campaigns
 from app.services.crm.web_campaigns import (
     CampaignUpsertInput,
@@ -24,8 +25,10 @@ from app.services.crm.web_campaigns import (
     delete_campaign,
     delete_campaign_step,
     get_campaign,
+    keep_selected_campaign_recipients,
     resolve_campaign_upsert,
     schedule_campaign_from_form,
+    seed_serp_targets_for_campaign,
     send_campaign_now,
     update_campaign,
     update_campaign_step,
@@ -246,12 +249,15 @@ def campaign_edit_form(
 ):
     if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
+    campaign = get_campaign(db, campaign_id=campaign_id)
+    if campaign.status != CampaignStatus.draft:
+        return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
     ctx = _base_ctx(
         request,
         db,
         **campaign_form_page_data(
             db,
-            campaign=get_campaign(db, campaign_id=campaign_id),
+            campaign=campaign,
             errors=[],
             region_options=REGION_OPTIONS,
         ),
@@ -286,6 +292,9 @@ def campaign_update(
 ):
     if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
         return _forbidden_html()
+    campaign = get_campaign(db, campaign_id=campaign_id)
+    if campaign.status != CampaignStatus.draft:
+        return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
     resolved = resolve_campaign_upsert(
         db,
         form=CampaignUpsertInput(
@@ -423,6 +432,29 @@ def campaign_follow_up(
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign.id}", status_code=303)
 
 
+@router.post("/{campaign_id}/serp-targets")
+def campaign_serp_targets(
+    request: Request,
+    campaign_id: str,
+    db: Session = Depends(_get_db),
+    query: str = Form(...),
+    location: str = Form(""),
+    max_results: int = Form(10),
+    email_pattern: str = Form("info@{domain}"),
+):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
+    seed_serp_targets_for_campaign(
+        db,
+        campaign_id=campaign_id,
+        query=query,
+        location=location,
+        max_results=max_results,
+        email_pattern=email_pattern,
+    )
+    return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
+
+
 # ── Preview ───────────────────────────────────────────────────────────────────
 
 
@@ -486,6 +518,19 @@ def campaign_recipients_table(
         ),
     )
     return templates.TemplateResponse("admin/crm/_campaign_recipients_table.html", ctx)
+
+
+@router.post("/{campaign_id}/recipients/keep-selected")
+def campaign_keep_selected_recipients(
+    request: Request,
+    campaign_id: str,
+    recipient_ids: list[str] = Form([]),
+    db: Session = Depends(_get_db),
+):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
+    keep_selected_campaign_recipients(db, campaign_id=campaign_id, recipient_ids=recipient_ids)
+    return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
 
 
 # ── Nurture Steps ────────────────────────────────────────────────────────────
