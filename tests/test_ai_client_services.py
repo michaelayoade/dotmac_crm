@@ -5,6 +5,7 @@ import pytest
 
 from app.services.ai.client import AIClientError, VllmClient, build_ai_client
 from app.services.ai.gateway import AIEndpointConfig, AIGateway
+from app.services.ai.security import redact_secret_text, validate_deepseek_startup_env
 
 
 def test_build_ai_client_defaults_to_vllm():
@@ -27,6 +28,47 @@ def test_build_ai_client_missing_required_settings_raises():
         pytest.raises(AIClientError),
     ):
         build_ai_client(db=MagicMock())
+
+
+def test_build_ai_client_uses_deepseek_env_key(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "env-deepseek-key")
+    monkeypatch.delenv("VLLM_API_KEY", raising=False)
+    with patch(
+        "app.services.ai.client._resolve_integration_ai_settings",
+        return_value={
+            "vllm_base_url": "https://api.deepseek.com",
+            "vllm_model": "deepseek-chat",
+            "vllm_api_key": "stored-key-ignored",
+        },
+    ):
+        client = build_ai_client(db=MagicMock())
+
+    assert client.api_key == "env-deepseek-key"
+
+
+def test_ai_enabled_false_short_circuits_direct_client(monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "false")
+    with pytest.raises(AIClientError) as exc_info:
+        VllmClient(api_key="secret", model="m", base_url="https://api.example.test").generate(system="s", prompt="p")
+
+    assert exc_info.value.failure_type == "ai_disabled"
+
+
+def test_deepseek_startup_validation_requires_env_key(monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
+        validate_deepseek_startup_env(base_urls=["https://api.deepseek.com"])
+
+
+def test_secret_redaction_masks_bearer_and_api_keys():
+    text = "Authorization: Bearer abc123 DEEPSEEK_API_KEY=test-redaction-token"
+
+    redacted = redact_secret_text(text)
+    assert "abc123" not in redacted
+    assert "test-redaction-token" not in redacted
+    assert "<redacted>" in redacted
 
 
 def test_vllm_generate_normalizes_response():

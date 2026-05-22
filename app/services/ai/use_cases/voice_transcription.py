@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingDomain
 from app.services.ai.client import AIClientError, _coerce_float, _coerce_int
+from app.services.ai.security import ai_disabled_by_env, resolve_provider_api_key
 from app.services.audit_helpers import log_audit_event
 from app.services.settings_spec import resolve_values_atomic
 
@@ -54,27 +55,27 @@ def _load_config(db: Session) -> _VoiceTranscriptionConfig:
             "vllm_api_key",
         ],
     )
+    base_url = str(
+        values.get("voice_transcription_base_url")
+        or os.getenv("VOICE_TRANSCRIPTION_BASE_URL")
+        or values.get("vllm_base_url")
+        or os.getenv("VLLM_BASE_URL")
+        or ""
+    ).strip()
     return {
-        "enabled": bool(values.get("ai_enabled")),
-        "base_url": str(
-            values.get("voice_transcription_base_url")
-            or os.getenv("VOICE_TRANSCRIPTION_BASE_URL")
-            or values.get("vllm_base_url")
-            or os.getenv("VLLM_BASE_URL")
-            or ""
-        ).strip(),
+        "enabled": bool(values.get("ai_enabled")) and not ai_disabled_by_env(),
+        "base_url": base_url,
         "model": str(
             values.get("voice_transcription_model")
             or os.getenv("VOICE_TRANSCRIPTION_MODEL")
             or DEFAULT_TRANSCRIPTION_MODEL
         ).strip(),
-        "api_key": str(
-            values.get("voice_transcription_api_key")
-            or os.getenv("VOICE_TRANSCRIPTION_API_KEY")
-            or values.get("vllm_api_key")
-            or os.getenv("VLLM_API_KEY")
-            or ""
-        ).strip(),
+        "api_key": resolve_provider_api_key(
+            configured_api_key=values.get("voice_transcription_api_key") or values.get("vllm_api_key"),
+            base_url=base_url,
+            env_var="VOICE_TRANSCRIPTION_API_KEY",
+        )
+        or "",
         "timeout_seconds": _coerce_float(
             values.get("voice_transcription_timeout_seconds"),
             default=45.0,
@@ -105,7 +106,10 @@ def transcribe_voice_audio(
 
     cfg = _load_config(db)
     if not cfg["enabled"]:
-        raise AIClientError("AI features are disabled (integration.ai_enabled=false)")
+        raise AIClientError(
+            "AI features are disabled (AI_ENABLED=false or integration.ai_enabled=false)",
+            failure_type="ai_disabled",
+        )
 
     base_url = str(cfg["base_url"])
     model = str(cfg["model"])

@@ -2812,6 +2812,16 @@ SETTINGS_SPECS: list[SettingSpec] = [
     ),
     SettingSpec(
         domain=SettingDomain.integration,
+        key="ai_intake_health_watchdog_enabled",
+        env_var="AI_INTAKE_HEALTH_WATCHDOG_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+        label="AI Intake Health Watchdog",
+        section="AI & Intelligence",
+        help_text="Runs provider health probes and AI intake recovery checks on a schedule.",
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
         key="intelligence_daily_token_budget",
         env_var="INTELLIGENCE_DAILY_TOKEN_BUDGET",
         value_type=SettingValueType.integer,

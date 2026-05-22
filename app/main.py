@@ -91,6 +91,7 @@ from app.monitoring import is_bearer_token_authorized, setup_monitoring
 from app.observability import ObservabilityMiddleware
 from app.services import audit as audit_service
 from app.services import branding_state
+from app.services.ai.security import validate_deepseek_startup_env
 from app.services.crm import smtp_inbound as smtp_inbound_service
 from app.services.settings_seed import (
     seed_audit_settings,
@@ -112,6 +113,7 @@ from app.services.settings_seed import (
     seed_sla_defaults,
     seed_workflow_settings,
 )
+from app.services.settings_spec import resolve_value
 from app.telemetry import setup_otel
 from app.web import build_router as build_web_router
 from app.web_home import router as web_home_router
@@ -599,6 +601,13 @@ def _start_jobs():
         seed_inventory_settings(db)
         seed_comms_settings(db)
         seed_integration_settings(db)
+        deepseek_startup_base_urls = []
+        if hasattr(db, "query"):
+            deepseek_startup_base_urls = [
+                str(resolve_value(db, SettingDomain.integration, "vllm_base_url") or ""),
+                str(resolve_value(db, SettingDomain.integration, "vllm_secondary_base_url") or ""),
+            ]
+        validate_deepseek_startup_env(base_urls=deepseek_startup_base_urls)
         seed_performance_settings(db)
         seed_sla_defaults(db)
         seed_bootstrap_admin_user(db)

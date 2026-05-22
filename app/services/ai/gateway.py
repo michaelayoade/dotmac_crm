@@ -15,6 +15,7 @@ from app.metrics import (
 )
 from app.models.domain_settings import SettingDomain
 from app.services.ai.client import AIClientError, AIResponse, VllmClient, _coerce_float, _coerce_int
+from app.services.ai.security import ai_enabled, redact_secret_text, resolve_provider_api_key
 from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
@@ -58,7 +59,11 @@ def _load_primary_config(db: Session) -> AIEndpointConfig:
     label = str(resolve_value(db, SettingDomain.integration, "vllm_label") or "primary").strip() or "primary"
     base_url = str(resolve_value(db, SettingDomain.integration, "vllm_base_url") or "").strip()
     model = str(resolve_value(db, SettingDomain.integration, "vllm_model") or "").strip()
-    api_key = str(resolve_value(db, SettingDomain.integration, "vllm_api_key") or "").strip() or None
+    api_key = resolve_provider_api_key(
+        configured_api_key=resolve_value(db, SettingDomain.integration, "vllm_api_key"),
+        base_url=base_url,
+        env_var="VLLM_API_KEY",
+    )
     require_api_key = _get_bool(db, SettingDomain.integration, "vllm_require_api_key", default=False)
     timeout_seconds = _coerce_float(
         resolve_value(db, SettingDomain.integration, "vllm_timeout_seconds"), default=30.0, minimum=1.0
@@ -83,7 +88,11 @@ def _load_secondary_config(db: Session) -> AIEndpointConfig:
     )
     base_url = str(resolve_value(db, SettingDomain.integration, "vllm_secondary_base_url") or "").strip()
     model = str(resolve_value(db, SettingDomain.integration, "vllm_secondary_model") or "").strip()
-    api_key = str(resolve_value(db, SettingDomain.integration, "vllm_secondary_api_key") or "").strip() or None
+    api_key = resolve_provider_api_key(
+        configured_api_key=resolve_value(db, SettingDomain.integration, "vllm_secondary_api_key"),
+        base_url=base_url,
+        env_var="VLLM_SECONDARY_API_KEY",
+    )
     require_api_key = _get_bool(db, SettingDomain.integration, "vllm_secondary_require_api_key", default=False)
     timeout_seconds = _coerce_float(
         resolve_value(db, SettingDomain.integration, "vllm_secondary_timeout_seconds"),
@@ -222,7 +231,7 @@ class AIGateway:
         )
 
     def enabled(self, db: Session) -> bool:
-        return _get_bool(db, SettingDomain.integration, "ai_enabled", default=False)
+        return ai_enabled(db)
 
     def get_endpoint_config(self, db: Session, endpoint: AIEndpoint) -> AIEndpointConfig:
         return _load_primary_config(db) if endpoint == "primary" else _load_secondary_config(db)
@@ -281,7 +290,10 @@ class AIGateway:
         max_tokens: int | None = None,
     ) -> AIResponse:
         if not self.enabled(db):
-            raise AIClientError("AI features are disabled (integration.ai_enabled=false)")
+            raise AIClientError(
+                "AI features are disabled (AI_ENABLED=false or integration.ai_enabled=false)",
+                failure_type="ai_disabled",
+            )
 
         cfg = _load_primary_config(db) if endpoint == "primary" else _load_secondary_config(db)
         if not (cfg.base_url and cfg.model):
@@ -314,10 +326,17 @@ class AIGateway:
         Try primary; if it fails and fallback is configured, try fallback.
         Returns (result, metadata) where metadata indicates whether fallback was used.
         """
+        if not self.enabled(db):
+            raise AIClientError(
+                "AI features are disabled (AI_ENABLED=false or integration.ai_enabled=false)",
+                failure_type="ai_disabled",
+            )
         try:
             result = self.generate(db, endpoint=primary, system=system, prompt=prompt, max_tokens=max_tokens)
             return result, {"endpoint": primary, "fallback_used": False}
         except AIClientError as exc:
+            if exc.failure_type == "ai_disabled":
+                raise
             logger.warning(
                 "AI primary endpoint failed (%s). Trying fallback. provider=%s model=%s failure_type=%s status=%s timeout_type=%s retry_count=%s request_id=%s",
                 primary,
@@ -339,7 +358,7 @@ class AIGateway:
                 raise
             observe_ai_provider_fallback(from_endpoint=primary, to_endpoint=fallback, reason=exc.failure_type)
             result = self.generate(db, endpoint=fallback, system=system, prompt=prompt, max_tokens=max_tokens)
-            return result, {"endpoint": fallback, "fallback_used": True, "primary_error": str(exc)}
+            return result, {"endpoint": fallback, "fallback_used": True, "primary_error": redact_secret_text(exc)}
 
 
 ai_gateway = AIGateway()
