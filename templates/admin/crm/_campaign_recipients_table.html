@@ -1,9 +1,28 @@
 {% from "components/ui/macros.html" import table_shell, table_row, empty_state %}
 {% set pad = 'px-6 py-3' %}
+{% set can_select_recipients = campaign is defined and campaign.status.value == 'draft' and recipients %}
+{% if can_select_recipients %}
+<form method="post" action="/admin/crm/campaigns/{{ campaign_id }}/recipients/keep-selected" data-recipient-selection-form>
+    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-3 dark:border-slate-700/50">
+        <p class="text-sm text-slate-600 dark:text-slate-300">Check the recipients to keep, then apply before sending.</p>
+        <button type="submit" class="inline-flex h-9 items-center rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white">
+            Keep selected only
+        </button>
+    </div>
+{% endif %}
 {% call table_shell(table_id="campaign-recipients-table", color="slate") %}
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
         <thead>
             <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                {% if can_select_recipients %}
+                <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">
+                    <label class="inline-flex items-center gap-2">
+                        <input type="checkbox" checked data-recipient-select-all
+                               class="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500/20 dark:border-slate-600 dark:bg-slate-800">
+                        <span>Keep</span>
+                    </label>
+                </th>
+                {% endif %}
                 <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Recipient</th>
                 <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Address</th>
                 <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Retention State</th>
@@ -18,6 +37,13 @@
             {% set retention_state = retention_by_person_id.get(r.person_id|string) if retention_by_person_id is defined else none %}
             {% set retention_profile_url = retention_profile_by_person_id.get(r.person_id|string) if retention_profile_by_person_id is defined else '' %}
             {% call table_row(color="slate") %}
+                {% if can_select_recipients %}
+                <td class="{{ pad }}">
+                    <input type="checkbox" name="recipient_ids" value="{{ r.id }}" checked
+                           data-recipient-checkbox
+                           class="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500/20 dark:border-slate-600 dark:bg-slate-800">
+                </td>
+                {% endif %}
                 <td class="{{ pad }} text-sm text-slate-900 dark:text-white">
                     {% if person %}
                     {{ person.display_name or (person.first_name ~ ' ' ~ person.last_name)|trim or 'Unknown' }}
@@ -66,11 +92,42 @@
             {% endfor %}
             {% else %}
             <tr>
-                <td colspan="5" class="px-6 py-12">
-                    {{ empty_state("No recipients yet", "Send the campaign to populate this list.") }}
+                <td colspan="{{ 6 if can_select_recipients else 5 }}" class="px-6 py-12">
+                    {% if campaign is defined and campaign.status.value == 'draft' %}
+                    {{ empty_state("No saved recipients yet", "Import targets first. Selection controls appear here after recipients have been added to this draft campaign.") }}
+                    {% else %}
+                    {{ empty_state("No recipients yet", "No recipients were saved for this campaign.") }}
+                    {% endif %}
                 </td>
             </tr>
             {% endif %}
         </tbody>
     </table>
 {% endcall %}
+{% if can_select_recipients %}
+</form>
+<script>
+(() => {
+    const form = document.querySelector('[data-recipient-selection-form]');
+    if (!form) return;
+    const master = form.querySelector('[data-recipient-select-all]');
+    const boxes = Array.from(form.querySelectorAll('[data-recipient-checkbox]'));
+    if (!master || !boxes.length) return;
+
+    const syncMaster = () => {
+        const checked = boxes.filter((box) => box.checked).length;
+        master.checked = checked === boxes.length;
+        master.indeterminate = checked > 0 && checked < boxes.length;
+    };
+
+    master.addEventListener('change', () => {
+        boxes.forEach((box) => {
+            box.checked = master.checked;
+        });
+        syncMaster();
+    });
+    boxes.forEach((box) => box.addEventListener('change', syncMaster));
+    syncMaster();
+})();
+</script>
+{% endif %}

@@ -2299,6 +2299,30 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default=None,
         label="Default TR-069 ACS Server ID",
     ),
+    # ============== Integration Domain: SERP API ==============
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="serpapi_api_key",
+        env_var="SERPAPI_API_KEY",
+        value_type=SettingValueType.string,
+        default=None,
+        label="SERP API Key",
+        required=False,
+        is_secret=True,
+        section="SERP API",
+        help_text="API key used to discover campaign targets through Google search results.",
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="serpapi_timeout_seconds",
+        env_var="SERPAPI_TIMEOUT_SECONDS",
+        value_type=SettingValueType.integer,
+        default=20,
+        min_value=5,
+        max_value=120,
+        label="SERP API Timeout Seconds",
+        section="SERP API",
+    ),
     # ============== Integration Domain: Splynx Customer Sync ==============
     SettingSpec(
         domain=SettingDomain.integration,
