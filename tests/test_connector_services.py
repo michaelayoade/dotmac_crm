@@ -120,6 +120,35 @@ class TestConnectorConfigsCreate:
         assert config.connector_type == ConnectorType.zabbix
         assert config.auth_type == ConnectorAuthType.api_key
 
+    def test_creating_existing_zabbix_config_updates_row(self, db_session):
+        """Test creating Zabbix with an existing name updates the row."""
+        original = connector_service.connector_configs.create(
+            db_session,
+            ConnectorConfigCreate(
+                name="Zabbix",
+                connector_type=ConnectorType.custom,
+                auth_type=ConnectorAuthType.none,
+                base_url="http://160.119.127.193/zabbix/zabbix.php?action=dashboard.view&dashboardid=1",
+            ),
+        )
+
+        updated = connector_service.connector_configs.create(
+            db_session,
+            ConnectorConfigCreate(
+                name="Zabbix",
+                connector_type=ConnectorType.zabbix,
+                auth_type=ConnectorAuthType.api_key,
+                base_url="http://160.119.127.193/zabbix/api_jsonrpc.php",
+                auth_config={"api_key": "token"},
+            ),
+        )
+
+        assert updated.id == original.id
+        assert updated.connector_type == ConnectorType.zabbix
+        assert updated.auth_type == ConnectorAuthType.api_key
+        assert updated.base_url == "http://160.119.127.193/zabbix/api_jsonrpc.php"
+        assert updated.auth_config == {"api_key": "token"}
+
 
 class TestConnectorConfigsGet:
     """Tests for ConnectorConfigs.get."""
