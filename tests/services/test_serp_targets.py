@@ -4,8 +4,9 @@ from app.models.crm.campaign import Campaign, CampaignRecipient
 from app.models.crm.enums import CampaignChannel, CampaignStatus
 from app.models.crm.sales import Lead
 from app.models.person import Person
+from app.models.subscriber import AccountType, Organization, Subscriber, SubscriberStatus
 from app.services.crm.serp_targets import seed_campaign_from_serp
-from app.services.crm.web_campaigns import keep_selected_campaign_recipients
+from app.services.crm.web_campaigns import clear_serp_targets_for_campaign, keep_selected_campaign_recipients
 
 
 def _serp_response(payload: dict) -> httpx.Response:
@@ -202,6 +203,109 @@ def test_seed_campaign_from_serp_adds_whatsapp_recipients_from_local_results(db_
     assert recipient.email is None
 
 
+def test_seed_campaign_from_serp_skips_existing_customer_by_company_name(db_session, monkeypatch):
+    campaign = Campaign(
+        name="SERP Campaign",
+        channel=CampaignChannel.email,
+        status=CampaignStatus.draft,
+        subject="Hello",
+    )
+    existing_customer = Organization(name="Presken Hotels", account_type=AccountType.customer, is_active=True)
+    db_session.add_all([campaign, existing_customer])
+    db_session.commit()
+
+    def fake_get(url, params, timeout):
+        return _serp_response(
+            {
+                "local_results": [
+                    {
+                        "position": 1,
+                        "title": "Presken Hotels",
+                        "website": "https://preskenhotels.example",
+                        "description": "Hotel in Abuja.",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setenv("SERPAPI_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.crm.serp_targets.httpx.get", fake_get)
+
+    result = seed_campaign_from_serp(
+        db_session,
+        campaign_id=str(campaign.id),
+        query="hotels in Abuja",
+        location="Abuja, Nigeria",
+        max_results=10,
+        email_pattern="info@{domain}",
+    )
+
+    assert result == {"selected": 1, "seeded": 0, "skipped": 1}
+    assert db_session.query(CampaignRecipient).filter(CampaignRecipient.campaign_id == campaign.id).count() == 0
+    assert db_session.query(Person).filter(Person.email == "info@preskenhotels.example").count() == 0
+    db_session.refresh(campaign)
+    assert campaign.metadata_["serp_last_query"]["skipped_existing_customers"] == 1
+    assert campaign.metadata_["serp_existing_customer_skips"][0]["matched_field"] == "name"
+
+
+def test_seed_campaign_from_serp_skips_existing_splynx_subscriber_by_phone(db_session, monkeypatch):
+    campaign = Campaign(
+        name="SERP WhatsApp Campaign",
+        channel=CampaignChannel.whatsapp,
+        status=CampaignStatus.draft,
+    )
+    person = Person(
+        first_name="Presken",
+        last_name="",
+        display_name="Presken Hotels",
+        email="presken@example.test",
+        phone="08031234567",
+    )
+    subscriber = Subscriber(
+        person=person,
+        external_id="splynx-1",
+        external_system="splynx",
+        status=SubscriberStatus.active,
+        is_active=True,
+    )
+    db_session.add_all([campaign, person, subscriber])
+    db_session.commit()
+
+    def fake_get(url, params, timeout):
+        return _serp_response(
+            {
+                "local_results": [
+                    {
+                        "position": 1,
+                        "title": "Different Hotel Trading Name",
+                        "website": "https://new-presken.example",
+                        "phone": "+234 803 123 4567",
+                        "description": "Hotel in Abuja.",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setenv("SERPAPI_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.crm.serp_targets.httpx.get", fake_get)
+
+    result = seed_campaign_from_serp(
+        db_session,
+        campaign_id=str(campaign.id),
+        query="hotels in Abuja",
+        location="Abuja, Nigeria",
+        max_results=10,
+        email_pattern="info@{domain}",
+    )
+
+    assert result == {"selected": 1, "seeded": 0, "skipped": 1}
+    assert db_session.query(CampaignRecipient).filter(CampaignRecipient.campaign_id == campaign.id).count() == 0
+    db_session.refresh(campaign)
+    assert campaign.metadata_["serp_last_query"]["skipped_existing_customers"] == 1
+    assert campaign.metadata_["serp_existing_customer_skips"][0]["matched_source"] == "splynx_subscriber"
+    assert campaign.metadata_["serp_existing_customer_skips"][0]["matched_field"] == "phone"
+
+
 def test_keep_selected_campaign_recipients_removes_unselected_draft_recipients(db_session):
     campaign = Campaign(
         name="Selective Send",
@@ -243,3 +347,51 @@ def test_keep_selected_campaign_recipients_removes_unselected_draft_recipients(d
     assert campaign.total_recipients == 1
     assert campaign.metadata_["audience_snapshot_count"] == 1
     assert campaign.metadata_["audience_snapshot"][0]["person_id"] == str(people[0].id)
+
+
+def test_clear_serp_targets_removes_campaign_links_but_keeps_contacts_and_leads(db_session):
+    campaign = Campaign(
+        name="SERP Campaign",
+        channel=CampaignChannel.email,
+        status=CampaignStatus.draft,
+        subject="Hello",
+    )
+    person = Person(first_name="Acme", last_name="", display_name="Acme Fiber", email="info@acme.example")
+    db_session.add_all([campaign, person])
+    db_session.flush()
+    lead = Lead(person_id=person.id, title="SERP prospect: acme.example", lead_source="SERP")
+    recipient = CampaignRecipient(
+        campaign_id=campaign.id,
+        person_id=person.id,
+        address="info@acme.example",
+        email="info@acme.example",
+    )
+    db_session.add_all([lead, recipient])
+    campaign.total_recipients = 1
+    campaign.metadata_ = {
+        "source_report": "serp_google",
+        "audience_snapshot": [
+            {
+                "person_id": str(person.id),
+                "name": "Acme Fiber",
+                "email": "info@acme.example",
+                "domain": "acme.example",
+            }
+        ],
+        "audience_snapshot_count": 1,
+        "serp_last_query": {"query": "fiber installers", "seeded": 1, "skipped": 0},
+        "serp_existing_customer_skips": [{"name": "Existing Customer"}],
+    }
+    db_session.commit()
+
+    result = clear_serp_targets_for_campaign(db_session, campaign_id=str(campaign.id))
+
+    assert result == {"removed": 1, "remaining": 0}
+    assert db_session.query(CampaignRecipient).filter(CampaignRecipient.campaign_id == campaign.id).count() == 0
+    assert db_session.query(Person).filter(Person.id == person.id).count() == 1
+    assert db_session.query(Lead).filter(Lead.id == lead.id).count() == 1
+    db_session.refresh(campaign)
+    assert campaign.total_recipients == 0
+    assert "audience_snapshot" not in campaign.metadata_
+    assert "serp_last_query" not in campaign.metadata_
+    assert "serp_existing_customer_skips" not in campaign.metadata_

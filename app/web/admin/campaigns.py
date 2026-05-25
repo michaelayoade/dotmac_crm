@@ -19,6 +19,7 @@ from app.services.crm.web_campaigns import (
     campaign_steps_page_data,
     campaign_whatsapp_templates_payload,
     cancel_campaign,
+    clear_serp_targets_for_campaign,
     create_billing_risk_follow_up_campaign,
     create_campaign,
     create_campaign_step,
@@ -452,6 +453,18 @@ def campaign_serp_targets(
         max_results=max_results,
         email_pattern=email_pattern,
     )
+    return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
+
+
+@router.post("/{campaign_id}/serp-targets/clear")
+def campaign_serp_targets_clear(
+    request: Request,
+    campaign_id: str,
+    db: Session = Depends(_get_db),
+):
+    if not can_write_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return _forbidden_html()
+    clear_serp_targets_for_campaign(db, campaign_id=campaign_id)
     return RedirectResponse(url=f"/admin/crm/campaigns/{campaign_id}", status_code=303)
 
 

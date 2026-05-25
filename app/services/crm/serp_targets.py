@@ -11,13 +11,14 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.crm.campaign import Campaign, CampaignRecipient
 from app.models.crm.enums import CampaignChannel, CampaignRecipientStatus, CampaignStatus
 from app.models.crm.sales import Lead
 from app.models.domain_settings import SettingDomain
 from app.models.person import PartyStatus, Person
+from app.models.subscriber import AccountType, Organization, Subscriber, SubscriberStatus
 from app.services.common import coerce_uuid
 from app.services.settings_spec import resolve_value
 
@@ -40,6 +41,21 @@ class SerpTarget:
     email: str | None
     phone: str | None
     position: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class ExistingCustomerMatch:
+    source: str
+    field: str
+    value: str
+
+
+@dataclass(slots=True)
+class CustomerExclusionIndex:
+    phones: dict[str, ExistingCustomerMatch]
+    emails: dict[str, ExistingCustomerMatch]
+    domains: dict[str, ExistingCustomerMatch]
+    names: dict[str, ExistingCustomerMatch]
 
 
 def _campaign_metadata(campaign: Campaign) -> dict:
@@ -70,6 +86,170 @@ def _extract_first_phone(*values: str) -> str | None:
             digits = "".join(ch for ch in match.group(0) if ch.isdigit())
             if 8 <= len(digits) <= 15:
                 return f"+{digits}" if match.group(0).strip().startswith("+") else digits
+    return None
+
+
+def _phone_match_keys(value: str | None) -> set[str]:
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    if not digits:
+        return set()
+    keys = {digits}
+    if len(digits) >= 10:
+        keys.add(digits[-10:])
+    if digits.startswith("0") and len(digits) >= 10:
+        keys.add(f"234{digits[1:]}")
+    if digits.startswith("234") and len(digits) > 10:
+        keys.add(f"0{digits[3:]}")
+    return {key for key in keys if len(key) >= 8}
+
+
+def _normalize_email(value: str | None) -> str | None:
+    email = str(value or "").strip().lower()
+    return email if _EMAIL_RE.fullmatch(email) else None
+
+
+def _email_match_keys(value: str | None) -> set[str]:
+    email = _normalize_email(value)
+    return {email} if email else set()
+
+
+def _domain_match_keys(value: str | None) -> set[str]:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return set()
+    domain = _clean_domain(raw)
+    if not domain:
+        return set()
+    keys = {domain}
+    if domain.startswith("www."):
+        keys.add(domain[4:])
+    return {key for key in keys if "." in key}
+
+
+def _name_match_keys(value: str | None) -> set[str]:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    if not normalized:
+        return set()
+    words = [word for word in normalized.split() if word]
+    if not words:
+        return set()
+    keys = {" ".join(words)}
+    legal_suffixes = {"limited", "ltd", "plc", "llc", "inc", "incorporated", "company", "co"}
+    trimmed = list(words)
+    while trimmed and trimmed[-1] in legal_suffixes:
+        trimmed.pop()
+    if trimmed:
+        keys.add(" ".join(trimmed))
+        if len(trimmed[-1]) > 4 and trimmed[-1].endswith("s"):
+            singular = [*trimmed[:-1], trimmed[-1][:-1]]
+            keys.add(" ".join(singular))
+    return {key for key in keys if len(key) >= 3}
+
+
+def _put_match(
+    bucket: dict[str, ExistingCustomerMatch],
+    keys: set[str],
+    *,
+    source: str,
+    field: str,
+    value: str | None,
+) -> None:
+    clean_value = str(value or "").strip()
+    if not clean_value:
+        return
+    match = ExistingCustomerMatch(source=source, field=field, value=clean_value)
+    for key in keys:
+        bucket.setdefault(key, match)
+
+
+def _add_person_to_exclusion_index(index: CustomerExclusionIndex, person: Person, *, source: str) -> None:
+    _put_match(index.emails, _email_match_keys(person.email), source=source, field="email", value=person.email)
+    _put_match(index.phones, _phone_match_keys(person.phone), source=source, field="phone", value=person.phone)
+    for channel in person.channels or []:
+        address = str(channel.address or "").strip()
+        _put_match(index.emails, _email_match_keys(address), source=source, field="email", value=address)
+        _put_match(index.phones, _phone_match_keys(address), source=source, field="phone", value=address)
+    for name in (person.display_name, f"{person.first_name} {person.last_name}".strip()):
+        _put_match(index.names, _name_match_keys(name), source=source, field="name", value=name)
+
+
+def _add_organization_to_exclusion_index(
+    index: CustomerExclusionIndex, organization: Organization, *, source: str
+) -> None:
+    for name in (organization.name, organization.legal_name):
+        _put_match(index.names, _name_match_keys(name), source=source, field="name", value=name)
+    _put_match(
+        index.emails, _email_match_keys(organization.email), source=source, field="email", value=organization.email
+    )
+    _put_match(
+        index.phones, _phone_match_keys(organization.phone), source=source, field="phone", value=organization.phone
+    )
+    for domain_value in (organization.domain, organization.website):
+        _put_match(index.domains, _domain_match_keys(domain_value), source=source, field="domain", value=domain_value)
+
+
+def _build_customer_exclusion_index(db: Session) -> CustomerExclusionIndex:
+    index = CustomerExclusionIndex(phones={}, emails={}, domains={}, names={})
+
+    customer_people = (
+        db.query(Person)
+        .options(joinedload(Person.channels), joinedload(Person.organization))
+        .filter(Person.is_active.is_(True))
+        .filter(Person.party_status.in_([PartyStatus.customer, PartyStatus.subscriber]))
+        .all()
+    )
+    for person in customer_people:
+        _add_person_to_exclusion_index(index, person, source="dotmac_person")
+        if person.organization:
+            _add_organization_to_exclusion_index(index, person.organization, source="dotmac_organization")
+
+    customer_organizations = (
+        db.query(Organization)
+        .filter(Organization.is_active.is_(True))
+        .filter(Organization.account_type == AccountType.customer)
+        .all()
+    )
+    for organization in customer_organizations:
+        _add_organization_to_exclusion_index(index, organization, source="dotmac_organization")
+
+    active_subscribers = (
+        db.query(Subscriber)
+        .options(joinedload(Subscriber.person).joinedload(Person.channels), joinedload(Subscriber.organization))
+        .filter(Subscriber.is_active.is_(True))
+        .filter(Subscriber.status != SubscriberStatus.terminated)
+        .all()
+    )
+    for subscriber in active_subscribers:
+        source = "splynx_subscriber" if subscriber.external_system == "splynx" else "dotmac_subscriber"
+        _put_match(
+            index.names,
+            _name_match_keys(subscriber.subscriber_number),
+            source=source,
+            field="name",
+            value=subscriber.subscriber_number,
+        )
+        if subscriber.person:
+            _add_person_to_exclusion_index(index, subscriber.person, source=source)
+        if subscriber.organization:
+            _add_organization_to_exclusion_index(index, subscriber.organization, source=source)
+
+    return index
+
+
+def _existing_customer_match(index: CustomerExclusionIndex, target: SerpTarget) -> ExistingCustomerMatch | None:
+    for key in _phone_match_keys(target.phone):
+        if match := index.phones.get(key):
+            return match
+    if target.email:
+        email = _normalize_email(target.email)
+        if email and (match := index.emails.get(email)):
+            return match
+    for key in _domain_match_keys(target.domain) | _domain_match_keys(target.link):
+        if match := index.domains.get(key):
+            return match
+    for key in _name_match_keys(target.title):
+        if match := index.names.get(key):
+            return match
     return None
 
 
@@ -458,9 +638,26 @@ def seed_campaign_from_serp(
     selected = len(targets)
     seeded = 0
     skipped = 0
+    skipped_existing_customers = 0
+    existing_customer_matches: list[dict[str, str]] = []
     snapshot_rows: list[dict[str, str]] = []
+    customer_exclusion_index = _build_customer_exclusion_index(db)
 
     for target in targets:
+        if match := _existing_customer_match(customer_exclusion_index, target):
+            skipped += 1
+            skipped_existing_customers += 1
+            existing_customer_matches.append(
+                {
+                    "name": target.title,
+                    "domain": target.domain,
+                    "source_url": target.link,
+                    "matched_source": match.source,
+                    "matched_field": match.field,
+                    "matched_value": match.value,
+                }
+            )
+            continue
         address = target.email if campaign.channel == CampaignChannel.email else target.phone
         if not address:
             skipped += 1
@@ -508,8 +705,11 @@ def seed_campaign_from_serp(
         "selected": selected,
         "seeded": seeded,
         "skipped": skipped,
+        "skipped_existing_customers": skipped_existing_customers,
         "updated_at": datetime.now(UTC).isoformat(),
     }
+    if existing_customer_matches:
+        metadata["serp_existing_customer_skips"] = existing_customer_matches[-100:]
     existing_snapshot = metadata.get("audience_snapshot")
     existing_rows = existing_snapshot if isinstance(existing_snapshot, list) else []
     metadata["audience_snapshot"] = existing_rows + snapshot_rows
