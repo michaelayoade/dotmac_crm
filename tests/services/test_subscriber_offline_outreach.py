@@ -299,11 +299,11 @@ def test_build_whatsapp_template_components_from_body_and_header(db_session, per
     )
 
     assert components == [
-        {"type": "header", "parameters": [{"type": "text", "text": person.first_name}]},
+        {"type": "header", "parameters": [{"type": "text", "text": "Test User"}]},
         {
             "type": "body",
             "parameters": [
-                {"type": "text", "text": person.first_name},
+                {"type": "text", "text": "Test User"},
                 {"type": "text", "text": "SUB-12896"},
                 {"type": "text", "text": "ASOKORO (D-AFR2)"},
             ],
@@ -378,12 +378,12 @@ def test_build_whatsapp_template_components_forces_card_row_identity_values(db_s
         {
             "type": "body",
             "parameters": [
-                {"type": "text", "text": "Amaka"},
+                {"type": "text", "text": "Amaka Fiber"},
                 {"type": "text", "text": "CARD-7788"},
             ],
         }
     ]
-    assert preview == "Hi *Amaka*, account CARD-7788"
+    assert preview == "Hi *Amaka Fiber*, account CARD-7788"
 
 
 def test_build_whatsapp_template_components_supports_named_parameters(db_session, person):
@@ -561,14 +561,14 @@ def test_run_daily_offline_outreach_uses_selected_whatsapp_template(db_session, 
 
     assert result["status"] == "success"
     assert result["sent"] == 1
-    assert captured["body"] == "Hello Test, subscriber SUB-12896 on ASOKORO (D-AFR2)"
+    assert captured["body"] == "Hello Test User, subscriber SUB-12896 on ASOKORO (D-AFR2)"
     assert captured["template_name"] == "offline_outreach"
     assert captured["template_language"] == "en"
     assert captured["template_components"] == [
         {
             "type": "body",
             "parameters": [
-                {"type": "text", "text": "Test"},
+                {"type": "text", "text": "Test User"},
                 {"type": "text", "text": "SUB-12896"},
                 {"type": "text", "text": "ASOKORO (D-AFR2)"},
             ],

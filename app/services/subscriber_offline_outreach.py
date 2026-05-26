@@ -532,7 +532,7 @@ def _whatsapp_template_token_values(
         else ""
     )
     return {
-        1: first_name or "there",
+        1: full_name or first_name or "there",
         2: str(subscriber.subscriber_number or "") if subscriber else "",
         3: str(base_station_label or ""),
         4: full_name or first_name or "there",
@@ -550,8 +550,13 @@ def _whatsapp_template_named_values(
         subscriber=subscriber,
         base_station_label=base_station_label,
     )
+    first_name = ""
+    if person and person.first_name:
+        first_name = person.first_name.strip()
+    if not first_name and person and person.display_name:
+        first_name = person.display_name.strip().split()[0]
     return {
-        "first_name": indexed[1],
+        "first_name": first_name or "there",
         "subscriber_number": indexed[2],
         "base_station": indexed[3],
         "name": indexed[4],
@@ -569,6 +574,18 @@ def _first_name_from_report_row(row: dict[str, Any] | None) -> str:
     if not name:
         return ""
     return name.split()[0].strip()
+
+
+def _full_name_from_report_row(row: dict[str, Any] | None) -> str:
+    if not isinstance(row, dict):
+        return ""
+    for key in ("name", "display_name", "customer_name"):
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    first = str(row.get("first_name") or row.get("customer_first_name") or "").strip()
+    last = str(row.get("last_name") or row.get("customer_last_name") or "").strip()
+    return " ".join(part for part in (first, last) if part).strip()
 
 
 def _subscriber_number_from_report_row(row: dict[str, Any] | None) -> str:
@@ -676,10 +693,13 @@ def _effective_whatsapp_template_parameters(
             )
             if rendered:
                 values[key] = rendered
+    row_full_name = _full_name_from_report_row(report_row)
     row_first_name = _first_name_from_report_row(report_row)
     row_subscriber_number = _subscriber_number_from_report_row(report_row)
+    if row_full_name:
+        values["1"] = row_full_name
+        values["name"] = row_full_name
     if row_first_name:
-        values["1"] = row_first_name
         values["first_name"] = row_first_name
     if row_subscriber_number:
         values["2"] = row_subscriber_number

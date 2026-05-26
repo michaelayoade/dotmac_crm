@@ -665,7 +665,8 @@
       const existing = outreachSettings.template_parameter_values || {};
       const saved = existing[String(key)] || existing[key];
       if (saved) return saved;
-      if (String(key) === '1' || key === 'first_name') return '{first_name}';
+      if (String(key) === '1') return '{name}';
+      if (key === 'first_name') return '{first_name}';
       if (String(key) === '2' || key === 'subscriber_number') return '{subscriber_number}';
       if (String(key) === '3' || key === 'base_station') return '{base_station}';
       if (String(key) === '4' || key === 'name') return '{name}';
