@@ -248,6 +248,196 @@ def test_seed_campaign_from_serp_skips_existing_customer_by_company_name(db_sess
     assert campaign.metadata_["serp_existing_customer_skips"][0]["matched_field"] == "name"
 
 
+def test_seed_campaign_from_serp_skips_existing_customer_by_strong_name_tokens(db_session, monkeypatch):
+    campaign = Campaign(
+        name="SERP Campaign",
+        channel=CampaignChannel.email,
+        status=CampaignStatus.draft,
+        subject="Hello",
+    )
+    existing_customer = Organization(
+        name="ALLIANCE HOSPITAL AND SERVICES",
+        account_type=AccountType.customer,
+        is_active=True,
+    )
+    db_session.add_all([campaign, existing_customer])
+    db_session.commit()
+
+    def fake_get(url, params, timeout):
+        return _serp_response(
+            {
+                "local_results": [
+                    {
+                        "position": 1,
+                        "title": "Alliance Hospital",
+                        "website": "https://alliancehospital.example",
+                        "description": "Hospital in Abuja.",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setenv("SERPAPI_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.crm.serp_targets.httpx.get", fake_get)
+
+    result = seed_campaign_from_serp(
+        db_session,
+        campaign_id=str(campaign.id),
+        query="hospitals in Abuja",
+        location="Abuja, Nigeria",
+        max_results=10,
+        email_pattern="info@{domain}",
+    )
+
+    assert result == {"selected": 1, "seeded": 0, "skipped": 1}
+    assert db_session.query(CampaignRecipient).filter(CampaignRecipient.campaign_id == campaign.id).count() == 0
+    assert db_session.query(Person).filter(Person.email == "info@alliancehospital.example").count() == 0
+    db_session.refresh(campaign)
+    assert campaign.metadata_["serp_last_query"]["skipped_existing_customers"] == 1
+    assert campaign.metadata_["serp_existing_customer_skips"][0]["matched_field"] == "name"
+
+
+def test_seed_campaign_from_serp_does_not_skip_existing_customer_by_single_generic_name_token(db_session, monkeypatch):
+    campaign = Campaign(
+        name="SERP Campaign",
+        channel=CampaignChannel.email,
+        status=CampaignStatus.draft,
+        subject="Hello",
+    )
+    existing_customer = Organization(
+        name="ALLIANCE HOSPITAL AND SERVICES",
+        account_type=AccountType.customer,
+        is_active=True,
+    )
+    db_session.add_all([campaign, existing_customer])
+    db_session.commit()
+
+    def fake_get(url, params, timeout):
+        return _serp_response(
+            {
+                "local_results": [
+                    {
+                        "position": 1,
+                        "title": "Alliance",
+                        "website": "https://alliance-events.example",
+                        "description": "Events venue in Abuja.",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setenv("SERPAPI_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.crm.serp_targets.httpx.get", fake_get)
+
+    result = seed_campaign_from_serp(
+        db_session,
+        campaign_id=str(campaign.id),
+        query="event venues in Abuja",
+        location="Abuja, Nigeria",
+        max_results=10,
+        email_pattern="info@{domain}",
+    )
+
+    assert result == {"selected": 1, "seeded": 1, "skipped": 0}
+    assert db_session.query(CampaignRecipient).filter(CampaignRecipient.campaign_id == campaign.id).count() == 1
+
+
+def test_seed_campaign_from_serp_skips_existing_customer_by_specific_address(db_session, monkeypatch):
+    campaign = Campaign(
+        name="SERP Campaign",
+        channel=CampaignChannel.email,
+        status=CampaignStatus.draft,
+        subject="Hello",
+    )
+    existing_customer = Organization(
+        name="Unrelated Customer",
+        account_type=AccountType.customer,
+        address_line1="No. 123 Aminu Kano Crescent",
+        city="Wuse 2",
+        region="FCT",
+        is_active=True,
+    )
+    db_session.add_all([campaign, existing_customer])
+    db_session.commit()
+
+    def fake_get(url, params, timeout):
+        return _serp_response(
+            {
+                "local_results": [
+                    {
+                        "position": 1,
+                        "title": "Different Trading Name",
+                        "website": "https://different-trading.example",
+                        "address": "Plot 123 Aminu Kano Crescent, Wuse II, Abuja",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setenv("SERPAPI_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.crm.serp_targets.httpx.get", fake_get)
+
+    result = seed_campaign_from_serp(
+        db_session,
+        campaign_id=str(campaign.id),
+        query="clinics in Abuja",
+        location="Abuja, Nigeria",
+        max_results=10,
+        email_pattern="info@{domain}",
+    )
+
+    assert result == {"selected": 1, "seeded": 0, "skipped": 1}
+    db_session.refresh(campaign)
+    assert campaign.metadata_["serp_existing_customer_skips"][0]["matched_field"] == "address"
+
+
+def test_seed_campaign_from_serp_does_not_skip_by_generic_address_only(db_session, monkeypatch):
+    campaign = Campaign(
+        name="SERP Campaign",
+        channel=CampaignChannel.email,
+        status=CampaignStatus.draft,
+        subject="Hello",
+    )
+    existing_customer = Organization(
+        name="Unrelated Customer",
+        account_type=AccountType.customer,
+        address_line1="Wuse 2",
+        city="Abuja",
+        is_active=True,
+    )
+    db_session.add_all([campaign, existing_customer])
+    db_session.commit()
+
+    def fake_get(url, params, timeout):
+        return _serp_response(
+            {
+                "local_results": [
+                    {
+                        "position": 1,
+                        "title": "New Prospect",
+                        "website": "https://new-prospect.example",
+                        "address": "Wuse 2, Abuja",
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setenv("SERPAPI_API_KEY", "test-key")
+    monkeypatch.setattr("app.services.crm.serp_targets.httpx.get", fake_get)
+
+    result = seed_campaign_from_serp(
+        db_session,
+        campaign_id=str(campaign.id),
+        query="clinics in Abuja",
+        location="Abuja, Nigeria",
+        max_results=10,
+        email_pattern="info@{domain}",
+    )
+
+    assert result == {"selected": 1, "seeded": 1, "skipped": 0}
+    assert db_session.query(CampaignRecipient).filter(CampaignRecipient.campaign_id == campaign.id).count() == 1
+
+
 def test_seed_campaign_from_serp_skips_existing_splynx_subscriber_by_phone(db_session, monkeypatch):
     campaign = Campaign(
         name="SERP WhatsApp Campaign",
