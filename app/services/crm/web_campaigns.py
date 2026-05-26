@@ -535,6 +535,63 @@ def keep_selected_campaign_recipients(
     return {"kept": len(remaining), "removed": removed}
 
 
+def clear_serp_targets_for_campaign(db: Session, *, campaign_id: str) -> dict[str, int]:
+    campaign = campaigns_service.get(db, campaign_id)
+    if campaign.status != CampaignStatus.draft:
+        raise HTTPException(status_code=400, detail="SERP targets can only be cleared on draft campaigns.")
+
+    metadata = _campaign_metadata(campaign)
+    snapshot = metadata.get("audience_snapshot")
+    snapshot_rows = snapshot if isinstance(snapshot, list) else []
+    snapshot_person_ids = set()
+    for row in snapshot_rows:
+        if not isinstance(row, dict):
+            continue
+        person_id = str(row.get("person_id") or "").strip()
+        if not person_id:
+            continue
+        try:
+            parsed_person_id = coerce_uuid(person_id)
+        except ValueError:
+            continue
+        if parsed_person_id is not None:
+            snapshot_person_ids.add(parsed_person_id)
+
+    if not snapshot_person_ids:
+        return {"removed": 0, "remaining": campaign.total_recipients or 0}
+
+    recipients = (
+        db.query(CampaignRecipient)
+        .filter(CampaignRecipient.campaign_id == campaign.id, CampaignRecipient.step_id.is_(None))
+        .filter(CampaignRecipient.person_id.in_(snapshot_person_ids))
+        .all()
+    )
+    removed = 0
+    for recipient in recipients:
+        db.delete(recipient)
+        removed += 1
+
+    db.flush()
+    remaining = (
+        db.query(CampaignRecipient)
+        .filter(CampaignRecipient.campaign_id == campaign.id, CampaignRecipient.step_id.is_(None))
+        .count()
+    )
+    campaign.total_recipients = remaining
+    for key in (
+        "audience_snapshot",
+        "audience_snapshot_count",
+        "serp_last_query",
+        "serp_existing_customer_skips",
+    ):
+        metadata.pop(key, None)
+    if metadata.get("source_report") == OUTREACH_SOURCE_SERP_GOOGLE:
+        metadata.pop("source_report", None)
+    campaign.metadata_ = metadata
+    db.commit()
+    return {"removed": removed, "remaining": remaining}
+
+
 def campaign_preview_audience_data(db: Session, *, campaign_id: str) -> dict:
     campaign = campaigns_service.get(db, campaign_id)
     is_manual_snapshot = (
