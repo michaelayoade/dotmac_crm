@@ -141,6 +141,7 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
+        _stop_background_jobs()
         await _stop_websocket_manager()
 
 
@@ -617,6 +618,15 @@ def _start_jobs():
     logger.info("app_startup_smtp_begin")
     smtp_inbound_service.start_smtp_inbound_server()
     logger.info("app_startup_smtp_completed")
+    from app.services import customer_uptime as customer_uptime_service
+
+    customer_uptime_service.start_uptime_poller()
+
+
+def _stop_background_jobs():
+    from app.services import customer_uptime as customer_uptime_service
+
+    customer_uptime_service.stop_uptime_poller()
 
 
 def _ensure_storage():

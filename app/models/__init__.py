@@ -68,6 +68,7 @@ from app.models.crm import (  # noqa: F401
     SocialCommentReply,
 )
 from app.models.customer_retention import CustomerRetentionEngagement  # noqa: F401
+from app.models.customer_uptime import CustomerUptimePeriod, CustomerUptimeSnapshot  # noqa: F401
 from app.models.dispatch import (  # noqa: F401
     AvailabilityBlock,
     DispatchQueueStatus,
