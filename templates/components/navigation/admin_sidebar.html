@@ -10,7 +10,7 @@
     'sales-orders': 'operations', 'installations': 'operations', 'technicians': 'operations',
     'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations', 'vendor-quotes': 'operations', 'vendor-as-built': 'operations', 'vendor-purchase-invoices': 'operations',
     'material-requests': 'operations',
-    'subscriber-overview': 'reports', 'subscriber-online-last-24h': 'reports', 'subscriber-lifecycle': 'reports', 'subscriber-churned': 'reports', 'subscriber-service-quality': 'reports', 'subscriber-revenue': 'reports', 'network-report': 'reports', 'quarterly-report': 'reports', 'ncc-reports': 'reports',
+    'subscriber-overview': 'reports', 'subscriber-online-last-24h': 'reports', 'subscriber-lifecycle': 'reports', 'subscriber-churned': 'reports', 'subscriber-service-quality': 'reports', 'subscriber-revenue': 'reports', 'revenue-service-report': 'reports', 'network-report': 'reports', 'quarterly-report': 'reports', 'ncc-reports': 'reports',
     'my-performance': 'reports',
     'team-performance': 'reports',
     'ai-insights': 'reports',
@@ -523,6 +523,7 @@
             {% endif %}
             {% if can_reports_billing %}
             <a href="/admin/reports/subscribers/billing-risk" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-billing-risk' else '' }}">Billing Risk</a>
+            <a href="/admin/reports/revenue-service" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'revenue-service-report' else '' }}">Revenue & Service</a>
             {% endif %}
             {% if can_reports_network %}
             <a href="/admin/reports/network" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'network-report' else '' }}">Network Infrastructure</a>

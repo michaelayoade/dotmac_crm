@@ -66,6 +66,12 @@ REPORTS_BILLING_RISK_WRITE_PERMISSIONS = (
     "reports:subscribers",
     "reports",
 )
+REPORTS_REVENUE_SERVICE_READ_PERMISSIONS = (
+    "reports:revenue-service:read",
+    "reports:billing",
+    "reports:subscribers",
+    "reports",
+)
 
 
 class _ProjectTaskPersonAccumulator(TypedDict):
@@ -3032,6 +3038,242 @@ def subscriber_revenue_export(
     ]
     filename = f"subscriber_revenue_{start_dt.strftime('%Y%m%d')}_{end_dt.strftime('%Y%m%d')}.csv"
     return _csv_response(export_data, filename)
+
+
+# =============================================================================
+# Revenue & Service Report - Downtime & Credit Notes
+# =============================================================================
+
+
+@router.get(
+    "/revenue-service",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission(*REPORTS_REVENUE_SERVICE_READ_PERMISSIONS))],
+)
+def revenue_service_report(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Revenue and service report for downtime extension credit exposure."""
+    from app.services import revenue_service_report as revenue_service_report_service
+
+    user = get_current_user(request)
+    report_error = None
+    summary = {
+        "total_downtime_hours": 0,
+        "incident_count": 0,
+        "affected_customers_count": 0,
+        "total_credit_exposure": 0,
+        "average_uptime_percent": 100,
+        "root_cause_totals": {},
+        "top_affected_customers": [],
+    }
+    downtime_log: list[dict[str, Any]] = []
+    try:
+        report = revenue_service_report_service.build_report(db)
+        summary = report["summary"]
+        downtime_log = report["downtime_log"]
+    except revenue_service_report_service.SplynxReportError as exc:
+        report_error = str(exc)
+
+    return templates.TemplateResponse(
+        "admin/reports/revenue_service_report.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "revenue-service-report",
+            "active_menu": "reports",
+            "summary": summary,
+            "downtime_log": downtime_log,
+            "report_error": report_error,
+        },
+    )
+
+
+@router.get(
+    "/revenue-service/api/summary",
+    dependencies=[Depends(require_any_permission(*REPORTS_REVENUE_SERVICE_READ_PERMISSIONS))],
+)
+def revenue_service_summary(
+    year: int | None = Query(None, ge=2020, le=2100),
+    month: int | None = Query(None, ge=1, le=12),
+    db: Session = Depends(get_db),
+):
+    """Return metric card data for the revenue and service report."""
+    from app.services import revenue_service_report as revenue_service_report_service
+
+    try:
+        return JSONResponse(revenue_service_report_service.build_summary(db, year=year, month=month))
+    except revenue_service_report_service.SplynxReportError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+
+@router.get(
+    "/revenue-service/api/log",
+    dependencies=[Depends(require_any_permission(*REPORTS_REVENUE_SERVICE_READ_PERMISSIONS))],
+)
+def revenue_service_log(
+    year: int | None = Query(None, ge=2020, le=2100),
+    month: int | None = Query(None, ge=1, le=12),
+    db: Session = Depends(get_db),
+):
+    """Return all downtime incidents derived from extension transactions."""
+    from app.services import revenue_service_report as revenue_service_report_service
+
+    try:
+        return JSONResponse(revenue_service_report_service.build_downtime_log(db, year=year, month=month))
+    except revenue_service_report_service.SplynxReportError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+
+@router.get(
+    "/revenue-service/api/months",
+    dependencies=[Depends(require_any_permission(*REPORTS_REVENUE_SERVICE_READ_PERMISSIONS))],
+)
+def revenue_service_month_options(db: Session = Depends(get_db)):
+    """Return available month filter options for the revenue and service report."""
+    from app.services import revenue_service_report as revenue_service_report_service
+
+    try:
+        return JSONResponse(revenue_service_report_service.build_month_options(db))
+    except Exception as exc:
+        logger.exception("revenue_service_month_options_failed")
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+
+@router.get(
+    "/revenue-service/api/compensation",
+    dependencies=[Depends(require_any_permission(*REPORTS_REVENUE_SERVICE_READ_PERMISSIONS))],
+)
+def revenue_service_compensation(
+    search: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+):
+    """Look up the latest extension compensation for a Splynx customer."""
+    from app.services import revenue_service_report as revenue_service_report_service
+
+    try:
+        return JSONResponse(revenue_service_report_service.lookup_compensation(db, search))
+    except revenue_service_report_service.SplynxReportError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+
+@router.get(
+    "/revenue-service/api/payment-classification",
+    dependencies=[Depends(require_any_permission(*REPORTS_REVENUE_SERVICE_READ_PERMISSIONS))],
+)
+def revenue_service_payment_classification(
+    search: str = Query("", min_length=0),
+    classification: str = Query("all"),
+    year: int | None = Query(None, ge=2020, le=2100),
+    month: int | None = Query(None, ge=1, le=12),
+    db: Session = Depends(get_db),
+):
+    """Return Splynx customer payment behaviour classification."""
+    from app.services import revenue_service_report as revenue_service_report_service
+
+    try:
+        return JSONResponse(
+            revenue_service_report_service.build_payment_classification(
+                db,
+                search=search,
+                classification=classification,
+                year=year,
+                month=month,
+            )
+        )
+    except revenue_service_report_service.SplynxReportError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+
+@router.get(
+    "/revenue-service/api/uptime/search",
+    dependencies=[Depends(require_any_permission(*REPORTS_REVENUE_SERVICE_READ_PERMISSIONS))],
+)
+def revenue_service_uptime_search(
+    q: str = Query("", min_length=0),
+    db: Session = Depends(get_db),
+):
+    """Return customer matches for uptime analytics lookup."""
+    from app.services import revenue_service_report as revenue_service_report_service
+
+    try:
+        return JSONResponse({"rows": revenue_service_report_service.search_uptime_customers(db, q)})
+    except revenue_service_report_service.SplynxReportError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+
+@router.get(
+    "/revenue-service/api/uptime/{customer_id}",
+    dependencies=[Depends(require_any_permission(*REPORTS_REVENUE_SERVICE_READ_PERMISSIONS))],
+)
+def revenue_service_uptime_profile(
+    customer_id: str,
+    month: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    """Return full customer uptime calculation for one month."""
+    from app.services import revenue_service_report as revenue_service_report_service
+
+    try:
+        return JSONResponse(revenue_service_report_service.build_customer_uptime_profile(db, customer_id, month))
+    except revenue_service_report_service.SplynxReportError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+
+@router.get(
+    "/revenue-service/api/uptime/{customer_id}/sessions",
+    dependencies=[Depends(require_any_permission(*REPORTS_REVENUE_SERVICE_READ_PERMISSIONS))],
+)
+def revenue_service_uptime_sessions(
+    customer_id: str,
+    month: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    """Return raw session records for customer uptime analytics."""
+    from app.services import revenue_service_report as revenue_service_report_service
+
+    try:
+        return JSONResponse(revenue_service_report_service.build_customer_uptime_sessions(db, customer_id, month))
+    except revenue_service_report_service.SplynxReportError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+
+@router.get(
+    "/revenue-service/api/uptime/{customer_id}/trend",
+    dependencies=[Depends(require_any_permission(*REPORTS_REVENUE_SERVICE_READ_PERMISSIONS))],
+)
+def revenue_service_uptime_trend(
+    customer_id: str,
+    db: Session = Depends(get_db),
+):
+    """Return last six months uptime trend for a customer."""
+    from app.services import revenue_service_report as revenue_service_report_service
+
+    try:
+        return JSONResponse(revenue_service_report_service.build_customer_uptime_trend(db, customer_id))
+    except revenue_service_report_service.SplynxReportError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
+
+
+@router.get(
+    "/revenue-service/api/uptime/{customer_id}/compensation",
+    dependencies=[Depends(require_any_permission(*REPORTS_REVENUE_SERVICE_READ_PERMISSIONS))],
+)
+def revenue_service_uptime_compensation(
+    customer_id: str,
+    month: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    """Return compensation summary from customer uptime analytics."""
+    from app.services import revenue_service_report as revenue_service_report_service
+
+    try:
+        return JSONResponse(revenue_service_report_service.build_customer_uptime_compensation(db, customer_id, month))
+    except revenue_service_report_service.SplynxReportError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=502)
 
 
 # =============================================================================

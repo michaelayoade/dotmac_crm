@@ -1,0 +1,914 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header %}
+
+{% block title %}Revenue & Service Report{% endblock %}
+
+{% block content %}
+<style>
+  :root {
+    --rs-blue: #0ea5e9;
+    --rs-green: #10b981;
+    --rs-red: #e11d48;
+    --rs-amber: #f59e0b;
+    --rs-grey: #64748b;
+    --rs-ink: #0f172a;
+    --rs-line: #e2e8f0;
+  }
+
+  .rs-panel, .rs-metric {
+    background: #fff;
+    border: 1px solid rgb(226 232 240 / .75);
+    border-radius: 1rem;
+    box-shadow: 0 1px 2px rgb(15 23 42 / .04);
+  }
+
+  .dark .rs-panel, .dark .rs-metric {
+    background: #1e293b;
+    border-color: rgb(51 65 85 / .75);
+  }
+
+  .rs-input {
+    min-height: 42px;
+    border: 1px solid var(--rs-line);
+    border-radius: .75rem;
+    padding: 0 12px;
+    outline: none;
+    background: rgb(248 250 252 / .65);
+    color: #0f172a;
+  }
+
+  .dark .rs-input {
+    background: rgb(51 65 85 / .55);
+    border-color: #475569;
+    color: #fff;
+  }
+
+  .rs-input:focus {
+    border-color: var(--rs-green);
+    background: #fff;
+    box-shadow: 0 0 0 3px rgb(16 185 129 / .14);
+  }
+
+  .dark .rs-input:focus {
+    background: #334155;
+  }
+
+  .rs-btn {
+    min-height: 42px;
+    border: 1px solid #059669;
+    background: #059669;
+    color: #fff;
+    border-radius: .75rem;
+    padding: 0 18px;
+    font-weight: 760;
+  }
+
+  .rs-btn:hover { background: #047857; }
+  .rs-tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--rs-line); }
+  .rs-tab {
+    border: 1px solid transparent;
+    border-bottom: 0;
+    border-radius: .75rem .75rem 0 0;
+    padding: 10px 14px;
+    color: #64748b;
+    font-weight: 780;
+    background: transparent;
+  }
+  .rs-tab.active { color: #047857; background: #fff; border-color: var(--rs-line); }
+  .dark .rs-tab.active { background: #1e293b; border-color: #334155; color: #5eead4; }
+  .rs-tab-panel.hidden { display: none; }
+  .rs-toggle { display: inline-flex; gap: 4px; border: 1px solid var(--rs-line); border-radius: .75rem; padding: 4px; background: #f8fafc; }
+  .dark .rs-toggle { background: #0f172a; border-color: #334155; }
+  .rs-toggle-btn { border: 0; border-radius: .55rem; padding: 8px 12px; color: #64748b; font-size: 13px; font-weight: 780; background: transparent; }
+  .rs-toggle-btn.active { background: #059669; color: #fff; }
+  .rs-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+  .rs-payment-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+  .rs-metric { padding: 16px; min-height: 116px; position: relative; overflow: hidden; }
+  .rs-metric::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: #10b981; }
+  .rs-metric:nth-child(2)::before { background: #0ea5e9; }
+  .rs-metric:nth-child(3)::before { background: #f59e0b; }
+  .rs-metric:nth-child(4)::before { background: #e11d48; }
+  .rs-metric:nth-child(5)::before { background: #14b8a6; }
+  .rs-metric-label { color: var(--rs-grey); font-size: 12px; font-weight: 760; text-transform: uppercase; }
+  .dark .rs-metric-label { color: #94a3b8; }
+  .rs-metric-value { margin-top: 12px; font-size: 28px; line-height: 1; font-weight: 820; color: #0f172a; }
+  .dark .rs-metric-value { color: #fff; }
+  .rs-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+  .rs-table-wrap { overflow-x: auto; padding: 12px 16px 16px; }
+  .rs-table { width: 100%; min-width: 860px; border-collapse: collapse; }
+  .rs-table th, .rs-table td { border-bottom: 1px solid var(--rs-line); padding: 11px 8px; text-align: left; vertical-align: middle; font-size: 13px; }
+  .rs-table th { color: var(--rs-grey); font-weight: 780; background: #f8fafc; }
+  .rs-table td { color: #334155; }
+  .dark .rs-table th { color: #94a3b8; background: rgb(15 23 42 / .35); border-color: #334155; }
+  .dark .rs-table td { color: #cbd5e1; border-color: #334155; }
+  .rs-badge { display: inline-flex; align-items: center; min-height: 24px; border-radius: 999px; padding: 0 9px; color: #fff; font-size: 12px; font-weight: 780; text-transform: capitalize; white-space: nowrap; }
+  .rs-green { background: var(--rs-green); }
+  .rs-amber { background: var(--rs-amber); }
+  .rs-red { background: var(--rs-red); }
+  .rs-grey { background: var(--rs-grey); }
+  .rs-negative { color: var(--rs-red); }
+  .rs-amber-text { color: var(--rs-amber); font-weight: 760; }
+  .rs-field { border-left: 3px solid var(--rs-line); padding-left: 10px; min-width: 0; }
+  .dark .rs-field { border-left-color: #475569; }
+  .rs-field-label { display: block; color: var(--rs-grey); font-size: 12px; font-weight: 700; }
+  .rs-field-value { display: block; color: var(--rs-ink); font-size: 14px; font-weight: 720; overflow-wrap: anywhere; margin-top: 3px; }
+  .dark .rs-field-label { color: #94a3b8; }
+  .dark .rs-field-value { color: #f8fafc; }
+  .rs-result-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+  .rs-uptime-text { font-weight: 760; color: var(--rs-green); }
+  .rs-uptime-text.yellow { color: #eab308; }
+  .rs-uptime-text.orange { color: #f97316; }
+  .rs-uptime-text.red { color: #dc2626; }
+  .rs-portal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .rs-portal-card { background: #fff; border: 1px solid rgb(226 232 240 / .75); border-radius: 1rem; box-shadow: 0 1px 2px rgb(15 23 42 / .04); padding: 14px 16px; margin-bottom: 12px; }
+  .dark .rs-portal-card { background: #1e293b; border-color: rgb(51 65 85 / .75); }
+  .rs-portal-metric { background: #fff; border: 1px solid rgb(226 232 240 / .75); border-radius: 1rem; box-shadow: 0 1px 2px rgb(15 23 42 / .04); padding: 12px; position: relative; overflow: hidden; }
+  .rs-portal-metric::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: #10b981; }
+  .rs-portal-metric:nth-child(2)::before { background: #0ea5e9; }
+  .rs-portal-metric:nth-child(3)::before { background: #e11d48; }
+  .rs-portal-metric:nth-child(4)::before { background: #14b8a6; }
+  .rs-portal-metric:nth-child(5)::before { background: #e11d48; }
+  .rs-portal-metric:nth-child(6)::before { background: #7F77DD; }
+  .dark .rs-portal-metric { background: #1e293b; border-color: rgb(51 65 85 / .75); }
+  .rs-portal-label { color: var(--color-text-secondary, #64748b); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+  .rs-portal-value { margin-top: 8px; color: var(--color-text-primary, #0f172a); font-size: 22px; font-weight: 500; line-height: 1; }
+  .rs-portal-sub { margin-top: 6px; color: var(--color-text-secondary, #64748b); font-size: 11px; }
+  .dark .rs-portal-label, .dark .rs-portal-sub { color: #94a3b8; }
+  .dark .rs-portal-value, .dark #rs-up-gauge { color: #fff; }
+  .rs-mini-badge { display: inline-flex; align-items: center; border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .rs-mini-green { background: #EAF3DE; color: #3B6D11; }
+  .rs-mini-red { background: #FCEBEB; color: #A32D2D; }
+  .rs-mini-amber { background: #FAEEDA; color: #854F0B; }
+  .rs-mini-blue { background: #E6F1FB; color: #185FA5; }
+  .rs-mini-grey { background: #F1EFE8; color: #5F5E5A; }
+  .rs-avatar { width: 36px; height: 36px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: #E6F1FB; color: #185FA5; font-size: 13px; font-weight: 800; }
+  .rs-chart-box { position: relative; height: 180px; }
+  .rs-progress { height: 6px; border-radius: 3px; background: var(--color-background-secondary, #f1f5f9); overflow: hidden; }
+  .rs-progress > span { display: block; height: 100%; border-radius: 3px; }
+  .rs-zero-row { border-left: 2px solid #E24B4A; }
+  .rs-muted-row td { color: var(--color-text-secondary, #888780); }
+  #rs-up-donut-legend { color: #334155; }
+  .dark #rs-up-donut-legend { color: #cbd5e1; }
+  .dark #rs-up-donut-legend .text-slate-500,
+  .dark #rs-up-session-body .text-slate-500 { color: #94a3b8; }
+  .rs-suggest { position: absolute; z-index: 60; inset: calc(100% + 4px) 0 auto 0; max-height: 280px; overflow-y: auto; background: var(--color-background-primary, #fff); border: 1px solid var(--color-border-tertiary, #e2e8f0); border-radius: 10px; }
+  .rs-suggest button { display: block; width: 100%; border: 0; background: transparent; padding: 10px 12px; text-align: left; color: var(--color-text-primary, #0f172a); }
+  .rs-suggest button:hover { background: var(--color-background-secondary, #f8fafc); }
+  .dark .rs-suggest { background: #1e293b; border-color: #334155; }
+  .dark .rs-suggest button { color: #f8fafc; }
+  .dark .rs-suggest button:hover { background: #334155; }
+  .rs-portal-accent { color: #0f766e; }
+  @media (max-width: 1180px) { .rs-metrics, .rs-payment-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rs-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 760px) { .rs-metrics, .rs-payment-metrics, .rs-result-grid { grid-template-columns: 1fr; } }
+</style>
+
+<div class="space-y-6">
+  {{ page_header("Revenue & Service Report", "Downtime, service extensions, and credit exposure from live Splynx data.", color="emerald", color2="teal") }}
+
+  <section class="rs-panel p-5">
+    <form id="rs-month-form" class="flex flex-wrap items-end justify-between gap-4">
+      <div class="flex flex-wrap items-end gap-3">
+        <div>
+          <label for="rs-month-filter" class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Report month</label>
+          <select id="rs-month-filter" class="rs-input min-w-[220px]">
+            <option value="">Loading months...</option>
+          </select>
+        </div>
+        <button id="rs-month-apply" class="rs-btn" type="button">Apply</button>
+      </div>
+      <div class="text-sm font-semibold text-slate-500 dark:text-slate-400">
+        Showing <span id="rs-selected-month-label">current month</span>
+      </div>
+    </form>
+  </section>
+
+  <nav class="rs-tabs" aria-label="Revenue and service report tabs">
+    <button type="button" class="rs-tab active" data-rs-tab="downtime">Downtime & Compensation</button>
+    <button type="button" class="rs-tab" data-rs-tab="payment">Payment Classification</button>
+    <button type="button" class="rs-tab" data-rs-tab="uptime-portal">Customer Uptime & Session Analytics</button>
+  </nav>
+
+  <section id="rs-tab-downtime" class="rs-tab-panel space-y-6">
+  <section class="rs-panel p-5">
+    <form id="rs-search-form" class="grid gap-3 md:grid-cols-[minmax(220px,320px)_1fr_auto] md:items-end">
+      <div>
+        <label for="rs-customer-search" class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Look up customer compensation</label>
+        <input id="rs-customer-search" class="rs-input w-full" type="search" placeholder="Name, login, email, phone, or customer ID" autocomplete="off">
+      </div>
+      <div></div>
+      <button class="rs-btn" type="submit">Search</button>
+    </form>
+    <div id="rs-search-result" class="mt-4 hidden rounded-xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-700 dark:bg-slate-900/30"></div>
+  </section>
+
+  {% if report_error %}
+  <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200">{{ report_error }}</div>
+  {% endif %}
+
+  <section class="rs-metrics">
+    <article class="rs-metric"><div class="rs-metric-label">Total downtime hours</div><div id="rs-metric-hours" class="rs-metric-value">{{ "{:,.0f}".format(summary.total_downtime_hours or 0) }}</div></article>
+    <article class="rs-metric"><div class="rs-metric-label">Number of incidents</div><div id="rs-metric-incidents" class="rs-metric-value">{{ "{:,.0f}".format(summary.incident_count or 0) }}</div></article>
+    <article class="rs-metric"><div class="rs-metric-label">Affected customers count</div><div id="rs-metric-customers" class="rs-metric-value">{{ "{:,.0f}".format(summary.affected_customers_count or 0) }}</div></article>
+    <article class="rs-metric"><div class="rs-metric-label">Total credit exposure</div><div id="rs-metric-credit" class="rs-metric-value">₦{{ "{:,.0f}".format(summary.total_credit_exposure or 0) }}</div></article>
+    <article class="rs-metric"><div class="rs-metric-label">Average uptime %</div><div id="rs-metric-uptime" class="rs-metric-value">{{ "{:.2f}".format(summary.average_uptime_percent or 100) }}%</div></article>
+  </section>
+
+  <section class="rs-grid">
+    <div class="rs-panel">
+      <div class="border-b border-slate-200/70 px-5 py-4 dark:border-slate-700/70"><h2 class="text-base font-semibold text-slate-900 dark:text-white">Full Downtime Log</h2></div>
+      <div class="rs-table-wrap">
+        <table class="rs-table">
+          <thead>
+            <tr>
+              <th>Customer name</th>
+              <th>Date</th>
+              <th>Hours down</th>
+              <th>Monthly fee</th>
+              <th>Credit note amount</th>
+              <th>Uptime %</th>
+            </tr>
+          </thead>
+          <tbody id="rs-downtime-body">
+            {% for row in downtime_log %}
+            {% set uptime = row.uptime_percent or 0 %}
+            {% set uptime_color = 'green' if uptime >= 90 else ('yellow' if uptime >= 80 else ('orange' if uptime >= 70 else 'red')) %}
+            <tr>
+              <td>{{ row.customer_name }}</td>
+              <td>{{ row.date }}</td>
+              <td>{{ "{:,.0f}".format(row.hours_down or 0) }}</td>
+              <td>₦{{ "{:,.0f}".format(row.monthly_fee or 0) }}</td>
+              <td class="rs-negative">-₦{{ "{:,.0f}".format(row.credit_note_amount or 0) }}</td>
+              <td><span class="rs-uptime-text {{ uptime_color }}">{{ "{:.2f}".format(uptime) }}%</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">No downtime records found.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </section>
+  </section>
+
+  <section id="rs-tab-payment" class="rs-tab-panel hidden space-y-6">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-base font-semibold text-slate-900 dark:text-white">Payment Classification</h2>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Classifies customers with payments in the selected month.</p>
+      </div>
+      <div class="rs-toggle" role="group" aria-label="Revenue display mode">
+        <button type="button" class="rs-toggle-btn active" data-rs-revenue-mode="cash">Cash received</button>
+        <button type="button" class="rs-toggle-btn" data-rs-revenue-mode="recognised">Recognised revenue</button>
+      </div>
+    </div>
+
+    <section class="rs-payment-metrics">
+      <article class="rs-metric"><div id="rs-pay-revenue-label" class="rs-metric-label">Total cash received</div><div id="rs-pay-revenue" class="rs-metric-value">₦0</div></article>
+      <article class="rs-metric"><div class="rs-metric-label">Total classified customers</div><div id="rs-pay-total" class="rs-metric-value">0</div></article>
+      <article class="rs-metric"><div class="rs-metric-label">Advance payers</div><div id="rs-pay-advance" class="rs-metric-value">0</div></article>
+      <article class="rs-metric"><div class="rs-metric-label">Monthly recurring payers</div><div id="rs-pay-recurring" class="rs-metric-value">0</div></article>
+      <article class="rs-metric"><div class="rs-metric-label">Estimated prepaid months</div><div id="rs-pay-months" class="rs-metric-value">0.00</div></article>
+    </section>
+
+    <section class="rs-panel p-5">
+      <form id="rs-payment-filter-form" class="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_260px_auto] lg:items-end">
+        <div>
+          <label for="rs-payment-search" class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search payment classification</label>
+          <input id="rs-payment-search" class="rs-input w-full" type="search" placeholder="Name, login, email, phone, or customer ID" autocomplete="off">
+        </div>
+        <div>
+          <label for="rs-payment-classification" class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Classification</label>
+          <select id="rs-payment-classification" class="rs-input w-full">
+            <option value="all">All</option>
+            <option value="Advance payer">Advance payer</option>
+            <option value="Monthly recurring payer">Monthly recurring payer</option>
+            <option value="Other payer">Other payer</option>
+          </select>
+        </div>
+        <button class="rs-btn" type="submit">Apply</button>
+      </form>
+    </section>
+
+    <section class="rs-panel">
+      <div class="border-b border-slate-200/70 px-5 py-4 dark:border-slate-700/70"><h2 class="text-base font-semibold text-slate-900 dark:text-white">Payment Classification</h2></div>
+      <div class="rs-table-wrap">
+        <table class="rs-table" style="min-width: 1180px;">
+          <thead>
+            <tr>
+              <th>Customer name</th>
+              <th>Login</th>
+              <th>Active plan</th>
+              <th>Monthly service price</th>
+              <th id="rs-payment-revenue-heading">Cash received</th>
+              <th>Latest payment date</th>
+              <th>Latest payment amount</th>
+              <th>Estimated months covered</th>
+              <th>Classification</th>
+            </tr>
+          </thead>
+          <tbody id="rs-payment-body">
+            <tr><td colspan="9">Open this tab to load payment classification.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <section id="rs-tab-uptime-portal" class="rs-tab-panel hidden space-y-4">
+    <section class="rs-portal-card">
+      <div class="grid gap-3 lg:grid-cols-[minmax(240px,1fr)_220px_auto] lg:items-end">
+        <div class="relative">
+          <label for="rs-up-search" class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Find customer</label>
+          <div class="flex gap-2">
+            <input id="rs-up-search" class="rs-input min-w-0 flex-1" type="search" placeholder="Name, login, email, phone, or customer ID" autocomplete="off">
+            <button id="rs-up-enter" class="rs-btn shrink-0" type="button">Enter</button>
+          </div>
+          <div id="rs-up-suggest" class="rs-suggest hidden"></div>
+        </div>
+        <div>
+          <label for="rs-up-month" class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Month</label>
+          <select id="rs-up-month" class="rs-input w-full"></select>
+        </div>
+        <button id="rs-up-month-apply" class="rs-btn" type="button">Apply</button>
+      </div>
+    </section>
+
+    <div id="rs-up-empty" class="rs-portal-card text-sm text-slate-500 dark:text-slate-400">Search and select a customer to load uptime and session analytics.</div>
+    <div id="rs-up-content" class="hidden">
+      <section class="rs-portal-card flex flex-wrap items-center gap-3">
+        <div id="rs-up-avatar" class="rs-avatar">--</div>
+        <div class="min-w-[180px]">
+          <div id="rs-up-name" class="text-sm font-medium text-slate-900 dark:text-white"></div>
+          <div id="rs-up-meta" class="text-[11px] text-slate-500 dark:text-slate-400"></div>
+          <div id="rs-up-plan" class="text-[11px] text-slate-500 dark:text-slate-400"></div>
+        </div>
+        <span id="rs-up-status" class="rs-mini-badge rs-mini-grey">status</span>
+        <span class="rs-mini-badge rs-mini-grey">Source: splynx_customer_statistics</span>
+        <span class="rs-mini-badge rs-mini-blue">Confidence: imported</span>
+      </section>
+
+      <section class="rs-portal-grid">
+        <article class="rs-portal-metric"><div class="rs-portal-label">Monthly service value</div><div id="rs-up-card-monthly-value" class="rs-portal-value">₦0</div><div class="rs-portal-sub">Active service unit price</div></article>
+        <article class="rs-portal-metric"><div class="rs-portal-label">Uptime %</div><div id="rs-up-card-uptime" class="rs-portal-value">0.00%</div><div class="rs-portal-sub">SLA target: 99.5%</div></article>
+        <article class="rs-portal-metric"><div class="rs-portal-label">Online hours</div><div id="rs-up-card-online" class="rs-portal-value">0.0h</div><div id="rs-up-card-total" class="rs-portal-sub">of 0.0h this month</div></article>
+        <article class="rs-portal-metric"><div class="rs-portal-label">Offline hours</div><div id="rs-up-card-offline" class="rs-portal-value rs-negative">0.0h</div><div id="rs-up-card-downtime-pct" class="rs-portal-sub">0.00%</div></article>
+        <article class="rs-portal-metric"><div class="rs-portal-label">Service received value</div><div id="rs-up-card-received" class="rs-portal-value">₦0</div><div id="rs-up-card-price" class="rs-portal-sub">Based on ₦0/month</div></article>
+        <article class="rs-portal-metric"><div class="rs-portal-label">Downtime value</div><div id="rs-up-card-downtime" class="rs-portal-value rs-negative">₦0</div><div class="rs-portal-sub">Estimated credit note</div></article>
+        <article class="rs-portal-metric"><div class="rs-portal-label">Session count</div><div id="rs-up-card-sessions" class="rs-portal-value">0</div><div id="rs-up-card-range" class="rs-portal-sub">First: - / Last: -</div></article>
+      </section>
+
+      <section class="grid gap-4 xl:grid-cols-2">
+        <div class="rs-portal-card"><div id="rs-up-gauge" class="mb-3 text-center text-4xl font-medium">0.00%</div><div class="rs-chart-box"><canvas id="rs-up-trend-chart" role="img" aria-label="Last six months uptime trend"></canvas></div><div id="rs-up-trend-legend" class="mt-3 text-xs text-slate-500 dark:text-slate-400"></div></div>
+        <div class="rs-portal-card"><div class="rs-chart-box"><canvas id="rs-up-donut-chart" role="img" aria-label="Service value breakdown"></canvas></div><div id="rs-up-donut-legend" class="mt-3 grid gap-2 text-xs"></div></div>
+      </section>
+
+      <section class="rs-portal-card">
+        <div class="mb-3 text-sm font-semibold text-slate-900 dark:text-white">Daily breakdown</div>
+        <div class="rs-table-wrap p-0"><table class="rs-table" style="min-width: 980px;"><thead><tr><th>Date</th><th>Online hours</th><th>Offline hours</th><th>Uptime %</th><th>Sessions</th><th>First session</th><th>Last session</th><th>Status</th></tr></thead><tbody id="rs-up-daily-body"></tbody><tfoot id="rs-up-daily-foot"></tfoot></table></div>
+      </section>
+
+      <details class="rs-portal-card"><summary class="cursor-pointer text-sm font-semibold text-slate-900 dark:text-white">Raw session records</summary><div class="rs-table-wrap mt-3 p-0"><table class="rs-table" style="min-width: 1060px;"><thead><tr><th>Session ID</th><th>Start date & time</th><th>End date & time</th><th>Duration</th><th>In bytes</th><th>Out bytes</th><th>NAS ID</th><th>Terminate cause</th></tr></thead><tbody id="rs-up-session-body"></tbody></table></div></details>
+
+      <div id="rs-up-comp-text" class="rs-portal-card text-sm text-slate-500 dark:text-slate-400"></div>
+    </div>
+  </section>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+  const rsMoney = new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 });
+  const rsFormatNaira = (value) => rsMoney.format(Number(value || 0)).replace("NGN", "₦");
+  const rsFormatNegativeNaira = (value) => `-${rsFormatNaira(Math.abs(Number(value || 0)))}`;
+  const rsEscape = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+  const rsUptimeClass = (value) => value >= 90 ? "green" : value >= 80 ? "yellow" : value >= 70 ? "orange" : "red";
+  const rsStatusClass = (status) => status === "resolved" ? "rs-green" : status === "investigating" ? "rs-amber" : status === "critical" ? "rs-red" : "rs-grey";
+  let rsRevenueMode = "cash";
+  let rsPaymentPayload = null;
+  let rsPaymentLoaded = false;
+  let rsActiveTab = "downtime";
+  let rsUpCustomerId = null;
+  let rsUpProfile = null;
+  let rsUpTrendChart = null;
+  let rsUpDonutChart = null;
+  const rsNow = new Date();
+  let rsSelectedMonth = `${rsNow.getFullYear()}-${String(rsNow.getMonth() + 1).padStart(2, "0")}`;
+
+  async function rsGetJson(url) {
+    const response = await fetch(url);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Request failed");
+    return payload;
+  }
+
+  const rsSelectedMonthParts = () => {
+    const [year, month] = rsSelectedMonth.split("-").map((value) => Number(value));
+    return { year, month };
+  };
+
+  const rsMonthParams = (extra = {}) => {
+    const { year, month } = rsSelectedMonthParts();
+    return new URLSearchParams({ year, month, ...extra });
+  };
+
+  const rsMetricColor = (value) => value >= 99.5 ? "#0f766e" : value >= 99 ? "#BA7517" : "#E24B4A";
+  const rsPortalStatusClass = (value) => {
+    const status = String(value || "").toLowerCase();
+    if (status === "active") return "rs-mini-green";
+    if (["blocked", "suspended"].includes(status)) return "rs-mini-red";
+    if (["disabled", "inactive"].includes(status)) return "rs-mini-grey";
+    return "rs-mini-grey";
+  };
+  const rsInitials = (name) => String(name || "Customer").split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+
+  function rsInitUptimeMonths() {
+    const select = document.getElementById("rs-up-month");
+    if (!select || select.options.length) return;
+    const now = new Date();
+    const months = [];
+    for (let i = 12; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      months.push(`<option value="${value}">${date.toLocaleString(undefined, { month: "long", year: "numeric" })}</option>`);
+    }
+    select.innerHTML = months.join("");
+    select.value = rsSelectedMonth || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  async function rsSearchUptimeCustomers(query) {
+    const box = document.getElementById("rs-up-suggest");
+    if (!query || query.length < 2) {
+      box.classList.add("hidden");
+      box.innerHTML = "";
+      return;
+    }
+    box.innerHTML = '<button type="button" disabled>Searching customers...</button>';
+    box.classList.remove("hidden");
+    const payload = await rsGetJson(`/admin/reports/revenue-service/api/uptime/search?q=${encodeURIComponent(query)}`);
+    const rows = payload.rows || [];
+    if (!rows.length) {
+      box.innerHTML = '<button type="button" disabled>No customers found</button>';
+      box.classList.remove("hidden");
+      return;
+    }
+    box.innerHTML = rows.map((row) => `<button type="button" data-rs-up-customer="${rsEscape(row.customer_id)}"><strong>${rsEscape(row.customer_name)}</strong><br><span class="text-xs text-slate-500">${rsEscape(row.login)} · ${rsEscape(row.customer_id)}</span></button>`).join("");
+    box.classList.remove("hidden");
+  }
+
+  async function rsLoadFirstUptimeCustomer(query) {
+    if (/^\d+$/.test(query)) {
+      rsUpCustomerId = query;
+      document.getElementById("rs-up-suggest").classList.add("hidden");
+      await rsLoadUptimePortal(rsUpCustomerId);
+      return;
+    }
+    const payload = await rsGetJson(`/admin/reports/revenue-service/api/uptime/search?q=${encodeURIComponent(query)}`);
+    const first = (payload.rows || [])[0];
+    if (!first) throw new Error("Customer not found");
+    rsUpCustomerId = first.customer_id;
+    document.getElementById("rs-up-search").value = first.customer_name || first.login || first.customer_id;
+    document.getElementById("rs-up-suggest").classList.add("hidden");
+    await rsLoadUptimePortal(rsUpCustomerId);
+  }
+
+  function rsDrawTrend(rows) {
+    const canvas = document.getElementById("rs-up-trend-chart");
+    if (!window.Chart || !canvas) return;
+    if (rsUpTrendChart) rsUpTrendChart.destroy();
+    const values = rows.map((row) => Number(row.uptime_percent || 0));
+    const color = rsMetricColor(values[values.length - 1] || 0);
+    rsUpTrendChart = new Chart(canvas, {
+      type: "line",
+      data: { labels: rows.map((row) => row.label), datasets: [{ data: values, borderColor: color, backgroundColor: color, tension: .3, pointRadius: 3, borderWidth: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100, ticks: { callback: (value) => `${value}%` }, grid: { color: "rgba(148,163,184,.18)" } }, x: { grid: { display: false } } } }
+    });
+    document.getElementById("rs-up-trend-legend").textContent = "Last 6 months uptime percentage";
+  }
+
+  function rsDrawDonut(profile) {
+    const canvas = document.getElementById("rs-up-donut-chart");
+    if (!window.Chart || !canvas) return;
+    if (rsUpDonutChart) rsUpDonutChart.destroy();
+    const received = Number(profile.service_received_value || 0);
+    const downtime = Number(profile.downtime_value || 0);
+    rsUpDonutChart = new Chart(canvas, {
+      type: "doughnut",
+      data: { labels: ["Service received", "Downtime value"], datasets: [{ data: [received, downtime], backgroundColor: ["#0f766e", "#E24B4A"], borderWidth: 0 }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: "68%", plugins: { legend: { display: false }, tooltip: { callbacks: { label: (item) => `${item.label}: ${rsFormatNaira(item.raw)}` } } } }
+    });
+    const total = Math.max(received + downtime, 1);
+    document.getElementById("rs-up-donut-legend").innerHTML = `
+      <div><span class="rs-mini-badge rs-mini-green">Service received</span> ${rsFormatNaira(received)} (${(received / total * 100).toFixed(2)}%)</div>
+      <div><span class="rs-mini-badge rs-mini-red">Downtime value</span> ${rsFormatNaira(downtime)} (${(downtime / total * 100).toFixed(2)}%)</div>
+      <div class="text-slate-500">Monthly value: ${rsFormatNaira(profile.monthly_service_value)}</div>`;
+  }
+
+  function rsDrawUptimePortal(profile, sessionsPayload) {
+    rsUpProfile = profile;
+    document.getElementById("rs-up-empty").classList.add("hidden");
+    document.getElementById("rs-up-content").classList.remove("hidden");
+    document.getElementById("rs-up-avatar").textContent = rsInitials(profile.customer_name);
+    document.getElementById("rs-up-name").textContent = profile.customer_name || "";
+    document.getElementById("rs-up-meta").textContent = `${profile.login || ""} · Customer ID ${profile.customer_id || ""}`;
+    document.getElementById("rs-up-plan").textContent = `${profile.service_name || "Active internet service"} · Service ${profile.service_id || ""}`;
+    const status = document.getElementById("rs-up-status");
+    status.className = `rs-mini-badge ${rsPortalStatusClass(profile.customer_status)}`;
+    status.textContent = profile.customer_status || "status";
+    const uptime = Number(profile.uptime_percent || 0);
+    const color = rsMetricColor(uptime);
+    document.getElementById("rs-up-card-uptime").style.color = color;
+    document.getElementById("rs-up-card-uptime").textContent = `${uptime.toFixed(2)}%`;
+    document.getElementById("rs-up-card-monthly-value").textContent = rsFormatNaira(profile.monthly_service_value);
+    document.getElementById("rs-up-card-online").textContent = `${Number(profile.online_hours || 0).toFixed(1)}h`;
+    document.getElementById("rs-up-card-total").textContent = `of ${Number(profile.total_service_hours || 0).toFixed(1)}h this month`;
+    document.getElementById("rs-up-card-offline").textContent = `${Number(profile.offline_hours || 0).toFixed(1)}h`;
+    document.getElementById("rs-up-card-downtime-pct").textContent = `${Number(profile.downtime_percent || 0).toFixed(2)}%`;
+    document.getElementById("rs-up-card-received").textContent = rsFormatNaira(profile.service_received_value);
+    document.getElementById("rs-up-card-price").textContent = `Based on ${rsFormatNaira(profile.monthly_service_value)}/month`;
+    document.getElementById("rs-up-card-downtime").textContent = rsFormatNaira(profile.downtime_value);
+    document.getElementById("rs-up-card-sessions").textContent = Number(profile.session_count || 0).toLocaleString();
+    document.getElementById("rs-up-card-range").textContent = `First: ${profile.first_session_start || "-"} / Last: ${profile.last_session_end || "-"}`;
+    document.getElementById("rs-up-gauge").style.color = color;
+    document.getElementById("rs-up-gauge").textContent = `${uptime.toFixed(2)}%`;
+
+    const daily = profile.daily_breakdown || [];
+    document.getElementById("rs-up-daily-body").innerHTML = daily.map((row) => {
+      const rowColor = rsMetricColor(Number(row.uptime_percent || 0));
+      const statusClass = row.status === "Fully online" ? "rs-mini-green" : row.status === "Partial" ? "rs-mini-amber" : row.has_session_data ? "rs-mini-red" : "rs-mini-grey";
+      return `<tr class="${Number(row.online_hours || 0) === 0 ? "rs-zero-row" : ""} ${!row.has_session_data ? "rs-muted-row" : ""}">
+        <td>${rsEscape(row.date)}</td><td>${Number(row.online_hours || 0).toFixed(1)}</td><td>${Number(row.offline_hours || 0).toFixed(1)}</td>
+        <td><div>${Number(row.uptime_percent || 0).toFixed(2)}%</div><div class="rs-progress"><span style="width:${Math.min(Number(row.uptime_percent || 0), 100)}%;background:${rowColor};"></span></div></td>
+        <td>${Number(row.session_count || 0)}</td><td>${rsEscape(row.first_session_start || "-")}</td><td>${rsEscape(row.last_session_end || "-")}</td><td><span class="rs-mini-badge ${statusClass}">${row.has_session_data ? rsEscape(row.status) : "No data"}</span></td></tr>`;
+    }).join("");
+    document.getElementById("rs-up-daily-foot").innerHTML = `<tr><th>Total</th><th>${Number(profile.online_hours || 0).toFixed(1)}</th><th>${Number(profile.offline_hours || 0).toFixed(1)}</th><th>${uptime.toFixed(2)}%</th><th>${Number(profile.session_count || 0)}</th><th></th><th></th><th></th></tr>`;
+    const sessions = sessionsPayload.rows || [];
+    document.getElementById("rs-up-session-body").innerHTML = sessionsPayload.error
+      ? `<tr><td colspan="8" class="rs-negative">${rsEscape(sessionsPayload.error)}</td></tr>`
+      : sessions.map((row) => `<tr><td>${rsEscape(row.session_id)}</td><td>${rsEscape(row.start_at)}</td><td>${rsEscape(row.end_at)}${row.crosses_month_boundary ? '<div class="text-xs text-slate-500">Clipped to month boundary</div>' : ""}</td><td>${rsEscape(row.duration)}</td><td>${rsEscape(row.in_bytes)}</td><td>${rsEscape(row.out_bytes)}</td><td>${rsEscape(row.nas_id)}</td><td><span class="rs-mini-badge ${[2, "2", 0, "0"].includes(row.terminate_cause) ? "rs-mini-grey" : "rs-mini-amber"}">${rsEscape(row.terminate_cause ?? "")}</span></td></tr>`).join("") || '<tr><td colspan="8">No session records found.</td></tr>';
+    document.getElementById("rs-up-comp-text").textContent = `${profile.selected_month} · Uptime ${uptime.toFixed(2)}% · Downtime ${Number(profile.downtime_percent || 0).toFixed(2)}% · Source: ${profile.source} · Confidence: ${profile.confidence}`;
+    rsDrawDonut(profile);
+  }
+
+  async function rsLoadUptimePortal(customerId = rsUpCustomerId) {
+    if (!customerId) return;
+    rsUpCustomerId = customerId;
+    const month = document.getElementById("rs-up-month").value;
+    document.getElementById("rs-up-empty").classList.remove("hidden");
+    document.getElementById("rs-up-empty").textContent = "Loading customer uptime from Splynx customer-statistics...";
+    document.getElementById("rs-up-content").classList.add("hidden");
+    const profile = await rsGetJson(`/admin/reports/revenue-service/api/uptime/${encodeURIComponent(customerId)}?month=${encodeURIComponent(month)}`);
+    let sessions = { rows: [] };
+    try {
+      sessions = await rsGetJson(`/admin/reports/revenue-service/api/uptime/${encodeURIComponent(customerId)}/sessions?month=${encodeURIComponent(month)}`);
+    } catch (error) {
+      sessions = { rows: [], error: error.message };
+    }
+    rsDrawUptimePortal(profile, sessions);
+    try {
+      const trend = await rsGetJson(`/admin/reports/revenue-service/api/uptime/${encodeURIComponent(customerId)}/trend`);
+      rsDrawTrend(trend.rows || []);
+    } catch (error) {
+      document.getElementById("rs-up-trend-legend").textContent = `Trend unavailable: ${error.message}`;
+    }
+  }
+
+  function rsDrawLog(rows) {
+    const body = document.getElementById("rs-downtime-body");
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="6">No downtime records found.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((row) => {
+      const uptime = Number(row.uptime_percent || 0);
+      const bar = rsUptimeClass(uptime);
+      return `
+        <tr>
+          <td>${rsEscape(row.customer_name || "")}</td>
+          <td>${rsEscape(row.date || "")}</td>
+          <td>${Number(row.hours_down || 0).toLocaleString()}</td>
+          <td>${rsFormatNaira(row.monthly_fee)}</td>
+          <td class="rs-negative">${rsFormatNegativeNaira(row.credit_note_amount)}</td>
+          <td><span class="rs-uptime-text ${bar}">${uptime.toFixed(2)}%</span></td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  const rsClassificationClass = (value) => {
+    if (value === "Advance payer") return "rs-green";
+    if (value === "Monthly recurring payer") return "rs-amber";
+    return "rs-grey";
+  };
+
+  function rsDrawPaymentClassification(payload) {
+    rsPaymentPayload = payload;
+    const summary = payload.summary || {};
+    const revenueValue = rsRevenueMode === "recognised" ? summary.total_recognised_revenue : summary.total_cash_received;
+    const revenueLabel = rsRevenueMode === "recognised" ? "Total recognised revenue" : "Total cash received";
+    const revenueHeading = rsRevenueMode === "recognised" ? "Recognised revenue" : "Cash received";
+    document.getElementById("rs-pay-revenue-label").textContent = revenueLabel;
+    document.getElementById("rs-pay-revenue").textContent = rsFormatNaira(revenueValue || 0);
+    document.getElementById("rs-payment-revenue-heading").textContent = revenueHeading;
+    document.getElementById("rs-pay-total").textContent = Number(summary.total_classified_customers || 0).toLocaleString();
+    document.getElementById("rs-pay-advance").textContent = Number(summary.advance_payers || 0).toLocaleString();
+    document.getElementById("rs-pay-recurring").textContent = Number(summary.monthly_recurring_payers || 0).toLocaleString();
+    document.getElementById("rs-pay-months").textContent = Number(summary.estimated_prepaid_months_total || 0).toFixed(2);
+
+    const body = document.getElementById("rs-payment-body");
+    const rows = payload.rows || [];
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="9">No payment classification records found.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((row) => `
+      <tr>
+        <td>${rsEscape(row.customer_name || "")}</td>
+        <td>${rsEscape(row.login || "")}</td>
+        <td>${rsEscape(row.active_plan || "")}</td>
+        <td>${rsFormatNaira(row.monthly_service_price)}</td>
+        <td>${rsFormatNaira(rsRevenueMode === "recognised" ? row.recognised_revenue : row.cash_received)}</td>
+        <td>${rsEscape(row.latest_payment_date || "")}</td>
+        <td>${rsFormatNaira(row.latest_payment_amount)}</td>
+        <td>${Number(row.estimated_months_covered || 0).toFixed(2)}</td>
+        <td><span class="rs-badge ${rsClassificationClass(row.classification)}">${rsEscape(row.classification || "")}</span></td>
+      </tr>
+    `).join("");
+  }
+
+  async function rsLoadPaymentClassification() {
+    const body = document.getElementById("rs-payment-body");
+    const search = document.getElementById("rs-payment-search").value.trim();
+    const classification = document.getElementById("rs-payment-classification").value;
+    body.innerHTML = '<tr><td colspan="9">Loading payment classification from Splynx...</td></tr>';
+    const params = rsMonthParams({ search, classification });
+    rsDrawPaymentClassification(await rsGetJson(`/admin/reports/revenue-service/api/payment-classification?${params.toString()}`));
+    rsPaymentLoaded = true;
+  }
+
+  function rsRenderSearchResult(data) {
+    const result = document.getElementById("rs-search-result");
+    result.classList.remove("hidden");
+    if (!data.found) {
+      result.innerHTML = `<div class="rs-amber-text">${rsEscape(data.message || "Customer not found")}</div>`;
+      return;
+    }
+    if (!data.has_extension) {
+      result.innerHTML = `<strong>${rsEscape(data.customer_name || "")}</strong> <span class="rs-badge ${rsStatusClass(data.customer_status)}">${rsEscape(data.customer_status || "")}</span><div class="rs-result-grid"><div class="rs-field"><span class="rs-field-label">Login</span><span class="rs-field-value">${rsEscape(data.login || "")}</span></div><div class="rs-field"><span class="rs-field-label">Result</span><span class="rs-field-value rs-amber-text">No extension compensation found</span></div><div class="rs-field"><span class="rs-field-label">Last online</span><span class="rs-field-value">${rsEscape(data.last_online || "N/A")}</span></div><div class="rs-field"><span class="rs-field-label">Billing blocking date</span><span class="rs-field-value">${rsEscape(data.billing_blocking_date || "N/A")}</span></div></div>`;
+      return;
+    }
+    result.innerHTML = `
+      <strong>${rsEscape(data.customer_name || "")}</strong> <span class="rs-badge ${rsStatusClass(data.customer_status)}">${rsEscape(data.customer_status || "")}</span>
+      <div class="rs-result-grid">
+        <div class="rs-field"><span class="rs-field-label">Login</span><span class="rs-field-value">${rsEscape(data.login || "")}</span></div>
+        <div class="rs-field"><span class="rs-field-label">Active service</span><span class="rs-field-value">${rsEscape(data.active_service_name || "")}</span></div>
+        <div class="rs-field"><span class="rs-field-label">Service ID</span><span class="rs-field-value">${rsEscape(data.service_id_used || "")}</span></div>
+        <div class="rs-field"><span class="rs-field-label">Monthly fee</span><span class="rs-field-value">${rsFormatNaira(data.service_unit_price_used)}</span></div>
+        <div class="rs-field"><span class="rs-field-label">Latest extension transaction</span><span class="rs-field-value">${rsEscape(data.latest_extension_transaction_id || "")}</span></div>
+        <div class="rs-field"><span class="rs-field-label">Extension date</span><span class="rs-field-value">${rsEscape(data.latest_extension_date || "")}</span></div>
+        <div class="rs-field"><span class="rs-field-label">Period from</span><span class="rs-field-value">${rsEscape(data.period_from || "")}</span></div>
+        <div class="rs-field"><span class="rs-field-label">Period to</span><span class="rs-field-value">${rsEscape(data.period_to || "")}</span></div>
+        <div class="rs-field"><span class="rs-field-label">Extension days</span><span class="rs-field-value">${Number(data.extension_days || 0).toLocaleString()}</span></div>
+        <div class="rs-field"><span class="rs-field-label">Estimated compensation</span><span class="rs-field-value rs-negative">${rsFormatNegativeNaira(data.estimated_compensation_value)}</span></div>
+        <div class="rs-field"><span class="rs-field-label">Last online</span><span class="rs-field-value">${rsEscape(data.last_online || "N/A")}</span></div>
+        <div class="rs-field"><span class="rs-field-label">Billing blocking date</span><span class="rs-field-value">${rsEscape(data.billing_blocking_date || "N/A")}</span></div>
+      </div>`;
+  }
+
+  async function rsBoot() {
+    try {
+      const params = rsMonthParams().toString();
+      document.getElementById("rs-downtime-body").innerHTML = '<tr><td colspan="6">Loading downtime records...</td></tr>';
+      const [summary, log] = await Promise.all([
+        rsGetJson(`/admin/reports/revenue-service/api/summary?${params}`),
+        rsGetJson(`/admin/reports/revenue-service/api/log?${params}`)
+      ]);
+      document.getElementById("rs-metric-hours").textContent = Number(summary.total_downtime_hours || 0).toLocaleString();
+      document.getElementById("rs-metric-incidents").textContent = Number(summary.incident_count || 0).toLocaleString();
+      document.getElementById("rs-metric-customers").textContent = Number(summary.affected_customers_count || 0).toLocaleString();
+      document.getElementById("rs-metric-credit").textContent = rsFormatNaira(summary.total_credit_exposure || 0);
+      document.getElementById("rs-metric-uptime").textContent = `${Number(summary.average_uptime_percent || 0).toFixed(2)}%`;
+      rsDrawLog(log);
+    } catch (error) {
+      document.getElementById("rs-downtime-body").innerHTML = `<tr><td colspan="6" class="rs-negative">${rsEscape(error.message)}</td></tr>`;
+    }
+  }
+
+  async function rsLoadMonthOptions() {
+    const select = document.getElementById("rs-month-filter");
+    const label = document.getElementById("rs-selected-month-label");
+    try {
+      const payload = await rsGetJson("/admin/reports/revenue-service/api/months");
+      const months = payload.months || [];
+      rsSelectedMonth = (payload.current && payload.current.value) || rsSelectedMonth;
+      select.innerHTML = months.map((item) => `<option value="${rsEscape(item.value)}">${rsEscape(item.label)}</option>`).join("");
+      if (!select.innerHTML) {
+        const fallbackLabel = (payload.current && payload.current.label) || rsSelectedMonth;
+        select.innerHTML = `<option value="${rsEscape(rsSelectedMonth)}">${rsEscape(fallbackLabel)}</option>`;
+      }
+      select.value = rsSelectedMonth;
+      label.textContent = select.options[select.selectedIndex]?.textContent || rsSelectedMonth;
+    } catch (error) {
+      select.innerHTML = `<option value="${rsEscape(rsSelectedMonth)}">${rsEscape(rsSelectedMonth)}</option>`;
+      select.value = rsSelectedMonth;
+      label.textContent = rsSelectedMonth;
+    }
+  }
+
+  async function rsReloadActiveTab() {
+    if (rsActiveTab === "downtime") {
+      await rsBoot();
+      return;
+    }
+    if (rsActiveTab === "payment") {
+      await rsLoadPaymentClassification();
+      return;
+    }
+    if (rsActiveTab === "uptime-portal") {
+      rsInitUptimeMonths();
+      document.getElementById("rs-up-month").value = rsSelectedMonth;
+      if (rsUpCustomerId) await rsLoadUptimePortal(rsUpCustomerId);
+      return;
+    }
+  }
+
+  async function rsApplyMonthFilter() {
+    const select = document.getElementById("rs-month-filter");
+    const button = document.getElementById("rs-month-apply");
+    rsSelectedMonth = select.value || rsSelectedMonth;
+    document.getElementById("rs-selected-month-label").textContent = `Applying ${select.options[select.selectedIndex]?.textContent || rsSelectedMonth}...`;
+    rsPaymentLoaded = false;
+    button.disabled = true;
+    button.textContent = "Applying...";
+    try {
+      await rsReloadActiveTab();
+      document.getElementById("rs-selected-month-label").textContent = select.options[select.selectedIndex]?.textContent || rsSelectedMonth;
+    } catch (error) {
+      if (rsActiveTab === "uptime-portal") {
+        document.getElementById("rs-up-empty").classList.remove("hidden");
+        document.getElementById("rs-up-empty").textContent = error.message;
+      } else {
+        const target = rsActiveTab === "payment" ? "rs-payment-body" : "rs-downtime-body";
+        const colspan = rsActiveTab === "payment" ? 9 : 6;
+        document.getElementById(target).innerHTML = `<tr><td colspan="${colspan}" class="rs-negative">${rsEscape(error.message)}</td></tr>`;
+      }
+    } finally {
+      button.disabled = false;
+      button.textContent = "Apply";
+    }
+  }
+
+  document.getElementById("rs-search-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const search = document.getElementById("rs-customer-search").value.trim();
+    const result = document.getElementById("rs-search-result");
+    if (!search) return;
+    result.classList.remove("hidden");
+    result.innerHTML = "Searching Splynx...";
+    try {
+      rsRenderSearchResult(await rsGetJson(`/admin/reports/revenue-service/api/compensation?search=${encodeURIComponent(search)}`));
+    } catch (error) {
+      result.innerHTML = `<div class="rs-negative">${rsEscape(error.message)}</div>`;
+    }
+  });
+
+  document.querySelectorAll("[data-rs-tab]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const tab = button.dataset.rsTab;
+      rsActiveTab = tab;
+      document.querySelectorAll("[data-rs-tab]").forEach((item) => item.classList.toggle("active", item === button));
+      document.querySelectorAll(".rs-tab-panel").forEach((panel) => panel.classList.add("hidden"));
+      document.getElementById(`rs-tab-${tab}`).classList.remove("hidden");
+      if (tab === "payment" && !rsPaymentLoaded) {
+        try {
+          await rsLoadPaymentClassification();
+        } catch (error) {
+          document.getElementById("rs-payment-body").innerHTML = `<tr><td colspan="9" class="rs-negative">${rsEscape(error.message)}</td></tr>`;
+        }
+      }
+      if (tab === "uptime-portal") {
+        rsInitUptimeMonths();
+      }
+    });
+  });
+
+  document.getElementById("rs-month-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await rsApplyMonthFilter();
+  });
+
+  document.getElementById("rs-month-apply").addEventListener("click", rsApplyMonthFilter);
+
+  document.querySelectorAll("[data-rs-revenue-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      rsRevenueMode = button.dataset.rsRevenueMode || "cash";
+      document.querySelectorAll("[data-rs-revenue-mode]").forEach((item) => {
+        item.classList.toggle("active", item === button);
+      });
+      if (rsPaymentPayload) {
+        rsDrawPaymentClassification(rsPaymentPayload);
+      }
+    });
+  });
+
+  document.getElementById("rs-payment-filter-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    try {
+      await rsLoadPaymentClassification();
+    } catch (error) {
+      document.getElementById("rs-payment-body").innerHTML = `<tr><td colspan="9" class="rs-negative">${rsEscape(error.message)}</td></tr>`;
+    }
+  });
+
+  let rsUpSearchTimer = null;
+  document.getElementById("rs-up-search").addEventListener("input", (event) => {
+    clearTimeout(rsUpSearchTimer);
+    rsUpSearchTimer = setTimeout(() => {
+      rsSearchUptimeCustomers(event.target.value.trim()).catch((error) => {
+        document.getElementById("rs-up-suggest").innerHTML = `<button type="button" disabled>${rsEscape(error.message)}</button>`;
+        document.getElementById("rs-up-suggest").classList.remove("hidden");
+      });
+    }, 250);
+  });
+
+  document.getElementById("rs-up-search").addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    const query = event.target.value.trim();
+    if (!query) return;
+    const button = document.getElementById("rs-up-enter");
+    button.disabled = true;
+    button.textContent = "Loading...";
+    try {
+      await rsLoadFirstUptimeCustomer(query);
+    } catch (error) {
+      document.getElementById("rs-up-empty").classList.remove("hidden");
+      document.getElementById("rs-up-empty").textContent = error.message;
+    } finally {
+      button.disabled = false;
+      button.textContent = "Enter";
+    }
+  });
+
+  document.getElementById("rs-up-enter").addEventListener("click", async () => {
+    const query = document.getElementById("rs-up-search").value.trim();
+    if (!query) return;
+    const button = document.getElementById("rs-up-enter");
+    button.disabled = true;
+    button.textContent = "Loading...";
+    try {
+      await rsLoadFirstUptimeCustomer(query);
+    } catch (error) {
+      document.getElementById("rs-up-empty").classList.remove("hidden");
+      document.getElementById("rs-up-empty").textContent = error.message;
+    } finally {
+      button.disabled = false;
+      button.textContent = "Enter";
+    }
+  });
+
+  document.getElementById("rs-up-suggest").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-rs-up-customer]");
+    if (!button) return;
+    rsUpCustomerId = button.dataset.rsUpCustomer;
+    document.getElementById("rs-up-search").value = button.querySelector("strong")?.textContent || rsUpCustomerId;
+    document.getElementById("rs-up-suggest").classList.add("hidden");
+    try {
+      await rsLoadUptimePortal(rsUpCustomerId);
+    } catch (error) {
+      document.getElementById("rs-up-empty").textContent = error.message;
+    }
+  });
+
+  async function rsApplyUptimeMonthFilter() {
+    rsSelectedMonth = document.getElementById("rs-up-month").value || rsSelectedMonth;
+    const globalMonth = document.getElementById("rs-month-filter");
+    if (globalMonth) globalMonth.value = rsSelectedMonth;
+    const label = document.getElementById("rs-selected-month-label");
+    const option = document.getElementById("rs-up-month").selectedOptions[0];
+    if (label && option) label.textContent = option.textContent;
+    if (!rsUpCustomerId) return;
+    try {
+      await rsLoadUptimePortal(rsUpCustomerId);
+    } catch (error) {
+      document.getElementById("rs-up-empty").classList.remove("hidden");
+      document.getElementById("rs-up-empty").textContent = error.message;
+    }
+  }
+
+  document.getElementById("rs-up-month").addEventListener("change", () => {
+    const label = document.getElementById("rs-selected-month-label");
+    const option = document.getElementById("rs-up-month").selectedOptions[0];
+    if (label && option) label.textContent = `${option.textContent} selected`;
+  });
+
+  document.getElementById("rs-up-month-apply").addEventListener("click", rsApplyUptimeMonthFilter);
+
+  (async () => {
+    await rsLoadMonthOptions();
+    rsInitUptimeMonths();
+    await rsBoot();
+  })();
+
+</script>
+{% endblock %}
