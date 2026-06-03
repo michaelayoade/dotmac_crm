@@ -57,6 +57,62 @@
         transform: translateY(-50%);
     }
 
+    .inbox-sidebar-resize-handle {
+        position: absolute;
+        right: 0;
+        top: 50%;
+        z-index: 30;
+        display: flex;
+        height: 3.5rem;
+        width: 0.75rem;
+        transform: translateY(-50%);
+        cursor: ew-resize;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgb(245 158 11 / 0.45);
+        border-right: 0;
+        border-radius: 0.5rem 0 0 0.5rem;
+        background: rgb(255 251 235 / 0.95);
+        color: #d97706;
+        box-shadow: 0 8px 18px rgb(15 23 42 / 0.12);
+    }
+
+    .inbox-sidebar-resize-handle:hover,
+    .inbox-sidebar-resize-handle:focus-visible,
+    .inbox-sidebar-resize-handle.is-active {
+        background: #f59e0b;
+        color: #fff;
+        outline: none;
+    }
+
+    .dark .inbox-sidebar-resize-handle {
+        border-color: rgb(245 158 11 / 0.5);
+        background: rgb(120 53 15 / 0.9);
+        color: #fbbf24;
+        box-shadow: 0 8px 18px rgb(0 0 0 / 0.3);
+    }
+
+    .dark .inbox-sidebar-resize-handle:hover,
+    .dark .inbox-sidebar-resize-handle:focus-visible,
+    .dark .inbox-sidebar-resize-handle.is-active {
+        background: #d97706;
+        color: #fff;
+    }
+
+    .inbox-sidebar-resize-grip {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1875rem;
+    }
+
+    .inbox-sidebar-resize-grip span {
+        display: block;
+        width: 0.1875rem;
+        height: 0.1875rem;
+        border-radius: 9999px;
+        background: currentColor;
+    }
+
     /* Keep text visible in dark mode when new-conversation fields are focused. */
     .dark [data-new-conversation-modal] input:focus,
     .dark [data-new-conversation-modal] select:focus,
@@ -316,6 +372,20 @@
     <!-- Left Sidebar - Channel Filters & Conversation List -->
     <aside class="relative w-full min-h-0 flex-shrink-0 flex flex-col overflow-hidden border-r border-slate-200/60 bg-slate-50/50 dark:border-slate-700/60 dark:bg-slate-900/60"
            :style="sidebarStyle()">
+        <button type="button"
+                x-show="!isNarrowViewport"
+                x-cloak
+                @pointerdown.prevent="startSidebarResize($event)"
+                aria-label="Resize inbox panel"
+                data-inbox-tooltip="Drag to resize inbox"
+                class="inbox-sidebar-tooltip inbox-sidebar-resize-tooltip inbox-sidebar-resize-handle"
+                :class="sidebarResizeActive ? 'is-active' : ''">
+            <span class="inbox-sidebar-resize-grip" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+            </span>
+        </button>
         <!-- Header -->
         <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200/60 dark:border-slate-700/60">
             <div class="flex items-center gap-3">
