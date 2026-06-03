@@ -180,11 +180,11 @@ def voice_sentence_suggestion(
                 "meta": suggestion.meta,
             }
         )
-    except (AIClientError, ValueError) as exc:
+    except (AIClientError, ValueError):
         return JSONResponse(
             {
                 "ok": False,
-                "error": str(exc),
+                "error": "AI polish failed this time. Try again.",
                 "suggested_text": "",
                 "alternatives": [],
             },
