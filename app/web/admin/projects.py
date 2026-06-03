@@ -1,12 +1,15 @@
 """Admin projects web routes."""
 
+import csv
+import io
 import logging
-from datetime import datetime
+from collections.abc import Callable
+from datetime import date, datetime
 from html import escape as html_escape
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session, selectinload
@@ -63,6 +66,118 @@ from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/projects", tags=["web-admin-projects"])
+DEFAULT_PROJECT_EXPORT_COLUMNS = ("project", "customer", "status", "priority", "created")
+REQUIRED_PROJECT_EXPORT_COLUMNS = ("project", "created")
+
+
+def _csv_response(data: list[dict[str, str]], filename: str) -> Response:
+    output = io.StringIO()
+    if data:
+        writer = csv.DictWriter(output, fieldnames=list(data[0].keys()))
+        writer.writeheader()
+        writer.writerows(data)
+    else:
+        output.write("No data available\n")
+    output.seek(0)
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _resolve_date(value: str | None) -> date | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _fmt_csv_dt(value: datetime | None) -> str:
+    if not value:
+        return ""
+    return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _project_ref(project: Project) -> str:
+    return str(project.number or project.code or project.id)
+
+
+def _person_name(person: Person | None) -> str:
+    if not person:
+        return ""
+    return (
+        person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip() or str(person.email or "")
+    )
+
+
+def _subscriber_name(project: Project) -> str:
+    if not project.subscriber:
+        return ""
+    subscriber = project.subscriber
+    label = subscriber.display_name or "Subscriber"
+    if subscriber.subscriber_number:
+        return f"{label} ({subscriber.subscriber_number})"
+    return str(label)
+
+
+def _enum_value(value: object | None) -> str:
+    if value is None:
+        return ""
+    return str(value.value if hasattr(value, "value") else value)
+
+
+def _normalize_project_export_columns(columns: str | None) -> list[str]:
+    valid_keys = {
+        "project",
+        "customer",
+        "status",
+        "priority",
+        "created",
+        "code",
+        "type",
+        "region",
+        "owner",
+        "manager",
+        "project_manager",
+        "assistant_manager",
+        "start_at",
+        "due_at",
+    }
+    parsed: list[str] = []
+    for raw in (columns or "").split(","):
+        key = raw.strip()
+        if not key or key == "actions" or key not in valid_keys:
+            continue
+        if key not in parsed:
+            parsed.append(key)
+    normalized = parsed or list(DEFAULT_PROJECT_EXPORT_COLUMNS)
+    for required in REQUIRED_PROJECT_EXPORT_COLUMNS:
+        if required not in normalized:
+            normalized.append(required)
+    return normalized
+
+
+def _project_export_column_map() -> dict[str, tuple[str, Callable[[Project], str]]]:
+    return {
+        "project": ("Project", lambda project: str(project.name or "")),
+        "customer": ("Customer", _subscriber_name),
+        "status": ("Status", lambda project: _enum_value(project.status)),
+        "priority": ("Priority", lambda project: _enum_value(project.priority)),
+        "created": ("Created", lambda project: _fmt_csv_dt(project.created_at)),
+        "code": ("Code", _project_ref),
+        "type": ("Project Type", lambda project: _enum_value(project.project_type)),
+        "region": ("Region", lambda project: str(project.region or "")),
+        "owner": ("Owner", lambda project: _person_name(project.owner)),
+        "manager": ("Manager", lambda project: _person_name(project.manager)),
+        "project_manager": ("Project Manager", lambda project: _person_name(project.project_manager)),
+        "assistant_manager": ("Site Coordinator", lambda project: _person_name(project.assistant_manager)),
+        "start_at": ("Start Date", lambda project: _fmt_csv_dt(project.start_at)),
+        "due_at": ("Due Date", lambda project: _fmt_csv_dt(project.due_at)),
+    }
 
 
 class _TemplateTaskJSONItem(BaseModel):
@@ -512,6 +627,8 @@ def projects_list(
     status: str | None = None,
     project_type: str | None = None,
     region: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     notice: str | None = None,
     clear_filters: bool = Query(False),
     filters: str | None = None,
@@ -526,6 +643,14 @@ def projects_list(
         order_by = "created_at"
     if order_dir not in {"asc", "desc"}:
         order_dir = "desc"
+    selected_date_from = _resolve_date(date_from)
+    selected_date_to = _resolve_date(date_to)
+    if date_from and not selected_date_from:
+        raise HTTPException(status_code=400, detail="Invalid from date")
+    if date_to and not selected_date_to:
+        raise HTTPException(status_code=400, detail="Invalid to date")
+    if selected_date_from and selected_date_to and selected_date_from > selected_date_to:
+        raise HTTPException(status_code=400, detail="From date must be before or equal to To date")
     offset = (page - 1) * per_page
     from app.csrf import get_csrf_token
     from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
@@ -552,6 +677,16 @@ def projects_list(
             filter_preferences_service.PROJECTS_PAGE.key,
         )
         return RedirectResponse(url="/admin/projects", status_code=302)
+
+    canonical_query_params = filter_preferences_service.remove_default_query_values(
+        query_params_map,
+        filter_preferences_service.PROJECTS_PAGE,
+    )
+    if canonical_query_params != query_params_map:
+        target_url = request.url.path
+        if canonical_query_params:
+            target_url = f"{request.url.path}?{urlencode(canonical_query_params)}"
+        return RedirectResponse(url=target_url, status_code=302)
 
     if current_person_uuid:
         if filter_preferences_service.has_managed_params(query_params_map, filter_preferences_service.PROJECTS_PAGE):
@@ -601,6 +736,8 @@ def projects_list(
         search=search,
         filters_payload=filters_payload,
         region=region_filter,
+        date_from=selected_date_from,
+        date_to=selected_date_to,
     )
 
     all_projects = projects_service.projects.list(
@@ -621,6 +758,8 @@ def projects_list(
         search=search,
         filters_payload=filters_payload,
         region=region_filter,
+        date_from=selected_date_from,
+        date_to=selected_date_to,
     )
     total = len(all_projects)
     total_pages = (total + per_page - 1) // per_page if total else 1
@@ -644,6 +783,8 @@ def projects_list(
         search=search,
         filters_payload=filters_payload,
         region=region_filter,
+        date_from=selected_date_from,
+        date_to=selected_date_to,
     )
     for project in all_projects_unfiltered:
         status_value = project.status.value if project.status else ProjectStatus.open.value
@@ -662,6 +803,8 @@ def projects_list(
             "project_type": project_type,
             "project_types": [item.value for item in ProjectType],
             "region": region,
+            "date_from": date_from or "",
+            "date_to": date_to or "",
             "filters": filters,
             "region_options": region_options,
             "order_by": order_by,
@@ -678,6 +821,78 @@ def projects_list(
             "notice": notice,
         },
     )
+
+
+@router.get(
+    "/export.csv",
+    dependencies=[Depends(require_permission("project:read"))],
+)
+def projects_export_csv(
+    request: Request,
+    search: str | None = None,
+    status: str | None = None,
+    project_type: str | None = None,
+    region: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    filters: str | None = None,
+    order_by: str = Query("created_at"),
+    order_dir: str = Query("desc"),
+    columns: str | None = None,
+    db: Session = Depends(get_db),
+):
+    if order_by not in {"created_at", "name", "priority"}:
+        order_by = "created_at"
+    if order_dir not in {"asc", "desc"}:
+        order_dir = "desc"
+    selected_date_from = _resolve_date(date_from)
+    selected_date_to = _resolve_date(date_to)
+    if date_from and not selected_date_from:
+        raise HTTPException(status_code=400, detail="Invalid from date")
+    if date_to and not selected_date_to:
+        raise HTTPException(status_code=400, detail="Invalid to date")
+    if selected_date_from and selected_date_to and selected_date_from > selected_date_to:
+        raise HTTPException(status_code=400, detail="From date must be before or equal to To date")
+
+    try:
+        filters_payload = parse_filter_payload_json(filters)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    projects = projects_service.projects.list(
+        db=db,
+        subscriber_id=None,
+        status=status if status else None,
+        project_type=project_type if project_type else None,
+        priority=None,
+        owner_person_id=None,
+        manager_person_id=None,
+        project_manager_person_id=None,
+        assistant_manager_person_id=None,
+        is_active=None,
+        order_by=order_by,
+        order_dir=order_dir,
+        limit=100000,
+        offset=0,
+        search=search,
+        filters_payload=filters_payload,
+        region=region.strip() if region and region.strip() else None,
+        date_from=selected_date_from,
+        date_to=selected_date_to,
+    )
+
+    export_columns = _normalize_project_export_columns(columns)
+    column_map = _project_export_column_map()
+    rows: list[dict[str, str]] = []
+    for project in projects:
+        row: dict[str, str] = {}
+        for key in export_columns:
+            header, getter = column_map[key]
+            row[header] = getter(project)
+        rows.append(row)
+
+    filename = f"projects_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return _csv_response(rows, filename)
 
 
 @router.get(

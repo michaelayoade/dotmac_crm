@@ -1113,8 +1113,17 @@ class Projects(ListResponseMixin):
         search: str | None = None,
         filters_payload: list[Any] | None = None,
         region: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ):
-        query = db.query(Project)
+        query = db.query(Project).options(
+            selectinload(Project.subscriber).selectinload(Subscriber.person),
+            selectinload(Project.subscriber).selectinload(Subscriber.organization),
+            selectinload(Project.owner),
+            selectinload(Project.manager),
+            selectinload(Project.project_manager),
+            selectinload(Project.assistant_manager),
+        )
         if subscriber_id:
             query = query.filter(Project.subscriber_id == coerce_uuid(subscriber_id))
         if status:
@@ -1133,6 +1142,10 @@ class Projects(ListResponseMixin):
             query = query.filter(Project.assistant_manager_person_id == coerce_uuid(assistant_manager_person_id))
         if region and region.strip():
             query = query.filter(Project.region == region.strip())
+        if date_from:
+            query = query.filter(Project.created_at >= datetime.combine(date_from, time.min, tzinfo=UTC))
+        if date_to:
+            query = query.filter(Project.created_at <= datetime.combine(date_to, time.max, tzinfo=UTC))
         if search and search.strip():
             like_term = f"%{search.strip()}%"
             query = query.filter(
