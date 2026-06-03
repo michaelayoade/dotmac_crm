@@ -1431,6 +1431,9 @@ function inboxController() {
                 if (target && target.id === 'conversation-list' && requestPath.includes('/admin/crm/inbox/conversations')) {
                     this.finishConversationListRequest(requestPath);
                 }
+                if (target && target.id === 'message-thread' && requestPath.includes('/admin/crm/inbox/conversation/') && requestPath.endsWith('/message') && e.detail.successful) {
+                    this.clearMessageAttachments();
+                }
                 if (target && target.id === 'message-thread' && requestPath.includes('/admin/crm/inbox/conversation/')) {
                     this.finishThreadRequest();
                 }
@@ -3457,6 +3460,18 @@ function inboxController() {
             if (hidden) {
                 hidden.value = JSON.stringify(this.pendingMessageAttachments);
             }
+        },
+
+        clearMessageAttachments() {
+            this.pendingMessageAttachments = [];
+            this.selectedMessageAttachmentNames = [];
+            this.messageAttachmentUploadCount = 0;
+            this.isMessageAttachmentUploading = false;
+            const input = document.querySelector('#message-thread input[type="file"]');
+            if (input) {
+                input.value = '';
+            }
+            this.syncMessageAttachmentField();
         },
 
         uploadAttachments(event, kind = 'message') {
