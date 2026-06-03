@@ -165,6 +165,7 @@ services:
     volumes:
       - /etc/wireguard:/etc/wireguard
       - ./app:/app/app
+      - ./pyproject.toml:/app/pyproject.toml:ro
       - ./templates:/app/templates
       - ./static:/app/static
       - ./alembic:/app/alembic
