@@ -124,6 +124,13 @@ def _clean_text(value: object | None) -> str | None:
     return cleaned or None
 
 
+def _parse_ticket_tags(value: str | None) -> list[str] | None:
+    if not value:
+        return None
+    tags = [item.strip() for item in value.split(",") if item.strip()]
+    return tags or None
+
+
 def _resolve_date(value: str | None) -> date | None:
     raw = (value or "").strip()
     if not raw:
@@ -1827,6 +1834,42 @@ def ticket_customer_lookup(
     )
 
 
+@router.get(
+    "/tickets/duplicates",
+    response_class=JSONResponse,
+    dependencies=[Depends(require_permission("support:ticket:read"))],
+)
+def ticket_duplicate_lookup(
+    request: Request,
+    db: Session = Depends(get_db),
+    title: str | None = Query(default=None),
+    description: str | None = Query(default=None),
+    exclude_ticket_id: str | None = Query(default=None),
+    subscriber_id: str | None = Query(default=None),
+    customer_person_id: str | None = Query(default=None),
+    lead_id: str | None = Query(default=None),
+    ticket_type: str | None = Query(default=None),
+    tags: str | None = Query(default=None),
+    region: str | None = Query(default=None),
+):
+    _ = request
+    result = tickets_service.find_duplicate_ticket_candidates(
+        db,
+        tickets_service.TicketDuplicateInput(
+            title=title,
+            description=description,
+            exclude_ticket_id=exclude_ticket_id,
+            subscriber_id=subscriber_id,
+            customer_person_id=customer_person_id,
+            lead_id=lead_id,
+            ticket_type=ticket_type,
+            tags=_parse_ticket_tags(tags),
+            region=region,
+        ),
+    )
+    return JSONResponse(result.as_dict())
+
+
 @router.post(
     "/tickets",
     response_class=HTMLResponse,
@@ -1858,6 +1901,7 @@ async def ticket_create_post(
     tags: str | None = Form(None),
     attachments: list[UploadFile] = File(default_factory=list),
     conversation_id: str | None = Form(None),
+    duplicate_override: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Create a new ticket."""
@@ -1875,6 +1919,7 @@ async def ticket_create_post(
     saved_attachments: list[dict] = []
     accounts: list[dict[str, str]] = []  # subscriber_service removed
     normalized_assignees: list[str] = []
+    duplicate_warning: dict[str, object] | None = None
     try:
         title = _clean_text(title)
         # Some clients/UI flows submit without including the `title` field (or
@@ -1929,22 +1974,6 @@ async def ticket_create_post(
                         detail="Title is required. Please re-enter ticket details and submit again.",
                     )
 
-        upload_list = await _collect_attachment_uploads(request, attachments)
-        if upload_list:
-            try:
-                upload_names = []
-                for item in upload_list:
-                    name = getattr(item, "filename", None)
-                    ctype = str(getattr(item, "content_type", "") or "")
-                    if name:
-                        upload_names.append(f"{name} ({ctype})")
-                logger.info("ticket_create_uploads count=%s files=%s", len(upload_names), upload_names)
-            except Exception:
-                logger.info("ticket_create_uploads parse_error")
-        prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(upload_list)
-        saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
-        logger.info("ticket_create_saved_attachments count=%s", len(saved_attachments))
-
         # Parse enums
         priority_map = {
             "lower": TicketPriority.lower,
@@ -1973,23 +2002,14 @@ async def ticket_create_post(
         }
 
         # Parse tags
-        tag_list = None
-        if tags:
-            tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        tag_list = _parse_ticket_tags(tags)
 
         # Parse due_at
         due_datetime = None
         if due_at:
             due_datetime = datetime.fromisoformat(due_at)
 
-        metadata: dict[str, object] = {}
-        if saved_attachments:
-            metadata["attachments"] = saved_attachments
         cleaned_base_station_details = _clean_text(base_station_details)
-        if cleaned_base_station_details:
-            metadata["base_station_details"] = cleaned_base_station_details
-        metadata_value: dict[str, object] | None = metadata or None
-
         current_user = get_current_user(request)
         resolved_customer_person_id = _resolve_customer_person_id(
             db,
@@ -2039,10 +2059,65 @@ async def ticket_create_post(
             "status": status_map.get(status, TicketStatus.open),
             "due_at": due_datetime,
             "tags": tag_list,
-            "metadata_": metadata_value,
         }
         if assigned_to_person_ids is not None:
             payload_data["assigned_to_person_ids"] = assignee_ids
+        duplicate_result = tickets_service.find_duplicate_ticket_candidates(
+            db,
+            tickets_service.TicketDuplicateInput(
+                title=title,
+                description=description,
+                subscriber_id=payload_data["subscriber_id"],
+                customer_person_id=payload_data["customer_person_id"],
+                lead_id=payload_data["lead_id"],
+                ticket_type=payload_data["ticket_type"],
+                tags=tag_list,
+                region=payload_data["region"],
+            ),
+        )
+        duplicate_warning = duplicate_result.as_dict() if duplicate_result.has_warning else None
+        duplicate_confirmed = str(duplicate_override or "").strip().lower() in {"1", "true", "yes", "on"}
+        if duplicate_result.has_warning and not duplicate_confirmed:
+            raise HTTPException(
+                status_code=409,
+                detail="A similar ticket already exists. Review the warning below, then open the existing ticket or choose Create anyway.",
+            )
+
+        upload_list = await _collect_attachment_uploads(request, attachments)
+        if upload_list:
+            try:
+                upload_names = []
+                for item in upload_list:
+                    name = getattr(item, "filename", None)
+                    ctype = str(getattr(item, "content_type", "") or "")
+                    if name:
+                        upload_names.append(f"{name} ({ctype})")
+                logger.info("ticket_create_uploads count=%s files=%s", len(upload_names), upload_names)
+            except Exception:
+                logger.info("ticket_create_uploads parse_error")
+        prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(upload_list)
+        saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
+        logger.info("ticket_create_saved_attachments count=%s", len(saved_attachments))
+
+        metadata: dict[str, object] = {}
+        if saved_attachments:
+            metadata["attachments"] = saved_attachments
+        if cleaned_base_station_details:
+            metadata["base_station_details"] = cleaned_base_station_details
+        if duplicate_result.has_warning and duplicate_confirmed:
+            metadata["duplicate_override"] = True
+            metadata["possible_duplicate_tickets"] = [
+                {
+                    "ticket_id": match.ticket_id,
+                    "reference": match.reference,
+                    "score": match.score,
+                    "confidence": match.confidence,
+                    "reasons": match.reasons,
+                }
+                for match in duplicate_result.matches
+            ]
+        metadata_value: dict[str, object] | None = metadata or None
+        payload_data["metadata_"] = metadata_value
         payload = TicketCreate(**payload_data)
         ticket = tickets_service.tickets.create(db=db, payload=payload)
         linked_outage_ref = None
@@ -2142,6 +2217,7 @@ async def ticket_create_post(
                 "base_station_required_ticket_types": base_station_required_ticket_types(),
                 "action_url": "/admin/support/tickets",
                 "prefill": prefill,
+                "duplicate_warning": duplicate_warning,
                 "error": error_msg,
                 "active_page": "tickets",
                 "current_user": get_current_user(request),

@@ -491,27 +491,32 @@
         <!-- Status Tabs -->
         {% if current_channel != 'comments' %}
         <div class="px-4 pb-3 border-b border-slate-200/60 dark:border-slate-700/60">
-            <div class="flex gap-1 p-1 bg-slate-100 rounded-xl dark:bg-slate-800/50">
+            <div class="flex flex-wrap gap-1 p-1 bg-slate-100 rounded-xl dark:bg-slate-800/50">
                 <button @click="setStatus(null)"
                         :class="!currentStatus ? 'bg-white text-amber-700 shadow-sm dark:bg-slate-700 dark:text-amber-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
-                        class="flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all">
+                        class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5 whitespace-nowrap">
                     All
                 </button>
                 <button @click="setStatus('open')"
                         :class="currentStatus === 'open' ? 'bg-white text-emerald-700 shadow-sm dark:bg-slate-700 dark:text-emerald-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
-                        class="flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+                        class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5 whitespace-nowrap">
                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 status-dot"></span>
                     Open
                 </button>
                 <button @click="setStatus('pending')"
                         :class="currentStatus === 'pending' ? 'bg-white text-amber-700 shadow-sm dark:bg-slate-700 dark:text-amber-400' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
-                        class="flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+                        class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5 whitespace-nowrap">
                     <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
                     Pending
                 </button>
+                <button @click="setStatus('resolved_to_ticket')"
+                        :class="currentStatus === 'resolved_to_ticket' ? 'bg-white text-sky-700 shadow-sm dark:bg-slate-700 dark:text-sky-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
+                        class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5 whitespace-nowrap">
+                    Sent to ticket
+                </button>
                 <button @click="setStatus('resolved')"
                         :class="currentStatus === 'resolved' ? 'bg-white text-slate-700 shadow-sm dark:bg-slate-700 dark:text-slate-300' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'"
-                        class="flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all">
+                        class="flex-1 px-3 py-2 rounded-lg text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5 whitespace-nowrap">
                     Done
                 </button>
             </div>
@@ -685,6 +690,7 @@
                         class="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                     <option value="status:open">Mark Open</option>
                     <option value="status:pending">Mark Pending</option>
+                    <option value="status:resolved_to_ticket">Mark Sent to Ticket</option>
                     <option value="status:resolved">Mark Resolved</option>
                     <option value="priority:none">Priority None</option>
                     <option value="priority:low">Priority Low</option>
@@ -4185,6 +4191,7 @@ function inboxController() {
                 { id: 'focus-reply', label: 'Focus Reply Composer', hint: 'Jump to reply textbox', group: 'General', keywords: 'reply compose' },
                 { id: 'status-open', label: 'Set Status: Open', hint: 'Current conversation', group: 'Status', keywords: 'status open' },
                 { id: 'status-pending', label: 'Set Status: Pending', hint: 'Current conversation', group: 'Status', keywords: 'status pending' },
+                { id: 'status-resolved_to_ticket', label: 'Set Status: Sent to Ticket', hint: 'Current conversation', group: 'Status', keywords: 'status sent ticket handoff' },
                 { id: 'status-resolved', label: 'Set Status: Resolved', hint: 'Current conversation', group: 'Status', keywords: 'status resolved done' },
                 { id: 'assign-me', label: 'Assign Conversation to Me', hint: 'Current conversation', group: 'Assignment', keywords: 'assign me owner' },
                 { id: 'next-conversation', label: 'Next Conversation', hint: 'Move down the list', group: 'Navigation', keywords: 'next down j' },

@@ -42,7 +42,7 @@ def test_resolve_gate_shows_ticket_handoff_option_when_ticket_exists():
         )
 
     body = response.body.decode()
-    assert "Resolved with Ticket Handoff" in body
+    assert "Sent to ticket" in body
     assert "TCK-1001" in body
 
 
@@ -77,4 +77,4 @@ def test_resolve_gate_hides_ticket_handoff_option_without_linked_ticket():
 
     body = response.body.decode()
     assert "Resolve Without Lead" in body
-    assert "Resolved with Ticket Handoff" not in body
+    assert "Sent to ticket" not in body

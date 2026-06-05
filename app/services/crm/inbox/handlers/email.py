@@ -216,6 +216,14 @@ class EmailHandler(InboundHandler):
                 conv_meta["warnings"] = warnings
                 conversation.metadata_ = conv_meta
                 db.commit()
+        if not conversation and isinstance(person_uuid, uuid.UUID):
+            conversation = (
+                db.query(Conversation)
+                .filter(Conversation.person_id == person_uuid)
+                .filter(Conversation.status == ConversationStatus.resolved_to_ticket)
+                .order_by(Conversation.updated_at.desc())
+                .first()
+            )
         if not conversation:
             if isinstance(person_uuid, uuid.UUID):
                 conversation_payload = ConversationCreate(
@@ -241,7 +249,7 @@ class EmailHandler(InboundHandler):
         elif reopen_snooze_on_next_reply(conversation):
             db.commit()
             db.refresh(conversation)
-        elif conversation.status != ConversationStatus.open:
+        elif getattr(conversation, "status", ConversationStatus.open) != ConversationStatus.open:
             check = apply_status_transition(conversation, ConversationStatus.open)
             if check.allowed:
                 db.commit()
