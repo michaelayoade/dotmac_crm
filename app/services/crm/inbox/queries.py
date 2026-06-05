@@ -28,6 +28,7 @@ from app.models.person import Person, PersonChannel
 from app.services.common import coerce_uuid
 from app.services.crm.inbox import outbox as outbox_service
 
+UNASSIGNED_ACTIVITY_START_UTC = datetime(2026, 1, 1, tzinfo=UTC)
 RESOLVED_LIST_STATUSES = {ConversationStatus.resolved, ConversationStatus.resolved_to_ticket}
 
 
