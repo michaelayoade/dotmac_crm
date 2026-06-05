@@ -13,6 +13,8 @@ from app.models.crm.enums import ConversationStatus, MessageDirection, MessageSt
 from app.models.crm.outbox import OutboxMessage
 from app.services.common import coerce_uuid
 
+RESOLVED_STATUSES = {ConversationStatus.resolved, ConversationStatus.resolved_to_ticket}
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -62,12 +64,12 @@ def recompute_conversation_summary(db: Session, conversation_id: str) -> Convers
     has_inbound = latest_inbound_at is not None
     has_outbound = latest_outbound_at is not None
     needs_attention = bool(
-        conversation.status != ConversationStatus.resolved
+        conversation.status not in RESOLVED_STATUSES
         and latest_inbound_at is not None
         and latest_outbound_at is not None
         and latest_inbound_at > latest_outbound_at
     )
-    unreplied = bool(conversation.status != ConversationStatus.resolved and has_inbound and not has_outbound)
+    unreplied = bool(conversation.status not in RESOLVED_STATUSES and has_inbound and not has_outbound)
     assignment = (
         db.query(ConversationAssignment.agent_id, ConversationAssignment.team_id)
         .filter(ConversationAssignment.conversation_id == conversation_uuid)

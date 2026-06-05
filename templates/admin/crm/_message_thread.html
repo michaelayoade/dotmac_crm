@@ -106,11 +106,12 @@
                         {% if conversation.status == 'open' %}bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20
                         {% elif conversation.status == 'pending' %}bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 hover:bg-yellow-500/20
                         {% elif conversation.status == 'snoozed' %}bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20
+                        {% elif conversation.status == 'resolved_to_ticket' %}bg-sky-500/10 text-sky-500 border border-sky-500/20 hover:bg-sky-500/20
                         {% else %}bg-slate-500/10 text-slate-400 border border-slate-500/20 hover:bg-slate-500/20{% endif %}">
                 {% if conversation.status == 'open' %}
                 <span class="w-1.5 h-1.5 rounded-full bg-green-500 status-dot"></span>
                 {% endif %}
-                {{ conversation.status | capitalize }}
+                {{ 'Sent to ticket' if conversation.status == 'resolved_to_ticket' else conversation.status | capitalize }}
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                 </svg>
@@ -147,6 +148,15 @@
                         class="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60">
                     <span class="w-2 h-2 rounded-full bg-orange-500"></span>
                     Snoozed
+                </button>
+                <button hx-post="/admin/crm/inbox/conversation/{{ conversation.id }}/status?new_status=resolved_to_ticket"
+                        hx-target="#message-thread"
+                        hx-swap="innerHTML"
+                        hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"
+                        @click="open = false"
+                        class="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60">
+                    <span class="w-2 h-2 rounded-full bg-sky-500"></span>
+                    Sent to ticket
                 </button>
                 <button hx-post="/admin/crm/inbox/conversation/{{ conversation.id }}/status?new_status=resolved"
                         hx-target="#message-thread"

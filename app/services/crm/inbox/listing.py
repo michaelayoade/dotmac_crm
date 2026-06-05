@@ -205,7 +205,8 @@ async def load_inbox_list(
             except ValueError:
                 status_enum = None
 
-    exclude_superseded = status != ConversationStatus.resolved.value if status else True
+    resolved_status_values = {ConversationStatus.resolved.value, ConversationStatus.resolved_to_ticket.value}
+    exclude_superseded = status not in resolved_status_values if status else True
     target_prefix = (target_id or "").strip()
     target_is_comment = target_prefix.startswith("fb:") or target_prefix.startswith("ig:")
     include_comments = not channel and assignment_filter != "assigned" and (status_enum is None)
