@@ -146,13 +146,13 @@ def resolve_with_ticket_handoff(
     result = update_conversation_status(
         db,
         conversation_id=conversation_id,
-        new_status="resolved",
+        new_status="resolved_to_ticket",
         actor_id=actor_id,
         roles=roles,
         scopes=scopes,
         resolution_context=ResolutionContext(
             mode=HANDOFF_RESOLUTION_MODE,
-            label="Resolved with ticket handoff",
+            label="Sent to ticket",
             ticket_id=str(conversation.ticket_id),
             ticket_reference=ticket_reference,
         ),

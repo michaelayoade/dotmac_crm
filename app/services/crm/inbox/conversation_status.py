@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, ConversationPriority, ConversationStatus, MessageDirection
 from app.models.domain_settings import SettingDomain
+from app.models.tickets import Ticket
 from app.schemas.crm.conversation import ConversationUpdate
 from app.services.common import coerce_uuid
 from app.services.crm import conversation as conversation_service
@@ -69,6 +70,7 @@ EMAIL_FEEDBACK_TEMPLATE = (
     "DOTMAC Support Team"
 )
 HANDOFF_RESOLUTION_MODE = "ticket_handoff"
+HANDOFF_RESOLUTION_LABEL = "Sent to ticket"
 
 
 @dataclass(frozen=True)
@@ -112,6 +114,19 @@ def _extract_resolution(conversation: Conversation) -> dict | None:
     return raw if isinstance(raw, dict) else None
 
 
+def _build_ticket_resolution_context(db: Session, conversation: Conversation) -> ResolutionContext | None:
+    if not getattr(conversation, "ticket_id", None):
+        return None
+    ticket = db.get(Ticket, conversation.ticket_id) if db is not None else None
+    ticket_reference = ticket.number if ticket and ticket.number else str(conversation.ticket_id)
+    return ResolutionContext(
+        mode=HANDOFF_RESOLUTION_MODE,
+        label=HANDOFF_RESOLUTION_LABEL,
+        ticket_id=str(conversation.ticket_id),
+        ticket_reference=ticket_reference,
+    )
+
+
 def _apply_resolution_metadata(
     conversation: Conversation,
     *,
@@ -152,24 +167,50 @@ def _is_stale_in_progress(value: object, *, now: datetime) -> bool:
     return (now - claimed_at).total_seconds() > RESOLVED_CLOSING_CLAIM_TTL_SECONDS
 
 
+def _ticket_handoff_key(conversation: Conversation) -> str | None:
+    resolution = _extract_resolution(conversation)
+    if not isinstance(resolution, dict) or resolution.get("mode") != HANDOFF_RESOLUTION_MODE:
+        return None
+    ticket_id = str(resolution.get("ticket_id") or "").strip()
+    if ticket_id:
+        return f"ticket:{ticket_id}"
+    ticket_reference = str(resolution.get("ticket_reference") or "").strip()
+    return f"ticket_ref:{ticket_reference}" if ticket_reference else "ticket:unknown"
+
+
+def _closing_send_state(conversation: Conversation, *, status_enum: ConversationStatus) -> dict:
+    resolved_closing = _extract_resolved_closing_message(conversation)
+    if not isinstance(resolved_closing, dict):
+        return {}
+    if status_enum != ConversationStatus.resolved_to_ticket:
+        return resolved_closing
+    handoff_key = _ticket_handoff_key(conversation)
+    ticket_handoffs = resolved_closing.get("ticket_handoffs")
+    if handoff_key and isinstance(ticket_handoffs, dict):
+        handoff_state = ticket_handoffs.get(handoff_key)
+        if isinstance(handoff_state, dict):
+            return handoff_state
+    return {}
+
+
 def _should_send_resolved_closing_message(
     *,
     conversation: Conversation,
     status_enum: ConversationStatus,
     previous_status: ConversationStatus | None,
 ) -> bool:
-    resolved_closing = _extract_resolved_closing_message(conversation)
+    resolution = _extract_resolution(conversation)
+    is_ticket_handoff = isinstance(resolution, dict) and resolution.get("mode") == HANDOFF_RESOLUTION_MODE
     now = datetime.now(UTC)
-    in_progress_value = resolved_closing.get("send_in_progress_at") if isinstance(resolved_closing, dict) else None
+    send_state = _closing_send_state(conversation, status_enum=status_enum)
+    in_progress_value = send_state.get("send_in_progress_at")
+    status_should_send = (
+        status_enum == ConversationStatus.resolved and previous_status != ConversationStatus.resolved
+    ) or (status_enum == ConversationStatus.resolved_to_ticket and is_ticket_handoff)
     return (
-        status_enum == ConversationStatus.resolved
-        and previous_status != ConversationStatus.resolved
-        and not (isinstance(resolved_closing, dict) and resolved_closing.get("sent_at"))
-        and (
-            not isinstance(resolved_closing, dict)
-            or not resolved_closing.get("send_in_progress_at")
-            or _is_stale_in_progress(in_progress_value, now=now)
-        )
+        status_should_send
+        and not send_state.get("sent_at")
+        and (not send_state.get("send_in_progress_at") or _is_stale_in_progress(in_progress_value, now=now))
     )
 
 
@@ -199,15 +240,33 @@ def _claim_resolved_closing_message_send(
     metadata = _metadata_dict(locked_conversation)
     existing = metadata.get(RESOLVED_CLOSING_METADATA_KEY)
     closing = dict(existing) if isinstance(existing, dict) else {}
-    if closing.get("sent_at"):
+    handoff_key = _ticket_handoff_key(locked_conversation)
+    if handoff_key:
+        ticket_handoffs = closing.get("ticket_handoffs")
+        ticket_handoffs = dict(ticket_handoffs) if isinstance(ticket_handoffs, dict) else {}
+        existing_send_state = ticket_handoffs.get(handoff_key)
+        send_state = dict(existing_send_state) if isinstance(existing_send_state, dict) else {}
+    else:
+        ticket_handoffs = None
+        send_state = closing
+
+    if send_state.get("sent_at"):
         return False
-    in_progress_value = closing.get("send_in_progress_at")
+    in_progress_value = send_state.get("send_in_progress_at")
     if in_progress_value and not _is_stale_in_progress(in_progress_value, now=now):
         return False
 
-    closing["send_in_progress_at"] = now.isoformat()
-    closing["variant"] = variant
-    closing["channel_type"] = channel_type.value
+    send_state["send_in_progress_at"] = now.isoformat()
+    send_state["variant"] = variant
+    send_state["channel_type"] = channel_type.value
+    if handoff_key and ticket_handoffs is not None:
+        resolution = _extract_resolution(locked_conversation) or {}
+        send_state["ticket_id"] = resolution.get("ticket_id")
+        send_state["ticket_reference"] = resolution.get("ticket_reference")
+        ticket_handoffs[handoff_key] = send_state
+        closing["ticket_handoffs"] = ticket_handoffs
+    else:
+        closing = send_state
     metadata[RESOLVED_CLOSING_METADATA_KEY] = closing
     locked_conversation.metadata_ = metadata
     db.commit()
@@ -227,21 +286,38 @@ def _persist_resolved_closing_message_metadata(
     metadata = _metadata_dict(conversation)
     existing = metadata.get(RESOLVED_CLOSING_METADATA_KEY)
     closing = dict(existing) if isinstance(existing, dict) else {}
+    handoff_key = _ticket_handoff_key(conversation)
+    if handoff_key:
+        ticket_handoffs = closing.get("ticket_handoffs")
+        ticket_handoffs = dict(ticket_handoffs) if isinstance(ticket_handoffs, dict) else {}
+        existing_send_state = ticket_handoffs.get(handoff_key)
+        send_state = dict(existing_send_state) if isinstance(existing_send_state, dict) else {}
+    else:
+        ticket_handoffs = None
+        send_state = closing
     now_iso = datetime.now(UTC).isoformat()
     if sent:
-        closing["sent_at"] = now_iso
-        closing["message_id"] = message_id
-        closing["channel_type"] = channel_type.value if channel_type else None
-        closing["variant"] = variant
-        closing.pop("last_error", None)
-        closing.pop("last_error_at", None)
+        send_state["sent_at"] = now_iso
+        send_state["message_id"] = message_id
+        send_state["channel_type"] = channel_type.value if channel_type else None
+        send_state["variant"] = variant
+        send_state.pop("last_error", None)
+        send_state.pop("last_error_at", None)
     else:
-        closing["last_error"] = error_detail or "send_failed"
-        closing["last_error_at"] = now_iso
-        closing["variant"] = variant
+        send_state["last_error"] = error_detail or "send_failed"
+        send_state["last_error_at"] = now_iso
+        send_state["variant"] = variant
         if channel_type:
-            closing["channel_type"] = channel_type.value
-    closing.pop("send_in_progress_at", None)
+            send_state["channel_type"] = channel_type.value
+    send_state.pop("send_in_progress_at", None)
+    if handoff_key and ticket_handoffs is not None:
+        resolution = _extract_resolution(conversation) or {}
+        send_state["ticket_id"] = resolution.get("ticket_id")
+        send_state["ticket_reference"] = resolution.get("ticket_reference")
+        ticket_handoffs[handoff_key] = send_state
+        closing["ticket_handoffs"] = ticket_handoffs
+    else:
+        closing = send_state
     metadata[RESOLVED_CLOSING_METADATA_KEY] = closing
     conversation.metadata_ = metadata
     db.commit()
@@ -287,18 +363,20 @@ def _build_resolved_closing_message(
         ).strip()
         if channel_type == ChannelType.email:
             return (
-                RESOLVED_CLOSING_EMAIL_SUBJECT,
-                "Your conversation has been escalated to our internal team.\n\n"
-                f"We are working on fixing your issue and will communicate with you via ticket {ticket_reference}.\n\n"
-                f"How was your experience? Rate us here: {FEEDBACK_URL}\n\n"
+                f"Support Ticket Created: {ticket_reference}",
+                "Your issue is currently being worked on by our support team.\n\n"
+                f"Your ticket ID is: {ticket_reference}\n\n"
+                "If you need to follow up about this same issue, please reference this ticket ID "
+                "so we can track it faster.\n\n"
                 "Kind regards,\n"
                 "DOTMAC Support Team",
             )
         return (
             None,
-            "Your conversation has been escalated to our internal team.\n\n"
-            f"We are working on fixing your issue and will communicate with you via ticket {ticket_reference}.\n\n"
-            f"How was your experience? Rate us here: {FEEDBACK_URL}",
+            "Your issue is currently being worked on by our support team.\n\n"
+            f"Your ticket ID is: {ticket_reference}\n\n"
+            "If you need to follow up about this same issue, please reference this ticket ID "
+            "so we can track it faster.",
         )
     if variant == "social":
         configured = resolve_value(db, SettingDomain.notification, "crm_inbox_resolved_social_outro_message")
@@ -331,6 +409,8 @@ def _send_resolved_closing_message(
         channel_type=channel_type,
         variant=variant,
     )
+    handoff_key = _ticket_handoff_key(conversation)
+    idempotency_suffix = handoff_key or f"{channel_type.value}:{variant}"
 
     try:
         result = send_conversation_message(
@@ -339,7 +419,7 @@ def _send_resolved_closing_message(
             message_text=message_text,
             subject=subject,
             attachments_json=None,
-            idempotency_key=f"resolved-closing:{conversation_id}:{channel_type.value}:{variant}",
+            idempotency_key=f"resolved-closing:{conversation_id}:{idempotency_suffix}",
             reply_to_message_id=None,
             template_id=None,
             scheduled_at=None,
@@ -447,8 +527,10 @@ def update_conversation_status(
         if conversation is None and db is not None:
             conversation = db.get(Conversation, coerce_uuid(conversation_id))
         if conversation:
-            if status_enum == ConversationStatus.resolved:
+            if status_enum in {ConversationStatus.resolved, ConversationStatus.resolved_to_ticket}:
                 now = datetime.now(UTC)
+                if status_enum == ConversationStatus.resolved_to_ticket and resolution_context is None:
+                    resolution_context = _build_ticket_resolution_context(db, conversation)
                 _apply_resolution_metadata(
                     conversation,
                     actor_id=actor_id,
@@ -460,7 +542,7 @@ def update_conversation_status(
                     created = created.replace(tzinfo=UTC)
                 conversation.resolution_time_seconds = int((now - created).total_seconds()) if created else 0
                 db.commit()
-            elif previous_status == ConversationStatus.resolved:
+            elif previous_status in {ConversationStatus.resolved, ConversationStatus.resolved_to_ticket}:
                 conversation.resolved_at = None
                 conversation.resolution_time_seconds = None
                 db.commit()
@@ -489,13 +571,9 @@ def update_conversation_status(
                 ),
             },
         )
-        if (
-            db is not None
-            and status_enum == ConversationStatus.resolved
-            and previous_status != ConversationStatus.resolved
-        ):
+        if db is not None and status_enum in {ConversationStatus.resolved, ConversationStatus.resolved_to_ticket}:
             resolved_channel_type = _resolve_latest_channel_type(db, conversation_id)
-            if _should_queue_csat_for_channel(resolved_channel_type):
+            if status_enum == ConversationStatus.resolved and _should_queue_csat_for_channel(resolved_channel_type):
                 # CSAT enqueue is best-effort and should never block resolve operations.
                 queue_for_resolved_conversation(
                     db,

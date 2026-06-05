@@ -16,6 +16,7 @@ from app.config import settings
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.integration import IntegrationTarget
+from app.models.person import ChannelType as PersonChannelType
 from app.models.person import Person
 from app.models.subscriber import Organization
 from app.models.tickets import Ticket
@@ -27,10 +28,29 @@ from app.services.crm.inbox.comments_summary import (
     merge_recent_conversations_with_comments,
 )
 from app.services.crm.inbox.permissions import can_view_private_note
-from app.services.person_identity import preferred_meta_display_name
+from app.services.person_identity import is_placeholder_email, preferred_meta_display_name
 
 logger = logging.getLogger(__name__)
 _URL_RE = re.compile(r"(https?://[^\s<]+)", flags=re.IGNORECASE)
+
+
+def _resolve_contact_email_for_display(contact: Person) -> str:
+    email_channels = [
+        channel
+        for channel in (contact.channels or [])
+        if channel.channel_type == PersonChannelType.email
+        and isinstance(channel.address, str)
+        and channel.address.strip()
+        and not is_placeholder_email(channel.address)
+    ]
+    primary_channel = next((channel for channel in email_channels if channel.is_primary), None)
+    if primary_channel:
+        return primary_channel.address.strip()
+    if email_channels:
+        return email_channels[0].address.strip()
+    if isinstance(contact.email, str) and contact.email.strip() and not is_placeholder_email(contact.email):
+        return contact.email.strip()
+    return ""
 
 
 def _localize_inbox_datetime(value: datetime | None, db: Session) -> tuple[datetime | None, str, str]:
@@ -1172,14 +1192,17 @@ def format_contact_for_template(contact: Person, db: Session) -> dict:
     if phone_display and not phone_display.startswith("+"):
         phone_display = f"+{phone_display}"
 
+    display_email = _resolve_contact_email_for_display(contact)
+    display_name = contact.display_name or phone_display or display_email or contact.email or "Unknown"
+
     return {
         "id": str(contact.id),
-        "name": contact.display_name or phone_display or contact.email or "Unknown",
-        "email": contact.email,
+        "name": display_name,
+        "email": display_email,
         "phone": phone_display,
         "company": company,
         "is_active": contact.is_active,
-        "avatar_initials": get_initials(contact.display_name or contact.email),
+        "avatar_initials": get_initials(contact.display_name or display_email or contact.email),
         "channels": channels,
         "tags": list(tags)[:5],
         "subscriber": None,

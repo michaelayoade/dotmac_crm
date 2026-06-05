@@ -9,15 +9,15 @@ from app.services.crm.inbox.metrics import (
 def test_summarize_conversation_status_rows():
     rows = [
         (ConversationStatus.open, 2),
-        (ConversationStatus.resolved_to_ticket, 1),
+        (ConversationStatus.resolved_to_ticket, 3),
         (ConversationStatus.resolved, 1),
     ]
     summary = summarize_conversation_status_rows(rows)
     assert summary["open"] == 2
-    assert summary["resolved_to_ticket"] == 1
+    assert summary["resolved_to_ticket"] == 3
     assert summary["resolved"] == 1
     assert summary["pending"] == 0
-    assert summary["total"] == 4
+    assert summary["total"] == 6
 
 
 def test_summarize_outbox_status_rows():

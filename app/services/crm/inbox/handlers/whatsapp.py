@@ -271,7 +271,7 @@ class WhatsAppHandler(InboundHandler):
             conversation = (
                 db.query(Conversation)
                 .filter(Conversation.person_id == person_uuid)
-                .filter(Conversation.status == ConversationStatus.snoozed)
+                .filter(Conversation.status.in_([ConversationStatus.snoozed, ConversationStatus.resolved_to_ticket]))
                 .order_by(Conversation.updated_at.desc())
                 .first()
             )
@@ -298,6 +298,11 @@ class WhatsAppHandler(InboundHandler):
             apply_status_transition(conversation, ConversationStatus.open)
             db.commit()
             db.refresh(conversation)
+        elif getattr(conversation, "status", None) == ConversationStatus.resolved_to_ticket:
+            check = apply_status_transition(conversation, ConversationStatus.open)
+            if check.allowed:
+                db.commit()
+                db.refresh(conversation)
 
         attribution = _extract_whatsapp_meta_attribution(payload.metadata)
         if attribution:

@@ -6,24 +6,33 @@ from dataclasses import dataclass
 
 from app.models.crm.enums import ConversationStatus
 
+RESOLVED_CLOSING_METADATA_KEY = "resolved_closing_message"
+
 _ALLOWED_TRANSITIONS: dict[ConversationStatus, set[ConversationStatus]] = {
     ConversationStatus.open: {
         ConversationStatus.open,
         ConversationStatus.pending,
         ConversationStatus.snoozed,
+        ConversationStatus.resolved_to_ticket,
         ConversationStatus.resolved,
     },
     ConversationStatus.pending: {
         ConversationStatus.pending,
         ConversationStatus.open,
         ConversationStatus.snoozed,
+        ConversationStatus.resolved_to_ticket,
         ConversationStatus.resolved,
     },
     ConversationStatus.snoozed: {
         ConversationStatus.snoozed,
         ConversationStatus.open,
         ConversationStatus.pending,
+        ConversationStatus.resolved_to_ticket,
         ConversationStatus.resolved,
+    },
+    ConversationStatus.resolved_to_ticket: {
+        ConversationStatus.resolved_to_ticket,
+        ConversationStatus.open,
     },
     ConversationStatus.resolved: {
         ConversationStatus.resolved,
@@ -57,4 +66,10 @@ def apply_status_transition(conversation, target: ConversationStatus) -> Transit
     check = validate_transition(current, target)
     if check.allowed:
         conversation.status = target
+        if current == ConversationStatus.resolved_to_ticket and target == ConversationStatus.open:
+            metadata = conversation.metadata_ if isinstance(conversation.metadata_, dict) else {}
+            if RESOLVED_CLOSING_METADATA_KEY in metadata:
+                metadata = dict(metadata)
+                metadata.pop(RESOLVED_CLOSING_METADATA_KEY, None)
+                conversation.metadata_ = metadata
     return check

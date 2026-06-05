@@ -1,8 +1,62 @@
 from typing import ClassVar
 
-from app.models.person import Person
+from app.models.person import ChannelType, Person, PersonChannel
 from app.schemas.tickets import TicketCommentCreate
 from app.services import tickets as tickets_service
+
+
+def test_ticket_customer_email_prefers_real_primary_email_channel(db_session, ticket):
+    customer = Person(
+        first_name="Customer",
+        last_name="Placeholder",
+        email="chatwoot-6599@placeholder.local",
+    )
+    db_session.add(customer)
+    db_session.flush()
+    db_session.add_all(
+        [
+            PersonChannel(
+                person_id=customer.id,
+                channel_type=ChannelType.email,
+                address="chatwoot-6599@placeholder.local",
+                is_primary=False,
+            ),
+            PersonChannel(
+                person_id=customer.id,
+                channel_type=ChannelType.email,
+                address="ukwa.kalu@gmail.com",
+                is_primary=True,
+            ),
+        ]
+    )
+    ticket.customer_person_id = customer.id
+    db_session.commit()
+    db_session.refresh(ticket)
+
+    assert tickets_service._resolve_customer_email(ticket, db_session) == "ukwa.kalu@gmail.com"
+
+
+def test_ticket_customer_email_ignores_placeholder_only_contact(db_session, ticket):
+    customer = Person(
+        first_name="Customer",
+        last_name="Placeholder",
+        email="chatwoot-6599@placeholder.local",
+    )
+    db_session.add(customer)
+    db_session.flush()
+    db_session.add(
+        PersonChannel(
+            person_id=customer.id,
+            channel_type=ChannelType.email,
+            address="chatwoot-6599@placeholder.local",
+            is_primary=True,
+        )
+    )
+    ticket.customer_person_id = customer.id
+    db_session.commit()
+    db_session.refresh(ticket)
+
+    assert tickets_service._resolve_customer_email(ticket, db_session) is None
 
 
 def test_public_technician_comment_emits_customer_update_event(db_session, ticket, monkeypatch):
