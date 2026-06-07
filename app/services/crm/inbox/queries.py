@@ -29,6 +29,7 @@ from app.services.common import coerce_uuid
 from app.services.crm.inbox import outbox as outbox_service
 
 UNASSIGNED_ACTIVITY_START_UTC = datetime(2026, 1, 1, tzinfo=UTC)
+RESOLVED_LIST_STATUSES = {ConversationStatus.resolved, ConversationStatus.resolved_to_ticket}
 
 
 def _ensure_summary_rows(db: Session) -> None:
@@ -287,7 +288,7 @@ def list_inbox_conversations(
             tagged_ids = db.query(ConversationTag.conversation_id).distinct().subquery()
             query = query.filter(~Conversation.id.in_(db.query(tagged_ids.c.conversation_id)))
 
-    if exclude_superseded_resolved and (not status or status != ConversationStatus.resolved):
+    if exclude_superseded_resolved and (not status or status not in RESOLVED_LIST_STATUSES):
         other = aliased(Conversation)
         newer_open = (
             db.query(other.id)
@@ -297,7 +298,7 @@ def list_inbox_conversations(
             .filter(other.updated_at > Conversation.updated_at)
             .exists()
         )
-        query = query.filter(~((Conversation.status == ConversationStatus.resolved) & newer_open))
+        query = query.filter(~(Conversation.status.in_(RESOLVED_LIST_STATUSES) & newer_open))
 
     outbox_status_filter = (outbox_status or "").strip().lower() or None
     failed_outbox_subq = None
@@ -312,9 +313,10 @@ def list_inbox_conversations(
         (Conversation.priority == ConversationPriority.low, 3),
         else_=4,
     )
-    # Keep active conversations ahead of resolved across inbox listing modes.
+    # Keep active conversations ahead of resolved-style states across inbox listing modes.
     status_sort_expr = case(
         (Conversation.status == ConversationStatus.resolved, 1),
+        (Conversation.status == ConversationStatus.resolved_to_ticket, 1),
         else_=0,
     )
 
@@ -544,7 +546,7 @@ def list_inbox_conversations(
 def get_inbox_stats(db: Session) -> dict:
     """Get inbox statistics efficiently.
 
-    Returns: {total, open, pending, snoozed, resolved, unread}
+    Returns: {total, open, pending, snoozed, resolved_to_ticket, resolved, unread}
     Uses single GROUP BY query instead of loading all conversations.
     """
     cache = db.info.setdefault("_inbox_query_cache", {})
@@ -570,6 +572,7 @@ def get_inbox_stats(db: Session) -> dict:
         "open": 0,
         "pending": 0,
         "snoozed": 0,
+        "resolved_to_ticket": 0,
         "resolved": 0,
         "unread": 0,
     }
@@ -582,6 +585,8 @@ def get_inbox_stats(db: Session) -> dict:
             stats["pending"] = count
         elif status == ConversationStatus.snoozed:
             stats["snoozed"] = count
+        elif status == ConversationStatus.resolved_to_ticket:
+            stats["resolved_to_ticket"] = count
         elif status == ConversationStatus.resolved:
             stats["resolved"] = count
 

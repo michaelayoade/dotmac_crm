@@ -28,6 +28,14 @@ from app.services.crm.inbox.status_flow import apply_status_transition
 
 logger = logging.getLogger(__name__)
 _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_WHATSAPP_COUNTRY_CODES: dict[str, str] = {
+    "NG": "234",
+    "GH": "233",
+    "ZA": "27",
+    "KE": "254",
+    "GB": "44",
+    "US": "1",
+}
 
 
 @dataclass(frozen=True)
@@ -141,6 +149,27 @@ def _parse_bcc_addresses(raw: str | None) -> list[str] | None:
         seen.add(candidate)
         deduped.append(candidate)
     return deduped or None
+
+
+def _normalize_whatsapp_address_for_country(address: str | None, country_code: str | None) -> str:
+    raw = (address or "").strip()
+    if not raw:
+        return ""
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        return raw
+
+    if raw.lstrip().startswith("+"):
+        return f"+{digits}"
+    if digits.startswith("00") and len(digits) > 2:
+        return f"+{digits[2:]}"
+
+    calling_code = _WHATSAPP_COUNTRY_CODES.get((country_code or "NG").strip().upper(), "234")
+    if digits.startswith(calling_code):
+        return f"+{digits}"
+    if digits.startswith("0") and len(digits) > 1:
+        digits = digits[1:]
+    return f"+{calling_code}{digits}"
 
 
 def send_conversation_message(
@@ -358,6 +387,7 @@ def start_new_conversation(
     channel_target_id: str | None,
     contact_id: str | None,
     contact_address: str,
+    contact_country_code: str | None = None,
     contact_name: str | None,
     cc_addresses_raw: str | None,
     bcc_addresses_raw: str | None,
@@ -464,6 +494,7 @@ def start_new_conversation(
                 kind="missing_recipient",
                 error_detail="WhatsApp number is required",
             )
+        address = _normalize_whatsapp_address_for_country(address, contact_country_code)
         contact, selected_person_channel = get_or_create_contact_by_channel(
             db,
             channel_enum,

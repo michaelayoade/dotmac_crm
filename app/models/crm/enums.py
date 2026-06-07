@@ -14,6 +14,7 @@ class ConversationStatus(enum.Enum):
     open = "open"
     pending = "pending"
     snoozed = "snoozed"
+    resolved_to_ticket = "resolved_to_ticket"
     resolved = "resolved"
 
 

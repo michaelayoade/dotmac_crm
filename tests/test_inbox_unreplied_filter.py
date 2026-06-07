@@ -353,3 +353,14 @@ def test_inbox_unread_stat_counts_customer_awaiting_response(db_session):
 
     stats = get_inbox_stats(db_session)
     assert stats["unread"] == 2
+
+
+def test_inbox_stats_count_resolved_to_ticket_status(db_session):
+    contact = _create_person(db_session, name="TicketHandoff")
+    conversation = _create_conversation(db_session, contact, subject="Sent to ticket")
+    conversation.status = ConversationStatus.resolved_to_ticket
+    db_session.commit()
+
+    stats = get_inbox_stats(db_session)
+
+    assert stats["resolved_to_ticket"] == 1
