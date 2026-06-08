@@ -16,6 +16,7 @@ from app.services import crm as crm_service
 from app.services import person as person_service
 from app.services.crm.ai_intake import list_configs_by_scope, make_scope_key
 from app.services.crm.chat_widget import widget_configs
+from app.services.crm.inbox.agent_introduction import get_introduction_template
 from app.services.crm.inbox.csat import get_enabled_map as get_csat_enabled_map
 from app.services.crm.inbox.inboxes import (
     get_email_channel_state,
@@ -93,6 +94,9 @@ def build_inbox_settings_context(
     macro_setup = query_params.get("macro_setup")
     macro_error = query_params.get("macro_error")
     macro_error_detail = query_params.get("macro_error_detail")
+    introduction_setup = query_params.get("introduction_setup")
+    introduction_error = query_params.get("introduction_error")
+    introduction_error_detail = query_params.get("introduction_error_detail")
     label_setup = query_params.get("label_setup")
     label_error = query_params.get("label_error")
     label_error_detail = query_params.get("label_error_detail")
@@ -305,6 +309,10 @@ def build_inbox_settings_context(
         "macro_setup": macro_setup,
         "macro_error": macro_error,
         "macro_error_detail": macro_error_detail,
+        "introduction_template": get_introduction_template(db, current_user),
+        "introduction_setup": introduction_setup,
+        "introduction_error": introduction_error,
+        "introduction_error_detail": introduction_error_detail,
         "conversation_labels": list_managed_labels(db),
         "label_setup": label_setup,
         "label_error": label_error,
