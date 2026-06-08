@@ -811,6 +811,7 @@
 	<!-- Compose Area -->
 	<div class="border-t border-slate-200 bg-slate-50/90 backdrop-blur-sm px-6 py-4 dark:border-slate-800/60 dark:bg-slate-900/50"
 	     data-mention-agents="{{ (mention_agents or [])|tojson|forceescape }}"
+	     data-introduction-text="{{ (rendered_introduction_template or '')|forceescape }}"
 	     x-data="{
 	         showPrivateNote: sessionStorage.getItem('privateNoteOpen:{{ conversation.id }}') === '1',
 	         privateNoteDraft: sessionStorage.getItem('privateNoteDraft:{{ conversation.id }}') || '',
@@ -821,6 +822,19 @@
 	         mentionIndex: 0,
          privateMentionDraft: [],
          messageMentionDraft: [],
+
+         insertIntroduction() {
+             const textarea = this.$refs.messageInput;
+             const text = this.$el.dataset.introductionText || '';
+             if (!textarea || !text) return;
+             const existing = textarea.value || '';
+             const separator = existing.trim() && !existing.endsWith('\n') ? '\n' : '';
+             textarea.value = `${existing}${separator}${text}`;
+             const pos = textarea.value.length;
+             textarea.focus();
+             textarea.setSelectionRange(pos, pos);
+             textarea.dispatchEvent(new Event('input', { bubbles: true }));
+         },
 
          _findMentionQuery(textarea) {
              if (!textarea) return null;
@@ -1081,6 +1095,11 @@
 
             <!-- Template + schedule -->
             <div class="flex flex-col gap-2">
+                <button type="button"
+                        @click="insertIntroduction()"
+                        class="inline-flex items-center justify-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 shadow-sm hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-200 dark:hover:bg-primary-500/20">
+                    Insert Introduction
+                </button>
                 <select name="template_id"
                         class="min-w-[180px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-primary-500/40 dark:border-slate-700/50 dark:bg-slate-900/40 dark:text-slate-200"
                         @change="

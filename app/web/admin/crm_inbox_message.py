@@ -132,6 +132,7 @@ async def send_message(
             current_roles,
         )
         from app.logic import private_note_logic
+        from app.services.crm.inbox.agent_introduction import get_introduction_template, render_introduction_template
         from app.services.crm.inbox.agents import list_active_agents_for_mentions
         from app.services.crm.inbox.templates import message_templates
 
@@ -161,6 +162,8 @@ async def send_message(
                 "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
                 "message_templates": template_list,
                 "mention_agents": mention_agents,
+                "introduction_template": get_introduction_template(db, current_user),
+                "rendered_introduction_template": render_introduction_template(db, current_user),
             },
         )
     except Exception as exc:
