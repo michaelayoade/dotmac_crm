@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.services.crm.ai_intake import save_ai_intake_config
+from app.services.crm.inbox.agent_introduction import save_introduction_template
 from app.services.crm.inbox.csat import update_inbox_toggle
 from app.services.crm.inbox.labels import create_or_reactivate_label, delete_label, update_label
 from app.services.crm.inbox.permissions import can_manage_inbox_settings
@@ -69,6 +70,28 @@ async def inbox_settings(
             "request": request,
             **context,
         },
+    )
+
+
+@router.post("/inbox/introduction-template", response_class=HTMLResponse)
+async def update_inbox_introduction_template(
+    request: Request,
+    introduction_template: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    from app.web.admin._auth_helpers import get_current_user
+
+    result = save_introduction_template(
+        db,
+        get_current_user(request),
+        introduction_template,
+    )
+    if result.ok:
+        return RedirectResponse(url="/admin/crm/inbox/settings?introduction_setup=1", status_code=303)
+    detail = quote(result.error_detail or "Failed to save introduction template", safe="")
+    return RedirectResponse(
+        url=f"/admin/crm/inbox/settings?introduction_error=1&introduction_error_detail={detail}",
+        status_code=303,
     )
 
 

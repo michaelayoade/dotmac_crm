@@ -24,6 +24,10 @@ from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox import cache as inbox_cache
+from app.services.crm.inbox.agent_introduction import (
+    get_introduction_template,
+    render_introduction_template,
+)
 from app.services.crm.inbox.agents import get_current_agent_id, list_active_agents_for_mentions
 from app.services.crm.inbox.comments_context import list_comment_inboxes, load_comments_context
 from app.services.crm.inbox.csat import get_conversation_csat_event
@@ -571,6 +575,8 @@ async def build_inbox_page_context(
         "macros": conversation_macros.list_for_agent(db, str(current_agent_id))
         if current_agent_id
         else conversation_macros.list(db, visibility="shared", is_active=True, limit=200),
+        "introduction_template": get_introduction_template(db, current_user),
+        "rendered_introduction_template": render_introduction_template(db, current_user),
     }
 
 
@@ -855,4 +861,6 @@ def build_inbox_conversation_detail_context(
         "assignment_events": assignment_events,
         "latest_manual_assignment": latest_manual_assignment,
         "macros": macros,
+        "introduction_template": get_introduction_template(db, current_user),
+        "rendered_introduction_template": render_introduction_template(db, current_user),
     }
