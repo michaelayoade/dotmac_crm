@@ -129,6 +129,54 @@
             </div>
         </div>
 
+        {% set active_tickets = contact.active_tickets if contact.active_tickets is defined else [] %}
+        <div class="mt-4">
+            <div class="mb-3 flex items-center justify-between gap-2">
+                <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Active Tickets</h3>
+                {% if active_tickets %}
+                <span class="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                    {{ active_tickets|length }}
+                </span>
+                {% endif %}
+            </div>
+            {% if active_tickets %}
+            <div class="space-y-2">
+                {% for ticket in active_tickets %}
+                <div class="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <p class="text-[11px] font-semibold text-amber-200">#{{ ticket.ticket_number }}</p>
+                            <p class="mt-0.5 truncate text-sm font-semibold text-white">{{ ticket.subject }}</p>
+                            <p class="mt-1 text-[11px] text-slate-300">
+                                {{ ticket.status|replace('_', ' ')|title }}{% if ticket.priority %} · {{ ticket.priority|replace('_', ' ')|title }}{% endif %}
+                            </p>
+                            <p class="mt-1 text-[11px] text-slate-400">
+                                Assigned:
+                                {% if ticket.assigned_team or ticket.assigned_user %}
+                                    {{ ticket.assigned_team or ticket.assigned_user }}{% if ticket.assigned_team and ticket.assigned_user %} · {{ ticket.assigned_user }}{% endif %}
+                                {% else %}
+                                    Unassigned
+                                {% endif %}
+                            </p>
+                            <p class="mt-1 text-[10px] text-slate-500">
+                                Created {{ ticket.created_at or '—' }} · Updated {{ ticket.updated_at or '—' }}
+                            </p>
+                        </div>
+                        <a href="{{ ticket.url }}"
+                           class="flex-shrink-0 rounded-lg border border-amber-500/30 bg-slate-950/40 px-2.5 py-1.5 text-[10px] font-semibold text-amber-200 transition-colors hover:bg-amber-500/20 hover:text-white">
+                            Open Ticket
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="rounded-xl border border-slate-700/40 bg-slate-800/30 px-3 py-2 text-[11px] text-slate-400">
+                No active tickets
+            </p>
+            {% endif %}
+        </div>
+
         {% if retention_card and retention_card.enabled %}
         <div class="mt-4 overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-700/70 dark:bg-slate-900"
              x-data="{ retentionOpen: {{ 'true' if retention_card.open else 'false' }} }">

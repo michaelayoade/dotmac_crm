@@ -6,8 +6,8 @@ import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
 
-from sqlalchemy import func
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy import String, case, func, or_
+from sqlalchemy.orm import Session, aliased, joinedload
 
 from app.logic import private_note_logic
 from app.models.connector import ConnectorType
@@ -19,6 +19,7 @@ from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.models.subscriber import Subscriber
+from app.models.tickets import Ticket, TicketAssignee, TicketPriority, TicketStatus
 from app.services import crm as crm_service
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
@@ -50,6 +51,47 @@ from app.services.time_preferences import resolve_company_time_prefs
 
 logger = logging.getLogger(__name__)
 _DETAIL_CHOICES_TTL_SECONDS = 30
+_ACTIVE_TICKET_TERMINAL_STATUSES = {
+    TicketStatus.closed,
+    TicketStatus.canceled,
+    TicketStatus.merged,
+}
+_ACTIVE_TICKET_STATUS_SORT = {
+    TicketStatus.new: 0,
+    TicketStatus.open: 0,
+    TicketStatus.pending: 1,
+    TicketStatus.waiting_on_customer: 2,
+    TicketStatus.lastmile_rerun: 3,
+    TicketStatus.site_under_construction: 3,
+    TicketStatus.on_hold: 4,
+}
+_ACTIVE_TICKET_PRIORITY_SORT = {
+    TicketPriority.urgent: 0,
+    TicketPriority.high: 1,
+    TicketPriority.normal: 2,
+    TicketPriority.medium: 2,
+    TicketPriority.low: 3,
+    TicketPriority.lower: 4,
+}
+
+
+def _enum_value(value) -> str:
+    return getattr(value, "value", str(value or ""))
+
+
+def _can_view_active_customer_tickets(current_user: dict | None) -> bool:
+    if not isinstance(current_user, dict):
+        return False
+    roles = {str(role).lower() for role in current_user.get("roles") or []}
+    permissions = {
+        str(permission).strip().lower()
+        for permission in [
+            *(current_user.get("permissions") or []),
+            *(current_user.get("scopes") or []),
+        ]
+        if str(permission).strip()
+    }
+    return bool({"admin", "agent", "agents"} & roles) or "support:ticket:read" in permissions
 
 
 def _load_retention_billing_risk_helpers():
@@ -60,6 +102,103 @@ def _load_retention_billing_risk_helpers():
     )
 
     return RETENTION_PIPELINE_STEPS, _retention_engagement_payload, _retention_rep_options
+
+
+def _resolve_contact_subscriber_ids(
+    db: Session,
+    *,
+    contact: Person,
+    conversation_id: str | None,
+) -> list:
+    subscriber_ids = set()
+    if conversation_id:
+        conversation = db.get(Conversation, coerce_uuid(conversation_id))
+        metadata = conversation.metadata_ if conversation and isinstance(conversation.metadata_, dict) else {}
+        raw_subscriber_id = str(metadata.get("subscriber_id") or "").strip()
+        if raw_subscriber_id:
+            try:
+                subscriber_ids.add(coerce_uuid(raw_subscriber_id))
+            except Exception:
+                logger.debug("inbox_contact_invalid_subscriber_id conversation_id=%s", conversation_id)
+
+    contact_id = contact.id
+    query = db.query(Subscriber.id).filter(Subscriber.is_active.is_(True))
+    filters = [Subscriber.person_id == contact_id]
+
+    metadata = contact.metadata_ if isinstance(contact.metadata_, dict) else {}
+    account_tokens = {
+        str(metadata.get(key) or "").strip()
+        for key in ("splynx_id", "external_customer_id", "customer_id")
+        if str(metadata.get(key) or "").strip()
+    }
+    if account_tokens:
+        filters.append(Subscriber.external_id.in_(account_tokens))
+        filters.append(Subscriber.subscriber_number.in_(account_tokens))
+        filters.append(Subscriber.account_number.in_(account_tokens))
+
+    for (subscriber_id,) in query.filter(or_(*filters)).all():
+        subscriber_ids.add(subscriber_id)
+    return list(subscriber_ids)
+
+
+def _format_active_customer_ticket(ticket: Ticket, db: Session) -> dict:
+    ticket_ref = ticket.number or str(ticket.id)
+    assignee = ticket.assigned_to or (ticket.assignees[0].person if ticket.assignees else None)
+    return {
+        "id": str(ticket.id),
+        "ticket_number": ticket_ref,
+        "subject": ticket.title or "No subject",
+        "status": _enum_value(ticket.status),
+        "priority": _enum_value(ticket.priority),
+        "assigned_team": ticket.service_team.name if ticket.service_team else "",
+        "assigned_user": _person_label(assignee),
+        "created_at": _format_inbox_datetime_label(ticket.created_at, db) if ticket.created_at else "",
+        "updated_at": _format_inbox_datetime_label(ticket.updated_at, db) if ticket.updated_at else "",
+        "url": f"/admin/support/tickets/{ticket_ref}",
+    }
+
+
+def _load_active_customer_tickets(
+    db: Session,
+    *,
+    contact: Person,
+    conversation_id: str | None,
+    current_user: dict | None,
+    limit: int = 10,
+) -> list[dict]:
+    if not _can_view_active_customer_tickets(current_user):
+        return []
+
+    subscriber_ids = _resolve_contact_subscriber_ids(db, contact=contact, conversation_id=conversation_id)
+    ticket_filters = [Ticket.customer_person_id == contact.id]
+    if subscriber_ids:
+        ticket_filters.append(Ticket.subscriber_id.in_(subscriber_ids))
+
+    priority_order = case(
+        {_enum_value(priority): rank for priority, rank in _ACTIVE_TICKET_PRIORITY_SORT.items()},
+        value=Ticket.priority.cast(String),
+        else_=99,
+    )
+    status_order = case(
+        {_enum_value(status): rank for status, rank in _ACTIVE_TICKET_STATUS_SORT.items()},
+        value=Ticket.status.cast(String),
+        else_=99,
+    )
+    tickets = (
+        db.query(Ticket)
+        .options(
+            joinedload(Ticket.service_team),
+            joinedload(Ticket.assigned_to),
+            joinedload(Ticket.assignees).joinedload(TicketAssignee.person),
+        )
+        .filter(Ticket.is_active.is_(True))
+        .filter(Ticket.status.notin_(list(_ACTIVE_TICKET_TERMINAL_STATUSES)))
+        .filter(or_(*ticket_filters))
+        .order_by(priority_order, status_order, Ticket.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [_format_active_customer_ticket(ticket, db) for ticket in tickets]
 
 
 def _message_template_choice_payload(template) -> dict[str, str]:
@@ -704,6 +843,13 @@ def build_inbox_contact_detail_context(
         return None
 
     contact_details = format_contact_for_template(contact, db)
+    contact_details["active_tickets"] = _load_active_customer_tickets(
+        db,
+        contact=contact,
+        conversation_id=conversation_id,
+        current_user=current_user,
+        limit=10,
+    )
     private_notes: list[dict] = []
     notes_query = (
         db.query(Message)
