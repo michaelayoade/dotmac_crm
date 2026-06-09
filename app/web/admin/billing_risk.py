@@ -11,7 +11,7 @@ from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import bindparam, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -21,8 +21,8 @@ from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
 from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.person import Person
 from app.models.service_team import ServiceTeam, ServiceTeamMember
-from app.models.subscriber import Subscriber
-from app.services import billing_risk_cache
+from app.models.subscriber import Subscriber, SubscriberBillingRiskSnapshot
+from app.services import billing_risk_cache, splynx
 from app.services import billing_risk_reports as billing_risk_service
 from app.services.common import coerce_uuid
 from app.services.crm.web_campaigns import create_billing_risk_outreach_campaign, outreach_channel_target_options
@@ -64,6 +64,7 @@ RETENTION_REP_TEAM_OVERRIDES = {
 }
 RETENTION_REP_LABEL_ONLY_NAMES = {"ejiro onovwiona"}
 RETENTION_EXCLUDED_CUSTOMER_NAMES = {"test", "test account"}
+ACTIVE_OFFLINE_LAST_SEEN_START = date(2026, 3, 1)
 
 
 def _normalize_customer_name_for_exclusion(name: object) -> str:
@@ -101,6 +102,7 @@ def _normalize_segment_filters(segments: list[str] | str | None, segment: str | 
 
 def _segment_labels(selected_segments: list[str]) -> set[str]:
     mapping = {
+        "active": "Active",
         "overdue": "Due Soon",
         "suspended": "Suspended",
         "due_soon": "Due Soon",
@@ -110,17 +112,253 @@ def _segment_labels(selected_segments: list[str]) -> set[str]:
     return {mapping[key] for key in selected_segments if key in mapping}
 
 
-def _billing_risk_required_segments() -> list[str]:
+def _normalize_billing_risk_customer_status(value: str | None) -> str:
+    normalized = str(value or "suspended").strip().lower()
+    if normalized in {"active", "suspended", "all"}:
+        return normalized
+    return "suspended"
+
+
+def _normalize_billing_type_filter(value: str | None) -> str:
+    normalized = str(value or "all").strip().lower()
+    if normalized in {"prepaid", "postpaid", "all"}:
+        return normalized
+    return "all"
+
+
+def _billing_type_category(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized.startswith("prepaid"):
+        return "prepaid"
+    if normalized in {"recurring", "postpaid"}:
+        return "postpaid"
+    return ""
+
+
+def _billing_risk_billing_type_rows(rows: list[dict], billing_type: str) -> list[dict]:
+    normalized = _normalize_billing_type_filter(billing_type)
+    if normalized == "all":
+        return rows
+    return [row for row in rows if _billing_type_category(row.get("billing_type")) == normalized]
+
+
+def _billing_risk_segments_for_customer_status(customer_status: str) -> list[str]:
+    normalized = _normalize_billing_risk_customer_status(customer_status)
+    if normalized == "active":
+        return ["active", "due_soon"]
+    if normalized == "all":
+        return ["active", "due_soon", "suspended"]
     return ["suspended"]
 
 
-def _billing_risk_suspended_status_rows(rows: list[dict]) -> list[dict]:
+def _billing_risk_status_rows(rows: list[dict], customer_status: str) -> list[dict]:
+    normalized = _normalize_billing_risk_customer_status(customer_status)
+    allowed_statuses = {"active", "suspended"} if normalized == "all" else {normalized}
     return [
         row
         for row in rows
-        if str(row.get("risk_segment") or "").strip().lower() == "suspended"
-        and str(row.get("subscriber_status") or row.get("status") or "").strip().lower() == "suspended"
+        if str(row.get("subscriber_status") or row.get("status") or "").strip().lower() in allowed_statuses
     ]
+
+
+def _billing_risk_row_customer_id(row: dict) -> str:
+    return str(row.get("_external_id") or row.get("subscriber_id") or row.get("_subscriber_number") or "").strip()
+
+
+def _coerce_money_value(value: object) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _service_plan_text(services_payload: object) -> str:
+    if not isinstance(services_payload, list):
+        return ""
+    services = [service for service in services_payload if isinstance(service, dict)]
+    primary_service = splynx._select_primary_service(services)
+    if not isinstance(primary_service, dict):
+        return ""
+    for key in ("description", "tariff_name", "plan_name", "package", "name"):
+        text = str(primary_service.get(key) or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _enrich_missing_plan_fields(db: Session, rows: list[dict]) -> None:
+    for row in rows:
+        if str(row.get("plan") or "").strip():
+            continue
+        customer_id = _billing_risk_row_customer_id(row)
+        if not customer_id:
+            continue
+        try:
+            services_payload = splynx.fetch_customer_internet_services(db, customer_id)
+        except Exception:
+            services_payload = []
+        plan = _service_plan_text(services_payload)
+        if plan:
+            row["plan"] = plan
+
+
+def _enrich_account_balance_deposit(db: Session, rows: list[dict]) -> None:
+    for row in rows:
+        subscriber_status = str(row.get("subscriber_status") or row.get("status") or "").strip().lower()
+        is_postpaid = _billing_type_category(row.get("billing_type")) == "postpaid"
+        cached_account_balance_deposit = _coerce_money_value(row.get("account_balance_deposit"))
+        needs_account_balance_deposit = is_postpaid and cached_account_balance_deposit in (None, 0)
+        needs_service_expiration_date = subscriber_status == "active" or not any(
+            str(row.get(key) or "").strip() for key in ("blocked_date", "next_bill_date", "billing_end_date")
+        )
+        if not needs_account_balance_deposit and not needs_service_expiration_date:
+            continue
+        customer_id = _billing_risk_row_customer_id(row)
+        if not customer_id:
+            continue
+        try:
+            billing_payload = splynx.fetch_customer_billing(db, customer_id)
+        except Exception:
+            billing_payload = None
+        if isinstance(billing_payload, dict):
+            if needs_account_balance_deposit:
+                row["account_balance_deposit"] = _coerce_money_value(billing_payload.get("deposit"))
+            if needs_service_expiration_date:
+                service_expiration_date = billing_risk_service._service_expiration_date_from_billing(
+                    billing_payload,
+                    subscriber_status=subscriber_status,
+                )
+                if service_expiration_date:
+                    row["next_bill_date"] = service_expiration_date
+                    row["billing_end_date"] = service_expiration_date
+                elif subscriber_status == "active":
+                    row["next_bill_date"] = ""
+                    row["billing_end_date"] = ""
+
+
+def _active_toggle_uptime_rows(db: Session, rows: list[dict], customer_status: str) -> list[dict]:
+    if _normalize_billing_risk_customer_status(customer_status) != "active" or not rows:
+        return rows
+
+    today = datetime.now(UTC).date()
+    customer_ids = sorted({_billing_risk_row_customer_id(row) for row in rows if _billing_risk_row_customer_id(row)})
+    if not customer_ids:
+        return []
+
+    statement = text(
+        """
+        with latest_service as (
+            select distinct on (customer_id, coalesce(service_id, ''))
+                customer_id,
+                service_id,
+                is_online,
+                observed_at
+            from customer_uptime_snapshots
+            where customer_id in :customer_ids
+            order by customer_id, coalesce(service_id, ''), observed_at desc
+        ),
+        latest_customer as (
+            select
+                customer_id,
+                bool_or(is_online) as is_online,
+                max(observed_at) as observed_at
+            from latest_service
+            group by customer_id
+        ),
+        online_history as (
+            select
+                customer_id,
+                max(coalesce(last_change, observed_at)) as last_seen_at
+            from customer_uptime_snapshots
+            where customer_id in :customer_ids
+              and is_online = true
+            group by customer_id
+        )
+        select
+            latest_customer.customer_id,
+            latest_customer.is_online,
+            latest_customer.observed_at,
+            online_history.last_seen_at
+        from latest_customer
+        left join online_history on online_history.customer_id = latest_customer.customer_id
+        """
+    ).bindparams(bindparam("customer_ids", expanding=True))
+    uptime_by_customer = {
+        str(row.customer_id): {
+            "is_online": bool(row.is_online),
+            "observed_at": row.observed_at,
+            "last_seen_at": row.last_seen_at,
+        }
+        for row in db.execute(statement, {"customer_ids": customer_ids})
+    }
+
+    filtered_rows: list[dict] = []
+    for row in rows:
+        customer_id = _billing_risk_row_customer_id(row)
+        uptime = uptime_by_customer.get(customer_id)
+        if uptime and uptime["is_online"]:
+            row["_network_is_online"] = True
+            row["_network_observed_at"] = uptime["observed_at"]
+            filtered_rows.append(row)
+            continue
+
+        last_seen_date = _parse_report_date(uptime.get("last_seen_at") if uptime else None) or _parse_report_date(
+            row.get("_customer_last_online")
+        )
+        if last_seen_date is not None and ACTIVE_OFFLINE_LAST_SEEN_START <= last_seen_date <= today:
+            row["_network_is_online"] = False
+            row["_network_last_seen_at"] = last_seen_date.isoformat()
+            filtered_rows.append(row)
+
+    return filtered_rows
+
+
+def _parse_report_date(value: object) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text or text == "0000-00-00":
+        return None
+    try:
+        return datetime.fromisoformat(text[:10]).date()
+    except ValueError:
+        return None
+
+
+def _enrich_expiration_fields(rows: list[dict]) -> None:
+    today = datetime.now(UTC).date()
+    for row in rows:
+        subscriber_status = str(row.get("subscriber_status") or row.get("status") or "").strip().lower()
+        uses_billing_cutoff = subscriber_status in {"active", "suspended"}
+        is_postpaid = _billing_type_category(row.get("billing_type")) == "postpaid"
+        expiration_date = _parse_report_date(
+            row.get("blocked_date") or row.get("next_bill_date") or row.get("billing_end_date")
+        )
+        if uses_billing_cutoff and expiration_date is not None:
+            row["expiration_date"] = expiration_date.isoformat()
+            row["service_expiration_date"] = expiration_date.isoformat()
+            row["remaining_days"] = (expiration_date - today).days
+        else:
+            row["expiration_date"] = ""
+            row["service_expiration_date"] = ""
+            row["remaining_days"] = None
+        if is_postpaid:
+            account_balance_deposit = _coerce_money_value(row.get("account_balance_deposit"))
+            if account_balance_deposit in (None, 0):
+                account_balance_deposit = _coerce_money_value(row.get("balance"))
+            if account_balance_deposit is None:
+                account_balance_deposit = 0.0
+            row["revenue_owed"] = float(account_balance_deposit)
+            row["postpaid_remaining_days"] = (expiration_date - today).days if expiration_date is not None else None
+        else:
+            row["revenue_owed"] = None
+            row["postpaid_remaining_days"] = None
 
 
 def _csv_response(data: list[dict], filename: str) -> StreamingResponse:
@@ -192,6 +430,8 @@ def _billing_risk_page_rows(
     customer_segment: str | None = None,
     location: str | None = None,
     mrr_sort: str | None = None,
+    customer_status: str = "suspended",
+    billing_type: str = "all",
 ) -> tuple[list[dict], dict[str, int | float], bool]:
     requested_page_size = max(1, int(page_size))
     churn_rows = billing_risk_service.get_billing_risk_table(
@@ -215,12 +455,17 @@ def _billing_risk_page_rows(
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
-    churn_rows = _billing_risk_suspended_status_rows(churn_rows)
+    churn_rows = _billing_risk_status_rows(churn_rows, customer_status)
+    churn_rows = _active_toggle_uptime_rows(db, churn_rows, customer_status)
+    churn_rows = _billing_risk_billing_type_rows(churn_rows, billing_type)
     has_next = len(churn_rows) > requested_page_size
     visible_rows = [dict(row) for row in churn_rows[:requested_page_size]]
     if not str(search or "").strip():
         billing_risk_service.enrich_billing_risk_rows(visible_rows)
+    _enrich_missing_plan_fields(db, visible_rows)
     _enrich_missing_blocked_fields(visible_rows, force_live=False)
+    _enrich_account_balance_deposit(db, visible_rows)
+    _enrich_expiration_fields(visible_rows)
     return visible_rows, _billing_risk_page_metrics(visible_rows), has_next
 
 
@@ -283,6 +528,47 @@ def _billing_risk_rows_source(
     return rows, {"mode": "live", "metadata": {"row_count": len(rows)}}
 
 
+def _billing_risk_location_options(
+    db: Session,
+    *,
+    due_soon_days: int,
+    segment: str | None,
+    selected_location: str | None = None,
+) -> list[str]:
+    selected_segments = ["active", "due_soon", "suspended"]
+    if settings.billing_risk_route_use_cache and _billing_risk_cache_available(db):
+        locations = billing_risk_cache.location_options_cached(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=False,
+            selected_segments=selected_segments,
+            days_past_due=None,
+            search=None,
+            overdue_bucket="all",
+        )
+    else:
+        rows, _ = _billing_risk_rows_source(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=False,
+            segment=segment,
+            selected_segments=selected_segments,
+            days_past_due=None,
+            search=None,
+            overdue_bucket="all",
+            enterprise_only=False,
+            customer_segment="all",
+            location="",
+            mrr_sort=None,
+            limit=10000,
+        )
+        locations = [str(row.get("location") or "").strip() for row in rows if str(row.get("location") or "").strip()]
+    normalized_locations = {str(location or "").strip() for location in locations if str(location or "").strip()}
+    if selected_location:
+        normalized_locations.add(str(selected_location).strip())
+    return sorted(normalized_locations, key=str.casefold)
+
+
 def _billing_risk_cached_page_rows(
     db: Session,
     *,
@@ -295,35 +581,53 @@ def _billing_risk_cached_page_rows(
     search: str | None,
     overdue_bucket: str | None,
     location: str | None = None,
+    customer_status: str = "suspended",
+    billing_type: str = "all",
 ) -> tuple[list[dict], dict[str, int | float], bool]:
-    cached_page = billing_risk_cache.list_cached_rows(
+    requested_page_size = max(1, int(page_size))
+    requested_page = max(1, int(page))
+    cached_rows = billing_risk_cache.all_cached_rows(
         db,
         due_soon_days=due_soon_days,
         high_balance_only=high_balance_only,
         selected_segments=selected_segments,
         days_past_due=days_past_due,
-        page=page,
-        page_size=page_size,
         search=search,
         overdue_bucket=overdue_bucket,
         location=location,
+        limit=10000,
     )
-    visible_rows = [dict(row) for row in cached_page.rows]
-    visible_rows = _billing_risk_suspended_status_rows(visible_rows)
+    filtered_rows = _billing_risk_status_rows([dict(row) for row in cached_rows], customer_status)
+    filtered_rows = _active_toggle_uptime_rows(db, filtered_rows, customer_status)
+    filtered_rows = _billing_risk_billing_type_rows(filtered_rows, billing_type)
+    start = (requested_page - 1) * requested_page_size
+    end = start + requested_page_size
+    visible_rows = filtered_rows[start:end]
+    _enrich_missing_plan_fields(db, visible_rows)
     _enrich_missing_blocked_fields(visible_rows, force_live=False)
-    return visible_rows, _billing_risk_page_metrics(visible_rows), cached_page.has_next
+    _enrich_account_balance_deposit(db, visible_rows)
+    _enrich_expiration_fields(visible_rows)
+    return visible_rows, _billing_risk_page_metrics(visible_rows), len(filtered_rows) > end
 
 
 def _billing_risk_initial_rows(
+    db: Session,
     churn_rows: list[dict],
     *,
     page_size: int,
+    customer_status: str = "suspended",
+    billing_type: str = "all",
 ) -> tuple[list[dict], dict[str, int | float], bool]:
-    churn_rows = _billing_risk_suspended_status_rows(churn_rows)
+    churn_rows = _billing_risk_status_rows(churn_rows, customer_status)
+    churn_rows = _active_toggle_uptime_rows(db, churn_rows, customer_status)
+    churn_rows = _billing_risk_billing_type_rows(churn_rows, billing_type)
     has_next = len(churn_rows) > page_size
     visible_rows = [dict(row) for row in churn_rows[:page_size]]
     billing_risk_service.enrich_billing_risk_rows(visible_rows)
+    _enrich_missing_plan_fields(db, visible_rows)
     _enrich_missing_blocked_fields(visible_rows, force_live=False)
+    _enrich_account_balance_deposit(db, visible_rows)
+    _enrich_expiration_fields(visible_rows)
     return visible_rows, _billing_risk_page_metrics(visible_rows), has_next
 
 
@@ -352,7 +656,78 @@ def _billing_risk_unfiltered_at_risk_count(
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         rows = [row for row in rows if str(row.get("risk_segment") or "") in selected_labels]
-    return len(_billing_risk_suspended_status_rows(rows))
+    return len(_billing_risk_status_rows(rows, "all"))
+
+
+def _billing_risk_unfiltered_kpis(
+    db: Session,
+    *,
+    due_soon_days: int,
+    segment: str | None,
+    selected_segments: list[str],
+    overdue_invoices: list[dict] | None = None,
+) -> dict[str, float | int]:
+    if settings.billing_risk_route_use_cache and _billing_risk_cache_available(db):
+        overdue_invoice_balance = round(
+            sum(float(row.get("total_balance_due") or 0) for row in overdue_invoices or []),
+            2,
+        )
+        return billing_risk_cache.summary_cached(
+            db,
+            due_soon_days=due_soon_days,
+            high_balance_only=False,
+            selected_segments=selected_segments,
+            days_past_due=None,
+            search=None,
+            overdue_bucket="all",
+            location="",
+            overdue_invoice_balance=overdue_invoice_balance,
+        )
+
+    rows, _route_state = _billing_risk_rows_source(
+        db,
+        due_soon_days=due_soon_days,
+        high_balance_only=False,
+        segment=segment,
+        selected_segments=selected_segments,
+        days_past_due=None,
+        search=None,
+        overdue_bucket="all",
+        enterprise_only=False,
+        customer_segment="all",
+        location="",
+        mrr_sort=None,
+        limit=10000,
+    )
+    selected_labels = _segment_labels(selected_segments)
+    if selected_labels:
+        rows = [row for row in rows if str(row.get("risk_segment") or "") in selected_labels]
+    rows = _billing_risk_status_rows(rows, "all")
+    return billing_risk_service.get_billing_risk_summary(rows, overdue_invoices or [])
+
+
+def _billing_risk_unfiltered_blocked_buckets(
+    db: Session,
+    *,
+    due_soon_days: int,
+    segment: str | None,
+) -> list[dict[str, int | str]]:
+    rows, _route_state = _billing_risk_rows_source(
+        db,
+        due_soon_days=due_soon_days,
+        high_balance_only=False,
+        segment=segment,
+        selected_segments=["suspended"],
+        days_past_due=None,
+        search=None,
+        overdue_bucket="all",
+        enterprise_only=False,
+        customer_segment="all",
+        location="",
+        mrr_sort=None,
+        limit=10000,
+    )
+    return _blocked_days_buckets(_billing_risk_status_rows(rows, "suspended"))
 
 
 def _retention_rep_options(db: Session) -> list[dict[str, str]]:
@@ -523,7 +898,9 @@ def _retention_engagements_by_customer(db: Session, customer_ids: list[str]) -> 
     ).all()
     grouped: dict[str, list[dict[str, str | None]]] = {customer_id: [] for customer_id in normalized_ids}
     for row in rows:
-        grouped.setdefault(row.customer_external_id, []).append(_retention_engagement_payload(row))
+        customer_id = str(row.customer_external_id or "").strip()
+        if customer_id:
+            grouped.setdefault(customer_id, []).append(_retention_engagement_payload(row))
     return grouped
 
 
@@ -751,7 +1128,7 @@ def _enrich_missing_blocked_fields(churn_rows: list[dict], *, force_live: bool =
     external_ids = sorted(
         {str(row.get("_external_id") or "").strip() for row in churn_rows if str(row.get("_external_id") or "").strip()}
     )
-    # Always prefer live Splynx blocking_date for the UI Blocked Date cell.
+    # Preserve report blocked_date when present; live Splynx blocking_date can be stale.
     live_blocked_dates = _safe_live_blocked_dates(
         external_ids,
         force_live=force_live,
@@ -760,26 +1137,33 @@ def _enrich_missing_blocked_fields(churn_rows: list[dict], *, force_live: bool =
     missing_external_ids: set[str] = set()
     for row in churn_rows:
         external_id = str(row.get("_external_id") or "").strip()
+        should_hide_blocked_for, is_blocked_like = _status_and_segment_rules(row)
+        if should_hide_blocked_for:
+            row["blocked_date"] = ""
+            row["blocked_for_days"] = None
+            continue
+        existing_blocked_date = _normalize_blocked_date_text(row.get("blocked_date"))
+        if _is_invalid_blocked_date_fallback(row, existing_blocked_date):
+            row["blocked_date"] = ""
+            existing_blocked_date = ""
+        if existing_blocked_date:
+            blocked_for_days = _coerce_blocked_days_value(row.get("blocked_for_days"))
+            if blocked_for_days is None:
+                parsed_existing_blocked_date = billing_risk_service._parse_iso_date_text(existing_blocked_date)
+                if parsed_existing_blocked_date is not None and is_blocked_like:
+                    row["blocked_for_days"] = max(0, (today - parsed_existing_blocked_date).days)
+            continue
         if external_id and external_id in live_blocked_dates:
             live_blocked_date = live_blocked_dates.get(external_id, "")
             if live_blocked_date:
                 row["blocked_date"] = live_blocked_date
-                should_hide_blocked_for, is_blocked_like = _status_and_segment_rules(row)
-                if should_hide_blocked_for:
-                    row["blocked_for_days"] = None
+                parsed_live_blocked_date = billing_risk_service._parse_iso_date_text(live_blocked_date)
+                if parsed_live_blocked_date is not None and is_blocked_like:
+                    row["blocked_for_days"] = max(0, (today - parsed_live_blocked_date).days)
                 else:
-                    parsed_live_blocked_date = billing_risk_service._parse_iso_date_text(live_blocked_date)
-                    if parsed_live_blocked_date is not None and is_blocked_like:
-                        row["blocked_for_days"] = max(0, (today - parsed_live_blocked_date).days)
-                    else:
-                        row["blocked_for_days"] = None
+                    row["blocked_for_days"] = None
                 # Live Splynx blocked date is authoritative for this row.
                 continue
-
-        should_hide_blocked_for, is_blocked_like = _status_and_segment_rules(row)
-        if should_hide_blocked_for:
-            row["blocked_for_days"] = None
-            continue
 
         blocked_date_text = _normalize_blocked_date_text(row.get("blocked_date"))
         if _is_invalid_blocked_date_fallback(row, blocked_date_text):
@@ -895,6 +1279,12 @@ def _billing_risk_visible_export_rows(
                 "Status": _export_text(row.get("subscriber_status")),
                 "Risk Segment": _export_text(row.get("risk_segment")),
                 "Billing Start Date": _export_text(row.get("billing_start_date")),
+                "Billing Type": _export_text(row.get("billing_type")),
+                "Expiration Date": _export_text(row.get("expiration_date")),
+                "Remaining Days": _export_text(row.get("remaining_days")),
+                "Revenue Owed": _export_currency(row.get("revenue_owed")),
+                "Service Expiration Date": _export_text(row.get("service_expiration_date")),
+                "Postpaid Remaining Days": _export_text(row.get("postpaid_remaining_days")),
                 "Blocked Date": _export_text(row.get("blocked_date")),
                 "Blocked For": _blocked_for_export_label(row),
                 "Tickets Open": _export_int(row.get("open_tickets")),
@@ -944,6 +1334,8 @@ def _retention_rows_with_pipeline(
         customer_engagements = engagement_history.get(customer_id) or []
         latest_engagement = customer_engagements[0] if customer_engagements else None
         candidate = dict(row)
+        candidate["retention_customer_id"] = customer_id
+        candidate["latest_engagement"] = latest_engagement
         candidate["pipeline_stage"] = _pipeline_stage_from_engagement(latest_engagement, candidate)
         if latest_engagement:
             candidate["latest_follow_up"] = latest_engagement.get("followUp") or ""
@@ -962,6 +1354,13 @@ def _retention_rows_with_pipeline(
                 candidate["follow_up_due_label"] = f"Due in {days_until_follow_up} days"
         enriched_rows.append(candidate)
     return enriched_rows
+
+
+def _retention_rows_with_history(
+    tracker_rows: list[dict],
+    engagement_history: dict[str, list[dict[str, str | None]]],
+) -> list[dict]:
+    return [row for row in tracker_rows if engagement_history.get(_retention_customer_id(row))]
 
 
 def _filter_excluded_retention_rows(rows: list[dict]) -> list[dict]:
@@ -1158,9 +1557,156 @@ def _retention_billing_rows_for_customer_ids(
     return [row for row in rows if _retention_customer_id(row) in set(normalized_customer_ids)]
 
 
-def _retention_saved_only_rows(*_args, **_kwargs) -> list[dict]:
-    """Compatibility seam for tests and older retention route patches."""
-    return []
+def _retention_date_text(value: object) -> str:
+    if value is None or value == "":
+        return ""
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value or "").strip()
+
+
+def _retention_snapshot_row(row: SubscriberBillingRiskSnapshot) -> dict:
+    source_metadata = row.source_metadata if isinstance(row.source_metadata, dict) else {}
+    return {
+        "subscriber_id": str(row.external_id or ""),
+        "name": row.name,
+        "email": row.email or "",
+        "phone": row.phone or "",
+        "city": row.city or "",
+        "location": row.location or "",
+        "mrr_total": float(row.mrr_total or 0),
+        "subscriber_status": row.subscriber_status or "",
+        "area": row.area or "",
+        "plan": row.plan or "",
+        "billing_start_date": _retention_date_text(row.billing_start_date),
+        "billing_end_date": _retention_date_text(row.billing_end_date),
+        "next_bill_date": _retention_date_text(row.next_bill_date),
+        "balance": float(row.balance or 0),
+        "account_balance_deposit": source_metadata.get("account_balance_deposit"),
+        "billing_type": str(source_metadata.get("billing_type") or ""),
+        "billing_cycle": row.billing_cycle or "",
+        "blocked_date": _retention_date_text(row.blocked_date),
+        "blocked_for_days": row.blocked_for_days,
+        "last_transaction_date": _retention_date_text(row.last_transaction_date),
+        "expires_in": row.expires_in or "",
+        "invoiced_until": _retention_date_text(row.invoiced_until),
+        "days_since_last_payment": row.days_since_last_payment,
+        "days_past_due": row.days_past_due,
+        "total_paid": float(row.total_paid or 0),
+        "days_to_due": row.days_to_due,
+        "risk_segment": row.risk_segment,
+        "is_high_balance_risk": bool(row.is_high_balance_risk),
+        "_person_id": str(row.person_id) if row.person_id else "",
+        "_external_id": str(row.external_id or ""),
+        "_subscriber_number": row.subscriber_number or "",
+        "_last_synced_at": row.refreshed_at.isoformat() if row.refreshed_at else "",
+    }
+
+
+def _retention_subscriber_row(subscriber: Subscriber, latest_engagement: dict[str, str | None] | None) -> dict:
+    status_value = getattr(subscriber.status, "value", subscriber.status)
+    status_text = str(status_value or "").strip()
+    person = subscriber.person
+    organization = subscriber.organization
+    engagement_name = str((latest_engagement or {}).get("customerName") or "").strip()
+    customer_name = subscriber.display_name or engagement_name or "Unknown Customer"
+    phone = str(getattr(person, "phone", "") or "").strip() or str(getattr(organization, "phone", "") or "").strip()
+    email = str(getattr(person, "email", "") or "").strip() or str(getattr(organization, "email", "") or "").strip()
+    days_past_due = None
+    if subscriber.suspended_at:
+        days_past_due = max(0, (datetime.now(UTC).date() - subscriber.suspended_at.date()).days)
+    return {
+        "subscriber_id": str(subscriber.external_id or subscriber.subscriber_number or ""),
+        "name": customer_name,
+        "email": email,
+        "phone": phone,
+        "city": subscriber.service_city or "",
+        "location": subscriber.service_region or subscriber.service_city or "",
+        "mrr_total": 0,
+        "subscriber_status": status_text.title(),
+        "area": subscriber.service_region or "",
+        "plan": subscriber.service_plan or subscriber.service_name or "",
+        "billing_start_date": _retention_date_text(subscriber.activated_at),
+        "billing_end_date": "",
+        "next_bill_date": _retention_date_text(subscriber.next_bill_date),
+        "balance": _coerce_money_value(subscriber.balance) or 0,
+        "account_balance_deposit": None,
+        "billing_type": subscriber.billing_cycle or "",
+        "billing_cycle": subscriber.billing_cycle or "",
+        "blocked_date": _retention_date_text(subscriber.suspended_at),
+        "blocked_for_days": days_past_due,
+        "days_past_due": days_past_due,
+        "days_to_due": None,
+        "risk_segment": "Suspended" if status_text.lower() == "suspended" else "Retention",
+        "is_high_balance_risk": False,
+        "_person_id": str(subscriber.person_id) if subscriber.person_id else "",
+        "_external_id": str(subscriber.external_id or ""),
+        "_subscriber_number": subscriber.subscriber_number or "",
+        "_last_synced_at": subscriber.last_synced_at.isoformat() if subscriber.last_synced_at else "",
+    }
+
+
+def _retention_history_only_row(customer_id: str, latest_engagement: dict[str, str | None] | None) -> dict:
+    customer_name = str((latest_engagement or {}).get("customerName") or "").strip()
+    return {
+        "subscriber_id": customer_id,
+        "name": customer_name or "Unknown Customer",
+        "email": "",
+        "phone": "",
+        "city": "",
+        "location": "",
+        "mrr_total": 0,
+        "subscriber_status": "",
+        "area": "",
+        "plan": "",
+        "balance": 0,
+        "blocked_for_days": None,
+        "days_past_due": None,
+        "days_to_due": None,
+        "risk_segment": "Retention",
+        "is_high_balance_risk": False,
+        "_external_id": customer_id,
+        "_subscriber_number": "",
+        "_last_synced_at": "",
+    }
+
+
+def _retention_saved_only_rows(
+    db: Session,
+    customer_ids: list[str],
+    engagement_history: dict[str, list[dict[str, str | None]]],
+) -> list[dict]:
+    normalized_ids = [str(customer_id or "").strip() for customer_id in customer_ids if str(customer_id or "").strip()]
+    if not normalized_ids:
+        return []
+    snapshot_rows = db.scalars(
+        select(SubscriberBillingRiskSnapshot).where(SubscriberBillingRiskSnapshot.external_id.in_(normalized_ids))
+    ).all()
+    rows_by_id = {str(row.external_id or "").strip(): _retention_snapshot_row(row) for row in snapshot_rows}
+    missing_ids = [customer_id for customer_id in normalized_ids if customer_id not in rows_by_id]
+    if missing_ids:
+        subscriber_rows = db.scalars(
+            select(Subscriber).where(
+                Subscriber.external_system == "splynx",
+                Subscriber.external_id.in_(missing_ids),
+            )
+        ).all()
+        for subscriber in subscriber_rows:
+            customer_id = str(subscriber.external_id or "").strip()
+            customer_engagements = engagement_history.get(customer_id) or []
+            latest_engagement = customer_engagements[0] if customer_engagements else None
+            rows_by_id[customer_id] = _retention_subscriber_row(subscriber, latest_engagement)
+    saved_rows: list[dict] = []
+    for customer_id in normalized_ids:
+        if customer_id in rows_by_id:
+            saved_rows.append(rows_by_id[customer_id])
+            continue
+        customer_engagements = engagement_history.get(customer_id) or []
+        latest_engagement = customer_engagements[0] if customer_engagements else None
+        saved_rows.append(_retention_history_only_row(customer_id, latest_engagement))
+    return saved_rows
 
 
 def _retention_tracker_kpis(churn_rows: list[dict]) -> dict[str, int | float]:
@@ -1204,6 +1750,8 @@ def subscriber_billing_risk(
     customer_segment: str | None = Query(None),
     location: str | None = Query(None),
     mrr_sort: str | None = Query(None),
+    customer_status: str | None = Query("all"),
+    billing_type: str | None = Query("all"),
 ):
     user = get_current_user(request)
     query_days_past_due = request.query_params.get("days_past_due")
@@ -1229,7 +1777,11 @@ def subscriber_billing_risk(
         .strip()
         .lower()
     )
-    selected_segments = _billing_risk_required_segments()
+    normalized_customer_status = _normalize_billing_risk_customer_status(
+        request.query_params.get("customer_status") or customer_status
+    )
+    normalized_billing_type = _normalize_billing_type_filter(request.query_params.get("billing_type") or billing_type)
+    selected_segments = _billing_risk_segments_for_customer_status(normalized_customer_status)
     selected_labels = _segment_labels(selected_segments)
     cache_eligible = (
         settings.billing_risk_route_use_cache
@@ -1238,23 +1790,7 @@ def subscriber_billing_risk(
         and normalized_customer_segment == "all"
     )
     if cache_eligible:
-        cached_page = billing_risk_cache.list_cached_rows(
-            db,
-            due_soon_days=due_soon_days,
-            high_balance_only=high_balance_only,
-            selected_segments=selected_segments,
-            days_past_due=query_days_past_due or days_past_due,
-            search=normalized_search,
-            overdue_bucket=normalized_bucket,
-            location=normalized_location,
-            page=1,
-            page_size=50,
-        )
-        page_rows = [dict(row) for row in cached_page.rows]
-        page_rows = _billing_risk_suspended_status_rows(page_rows)
-        page_metrics = _billing_risk_page_metrics(page_rows)
-        has_next = cached_page.has_next
-        full_metric_rows = _billing_risk_suspended_status_rows(
+        full_metric_rows = _billing_risk_status_rows(
             billing_risk_cache.all_cached_rows(
                 db,
                 due_soon_days=due_soon_days,
@@ -1265,8 +1801,18 @@ def subscriber_billing_risk(
                 overdue_bucket=normalized_bucket,
                 location=normalized_location,
                 limit=10000,
-            )
+            ),
+            normalized_customer_status,
         )
+        full_metric_rows = _billing_risk_billing_type_rows(full_metric_rows, normalized_billing_type)
+        full_metric_rows = _active_toggle_uptime_rows(db, full_metric_rows, normalized_customer_status)
+        page_rows = [dict(row) for row in full_metric_rows[:50]]
+        _enrich_missing_plan_fields(db, page_rows)
+        _enrich_missing_blocked_fields(page_rows, force_live=False)
+        _enrich_account_balance_deposit(db, page_rows)
+        _enrich_expiration_fields(page_rows)
+        page_metrics = _billing_risk_page_metrics(page_rows)
+        has_next = len(full_metric_rows) > 50
         end_read_only_transaction(db)
         billing_risk_route_state = {
             "mode": "cache",
@@ -1291,7 +1837,9 @@ def subscriber_billing_risk(
         )
         if selected_labels:
             initial_rows = [row for row in initial_rows if str(row.get("risk_segment") or "") in selected_labels]
-        initial_rows = _billing_risk_suspended_status_rows(initial_rows)
+        initial_rows = _billing_risk_status_rows(initial_rows, normalized_customer_status)
+        initial_rows = _active_toggle_uptime_rows(db, initial_rows, normalized_customer_status)
+        initial_rows = _billing_risk_billing_type_rows(initial_rows, normalized_billing_type)
         full_metric_rows, billing_risk_route_state = _billing_risk_rows_source(
             db,
             due_soon_days=due_soon_days,
@@ -1312,8 +1860,19 @@ def subscriber_billing_risk(
             full_metric_rows = [
                 row for row in full_metric_rows if str(row.get("risk_segment") or "") in selected_labels
             ]
-        full_metric_rows = _billing_risk_suspended_status_rows(full_metric_rows)
-        page_rows, page_metrics, has_next = _billing_risk_initial_rows(initial_rows, page_size=50)
+        full_metric_rows = _billing_risk_status_rows(full_metric_rows, normalized_customer_status)
+        full_metric_rows = _active_toggle_uptime_rows(db, full_metric_rows, normalized_customer_status)
+        full_metric_rows = _billing_risk_billing_type_rows(full_metric_rows, normalized_billing_type)
+        _enrich_missing_plan_fields(db, full_metric_rows)
+        _enrich_account_balance_deposit(db, full_metric_rows)
+        _enrich_expiration_fields(full_metric_rows)
+        page_rows, page_metrics, has_next = _billing_risk_initial_rows(
+            db,
+            initial_rows,
+            page_size=50,
+            customer_status=normalized_customer_status,
+            billing_type=normalized_billing_type,
+        )
     overdue_invoices = billing_risk_service.get_overdue_invoices_table(
         db,
         min_days_past_due=overdue_invoice_days,
@@ -1324,6 +1883,12 @@ def subscriber_billing_risk(
     last_synced_at = _latest_subscriber_sync_at(db)
     rep_options = _retention_rep_options(db)
     outreach_targets = outreach_channel_target_options(db)
+    live_location_options = _billing_risk_location_options(
+        db,
+        due_soon_days=due_soon_days,
+        segment=segment,
+        selected_location=normalized_location,
+    )
     if billing_risk_route_state.get("cached_metrics"):
         overdue_invoice_balance = round(sum(float(row.get("total_balance_due") or 0) for row in overdue_invoices), 2)
         kpis = billing_risk_cache.summary_cached(
@@ -1347,20 +1912,19 @@ def subscriber_billing_risk(
             overdue_bucket=normalized_bucket,
             location=normalized_location,
         )
-        aging_buckets = billing_risk_cache.aging_buckets_cached(
+        aging_buckets = _billing_risk_unfiltered_blocked_buckets(
             db,
             due_soon_days=due_soon_days,
-            high_balance_only=high_balance_only,
-            selected_segments=selected_segments,
-            days_past_due=query_days_past_due or days_past_due,
-            search=normalized_search,
-            overdue_bucket=normalized_bucket,
-            location=normalized_location,
+            segment=segment,
         )
     else:
         kpis = billing_risk_service.get_billing_risk_summary(full_metric_rows, overdue_invoices)
         segment_breakdown = billing_risk_service.get_billing_risk_segment_breakdown(full_metric_rows)
-        aging_buckets = billing_risk_service.get_billing_risk_aging_buckets(full_metric_rows)
+        aging_buckets = _billing_risk_unfiltered_blocked_buckets(
+            db,
+            due_soon_days=due_soon_days,
+            segment=segment,
+        )
     kpis = dict(kpis)
     normalized_days_past_due_filter = query_days_past_due or (days_past_due if isinstance(days_past_due, str) else "")
     at_risk_filters_active = any(
@@ -1373,11 +1937,17 @@ def subscriber_billing_risk(
         ]
     )
     if at_risk_filters_active:
-        kpis["total_at_risk"] = _billing_risk_unfiltered_at_risk_count(
+        stable_kpis = _billing_risk_unfiltered_kpis(
             db,
             due_soon_days=due_soon_days,
             segment=segment,
             selected_segments=selected_segments,
+            overdue_invoices=overdue_invoices,
+        )
+        kpis["total_at_risk"] = stable_kpis.get("total_at_risk", kpis.get("total_at_risk", 0))
+        kpis["total_balance_exposure"] = stable_kpis.get(
+            "total_balance_exposure",
+            kpis.get("total_balance_exposure", 0),
         )
     else:
         kpis["total_at_risk"] = len(full_metric_rows)
@@ -1393,6 +1963,8 @@ def subscriber_billing_risk(
             "search": normalized_search or "",
             "location": normalized_location,
             "mrr_sort": normalized_mrr_sort,
+            "customer_status": normalized_customer_status,
+            "billing_type": normalized_billing_type,
         },
         doseq=True,
     )
@@ -1406,6 +1978,8 @@ def subscriber_billing_risk(
             "search": normalized_search or "",
             "location": normalized_location,
             "mrr_sort": normalized_mrr_sort,
+            "customer_status": normalized_customer_status,
+            "billing_type": normalized_billing_type,
         },
         doseq=True,
     )
@@ -1421,6 +1995,8 @@ def subscriber_billing_risk(
             "search": normalized_search or "",
             "location": normalized_location,
             "mrr_sort": normalized_mrr_sort,
+            "customer_status": normalized_customer_status,
+            "billing_type": normalized_billing_type,
         },
         doseq=True,
     )
@@ -1434,6 +2010,8 @@ def subscriber_billing_risk(
             "search": normalized_search or "",
             "location": normalized_location,
             "mrr_sort": normalized_mrr_sort,
+            "customer_status": normalized_customer_status,
+            "billing_type": normalized_billing_type,
         },
         doseq=True,
     )
@@ -1448,6 +2026,8 @@ def subscriber_billing_risk(
             "location": normalized_location,
             "mrr_sort": normalized_mrr_sort,
             "segment": "overdue",
+            "customer_status": "active",
+            "billing_type": normalized_billing_type,
         },
         doseq=True,
     )
@@ -1461,7 +2041,9 @@ def subscriber_billing_risk(
             "search": normalized_search or "",
             "location": normalized_location,
             "mrr_sort": normalized_mrr_sort,
-            "segment": "suspended",
+            "segment": "all",
+            "customer_status": "all",
+            "billing_type": normalized_billing_type,
         },
         doseq=True,
     )
@@ -1501,25 +2083,11 @@ def subscriber_billing_risk(
             "live_has_next": has_next,
             "live_search": normalized_search or "",
             "live_location": normalized_location,
-            "live_location_options": sorted(
-                billing_risk_cache.location_options_cached(
-                    db,
-                    due_soon_days=due_soon_days,
-                    high_balance_only=high_balance_only,
-                    selected_segments=selected_segments,
-                    days_past_due=query_days_past_due or days_past_due,
-                    search=normalized_search,
-                    overdue_bucket=normalized_bucket,
-                )
-                if billing_risk_route_state.get("cached_metrics")
-                else {
-                    str(row.get("location") or "").strip()
-                    for row in full_metric_rows
-                    if str(row.get("location") or "").strip()
-                }
-            ),
+            "live_location_options": live_location_options,
             "live_bucket": normalized_bucket,
             "live_mrr_sort": normalized_mrr_sort,
+            "customer_status": normalized_customer_status,
+            "billing_type": normalized_billing_type,
             "page_metrics": page_metrics,
             "page": 1,
             "has_prev": False,
@@ -1551,50 +2119,37 @@ def customer_retention_tracker(
         query_segment or segment,
     )
     search_text = (search.strip() if isinstance(search, str) else "") or None
-    tracker_customer_ids: list[str] = []
+    saved_customer_ids: list[str] = []
     if hasattr(db, "execute"):
-        tracker_customer_ids = _retention_active_customer_ids(db)
+        saved_customer_ids = _retention_active_customer_ids(db)
         if search_text:
-            tracker_customer_ids = list(
-                dict.fromkeys(tracker_customer_ids + _retention_search_customer_ids(db, search_text))
+            saved_customer_ids = list(
+                dict.fromkeys(saved_customer_ids + _retention_search_customer_ids(db, search_text))
             )
-    if tracker_customer_ids:
+    if saved_customer_ids:
+        engagement_history = _retention_engagements_by_customer(db, saved_customer_ids)
         churn_rows = _retention_billing_rows_for_customer_ids(
             db,
-            customer_ids=tracker_customer_ids,
+            customer_ids=saved_customer_ids,
             due_soon_days=due_soon_days,
             high_balance_only=high_balance_only,
             segment=segment,
             selected_segments=selected_segments,
             days_past_due=query_days_past_due or days_past_due,
-            search=search_text,
+            search=None,
             limit=6000,
         )
-    elif settings.customer_retention_route_use_cache and _billing_risk_cache_available(db):
-        churn_rows = billing_risk_cache.all_cached_rows(
-            db,
-            due_soon_days=due_soon_days,
-            high_balance_only=high_balance_only,
-            selected_segments=selected_segments,
-            days_past_due=query_days_past_due or days_past_due,
-            search=search_text,
-            limit=6000,
-        )
+        tracker_rows = _retention_tracker_rows(churn_rows, limit=6000)
+        rendered_customer_ids = {_retention_customer_id(row) for row in tracker_rows}
+        missing_customer_ids = [
+            customer_id for customer_id in saved_customer_ids if customer_id not in rendered_customer_ids
+        ]
+        if missing_customer_ids:
+            tracker_rows.extend(_retention_saved_only_rows(db, missing_customer_ids, engagement_history))
     else:
-        churn_rows = billing_risk_service.get_billing_risk_table(
-            db,
-            due_soon_days=due_soon_days,
-            high_balance_only=high_balance_only,
-            segment=segment,
-            segments=selected_segments,
-            days_past_due=query_days_past_due or days_past_due,
-            limit=6000,
-            enrich_visible_rows=False,
-        )
-    tracker_rows = _retention_tracker_rows(churn_rows, limit=6000)
-    tracker_customer_ids = [_retention_customer_id(row) for row in tracker_rows]
-    engagement_history = _retention_engagements_by_customer(db, tracker_customer_ids)
-    tracker_rows = [row for row in tracker_rows if engagement_history.get(_retention_customer_id(row))]
+        tracker_rows = []
+        engagement_history = {}
+    tracker_rows = _retention_rows_with_history(tracker_rows, engagement_history)
     raw_search = request.query_params.get("search")
     search_term = (
         raw_search.strip() if isinstance(raw_search, str) else (search.strip() if isinstance(search, str) else "")
@@ -1872,7 +2427,7 @@ def customer_retention_create_outreach(
     )
     tracker_rows = _retention_tracker_rows(churn_rows, limit=6000)
     engagement_history = _retention_engagements_by_customer(db, [_retention_customer_id(row) for row in tracker_rows])
-    tracker_rows = [row for row in tracker_rows if engagement_history.get(_retention_customer_id(row))]
+    tracker_rows = _retention_rows_with_history(tracker_rows, engagement_history)
     tracker_rows = _retention_rows_with_pipeline(tracker_rows, engagement_history)
     tracker_rows = _filter_excluded_retention_rows(tracker_rows)
     row_by_customer_id = {_retention_customer_id(row): row for row in tracker_rows}
@@ -2027,6 +2582,8 @@ def subscriber_billing_risk_rows(
     customer_segment: str | None = Query(None),
     location: str | None = Query(None),
     mrr_sort: str | None = Query(None),
+    customer_status: str | None = Query("all"),
+    billing_type: str | None = Query("all"),
 ):
     get_current_user(request)
     query_days_past_due = request.query_params.get("days_past_due")
@@ -2052,7 +2609,11 @@ def subscriber_billing_risk_rows(
         .strip()
         .lower()
     )
-    selected_segments = _billing_risk_required_segments()
+    normalized_customer_status = _normalize_billing_risk_customer_status(
+        request.query_params.get("customer_status") or customer_status
+    )
+    normalized_billing_type = _normalize_billing_type_filter(request.query_params.get("billing_type") or billing_type)
+    selected_segments = _billing_risk_segments_for_customer_status(normalized_customer_status)
     if (
         settings.billing_risk_route_use_cache
         and _billing_risk_cache_available(db)
@@ -2070,6 +2631,8 @@ def subscriber_billing_risk_rows(
             search=normalized_search,
             overdue_bucket=normalized_bucket,
             location=normalized_location,
+            customer_status=normalized_customer_status,
+            billing_type=normalized_billing_type,
         )
     else:
         page_rows, page_metrics, has_next = _billing_risk_page_rows(
@@ -2087,14 +2650,27 @@ def subscriber_billing_risk_rows(
             customer_segment=normalized_customer_segment,
             location=normalized_location,
             mrr_sort=normalized_mrr_sort,
+            customer_status=normalized_customer_status,
+            billing_type=normalized_billing_type,
         )
+    kpis = _billing_risk_unfiltered_kpis(
+        db,
+        due_soon_days=due_soon_days,
+        segment=segment,
+        selected_segments=selected_segments,
+    )
     return templates.TemplateResponse(
         "admin/reports/_subscriber_billing_risk_results.html",
         {
             "request": request,
             "churn_rows": page_rows,
             "page_metrics": page_metrics,
-            "aging_buckets": _blocked_days_buckets(page_rows),
+            "kpis": kpis,
+            "aging_buckets": _billing_risk_unfiltered_blocked_buckets(
+                db,
+                due_soon_days=due_soon_days,
+                segment=segment,
+            ),
             "page": page,
             "page_size": page_size,
             "has_prev": page > 1,
@@ -2102,6 +2678,8 @@ def subscriber_billing_risk_rows(
             "enterprise_mrr_threshold": ENTERPRISE_MRR_THRESHOLD,
             "outreach_channel_targets": outreach_channel_target_options(db),
             "csrf_token": get_csrf_token(request),
+            "customer_status": normalized_customer_status,
+            "billing_type": normalized_billing_type,
         },
     )
 
@@ -2131,6 +2709,8 @@ def subscriber_billing_risk_export(
     customer_segment: str | None = Query(None),
     location: str | None = Query(None),
     mrr_sort: str | None = Query(None),
+    customer_status: str | None = Query("all"),
+    billing_type: str | None = Query("all"),
 ):
     query_days_past_due = request.query_params.get("days_past_due")
     query_search = request.query_params.get("search")
@@ -2152,7 +2732,11 @@ def subscriber_billing_risk_export(
         .strip()
         .lower()
     )
-    selected_segments = _billing_risk_required_segments()
+    normalized_customer_status = _normalize_billing_risk_customer_status(
+        request.query_params.get("customer_status") or customer_status
+    )
+    normalized_billing_type = _normalize_billing_type_filter(request.query_params.get("billing_type") or billing_type)
+    selected_segments = _billing_risk_segments_for_customer_status(normalized_customer_status)
 
     churn_rows, _route_state = _billing_risk_rows_source(
         db,
@@ -2172,8 +2756,13 @@ def subscriber_billing_risk_export(
     selected_labels = _segment_labels(selected_segments)
     if selected_labels:
         churn_rows = [row for row in churn_rows if str(row.get("risk_segment") or "") in selected_labels]
-    churn_rows = _billing_risk_suspended_status_rows(churn_rows)
+    churn_rows = _billing_risk_status_rows(churn_rows, normalized_customer_status)
+    churn_rows = _active_toggle_uptime_rows(db, churn_rows, normalized_customer_status)
+    churn_rows = _billing_risk_billing_type_rows(churn_rows, normalized_billing_type)
+    _enrich_missing_plan_fields(db, churn_rows)
     _enrich_missing_blocked_fields(churn_rows, force_live=False)
+    _enrich_account_balance_deposit(db, churn_rows)
+    _enrich_expiration_fields(churn_rows)
     export_data = _billing_risk_visible_export_rows(db, churn_rows)
     filename = f"subscriber_billing_risk_{datetime.now(UTC).strftime('%Y%m%d')}.csv"
     return _csv_response(export_data, filename)

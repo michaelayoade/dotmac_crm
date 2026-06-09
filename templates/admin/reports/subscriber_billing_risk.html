@@ -3,9 +3,110 @@
 
 {% block title %}Subscriber Billing Risk - Admin{% endblock %}
 
+{% block content_container_class %}billing-risk-wide-container{% endblock %}
+
+{% block head %}
+{{ super() }}
+<style>
+    .billing-risk-wide-container {
+        max-width: min(96rem, calc(100vw - 2rem));
+    }
+
+    @media (min-width: 1280px) {
+        .billing-risk-wide-container {
+            max-width: min(112rem, calc(100vw - 3rem));
+        }
+    }
+
+    .billing-risk-exec-card {
+        position: relative;
+        overflow: hidden;
+        min-height: 8.5rem;
+    }
+
+    .billing-risk-exec-card::before {
+        content: "";
+        position: absolute;
+        inset: -45% auto auto 45%;
+        width: 11rem;
+        height: 11rem;
+        border-radius: 999px;
+        background: var(--billing-risk-glow, rgba(244, 63, 94, 0.16));
+        filter: blur(28px);
+        opacity: 0.8;
+        pointer-events: none;
+    }
+
+    .billing-risk-exec-icon {
+        position: relative;
+        display: inline-flex;
+        height: 3rem;
+        width: 3rem;
+        align-items: center;
+        justify-content: center;
+        border-radius: 1rem;
+        background: var(--billing-risk-icon-bg, rgba(244, 63, 94, 0.12));
+        color: var(--billing-risk-icon-color, #e11d48);
+        box-shadow: 0 0 28px var(--billing-risk-icon-shadow, rgba(244, 63, 94, 0.18));
+    }
+
+    .billing-risk-exec-icon svg {
+        height: 1.35rem;
+        width: 1.35rem;
+    }
+
+    .billing-risk-filter-row {
+        display: grid;
+        grid-template-columns: minmax(15rem, 1.2fr) minmax(10rem, 0.8fr) minmax(15rem, 1.15fr) minmax(12rem, 0.95fr) minmax(13rem, 1fr) minmax(18rem, 1.45fr);
+        gap: 0.75rem;
+        min-width: 88rem;
+    }
+
+    .billing-risk-filter-row label {
+        margin-bottom: 0.375rem;
+        font-size: 0.65rem;
+        line-height: 1rem;
+    }
+
+    .billing-risk-filter-row input,
+    .billing-risk-filter-row select {
+        height: 2.25rem;
+        border-radius: 0.625rem;
+        font-size: 0.8125rem;
+    }
+
+    .billing-risk-filter-row button {
+        white-space: nowrap;
+    }
+
+    .billing-risk-filter-row .billing-risk-filter-pills {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 0.375rem;
+    }
+
+    .billing-risk-filter-row .billing-risk-filter-pills button {
+        padding: 0.375rem 0.625rem;
+        font-size: 0.75rem;
+        line-height: 1rem;
+    }
+
+    .billing-risk-filter-row #billing-risk-search-button {
+        height: 2.25rem;
+        padding-inline: 0.75rem;
+        font-size: 0.8125rem;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="space-y-6">
+<div class="grid grid-cols-12 gap-6">
     {% set live_mrr = live_mrr_sort|default('') %}
+    {% set revenue_at_risk_total = kpis.total_balance_exposure|default(0) %}
+    {% if page_metrics is defined and page_metrics.total_balance is defined %}
+        {% set revenue_at_risk_total = page_metrics.total_balance %}
+    {% endif %}
+    <div class="col-span-12">
     {% call page_header("Subscriber Billing Risk", "Computed billing-risk segments derived from synced subscriber status and next-bill timing, with receivables shown separately for balance exposure.", color="amber", color2="orange") %}
         {{ action_button(
             "Customer Retention Tracker",
@@ -29,8 +130,9 @@
             </button>
         </form>
     {% endcall %}
+    </div>
 
-    <div class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+    <div class="col-span-12 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
         {% if refresh_started %}
             Subscriber sync has been queued. This billing-risk page reads live Splynx data.
         {% elif billing_risk_cache.row_count|default(0) == 0 %}
@@ -40,17 +142,22 @@
         {% endif %}
     </div>
 
-    {% call dashboard_kpi_grid(cols="3") %}
-        {{ stats_card("At-Risk Subscribers", kpis.total_at_risk|default(0), color="amber", color2="orange") }}
-        {{ stats_card("Total Balance Exposure", "₦" ~ "{:,.2f}".format(kpis.total_balance_exposure|default(0)), color="rose", color2="red") }}
-        {{ stats_card("High Balance Risk", kpis.high_balance_risk_count|default(0), color="slate", color2="gray") }}
-    {% endcall %}
-
-    {% call dashboard_filter_panel(color="rose", title="Blocked Customer Live Filters") %}
-    <div id="billing-risk-live-controls" class="space-y-4">
-        <div class="grid grid-cols-1 gap-3 lg:grid-cols-4">
-            <div class="lg:col-span-2">
-                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Blocked Customers</label>
+    <div class="col-span-12">
+    {% call dashboard_filter_panel(color="rose", title="Filters") %}
+    <div id="billing-risk-live-controls" class="space-y-5">
+        <div class="flex justify-end">
+            <button
+                type="button"
+                id="billing-risk-clear-filters"
+                class="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+                Clear Filters
+            </button>
+        </div>
+        <div class="overflow-x-auto pb-1">
+        <div class="billing-risk-filter-row">
+            <div>
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search Customer</label>
                 <div class="flex gap-2">
                     <input
                         id="billing-risk-search"
@@ -69,7 +176,7 @@
                 </div>
             </div>
             <div>
-                <label for="billing-risk-location-filter" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Location</label>
+                <label for="billing-risk-location-filter" class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Location</label>
                 <select
                     id="billing-risk-location-filter"
                     class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
@@ -81,8 +188,8 @@
                 </select>
             </div>
             <div>
-                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer Segment</label>
-                <div class="flex flex-wrap items-center gap-2">
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer Segment</label>
+                <div class="billing-risk-filter-pills">
                     <button type="button" data-customer-tier="all" class="billing-risk-tier-toggle inline-flex items-center rounded-full border border-rose-300 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700 transition dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200">All Customers</button>
                     <button type="button" data-customer-tier="enterprise" class="billing-risk-tier-toggle inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Enterprise</button>
                     <button type="button" data-customer-tier="non_enterprise" class="billing-risk-tier-toggle inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Non-enterprise</button>
@@ -91,22 +198,88 @@
                     Showing <span id="billing-risk-tier-count" class="font-semibold text-slate-700 dark:text-slate-200">0</span> customers on this page
                 </p>
             </div>
-        </div>
-        <div>
-                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Blocked For Buckets</label>
-                <div class="flex flex-wrap items-center gap-2">
+            <div>
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</label>
+                <div class="billing-risk-filter-pills">
+                    <button type="button" data-customer-status="all" class="billing-risk-status-toggle inline-flex items-center rounded-full border {% if customer_status|default('all') == 'all' %}border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200{% else %}border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700{% endif %} px-3 py-1.5 text-sm font-medium transition">All</button>
+                    <button type="button" data-customer-status="active" class="billing-risk-status-toggle inline-flex items-center rounded-full border {% if customer_status|default('all') == 'active' %}border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200{% else %}border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700{% endif %} px-3 py-1.5 text-sm font-medium transition">Active</button>
+                    <button type="button" data-customer-status="suspended" class="billing-risk-status-toggle inline-flex items-center rounded-full border {% if customer_status|default('all') == 'suspended' %}border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200{% else %}border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700{% endif %} px-3 py-1.5 text-sm font-medium transition">Suspended</button>
+                </div>
+            </div>
+            <div>
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Billing Type</label>
+                <div class="billing-risk-filter-pills">
+                    <button type="button" data-billing-type="all" class="billing-risk-billing-toggle inline-flex items-center rounded-full border {% if billing_type|default('all') == 'all' %}border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200{% else %}border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700{% endif %} px-3 py-1.5 text-sm font-medium transition">All</button>
+                    <button type="button" data-billing-type="postpaid" class="billing-risk-billing-toggle inline-flex items-center rounded-full border {% if billing_type|default('all') == 'postpaid' %}border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200{% else %}border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700{% endif %} px-3 py-1.5 text-sm font-medium transition">Postpaid</button>
+                    <button type="button" data-billing-type="prepaid" class="billing-risk-billing-toggle inline-flex items-center rounded-full border {% if billing_type|default('all') == 'prepaid' %}border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200{% else %}border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700{% endif %} px-3 py-1.5 text-sm font-medium transition">Prepaid</button>
+                </div>
+            </div>
+            <div>
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Blocked For</label>
+                <div class="billing-risk-filter-pills">
                     <button type="button" data-blocked-bucket="all" class="billing-risk-bucket inline-flex items-center rounded-full border border-rose-300 bg-rose-50 px-3 py-1.5 text-sm font-medium text-rose-700 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-200">All</button>
-                    <button type="button" data-blocked-bucket="0-7" class="billing-risk-bucket inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">0-7 Days</button>
-                    <button type="button" data-blocked-bucket="8-30" class="billing-risk-bucket inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">8-30 Days</button>
-                    <button type="button" data-blocked-bucket="31-60" class="billing-risk-bucket inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">31-60 Days</button>
+                    <button type="button" data-blocked-bucket="0-7" class="billing-risk-bucket inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">0&ndash;7 Days</button>
+                    <button type="button" data-blocked-bucket="8-30" class="billing-risk-bucket inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">8&ndash;30 Days</button>
+                    <button type="button" data-blocked-bucket="31-60" class="billing-risk-bucket inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">31&ndash;60 Days</button>
                     <button type="button" data-blocked-bucket="61+" class="billing-risk-bucket inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">61+ Days</button>
                 </div>
             </div>
+        </div>
+        </div>
     </div>
     {% endcall %}
+    </div>
+
+    <div class="col-span-12 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900" style="--billing-risk-glow: rgba(245, 158, 11, 0.16); --billing-risk-icon-bg: rgba(245, 158, 11, 0.12); --billing-risk-icon-color: #f59e0b; --billing-risk-icon-shadow: rgba(245, 158, 11, 0.18);">
+            <div class="relative flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">At-Risk Subscribers</p>
+                    <p class="mt-4 text-3xl font-semibold text-slate-900 dark:text-white">{{ kpis.total_at_risk|default(0) }}</p>
+                </div>
+                <span class="billing-risk-exec-icon" aria-hidden="true">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a4 4 0 00-4-4h-1M9 20H4v-2a4 4 0 014-4h1m0-4a4 4 0 100-8 4 4 0 000 8zm8 0a4 4 0 100-8 4 4 0 000 8z"/></svg>
+                </span>
+            </div>
+        </div>
+        <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900" style="--billing-risk-glow: rgba(225, 29, 72, 0.16); --billing-risk-icon-bg: rgba(225, 29, 72, 0.12); --billing-risk-icon-color: #e11d48; --billing-risk-icon-shadow: rgba(225, 29, 72, 0.18);">
+            <div class="relative flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Balance Exposure</p>
+                    <p class="mt-4 text-3xl font-semibold text-slate-900 dark:text-white">₦{{ "{:,.2f}".format(kpis.total_balance_exposure|default(0)) }}</p>
+                </div>
+                <span class="billing-risk-exec-icon" aria-hidden="true">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-2.21 0-4 .895-4 2s1.79 2 4 2 4 .895 4 2-1.79 2-4 2m0-8V6m0 10v2m8-6a8 8 0 11-16 0 8 8 0 0116 0z"/></svg>
+                </span>
+            </div>
+        </div>
+        <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900" style="--billing-risk-glow: rgba(239, 68, 68, 0.15); --billing-risk-icon-bg: rgba(239, 68, 68, 0.12); --billing-risk-icon-color: #ef4444; --billing-risk-icon-shadow: rgba(239, 68, 68, 0.18);">
+            <div class="relative flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">High Balance Risk</p>
+                    <p class="mt-4 text-3xl font-semibold text-slate-900 dark:text-white">{{ kpis.high_balance_risk_count|default(0) }}</p>
+                </div>
+                <span class="billing-risk-exec-icon" aria-hidden="true">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                </span>
+            </div>
+        </div>
+        <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900" style="--billing-risk-glow: rgba(59, 130, 246, 0.15); --billing-risk-icon-bg: rgba(59, 130, 246, 0.12); --billing-risk-icon-color: #3b82f6; --billing-risk-icon-shadow: rgba(59, 130, 246, 0.18);">
+            <div class="relative flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Customers</p>
+                    <p class="mt-4 text-3xl font-semibold text-slate-900 dark:text-white">{{ billing_risk_cache.row_count|default(0) }}</p>
+                </div>
+                <span class="billing-risk-exec-icon" aria-hidden="true">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M5 6h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2zm3 8h.01M8 14h4"/></svg>
+                </span>
+            </div>
+        </div>
+    </div>
 
     <div
         id="billing-risk-results"
+        class="col-span-12"
         data-endpoint="/admin/reports/subscribers/billing-risk/rows"
         data-due-soon-days="{{ due_soon_days }}"
         data-overdue-invoice-days="{{ overdue_invoice_days }}"
@@ -120,6 +293,8 @@
         data-mrr-sort="{{ live_mrr }}"
         data-segments="{{ selected_segments|join(',') }}"
         data-customer-tier="all"
+        data-customer-status="{{ customer_status|default('all') }}"
+        data-billing-type="{{ billing_type|default('all') }}"
     >
         {% include "admin/reports/_subscriber_billing_risk_results.html" %}
     </div>
@@ -204,17 +379,22 @@
 
             const searchInput = document.getElementById('billing-risk-search');
             const searchButton = document.getElementById('billing-risk-search-button');
+            const clearFiltersButton = document.getElementById('billing-risk-clear-filters');
             const bucketButtons = Array.from(document.querySelectorAll('.billing-risk-bucket'));
+            const statusButtons = Array.from(document.querySelectorAll('.billing-risk-status-toggle'));
+            const billingButtons = Array.from(document.querySelectorAll('.billing-risk-billing-toggle'));
             const tierButtons = Array.from(document.querySelectorAll('.billing-risk-tier-toggle'));
             const tierCount = document.getElementById('billing-risk-tier-count');
             const locationSelect = document.getElementById('billing-risk-location-filter');
-            const mrrSortSelect = document.getElementById('billing-risk-mrr-sort');
+            const currentMrrSortSelect = () => document.getElementById('billing-risk-mrr-sort');
             const exportLink = document.querySelector('a[href^="/admin/reports/subscribers/billing-risk/export"]');
             const filterState = {
                 bucket: results.dataset.bucket || 'all',
                 customerTier: results.dataset.customerTier || 'all',
                 location: results.dataset.location || locationSelect?.value || '',
                 mrrSort: results.dataset.mrrSort || '',
+                customerStatus: results.dataset.customerStatus || 'suspended',
+                billingType: results.dataset.billingType || 'all',
                 segments: (results.dataset.segments || '').split(',').map((segment) => segment.trim()).filter(Boolean),
                 search: results.dataset.search || searchInput?.value || '',
                 pageSize: Number(results.dataset.pageSize || '50'),
@@ -529,6 +709,42 @@
                 }
             }
 
+            function applyStatusButtonState() {
+                for (const candidate of statusButtons) {
+                    const active = (candidate.dataset.customerStatus || 'suspended') === filterState.customerStatus;
+                    candidate.classList.toggle('border-rose-300', active);
+                    candidate.classList.toggle('bg-rose-50', active);
+                    candidate.classList.toggle('text-rose-700', active);
+                    candidate.classList.toggle('dark:border-rose-700', active);
+                    candidate.classList.toggle('dark:bg-rose-900/30', active);
+                    candidate.classList.toggle('dark:text-rose-200', active);
+                    candidate.classList.toggle('border-slate-300', !active);
+                    candidate.classList.toggle('bg-white', !active);
+                    candidate.classList.toggle('text-slate-700', !active);
+                    candidate.classList.toggle('dark:border-slate-600', !active);
+                    candidate.classList.toggle('dark:bg-slate-800', !active);
+                    candidate.classList.toggle('dark:text-slate-300', !active);
+                }
+            }
+
+            function applyBillingButtonState() {
+                for (const candidate of billingButtons) {
+                    const active = (candidate.dataset.billingType || 'all') === filterState.billingType;
+                    candidate.classList.toggle('border-rose-300', active);
+                    candidate.classList.toggle('bg-rose-50', active);
+                    candidate.classList.toggle('text-rose-700', active);
+                    candidate.classList.toggle('dark:border-rose-700', active);
+                    candidate.classList.toggle('dark:bg-rose-900/30', active);
+                    candidate.classList.toggle('dark:text-rose-200', active);
+                    candidate.classList.toggle('border-slate-300', !active);
+                    candidate.classList.toggle('bg-white', !active);
+                    candidate.classList.toggle('text-slate-700', !active);
+                    candidate.classList.toggle('dark:border-slate-600', !active);
+                    candidate.classList.toggle('dark:bg-slate-800', !active);
+                    candidate.classList.toggle('dark:text-slate-300', !active);
+                }
+            }
+
             function syncUrlState() {
                 const params = new URLSearchParams();
                 params.set('due_soon_days', results.dataset.dueSoonDays || '7');
@@ -539,6 +755,8 @@
                 params.set('location', filterState.location);
                 params.set('mrr_sort', filterState.mrrSort);
                 params.set('search', filterState.search);
+                params.set('customer_status', filterState.customerStatus);
+                params.set('billing_type', filterState.billingType);
                 for (const segment of filterState.segments) {
                     params.append('segments', segment);
                 }
@@ -555,6 +773,8 @@
                 params.delete('enterprise_only');
                 params.delete('customer_segment');
                 params.set('mrr_sort', filterState.mrrSort);
+                params.set('customer_status', filterState.customerStatus);
+                params.set('billing_type', filterState.billingType);
                 params.delete('segments');
                 for (const segment of filterState.segments) {
                     params.append('segments', segment);
@@ -759,6 +979,12 @@
                 if (Object.prototype.hasOwnProperty.call(nextState, 'segments')) {
                     filterState.segments = Array.isArray(nextState.segments) ? nextState.segments : [];
                 }
+                if (Object.prototype.hasOwnProperty.call(nextState, 'customerStatus')) {
+                    filterState.customerStatus = nextState.customerStatus || 'suspended';
+                }
+                if (Object.prototype.hasOwnProperty.call(nextState, 'billingType')) {
+                    filterState.billingType = nextState.billingType || 'all';
+                }
                 currentPage = resetSearchPage ? 1 : Math.max(1, Number(page || 1));
                 filterState.search = (searchInput?.value || '').trim();
                 const requestId = ++activeRequestId;
@@ -773,6 +999,8 @@
                     high_balance_only: results.dataset.highBalanceOnly || 'false',
                     days_past_due: results.dataset.daysPastDue || '',
                     mrr_sort: filterState.mrrSort,
+                    customer_status: filterState.customerStatus,
+                    billing_type: filterState.billingType,
                 });
                 for (const segment of filterState.segments) {
                     params.append('segments', segment);
@@ -801,15 +1029,21 @@
                 results.dataset.pageSize = String(filterState.pageSize);
                 results.dataset.search = filterState.search;
                 results.dataset.customerTier = filterState.customerTier;
+                results.dataset.customerStatus = filterState.customerStatus;
+                results.dataset.billingType = filterState.billingType;
                 syncUrlState();
                 syncExportLink();
                 applyBucketButtonState();
+                applyStatusButtonState();
+                applyBillingButtonState();
                 applyTierButtonState();
                 hydrateResults();
             }
 
             hydrateResults();
             applyBucketButtonState();
+            applyStatusButtonState();
+            applyBillingButtonState();
             applyTierButtonState();
             if (searchInput) {
                 searchInput.value = filterState.search;
@@ -829,11 +1063,64 @@
                     loadResults(1, true);
                 }
             });
+            clearFiltersButton?.addEventListener('click', () => {
+                filterState.bucket = 'all';
+                filterState.customerTier = 'all';
+                filterState.location = '';
+                filterState.mrrSort = '';
+                filterState.customerStatus = 'all';
+                filterState.billingType = 'all';
+                filterState.search = '';
+                if (searchInput) searchInput.value = '';
+                if (locationSelect) locationSelect.value = '';
+                const sortSelect = currentMrrSortSelect();
+                if (sortSelect) sortSelect.value = '';
+                results.dataset.bucket = 'all';
+                results.dataset.customerTier = 'all';
+                results.dataset.location = '';
+                results.dataset.mrrSort = '';
+                results.dataset.customerStatus = 'all';
+                results.dataset.billingType = 'all';
+                results.dataset.search = '';
+                applyBucketButtonState();
+                applyTierButtonState();
+                applyStatusButtonState();
+                applyBillingButtonState();
+                loadResults(1, true, {
+                    bucket: 'all',
+                    customerStatus: 'all',
+                    billingType: 'all',
+                    mrrSort: '',
+                });
+            });
             for (const button of bucketButtons) {
                 button.addEventListener('click', () => {
                     filterState.bucket = button.dataset.blockedBucket || 'all';
                     applyBucketButtonState();
                     loadResults(1, true, { bucket: button.dataset.blockedBucket || 'all' });
+                });
+            }
+            for (const button of statusButtons) {
+                button.addEventListener('click', () => {
+                    filterState.customerStatus = button.dataset.customerStatus || 'suspended';
+                    results.dataset.customerStatus = filterState.customerStatus;
+                    filterState.bucket = 'all';
+                    applyStatusButtonState();
+                    applyBucketButtonState();
+                    loadResults(1, true, {
+                        customerStatus: filterState.customerStatus,
+                        bucket: 'all',
+                    });
+                });
+            }
+            for (const button of billingButtons) {
+                button.addEventListener('click', () => {
+                    filterState.billingType = button.dataset.billingType || 'all';
+                    results.dataset.billingType = filterState.billingType;
+                    applyBillingButtonState();
+                    loadResults(1, true, {
+                        billingType: filterState.billingType,
+                    });
                 });
             }
             for (const button of tierButtons) {
@@ -848,9 +1135,11 @@
                 filterState.location = locationSelect.value || '';
                 loadResults(1, true);
             });
-            mrrSortSelect?.addEventListener('change', () => {
-                filterState.mrrSort = mrrSortSelect.value || '';
-                loadResults(1, true, { mrrSort: mrrSortSelect.value || '' });
+            results.addEventListener('change', (event) => {
+                const target = event.target;
+                if (!(target instanceof HTMLSelectElement) || target.id !== 'billing-risk-mrr-sort') return;
+                filterState.mrrSort = target.value || '';
+                loadResults(1, true, { mrrSort: target.value || '' });
             });
             exportLink?.addEventListener('click', (event) => {
                 event.preventDefault();

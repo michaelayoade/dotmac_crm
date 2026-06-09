@@ -181,9 +181,9 @@
         </thead>
         <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
             {% for row in tracker_rows %}
-            {% set customer_id = row._external_id or row.subscriber_id or row._subscriber_number %}
+            {% set customer_id = row.retention_customer_id or row._external_id or row.subscriber_id or row._subscriber_number %}
             {% set customer_key = customer_id|string if customer_id else "" %}
-            {% set latest_engagement = (engagement_history.get(customer_key) or [none])[0] if customer_key else none %}
+            {% set latest_engagement = row.latest_engagement or ((engagement_history.get(customer_key) or [none])[0] if customer_key else none) %}
             {% call table_row(color="rose") %}
                 <td class="px-4 py-4 align-top">
                     {% if customer_id %}

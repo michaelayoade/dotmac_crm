@@ -43,6 +43,58 @@ _SPYLNX_LIVE_CACHE_LOCK = Lock()
 _BILLING_RISK_SEGMENT_ORDER = ["Due Soon", "Suspended", "Churned", "Pending"]
 _BILLING_RISK_ENRICH_MAX_WORKERS = 2
 ENTERPRISE_MRR_THRESHOLD = 70000.0
+
+
+def _billing_payload_date_text(payload: Mapping[str, Any] | None, *keys: str) -> str:
+    if not isinstance(payload, Mapping):
+        return ""
+    for key in keys:
+        candidate = payload.get(key)
+        candidate_text = str(candidate or "").strip()
+        if not candidate_text or candidate_text == "0000-00-00":
+            continue
+        parsed_date = _parse_iso_date_text(candidate_text)
+        if parsed_date is not None:
+            return parsed_date.strftime("%Y-%m-%d")
+        if candidate_text:
+            return candidate_text
+    return ""
+
+
+def _next_bill_date_from_billing(payload: Mapping[str, Any] | None) -> str:
+    return _billing_payload_date_text(
+        payload,
+        "next_bill_date",
+        "next_billing_date",
+        "expire",
+        "due_date",
+        "billing_date_next",
+    )
+
+
+def _future_blocking_date_from_billing(payload: Mapping[str, Any] | None) -> str:
+    blocking_date = _billing_payload_date_text(payload, "blocking_date")
+    parsed_blocking_date = _parse_iso_date_text(blocking_date)
+    if parsed_blocking_date is None:
+        return ""
+    if parsed_blocking_date < datetime.now(UTC).date():
+        return ""
+    return parsed_blocking_date.strftime("%Y-%m-%d")
+
+
+def _service_expiration_date_from_billing(
+    payload: Mapping[str, Any] | None,
+    *,
+    subscriber_status: str | None = None,
+) -> str:
+    next_bill_date = _next_bill_date_from_billing(payload)
+    if next_bill_date:
+        return next_bill_date
+    if str(subscriber_status or "").strip().lower() == "active":
+        return _future_blocking_date_from_billing(payload)
+    return ""
+
+
 _OPEN_TICKET_STATUSES = (
     TicketStatus.new,
     TicketStatus.open,
@@ -1102,6 +1154,7 @@ def get_billing_risk_table(
         cached_suspended_at = _coerce_datetime_utc(cached_subscriber.get("suspended_at"))
         status_raw = str(mapped.get("status") or "unknown").strip().lower()
         status_value = status_raw.removeprefix("subscriberstatus.")
+        billing_type_value = str(customer.get("billing_type") or "").strip()
         plan_value = str(mapped.get("service_plan") or "").strip() or str(cached_subscriber.get("service_plan") or "")
         embedded_billing = customer.get("billing") if isinstance(customer.get("billing"), Mapping) else None
         billing_start_date = _live_billing_start_date(customer, mapped, embedded_billing)
@@ -1117,6 +1170,9 @@ def get_billing_risk_table(
         balance_amount = _parse_balance_amount(mapped.get("balance") or customer.get("balance"))
         if balance_amount == 0.0 and cached_subscriber.get("balance") is not None:
             balance_amount = float(cached_subscriber.get("balance") or 0.0)
+        account_balance_deposit = _parse_balance_amount(
+            embedded_billing.get("deposit") if isinstance(embedded_billing, Mapping) else None
+        )
         mrr_total_value = _parse_balance_amount(
             customer.get("mrr_total")
             or (embedded_billing.get("month_price") if isinstance(embedded_billing, Mapping) else None)
@@ -1149,10 +1205,11 @@ def get_billing_risk_table(
             live_segment_value = "Pending"
         elif status_value == SubscriberStatus.active.value and due_days is not None and due_days <= due_soon_days:
             live_segment_value = "Due Soon"
+        elif status_value == SubscriberStatus.active.value:
+            live_segment_value = "Active"
         if live_segment_value is None:
             continue
         if status_value == SubscriberStatus.active.value and live_segment_value == "Due Soon":
-            blocked_date_text = ""
             blocked_for_days = None
         elif status_value == SubscriberStatus.suspended.value and not blocked_date_text:
             if blocking_period_days is not None and row_days_past_due is not None:
@@ -1219,6 +1276,8 @@ def get_billing_risk_table(
                 "billing_end_date": next_bill_raw.strftime("%Y-%m-%d") if next_bill_raw else "",
                 "next_bill_date": next_bill_raw.strftime("%Y-%m-%d") if next_bill_raw else "",
                 "balance": balance_amount,
+                "account_balance_deposit": account_balance_deposit,
+                "billing_type": billing_type_value,
                 "billing_cycle": str(mapped.get("billing_cycle") or cached_subscriber.get("billing_cycle") or ""),
                 "blocked_date": blocked_date_text,
                 "blocked_for_days": blocked_for_days,
@@ -1365,6 +1424,17 @@ def get_billing_risk_table(
         live_invoiced_until = _live_invoiced_until_date(billing_payload)
         if live_invoiced_until:
             updates["invoiced_until"] = live_invoiced_until
+        live_service_expiration_date = _service_expiration_date_from_billing(
+            billing_payload,
+            subscriber_status=str(entry.get("subscriber_status") or ""),
+        )
+        if live_service_expiration_date:
+            updates["next_bill_date"] = live_service_expiration_date
+            updates["billing_end_date"] = live_service_expiration_date
+        if str(entry.get("subscriber_status") or "").strip().lower() == "active":
+            updates["blocked_date"] = ""
+            updates["blocked_for_days"] = None
+            return updates
         live_blocked_date = _live_blocked_date_from_billing(billing_payload)
         live_blocking_period = _coerce_nonnegative_int(billing_payload.get("blocking_period"))
         if live_blocking_period is not None:
@@ -1595,6 +1665,17 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
         live_invoiced_until = _invoiced_until_date(billing_payload)
         if live_invoiced_until:
             updates["invoiced_until"] = live_invoiced_until
+        live_service_expiration_date = _service_expiration_date_from_billing(
+            billing_payload,
+            subscriber_status=str(entry.get("subscriber_status") or ""),
+        )
+        if live_service_expiration_date:
+            updates["next_bill_date"] = live_service_expiration_date
+            updates["billing_end_date"] = live_service_expiration_date
+        if str(entry.get("subscriber_status") or "").strip().lower() == "active":
+            updates["blocked_date"] = ""
+            updates["blocked_for_days"] = None
+            return updates
         live_blocked_date = _blocked_date_from_billing(billing_payload)
         live_blocking_period = _coerce_nonnegative_int(billing_payload.get("blocking_period"))
         if live_blocking_period is not None:
