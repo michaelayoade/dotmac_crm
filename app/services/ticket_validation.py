@@ -142,6 +142,8 @@ def validate_ticket_creation(db: Session, payload: TicketCreate) -> None:
 
 def _build_context(db: Session, payload: TicketCreate) -> dict:
     """Build context dict for condition evaluation."""
+    metadata = payload.metadata_ if isinstance(payload.metadata_, dict) else {}
+    duplicate_override = metadata.get("duplicate_override") is True
     context: dict = {
         "ticket_type": payload.ticket_type,
         "customer_person_id": str(payload.customer_person_id) if payload.customer_person_id else None,
@@ -149,6 +151,7 @@ def _build_context(db: Session, payload: TicketCreate) -> dict:
         "priority": payload.priority.value if payload.priority else None,
         "channel": payload.channel.value if payload.channel else None,
         "title": payload.title,
+        "duplicate_override": duplicate_override,
     }
 
     if payload.customer_person_id:
@@ -170,7 +173,7 @@ def _build_context(db: Session, payload: TicketCreate) -> dict:
                 (t for t in open_tickets if t.ticket_type == payload.ticket_type),
                 None,
             )
-            if duplicate:
+            if duplicate and not duplicate_override:
                 context["duplicate_ticket_id"] = str(duplicate.id)
 
     return context

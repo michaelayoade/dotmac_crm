@@ -1849,6 +1849,7 @@ def ticket_duplicate_lookup(
     customer_person_id: str | None = Query(default=None),
     lead_id: str | None = Query(default=None),
     ticket_type: str | None = Query(default=None),
+    base_station_details: str | None = Query(default=None),
     tags: str | None = Query(default=None),
     region: str | None = Query(default=None),
 ):
@@ -1863,6 +1864,7 @@ def ticket_duplicate_lookup(
             customer_person_id=customer_person_id,
             lead_id=lead_id,
             ticket_type=ticket_type,
+            base_station_details=base_station_details,
             tags=_parse_ticket_tags(tags),
             region=region,
         ),
@@ -2071,6 +2073,7 @@ async def ticket_create_post(
                 customer_person_id=payload_data["customer_person_id"],
                 lead_id=payload_data["lead_id"],
                 ticket_type=payload_data["ticket_type"],
+                base_station_details=cleaned_base_station_details,
                 tags=tag_list,
                 region=payload_data["region"],
             ),
@@ -2178,13 +2181,21 @@ async def ticket_create_post(
         )
         ticket_types, ticket_type_priority_map = _load_ticket_types(db)
         ticket_types = [item for item in ticket_types if item.get("is_active")]
+        resolved_customer_label = ""
+        if resolved_customer_person_id:
+            resolved_customer = db.get(Person, resolved_customer_person_id)
+            if resolved_customer:
+                resolved_customer_label = _person_filter_label(resolved_customer)
+
         prefill = {
             "title": title or "",
             "description": description or "",
             "subscriber_id": subscriber_id or None,
             "subscriber_label": "",
-            "customer_person_id": customer_person_id or None,
-            "customer_label": "",
+            "customer_person_id": str(resolved_customer_person_id)
+            if resolved_customer_person_id
+            else customer_person_id or None,
+            "customer_label": resolved_customer_label or customer_search or "",
             "lead_id": lead_id or None,
             "conversation_id": conversation_id or None,
             "channel": channel or None,
