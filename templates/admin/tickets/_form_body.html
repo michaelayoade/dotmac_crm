@@ -34,6 +34,7 @@
             {% set duplicate_matches = duplicate_warning.matches if duplicate_warning and duplicate_warning.matches else [] %}
             <div id="ticket-duplicate-warning"
                  class="{% if not duplicate_matches %}hidden {% endif %}sm:col-span-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+                 data-duplicate-server-rendered="{{ '1' if duplicate_matches else '0' }}"
                  data-duplicate-warning>
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
@@ -612,10 +613,13 @@
         const subscriberHidden = document.querySelector('input[name="subscriber_id"][data-typeahead-hidden]');
         const leadHidden = document.querySelector('input[name="lead_id"]');
         const typeSelect = document.getElementById("ticket_type");
+        const baseStationInput = document.getElementById("base_station_details");
         const tagsInput = document.getElementById("tags");
         const regionSelect = document.getElementById("region");
         let timer = null;
         let controller = null;
+        const serverRenderedWarning = panel.dataset.duplicateServerRendered === "1";
+        let userEditedDuplicateFields = false;
 
         const escapeHtml = (value) => String(value || "")
             .replace(/&/g, "&amp;")
@@ -679,7 +683,9 @@
             const customerId = customerHidden ? customerHidden.value.trim() : "";
             const leadId = leadHidden ? leadHidden.value.trim() : "";
             if (!subscriberId && !customerId && !leadId) {
-                hideWarning();
+                if (!serverRenderedWarning || userEditedDuplicateFields) {
+                    hideWarning();
+                }
                 return;
             }
 
@@ -690,6 +696,7 @@
             if (customerId) params.set("customer_person_id", customerId);
             if (leadId) params.set("lead_id", leadId);
             if (typeSelect && typeSelect.value) params.set("ticket_type", typeSelect.value);
+            if (baseStationInput && baseStationInput.value.trim()) params.set("base_station_details", baseStationInput.value.trim());
             if (tagsInput && tagsInput.value.trim()) params.set("tags", tagsInput.value.trim());
             if (regionSelect && regionSelect.value) params.set("region", regionSelect.value);
 
@@ -706,6 +713,9 @@
                     return;
                 }
                 const data = await response.json();
+                if (serverRenderedWarning && !userEditedDuplicateFields && (!Array.isArray(data.matches) || data.matches.length === 0)) {
+                    return;
+                }
                 renderMatches(data.matches || []);
             } catch (err) {
                 if (err.name !== "AbortError") {
@@ -721,11 +731,17 @@
             timer = window.setTimeout(runCheck, 350);
         };
 
-        [titleInput, descriptionInput, customerHidden, subscriberHidden, leadHidden, typeSelect, tagsInput, regionSelect]
+        [titleInput, descriptionInput, customerHidden, subscriberHidden, leadHidden, typeSelect, baseStationInput, tagsInput, regionSelect]
             .filter(Boolean)
             .forEach((el) => {
-                el.addEventListener("input", scheduleCheck);
-                el.addEventListener("change", scheduleCheck);
+                el.addEventListener("input", (event) => {
+                    userEditedDuplicateFields = userEditedDuplicateFields || event.isTrusted;
+                    scheduleCheck();
+                });
+                el.addEventListener("change", (event) => {
+                    userEditedDuplicateFields = userEditedDuplicateFields || event.isTrusted;
+                    scheduleCheck();
+                });
             });
 
         scheduleCheck();
