@@ -4,7 +4,7 @@ import contextlib
 import logging
 from threading import Lock
 from time import monotonic
-from urllib.parse import quote, urlparse, urlunparse
+from urllib.parse import quote, unquote, urlparse, urlunparse
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -70,13 +70,49 @@ def _clear_auth_cookies(response: RedirectResponse, db: Session) -> None:
         samesite="lax",
     )
     refresh_settings = AuthFlow.refresh_cookie_settings(db)
-    response.delete_cookie(
-        key=refresh_settings["key"],
-        secure=refresh_settings["secure"],
-        samesite=refresh_settings["samesite"],
-        domain=refresh_settings["domain"],
-        path=refresh_settings["path"],
-    )
+    _delete_refresh_cookie_variants(response, refresh_settings)
+
+
+def _delete_refresh_cookie_variants(response, refresh_settings: dict[str, object]) -> None:
+    key = str(refresh_settings["key"])
+    domain = refresh_settings["domain"]
+    secure = bool(refresh_settings["secure"])
+    samesite = str(refresh_settings["samesite"])
+    paths = {
+        str(refresh_settings["path"] or "/auth"),
+        "/auth",
+        "/",
+    }
+    for path in paths:
+        response.delete_cookie(
+            key=key,
+            secure=secure,
+            samesite=samesite,
+            domain=domain,
+            path=path,
+        )
+
+
+def _refresh_token_candidates(request: Request, db: Session) -> list[str]:
+    refresh_settings = AuthFlow.refresh_cookie_settings(db)
+    key = str(refresh_settings["key"])
+    candidates: list[str] = []
+
+    raw_cookie = request.headers.get("cookie") or ""
+    for part in raw_cookie.split(";"):
+        name, separator, value = part.strip().partition("=")
+        if separator and name == key and value:
+            candidates.append(unquote(value.strip()))
+
+    resolved = AuthFlow.resolve_refresh_token(request, None, db)
+    if resolved:
+        candidates.append(resolved)
+
+    deduped: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in deduped:
+            deduped.append(candidate)
+    return deduped
 
 
 def _sanitize_refresh_next(next_url: str | None, fallback: str) -> str:
@@ -99,6 +135,7 @@ def _safe_next(next_url: str | None, fallback: str = "/admin/dashboard") -> str:
 
 def _set_refresh_cookie(response, db: Session, refresh_token: str):
     refresh_settings = AuthFlow.refresh_cookie_settings(db)
+    _delete_refresh_cookie_variants(response, refresh_settings)
     response.set_cookie(
         key=refresh_settings["key"],
         value=refresh_token,
@@ -407,9 +444,9 @@ def reset_password_submit(
 
 def refresh(request: Request, db: Session, next_url: str | None = None):
     redirect_url = _safe_next(next_url)
-    refresh_token = AuthFlow.resolve_refresh_token(request, None, db)
+    refresh_tokens = _refresh_token_candidates(request, db)
     client_ip = request.client.host if request.client else None
-    if not refresh_token:
+    if not refresh_tokens:
         login_url = "/auth/login"
         if next_url and next_url.startswith("/"):
             login_url = f"/auth/login?next={quote(next_url)}"
@@ -422,8 +459,18 @@ def refresh(request: Request, db: Session, next_url: str | None = None):
                 client_ip,
             )
         return response
+    result = None
+    last_error: Exception | None = None
     try:
-        result = auth_flow_service.auth_flow.refresh(db, refresh_token, request)
+        for refresh_token in refresh_tokens:
+            try:
+                result = auth_flow_service.auth_flow.refresh(db, refresh_token, request)
+                break
+            except Exception as exc:
+                last_error = exc
+                db.rollback()
+        if result is None:
+            raise last_error or HTTPException(status_code=401, detail="Invalid refresh token")
     except Exception as exc:
         login_url = "/auth/login"
         if next_url and next_url.startswith("/"):
@@ -495,9 +542,5 @@ def logout(request: Request, db: Session):
     response.delete_cookie("session_token")
     response.delete_cookie("mfa_pending")
     refresh_settings = AuthFlow.refresh_cookie_settings(db)
-    response.delete_cookie(
-        key=refresh_settings["key"],
-        domain=refresh_settings["domain"],
-        path=refresh_settings["path"],
-    )
+    _delete_refresh_cookie_variants(response, refresh_settings)
     return response

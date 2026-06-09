@@ -255,7 +255,6 @@ function initSessionRefresh(config) {
     }
 
     function startRefresh() {
-        refreshSession();
         intervalId = setInterval(refreshSession, intervalMs);
     }
 

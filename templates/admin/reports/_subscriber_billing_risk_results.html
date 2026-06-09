@@ -16,6 +16,7 @@
 {% set show_next = has_next|default(false) %}
 {% set enterprise_threshold = enterprise_mrr_threshold|default(70000) %}
 {% set current_aging_buckets = aging_buckets|default([]) %}
+{% set empty_colspan = 14 %}
 {% set page_size_control %}
 <label class="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
     Show
@@ -31,228 +32,249 @@
 </label>
 {% endset %}
 
-{% call dashboard_kpi_grid(cols="4") %}
-    {% for bucket in current_aging_buckets %}
-        {% set label = bucket.label|default('Blocked') %}
-        {% if label == "No Blocked Date" %}
-            {# Hidden because this page is scoped to blocked/suspended customers only. #}
-        {% elif label == "Blocked 0-7 Days" %}
-            {{ stats_card(label, bucket.count|default(0), color="amber", color2="orange") }}
-        {% elif label == "Blocked 8-30 Days" %}
-            {{ stats_card(label, bucket.count|default(0), color="rose", color2="red") }}
-        {% elif label == "Blocked 31-60 Days" %}
-            {{ stats_card(label, bucket.count|default(0), color="slate", color2="gray") }}
-        {% elif label == "Blocked 61+ Days" %}
-            {{ stats_card(label, bucket.count|default(0), color="emerald", color2="teal") }}
-        {% else %}
-            {{ stats_card(label, bucket.count|default(0), color="slate", color2="gray") }}
-        {% endif %}
-    {% endfor %}
-{% endcall %}
+{% set bucket_counts = namespace(days_0_7=0, days_8_30=0, days_31_60=0, days_61_plus=0) %}
+{% for bucket in current_aging_buckets %}
+    {% set label = bucket.label|default('Blocked') %}
+    {% if label == "Blocked 0-7 Days" %}
+        {% set bucket_counts.days_0_7 = bucket.count|default(0) %}
+    {% elif label == "Blocked 8-30 Days" %}
+        {% set bucket_counts.days_8_30 = bucket.count|default(0) %}
+    {% elif label == "Blocked 31-60 Days" %}
+        {% set bucket_counts.days_31_60 = bucket.count|default(0) %}
+    {% elif label == "Blocked 61+ Days" %}
+        {% set bucket_counts.days_61_plus = bucket.count|default(0) %}
+    {% endif %}
+{% endfor %}
 
-<div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
-        <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Blocked Customers</div>
-        <div id="billing-risk-metric-count" class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ metrics.total_count }}</div>
-    </div>
-    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
-        <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Revenue At Risk</div>
-        <div id="billing-risk-metric-balance" class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">₦{{ "{:,.2f}".format(metrics.total_balance) }}</div>
-    </div>
-    <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
-        <div class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Average Days Overdue</div>
-        <div id="billing-risk-metric-overdue" class="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{{ metrics.avg_days_overdue }}</div>
-    </div>
-</div>
-
-<div class="mt-6">
-<form method="post" action="/admin/reports/subscribers/billing-risk/outreach" id="billing-risk-outreach-form" class="space-y-4">
-    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-    <input type="hidden" name="next_url" id="billing-risk-next-url" value="/admin/reports/subscribers/billing-risk">
-    <div class="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60 lg:flex-row lg:items-end lg:justify-between">
-        <div class="grid flex-1 grid-cols-1 gap-3 md:grid-cols-3">
-            <div>
-                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Outreach Name</label>
-                <input
-                    type="text"
-                    name="name"
-                    value="Billing Risk Outreach"
-                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
-                >
+<div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+    <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60" style="--billing-risk-glow: rgba(59, 130, 246, 0.15); --billing-risk-icon-bg: rgba(59, 130, 246, 0.12); --billing-risk-icon-color: #3b82f6; --billing-risk-icon-shadow: rgba(59, 130, 246, 0.18);">
+        <div class="relative flex items-start justify-between gap-3">
+            <div class="min-w-0">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">0&ndash;7 Days</p>
+                <p class="mt-4 text-2xl font-semibold text-slate-900 dark:text-white">{{ bucket_counts.days_0_7 }}</p>
             </div>
-            <div>
-                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Channel</label>
-                <select
-                    name="channel"
-                    id="billing-risk-outreach-channel"
-                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
-                >
-                    <option value="whatsapp">WhatsApp</option>
-                    <option value="email">Email</option>
-                </select>
-            </div>
-            <div>
-                <label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Send From</label>
-                <select
-                    name="channel_target_id"
-                    id="billing-risk-channel-target-id"
-                    class="block h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
-                ></select>
-            </div>
-            <div class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                <span class="font-semibold" id="billing-risk-selected-count">0</span>
-                <span>selected on this page</span>
-            </div>
+            <span class="billing-risk-exec-icon" aria-hidden="true">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3M4 11h16M5 5h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z"/></svg>
+            </span>
         </div>
-        <button
-            type="submit"
-            id="billing-risk-create-outreach-button"
-            disabled
-            class="inline-flex h-10 items-center justify-center rounded-xl bg-rose-600 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 hover:bg-rose-700"
-        >
-            Create Outreach Draft
-        </button>
     </div>
-{% call table_shell(table_id="billing-risk-churn-rows", title="Computed Billing-Risk Rows", color="rose", count=churn_rows|length, actions=page_size_control, bulk_selectable=False) %}
-<table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-    <thead>
-        <tr>
-            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                <input type="checkbox" id="billing-risk-select-all" class="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800">
-            </th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
-            <th class="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Phone</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">City</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Location</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Street</th>
-            <th class="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Area</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
-            <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">MRR Total</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Risk Segment</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Billing Start Date</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Blocked Date</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Blocked For</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tickets</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Outcome</th>
-            <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Follow-up</th>
-            <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Engagement</th>
-        </tr>
-    </thead>
-    <tbody id="billing-risk-live-body" class="divide-y divide-slate-200 dark:divide-slate-700">
-        {% for row in churn_rows %}
-        {% set blocked_for_days = row.blocked_for_days if row.blocked_for_days is defined and row.blocked_for_days is not none else none %}
-        {% set engagement_customer_id = row.get('_external_id') or row.subscriber_id or row.get('_subscriber_number') or '' %}
-        {% set ticket_subscriber_id = row.ticket_subscriber_id or '' %}
-        {% call table_row(color="rose") %}
-            <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
-                <input
-                    type="checkbox"
-                    name="subscriber_id"
-                    value="{{ row.subscriber_id or '' }}"
-                    data-billing-risk-select-row
-                    data-retention-customer-id="{{ engagement_customer_id }}"
-                    {% if not row.subscriber_id %}disabled{% endif %}
-                    class="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500/20 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-600 dark:bg-slate-800"
-                >
-            </td>
-            <td
-                class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white"
-                data-billing-risk-row="1"
-                data-name="{{ row.name|lower }}"
-                data-phone="{{ (row.phone or '')|lower }}"
-                data-city="{{ (row.city or '')|lower }}"
-                data-location="{{ (row.location or '')|lower }}"
-                data-street="{{ (row.street or '')|lower }}"
-                data-area="{{ (row.area or '')|lower }}"
-                data-plan="{{ (row.plan or '')|lower }}"
-                data-balance="{{ (row.balance or 0)|float }}"
-                data-mrr-total="{{ (row.mrr_total or 0)|float }}"
-                data-external-id="{{ row.get('_external_id') or '' }}"
-                data-subscriber-status="{{ (row.subscriber_status or '')|lower }}"
-                data-risk-segment="{{ row.risk_segment or '' }}"
-                data-blocked-for-days="{{ blocked_for_days if blocked_for_days is not none else '' }}"
-                data-customer-id="{{ engagement_customer_id }}"
-            >
-                <div class="flex flex-wrap items-center gap-2">
-                    <span>{{ row.name or "-" }}</span>
-                    {% if (row.mrr_total or 0)|float >= enterprise_threshold %}
-                    <span class="inline-flex items-center rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-200">Enterprise</span>
-                    {% else %}
-                    <span class="inline-flex items-center rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200">Non-enterprise</span>
-                    {% endif %}
-                </div>
-            </td>
-            <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.phone or "-" }}</td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.city or "-" }}</td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.location or "-" }}</td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.street or "-" }}</td>
-            <td class="px-3 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.area or "-" }}</td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan or "-" }}</td>
-            <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">₦{{ "{:,.2f}".format((row.mrr_total or 0)|float) }}</td>
-            <td class="px-6 py-3 text-sm">{% if row.subscriber_status %}{{ status_badge(row.subscriber_status, "warning" if row.risk_segment in ["Suspended", "Due Soon", "Overdue"] else "danger", size="sm") }}{% else %}<span class="text-slate-500 dark:text-slate-400">-</span>{% endif %}</td>
-            <td class="px-6 py-3 text-sm text-slate-900 dark:text-white">{{ row.risk_segment or "-" }}</td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.billing_start_date or "-" }}</td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300" data-blocked-date-cell="1">{{ row.blocked_date or "-" }}</td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">
-                <span data-blocked-for-tag data-blocked-for-days="{{ blocked_for_days if blocked_for_days is not none else '' }}" class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    {% if blocked_for_days is not none %}Blocked for {{ blocked_for_days }} days{% else %}-{% endif %}
-                </span>
-            </td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">
-                {% set ticket_status_counts = row.ticket_status_counts if row.ticket_status_counts is mapping else {} %}
-                {% set ticket_status_refs = row.ticket_status_refs if row.ticket_status_refs is mapping else {} %}
-                {% set ordered_ticket_statuses = ["open", "closed", "pending", "new", "waiting_on_customer", "lastmile_rerun", "site_under_construction", "on_hold", "canceled", "merged"] %}
-                <div class="flex flex-wrap gap-1.5">
-                    {% if ticket_subscriber_id and ticket_status_counts %}
-                    {% for status_value in ordered_ticket_statuses %}
-                    {% set status_count = ticket_status_counts.get(status_value, 0) %}
-                    {% set ticket_ref = ticket_status_refs.get(status_value, '') %}
-                    {% if status_count %}
-                    {% if ticket_ref %}
-                    <a href="/admin/support/tickets/{{ ticket_ref }}" class="rounded-full px-2 py-0.5 text-xs font-semibold hover:opacity-90 {% if status_value == 'open' %}bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200{% elif status_value == 'closed' %}bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200{% elif status_value == 'pending' %}bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-200{% elif status_value in ['new', 'waiting_on_customer'] %}bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200{% elif status_value in ['lastmile_rerun', 'site_under_construction', 'on_hold'] %}bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-200{% elif status_value in ['canceled', 'merged'] %}bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200{% else %}bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300{% endif %}">{{ status_value.replace('_', ' ')|title }} {{ status_count }}</a>
-                    {% else %}
-                    <span class="rounded-full px-2 py-0.5 text-xs font-semibold {% if status_value == 'open' %}bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200{% elif status_value == 'closed' %}bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200{% elif status_value == 'pending' %}bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-200{% elif status_value in ['new', 'waiting_on_customer'] %}bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200{% elif status_value in ['lastmile_rerun', 'site_under_construction', 'on_hold'] %}bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-200{% elif status_value in ['canceled', 'merged'] %}bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200{% else %}bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300{% endif %}">{{ status_value.replace('_', ' ')|title }} {{ status_count }}</span>
-                    {% endif %}
-                    {% endif %}
-                    {% endfor %}
-                    <a href="/admin/support/tickets?subscriber={{ ticket_subscriber_id }}&status=" class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Total {{ row.total_tickets|default(0) }}</a>
-                    {% elif row.latest_ticket_id %}
-                    <a href="/admin/support/tickets/{{ row.latest_ticket_id }}" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50">Open {{ row.open_tickets|default(0) }}</a>
-                    <a href="/admin/support/tickets/{{ row.latest_ticket_id }}" class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:hover:bg-emerald-900/50">Closed {{ row.closed_tickets|default(0) }}</a>
-                    <a href="/admin/support/tickets?subscriber={{ ticket_subscriber_id }}&status=" class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Total {{ row.total_tickets|default(0) }}</a>
-                    {% else %}
-                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-200">Open {{ row.open_tickets|default(0) }}</span>
-                    <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200">Closed {{ row.closed_tickets|default(0) }}</span>
-                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">Total {{ row.total_tickets|default(0) }}</span>
-                    {% endif %}
-                </div>
-            </td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300" data-engagement-outcome-cell="{{ engagement_customer_id }}">-</td>
-            <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300" data-engagement-follow-up-cell="{{ engagement_customer_id }}">-</td>
-            <td class="px-6 py-3 text-right text-sm">
-                <div class="flex flex-col items-end gap-1">
-                    <button
-                        type="button"
-                        class="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                        data-engagement-open="1"
-                        data-customer-id="{{ engagement_customer_id }}"
-                        data-customer-name="{{ row.name|e }}"
-                        data-customer-plan="{{ (row.plan or '-')|e }}"
-                        data-customer-price="{{ '{:,.2f}'.format((row.mrr_total or 0)|float) }}"
-                    >Update</button>
-                    <a href="/admin/customer-retention/{{ engagement_customer_id }}" class="text-xs font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-300 dark:hover:text-rose-200">View tracker</a>
-                </div>
-            </td>
-        {% endcall %}
-        {% else %}
-        {{ empty_state(title="No billing-risk rows", message="No subscribers matched the current computed billing-risk rules and filters.", color="rose", color2="red", colspan=18) }}
-        {% endfor %}
-    </tbody>
-</table>
-{% endcall %}
-</form>
+    <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60" style="--billing-risk-glow: rgba(249, 115, 22, 0.15); --billing-risk-icon-bg: rgba(249, 115, 22, 0.12); --billing-risk-icon-color: #f97316; --billing-risk-icon-shadow: rgba(249, 115, 22, 0.18);">
+        <div class="relative flex items-start justify-between gap-3">
+            <div class="min-w-0">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">8&ndash;30 Days</p>
+                <p class="mt-4 text-2xl font-semibold text-slate-900 dark:text-white">{{ bucket_counts.days_8_30 }}</p>
+            </div>
+            <span class="billing-risk-exec-icon" aria-hidden="true">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </span>
+        </div>
+    </div>
+    <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60" style="--billing-risk-glow: rgba(234, 179, 8, 0.15); --billing-risk-icon-bg: rgba(234, 179, 8, 0.12); --billing-risk-icon-color: #eab308; --billing-risk-icon-shadow: rgba(234, 179, 8, 0.18);">
+        <div class="relative flex items-start justify-between gap-3">
+            <div class="min-w-0">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">31&ndash;60 Days</p>
+                <p class="mt-4 text-2xl font-semibold text-slate-900 dark:text-white">{{ bucket_counts.days_31_60 }}</p>
+            </div>
+            <span class="billing-risk-exec-icon" aria-hidden="true">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 17h2m-6-4h10M5 7h14M6 3h12a1 1 0 011 1v16a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z"/></svg>
+            </span>
+        </div>
+    </div>
+    <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60" style="--billing-risk-glow: rgba(239, 68, 68, 0.15); --billing-risk-icon-bg: rgba(239, 68, 68, 0.12); --billing-risk-icon-color: #ef4444; --billing-risk-icon-shadow: rgba(239, 68, 68, 0.18);">
+        <div class="relative flex items-start justify-between gap-3">
+            <div class="min-w-0">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">61+ Days</p>
+                <p class="mt-4 text-2xl font-semibold text-slate-900 dark:text-white">{{ bucket_counts.days_61_plus }}</p>
+            </div>
+            <span class="billing-risk-exec-icon" aria-hidden="true">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            </span>
+        </div>
+    </div>
+    <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60" style="--billing-risk-glow: rgba(59, 130, 246, 0.14); --billing-risk-icon-bg: rgba(59, 130, 246, 0.11); --billing-risk-icon-color: #3b82f6; --billing-risk-icon-shadow: rgba(59, 130, 246, 0.16);">
+        <div class="relative flex items-start justify-between gap-3">
+            <div class="min-w-0">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Balance Exposure</p>
+                <p class="mt-4 text-2xl font-semibold text-slate-900 dark:text-white">₦{{ "{:,.2f}".format(kpis.total_balance_exposure|default(metrics.total_balance)) }}</p>
+            </div>
+            <span class="billing-risk-exec-icon" aria-hidden="true">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-2.21 0-4 .895-4 2s1.79 2 4 2 4 .895 4 2-1.79 2-4 2m0-8V6m0 10v2m8-6a8 8 0 11-16 0 8 8 0 0116 0z"/></svg>
+            </span>
+        </div>
+    </div>
 </div>
+
+<section class="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <div class="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-700 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Subscriber Risk List ({{ churn_rows|length }})</h2>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Professional billing exposure grid for the selected subscriber filters.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+            <label class="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                Sort By
+                <select
+                    id="billing-risk-mrr-sort"
+                    class="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+                >
+                    <option value="" {% if mrr_sort|default('') == '' %}selected{% endif %}>Default</option>
+                    <option value="desc" {% if mrr_sort|default('') == 'desc' %}selected{% endif %}>Highest Balance</option>
+                    <option value="asc" {% if mrr_sort|default('') == 'asc' %}selected{% endif %}>Lowest Balance</option>
+                </select>
+            </label>
+            {{ page_size_control }}
+        </div>
+    </div>
+    <div class="overflow-x-auto">
+        <table id="billing-risk-churn-rows" class="min-w-full border-separate border-spacing-y-2 px-3 text-sm">
+            <thead class="sticky top-0 z-10">
+                <tr class="bg-slate-50 shadow-sm dark:bg-slate-950">
+                    <th class="whitespace-nowrap rounded-l-lg px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Customer</th>
+                    <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Customer ID</th>
+                    <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Location</th>
+                    <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Segment</th>
+                    <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                    <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Billing Type</th>
+                    <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Days Overdue</th>
+                    <th class="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Revenue Owed</th>
+                    <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Service Expiration Date</th>
+                    <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{% if customer_status|default('all') == 'suspended' %}Days Overdue{% else %}Remaining Days{% endif %}</th>
+                    <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tickets</th>
+                    <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Outcome</th>
+                    <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Follow-up</th>
+                    <th class="whitespace-nowrap rounded-r-lg px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Engagement</th>
+                </tr>
+            </thead>
+            <tbody id="billing-risk-live-body">
+                {% for row in churn_rows %}
+                {% set blocked_for_days = row.blocked_for_days if row.blocked_for_days is defined and row.blocked_for_days is not none else none %}
+                {% set engagement_customer_id = row.get('_external_id') or row.subscriber_id or row.get('_subscriber_number') or '' %}
+                {% set ticket_subscriber_id = row.ticket_subscriber_id or '' %}
+                {% set customer_identifier = row.get('_external_id') or row.subscriber_id or row.get('_subscriber_number') or '-' %}
+                {% set status_value = (row.subscriber_status or '')|string %}
+                {% set status_lower = status_value|lower %}
+                {% set billing_type_value = (row.billing_type or '')|string %}
+                {% set billing_type_lower = billing_type_value|lower %}
+                {% set billing_category = 'postpaid' if 'postpaid' in billing_type_lower or billing_type_lower == 'recurring' else ('prepaid' if 'prepaid' in billing_type_lower else '') %}
+                {% set remaining_days = row.remaining_days if row.remaining_days is defined and row.remaining_days is not none else none %}
+                {% set postpaid_remaining_days = row.postpaid_remaining_days if row.postpaid_remaining_days is defined and row.postpaid_remaining_days is not none else none %}
+                {% set risk_remaining_days = postpaid_remaining_days if billing_category == 'postpaid' and postpaid_remaining_days is not none else remaining_days %}
+                {% set timing_days = blocked_for_days if customer_status|default('all') == 'suspended' else risk_remaining_days %}
+                {% set segment_label = "Enterprise" if (row.mrr_total or 0)|float >= enterprise_threshold else "Non-enterprise" %}
+                <tr class="group rounded-lg bg-white shadow-sm ring-1 ring-slate-200 transition hover:bg-slate-50 hover:ring-slate-300 dark:bg-slate-900 dark:ring-slate-800 dark:hover:bg-slate-800/70 dark:hover:ring-slate-700">
+                    <td
+                        class="rounded-l-lg px-4 py-4 align-middle text-sm font-semibold text-slate-900 dark:text-white"
+                        data-billing-risk-row="1"
+                        data-name="{{ row.name|lower }}"
+                        data-phone="{{ (row.phone or '')|lower }}"
+                        data-city="{{ (row.city or '')|lower }}"
+                        data-location="{{ (row.location or '')|lower }}"
+                        data-street="{{ (row.street or '')|lower }}"
+                        data-area="{{ (row.area or '')|lower }}"
+                        data-plan="{{ (row.plan or '')|lower }}"
+                        data-balance="{{ (row.balance or 0)|float }}"
+                        data-mrr-total="{{ (row.mrr_total or 0)|float }}"
+                        data-external-id="{{ row.get('_external_id') or '' }}"
+                        data-subscriber-status="{{ (row.subscriber_status or '')|lower }}"
+                        data-risk-segment="{{ row.risk_segment or '' }}"
+                        data-blocked-for-days="{{ blocked_for_days if blocked_for_days is not none else '' }}"
+                        data-customer-id="{{ engagement_customer_id }}"
+                    >
+                        <div class="max-w-64 truncate">{{ row.name or "-" }}</div>
+                        <div class="mt-1 max-w-64 truncate text-xs font-medium text-slate-500 dark:text-slate-400">{{ row.plan or "-" }}</div>
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-4 align-middle text-sm text-slate-600 dark:text-slate-300">{{ customer_identifier }}</td>
+                    <td class="whitespace-nowrap px-4 py-4 align-middle text-sm text-slate-600 dark:text-slate-300">{{ row.location or row.city or "-" }}</td>
+                    <td class="whitespace-nowrap px-4 py-4 align-middle">
+                        <span class="inline-flex items-center rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-200">{{ segment_label }}</span>
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-4 align-middle">
+                        {% if status_value %}
+                        <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold {% if status_lower == 'active' %}bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200{% elif status_lower == 'suspended' %}bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-200{% else %}bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300{% endif %}">{{ status_value }}</span>
+                        {% else %}
+                        <span class="text-slate-500 dark:text-slate-400">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-4 align-middle">
+                        {% if billing_category == 'prepaid' %}
+                        <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-200">{{ billing_type_value.replace("_", " ")|title }}</span>
+                        {% elif billing_category == 'postpaid' %}
+                        <span class="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700 dark:bg-purple-900/30 dark:text-purple-200">{{ billing_type_value.replace("_", " ")|title }}</span>
+                        {% elif billing_type_value %}
+                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{{ billing_type_value.replace("_", " ")|title }}</span>
+                        {% else %}
+                        <span class="text-slate-500 dark:text-slate-400">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-4 align-middle text-sm text-slate-600 dark:text-slate-300">
+                        <span data-blocked-for-tag data-blocked-for-days="{{ blocked_for_days if blocked_for_days is not none else '' }}">
+                            {% if blocked_for_days is not none %}{{ blocked_for_days }} days{% else %}-{% endif %}
+                        </span>
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-4 text-right align-middle text-sm font-semibold text-slate-900 dark:text-white">{% if billing_category == 'postpaid' and row.revenue_owed is defined and row.revenue_owed is not none %}₦{{ "{:,.2f}".format((row.revenue_owed or 0)|float) }}{% else %}-{% endif %}</td>
+                    <td class="whitespace-nowrap px-4 py-4 align-middle text-sm text-slate-600 dark:text-slate-300">{{ row.service_expiration_date or row.expiration_date or "-" }}</td>
+                    <td class="whitespace-nowrap px-4 py-4 align-middle text-sm text-slate-600 dark:text-slate-300">
+                        {% if timing_days is not none %}
+                        {{ timing_days }} days
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-4 align-middle">
+                        {% set ticket_status_counts = row.ticket_status_counts if row.ticket_status_counts is mapping else {} %}
+                        {% set ticket_status_refs = row.ticket_status_refs if row.ticket_status_refs is mapping else {} %}
+                        {% set ordered_ticket_statuses = ["open", "closed", "pending", "new", "waiting_on_customer", "lastmile_rerun", "site_under_construction", "on_hold", "canceled", "merged"] %}
+                        <div class="flex flex-wrap gap-1.5">
+                            {% if ticket_subscriber_id and ticket_status_counts %}
+                                {% for status_value in ordered_ticket_statuses %}
+                                    {% set status_count = ticket_status_counts.get(status_value, 0) %}
+                                    {% set ticket_ref = ticket_status_refs.get(status_value, '') %}
+                                    {% if status_count %}
+                                        {% if ticket_ref %}
+                                        <a href="/admin/support/tickets/{{ ticket_ref }}" class="rounded-full px-2 py-0.5 text-xs font-semibold hover:opacity-90 {% if status_value == 'open' %}bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200{% elif status_value == 'closed' %}bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200{% elif status_value == 'pending' %}bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-200{% elif status_value in ['new', 'waiting_on_customer'] %}bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200{% elif status_value in ['lastmile_rerun', 'site_under_construction', 'on_hold'] %}bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-200{% elif status_value in ['canceled', 'merged'] %}bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200{% else %}bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300{% endif %}">{{ status_value.replace('_', ' ')|title }} {{ status_count }}</a>
+                                        {% else %}
+                                        <span class="rounded-full px-2 py-0.5 text-xs font-semibold {% if status_value == 'open' %}bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200{% elif status_value == 'closed' %}bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200{% elif status_value == 'pending' %}bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-200{% elif status_value in ['new', 'waiting_on_customer'] %}bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200{% elif status_value in ['lastmile_rerun', 'site_under_construction', 'on_hold'] %}bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-200{% elif status_value in ['canceled', 'merged'] %}bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200{% else %}bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300{% endif %}">{{ status_value.replace('_', ' ')|title }} {{ status_count }}</span>
+                                        {% endif %}
+                                    {% endif %}
+                                {% endfor %}
+                                <a href="/admin/support/tickets?subscriber={{ ticket_subscriber_id }}&status=" class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Total {{ row.total_tickets|default(0) }}</a>
+                            {% elif row.latest_ticket_id %}
+                                <a href="/admin/support/tickets/{{ row.latest_ticket_id }}" class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50">Open {{ row.open_tickets|default(0) }}</a>
+                                <a href="/admin/support/tickets/{{ row.latest_ticket_id }}" class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:hover:bg-emerald-900/50">Closed {{ row.closed_tickets|default(0) }}</a>
+                                <a href="/admin/support/tickets?subscriber={{ ticket_subscriber_id }}&status=" class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Total {{ row.total_tickets|default(0) }}</a>
+                            {% else %}
+                                <span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-200">Open {{ row.open_tickets|default(0) }}</span>
+                                <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200">Closed {{ row.closed_tickets|default(0) }}</span>
+                                <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">Total {{ row.total_tickets|default(0) }}</span>
+                            {% endif %}
+                        </div>
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-4 align-middle text-sm text-slate-600 dark:text-slate-300" data-engagement-outcome-cell="{{ engagement_customer_id }}">-</td>
+                    <td class="whitespace-nowrap px-4 py-4 align-middle text-sm text-slate-600 dark:text-slate-300" data-engagement-follow-up-cell="{{ engagement_customer_id }}">-</td>
+                    <td class="whitespace-nowrap rounded-r-lg px-4 py-4 text-right align-middle">
+                        <div class="flex flex-col items-end gap-1">
+                            <button
+                                type="button"
+                                class="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                                data-engagement-open="1"
+                                data-customer-id="{{ engagement_customer_id }}"
+                                data-customer-name="{{ row.name|e }}"
+                                data-customer-plan="{{ (row.plan or '-')|e }}"
+                                data-customer-price="{{ '{:,.2f}'.format((row.mrr_total or 0)|float) }}"
+                            >Update</button>
+                            {% if engagement_customer_id %}
+                            <a href="/admin/customer-retention/{{ engagement_customer_id }}" class="text-xs font-semibold text-rose-600 hover:text-rose-700 dark:text-rose-300 dark:hover:text-rose-200">View tracker</a>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                {{ empty_state(title="No billing-risk rows", message="No subscribers matched the current computed billing-risk rules and filters.", color="rose", color2="red", colspan=empty_colspan) }}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
 
 <div class="flex items-center justify-between gap-3">
     <button
