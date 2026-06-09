@@ -15,6 +15,7 @@ from app.models.subscriber import Subscriber, SubscriberBillingRiskSnapshot
 from app.services import billing_risk_reports as live_billing_risk
 
 SEGMENT_LABELS = {
+    "active": "Active",
     "overdue": "Due Soon",
     "due_soon": "Due Soon",
     "suspended": "Suspended",
@@ -83,6 +84,7 @@ def _snapshot_to_dict(row: SubscriberBillingRiskSnapshot) -> dict[str, Any]:
     balance = float(row.balance or 0)
     mrr_total = float(row.mrr_total or 0)
     total_paid = float(row.total_paid or 0)
+    source_metadata = row.source_metadata if isinstance(row.source_metadata, dict) else {}
     return {
         "subscriber_id": row.external_id,
         "name": row.name,
@@ -98,6 +100,8 @@ def _snapshot_to_dict(row: SubscriberBillingRiskSnapshot) -> dict[str, Any]:
         "billing_end_date": _date_text(row.billing_end_date),
         "next_bill_date": _date_text(row.next_bill_date),
         "balance": balance,
+        "account_balance_deposit": source_metadata.get("account_balance_deposit"),
+        "billing_type": str(source_metadata.get("billing_type") or ""),
         "billing_cycle": row.billing_cycle or "",
         "blocked_date": _date_text(row.blocked_date),
         "blocked_for_days": row.blocked_for_days,
@@ -643,6 +647,8 @@ def _snapshot_values(
         "expires_in": str(row.get("expires_in") or "").strip()[:80] or None,
         "source_metadata": {
             "last_synced_at": row.get("_last_synced_at") or "",
+            "billing_type": row.get("billing_type") or "",
+            "account_balance_deposit": row.get("account_balance_deposit"),
             "source": "billing_risk_live_builder",
         },
         "refreshed_at": refreshed_at,
@@ -665,6 +671,7 @@ def refresh_cache(
         limit=max(1, int(limit)),
         enrich_visible_rows=False,
     )
+    live_billing_risk.enrich_billing_risk_rows(rows)
     external_ids = {
         str(row.get("_external_id") or row.get("subscriber_id") or "").strip()
         for row in rows
