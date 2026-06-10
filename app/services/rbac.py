@@ -23,6 +23,13 @@ from app.services.common import apply_ordering, apply_pagination, coerce_uuid
 from app.services.response import ListResponseMixin
 
 
+def _invalidate_person_claims(db: Session, person_id) -> None:
+    """Drop cached session claims so role/permission changes apply on the next request."""
+    from app.services.auth_flow import invalidate_cached_sessions_for_person
+
+    invalidate_cached_sessions_for_person(db, person_id)
+
+
 class Roles(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: RoleCreate):
@@ -224,6 +231,7 @@ class PersonRoles(ListResponseMixin):
         db.add(link)
         db.commit()
         db.refresh(link)
+        _invalidate_person_claims(db, link.person_id)
         return link
 
     @staticmethod
@@ -270,10 +278,14 @@ class PersonRoles(ListResponseMixin):
             role = db.get(Role, data["role_id"])
             if not role:
                 raise HTTPException(status_code=404, detail="Role not found")
+        previous_person_id = link.person_id
         for key, value in data.items():
             setattr(link, key, value)
         db.commit()
         db.refresh(link)
+        _invalidate_person_claims(db, previous_person_id)
+        if link.person_id != previous_person_id:
+            _invalidate_person_claims(db, link.person_id)
         return link
 
     @staticmethod
@@ -281,8 +293,10 @@ class PersonRoles(ListResponseMixin):
         link = db.get(PersonRole, coerce_uuid(link_id))
         if not link:
             raise HTTPException(status_code=404, detail="Person role not found")
+        person_id = link.person_id
         db.delete(link)
         db.commit()
+        _invalidate_person_claims(db, person_id)
 
 
 class PersonPermissions(ListResponseMixin):
@@ -304,6 +318,7 @@ class PersonPermissions(ListResponseMixin):
         db.add(link)
         db.commit()
         db.refresh(link)
+        _invalidate_person_claims(db, link.person_id)
         return link
 
     @staticmethod
@@ -355,10 +370,14 @@ class PersonPermissions(ListResponseMixin):
             permission = db.get(Permission, data["permission_id"])
             if not permission:
                 raise HTTPException(status_code=404, detail="Permission not found")
+        previous_person_id = link.person_id
         for key, value in data.items():
             setattr(link, key, value)
         db.commit()
         db.refresh(link)
+        _invalidate_person_claims(db, previous_person_id)
+        if link.person_id != previous_person_id:
+            _invalidate_person_claims(db, link.person_id)
         return link
 
     @staticmethod
@@ -366,8 +385,10 @@ class PersonPermissions(ListResponseMixin):
         link = db.get(PersonPermission, coerce_uuid(link_id))
         if not link:
             raise HTTPException(status_code=404, detail="Person permission not found")
+        person_id = link.person_id
         db.delete(link)
         db.commit()
+        _invalidate_person_claims(db, person_id)
 
     @staticmethod
     def sync_for_person(
@@ -398,6 +419,7 @@ class PersonPermissions(ListResponseMixin):
                 )
 
         db.commit()
+        _invalidate_person_claims(db, person_uuid)
 
 
 roles = Roles()

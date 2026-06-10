@@ -248,10 +248,15 @@ class People(ListResponseMixin):
             if existing and existing.id != person.id:
                 raise HTTPException(status_code=409, detail="Phone already belongs to another person")
             data["phone"] = normalized
+        was_enabled = person.is_active and person.status == PersonStatus.active
         for key, value in data.items():
             setattr(person, key, value)
         db.commit()
         db.refresh(person)
+        if was_enabled and not (person.is_active and person.status == PersonStatus.active):
+            from app.services.auth_flow import revoke_sessions_for_person
+
+            revoke_sessions_for_person(db, person.id)
         return person
 
     @staticmethod
@@ -417,6 +422,10 @@ class People(ListResponseMixin):
 
         db.commit()
         db.refresh(target)
+
+        from app.services.auth_flow import revoke_sessions_for_person
+
+        revoke_sessions_for_person(db, source.id)
         return target
 
     @staticmethod
@@ -536,6 +545,9 @@ class People(ListResponseMixin):
                 detail=f"Cannot delete user. Linked to: {', '.join(linked)}.",
             )
 
+        from app.services.auth_flow import invalidate_cached_sessions_for_person
+
+        invalidate_cached_sessions_for_person(db, person.id)
         try:
             db.query(UserCredential).filter(UserCredential.person_id == person.id).delete(synchronize_session=False)
             db.query(MFAMethod).filter(MFAMethod.person_id == person.id).delete(synchronize_session=False)

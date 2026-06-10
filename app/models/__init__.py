@@ -97,6 +97,12 @@ from app.models.fiber_change_request import (  # noqa: F401
     FiberChangeRequestOperation,
     FiberChangeRequestStatus,
 )
+from app.models.field import (  # noqa: F401
+    DevicePlatform,
+    DeviceToken,
+    FieldAttachment,
+    FieldAttachmentKind,
+)
 from app.models.gis import (  # noqa: F401
     GeoArea,
     GeoAreaType,
