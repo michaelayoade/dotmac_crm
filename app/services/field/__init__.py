@@ -6,3 +6,5 @@ existing domain services — they do not duplicate them.
 """
 
 from app.services.field.attachments import field_attachments  # noqa: F401
+from app.services.field.config import field_config  # noqa: F401
+from app.services.field.jobs import field_jobs  # noqa: F401
