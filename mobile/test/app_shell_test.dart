@@ -3,6 +3,7 @@ import 'package:dotmac_field/core/api/token_store.dart';
 import 'package:dotmac_field/features/auth/auth_state.dart';
 import 'package:dotmac_field/features/jobs/job_models.dart';
 import 'package:dotmac_field/features/jobs/jobs_providers.dart';
+import 'package:dotmac_field/features/schedule/schedule_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +22,7 @@ Widget _app({bool authenticated = true}) {
           (ref) async => const MeSummary(name: 'Chidi Tech', openJobs: 2, completedToday: 1),
         ),
         jobsListProvider.overrideWith((ref) async => <JobSummary>[]),
+        scheduleProvider.overrideWith((ref) async => <ScheduleEntry>[]),
       ],
     ],
     child: const DotmacFieldApp(),

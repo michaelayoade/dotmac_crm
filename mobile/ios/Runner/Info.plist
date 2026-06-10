@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Your location is attached to job updates and route captures so dispatch can verify completed work.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Photos document completed installations and site conditions.</string>
 </dict>
 </plist>

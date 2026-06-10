@@ -1,10 +1,17 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/location/device_location.dart';
 import '../../core/location/location_source.dart';
 import '../../core/offline/sync_service.dart';
 
-final locationSourceProvider = Provider<LocationSource>((ref) => const UnavailableLocation());
+/// Real devices use geolocator; tests override with fakes. kIsWeb and
+/// headless test binaries never construct the plugin path.
+final locationSourceProvider = Provider<LocationSource>((ref) {
+  if (kIsWeb) return const UnavailableLocation();
+  return GeolocatorLocationSource();
+});
 
 /// Provided at app bootstrap once the drift database is opened.
 final syncServiceProvider = Provider<SyncService>((ref) => throw UnimplementedError('overridden at bootstrap'));
