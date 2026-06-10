@@ -56,6 +56,7 @@ class SettingDomain(enum.Enum):
     campaigns = "campaigns"
     numbering = "numbering"
     performance = "performance"
+    field = "field"
 
 
 class DomainSetting(Base):
