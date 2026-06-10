@@ -2,8 +2,8 @@
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.csrf import get_csrf_token
@@ -92,10 +92,21 @@ def _collector_choices(db: Session) -> list[Person]:
     )
 
 
+def _parse_serial_number_form(form) -> dict[str, list[str]]:
+    serials_by_item: dict[str, list[str]] = {}
+    for key in form:
+        if not key.startswith("serial_numbers_"):
+            continue
+        item_id = key.removeprefix("serial_numbers_")
+        serials_by_item[item_id] = [str(value) for value in form.getlist(key)]
+    return serials_by_item
+
+
 @router.get("", response_class=HTMLResponse)
 def material_request_list(
     request: Request,
     status: str | None = None,
+    erp_status: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     ticket_id: str | None = None,
@@ -105,6 +116,9 @@ def material_request_list(
     selected_status = (status or "").strip().lower() or None
     if selected_status == "all":
         selected_status = None
+    selected_erp_status = (erp_status or "").strip().lower().replace("-", "_").replace(" ", "_") or None
+    if selected_erp_status == "all":
+        selected_erp_status = None
 
     selected_date_from = _resolve_date(date_from)
     selected_date_to = _resolve_date(date_to)
@@ -115,6 +129,7 @@ def material_request_list(
     items = material_requests.list(
         db,
         status=selected_status,
+        erp_status=selected_erp_status,
         created_from=selected_date_from,
         created_to=selected_date_to,
         ticket_id=ticket_id,
@@ -130,6 +145,7 @@ def material_request_list(
         db,
         items=items,
         filter_status=selected_status or "",
+        filter_erp_status=selected_erp_status or "",
         filter_date_from=date_from or "",
         filter_date_to=date_to or "",
     )
@@ -222,7 +238,20 @@ def material_request_create(
         destination_location_id=resolved_dest,
         items=items or None,
     )
-    mr = material_requests.create(db, payload)
+    try:
+        mr = material_requests.create(db, payload)
+    except HTTPException as exc:
+        context = _base_ctx(
+            request,
+            db,
+            mr=None,
+            ticket_id=ticket_id,
+            project_id=project_id,
+            priorities=[p.value for p in MaterialRequestPriority],
+            warehouses=_warehouse_choices(db),
+            error=str(exc.detail or "Unable to create material request."),
+        )
+        return templates.TemplateResponse("admin/material_requests/form.html", context, status_code=400)
 
     log_audit_event(
         db=db,
@@ -235,6 +264,40 @@ def material_request_create(
     )
 
     return RedirectResponse(url=f"/admin/operations/material-requests/{mr.id}", status_code=303)
+
+
+@router.get(
+    "/serials/available",
+    response_class=JSONResponse,
+    dependencies=[Depends(require_permission("inventory:read"))],
+)
+def material_request_available_serials(
+    item_code: str = Query(..., min_length=1),
+    warehouse_code: str = Query(..., min_length=1),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    from app.services.dotmac_erp import DotMacERPError
+    from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
+
+    try:
+        sync_service = dotmac_erp_material_request_sync(db)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        data = sync_service.client.list_available_serials(
+            item_code=item_code,
+            warehouse_code=warehouse_code,
+            limit=limit,
+            offset=offset,
+        )
+        return JSONResponse(data)
+    except DotMacERPError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        sync_service.close()
 
 
 @router.get("/{mr_id}/edit", response_class=HTMLResponse)
@@ -329,7 +392,7 @@ def material_request_submit(request: Request, mr_id: str, db: Session = Depends(
 
 
 @router.post("/{mr_id}/approve", dependencies=[Depends(require_permission("inventory:write"))])
-def material_request_approve(
+async def material_request_approve(
     request: Request,
     mr_id: str,
     source_location_id: str | None = Form(None),
@@ -341,6 +404,7 @@ def material_request_approve(
 
     current_user = get_current_user(request)
     person_id = current_user.get("person_id") if current_user else None
+    form = await request.form()
 
     material_requests.approve(
         db,
@@ -349,6 +413,7 @@ def material_request_approve(
         source_location_id=source_location_id,
         destination_location_id=destination_location_id,
         collected_by_person_id=collected_by_person_id,
+        serial_numbers_by_item=_parse_serial_number_form(form),
     )
 
     log_audit_event(
@@ -359,6 +424,64 @@ def material_request_approve(
         entity_id=mr_id,
         actor_id=str(person_id) if person_id else None,
         metadata={"collected_by_person_id": collected_by_person_id} if collected_by_person_id else None,
+    )
+
+    return RedirectResponse(url=f"/admin/operations/material-requests/{mr_id}", status_code=303)
+
+
+@router.post("/{mr_id}/retry-erp-sync", dependencies=[Depends(require_permission("inventory:write"))])
+def material_request_retry_erp_sync(request: Request, mr_id: str, db: Session = Depends(get_db)):
+    from app.web.admin._auth_helpers import get_current_user
+
+    current_user = get_current_user(request)
+    mr = material_requests.retry_erp_sync(db, mr_id)
+
+    log_audit_event(
+        db=db,
+        request=request,
+        action="retry_erp_sync",
+        entity_type="material_request",
+        entity_id=mr_id,
+        actor_id=str(current_user.get("person_id")) if current_user else None,
+        metadata={
+            "erp_sync_status": mr.erp_sync_status.value if mr.erp_sync_status else None,
+            "erp_material_status": mr.erp_material_status,
+        },
+    )
+
+    return RedirectResponse(url=f"/admin/operations/material-requests/{mr_id}", status_code=303)
+
+
+@router.post("/{mr_id}/refresh-erp-status", dependencies=[Depends(require_permission("inventory:write"))])
+def material_request_refresh_erp_status(request: Request, mr_id: str, db: Session = Depends(get_db)):
+    from app.models.material_request import MaterialRequestERPSyncStatus
+    from app.tasks.integrations import refresh_material_request_erp_status
+    from app.web.admin._auth_helpers import get_current_user
+
+    current_user = get_current_user(request)
+    mr = material_requests.get(db, mr_id)
+    try:
+        mr.erp_sync_status = MaterialRequestERPSyncStatus.pending
+        mr.erp_sync_error = None
+        db.commit()
+        db.refresh(mr)
+        refresh_material_request_erp_status.delay(str(mr.id))
+    except Exception as exc:
+        mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+        mr.erp_sync_error = f"ERP status refresh enqueue failed: {exc}"[:500]
+        db.commit()
+
+    log_audit_event(
+        db=db,
+        request=request,
+        action="refresh_erp_status",
+        entity_type="material_request",
+        entity_id=mr_id,
+        actor_id=str(current_user.get("person_id")) if current_user else None,
+        metadata={
+            "erp_sync_status": mr.erp_sync_status.value if mr.erp_sync_status else None,
+            "erp_material_status": mr.erp_material_status,
+        },
     )
 
     return RedirectResponse(url=f"/admin/operations/material-requests/{mr_id}", status_code=303)

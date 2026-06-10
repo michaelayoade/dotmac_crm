@@ -6,6 +6,8 @@ import pytest
 
 from app.models.inventory import InventoryLocation
 from app.models.material_request import (
+    MaterialRequest,
+    MaterialRequestERPSyncStatus,
     MaterialRequestStatus,
 )
 from app.services.dotmac_erp.client import DotMacERPError, DotMacERPTransientError
@@ -68,9 +70,11 @@ class TestMaterialRequestSyncResult:
             success=True,
             material_request_id="abc",
             erp_material_request_id="MAT-001",
+            erp_material_status="issued",
         )
         assert r.success is True
         assert r.erp_material_request_id == "MAT-001"
+        assert r.erp_material_status == "issued"
 
 
 class TestMapMaterialRequest:
@@ -115,6 +119,15 @@ class TestMapMaterialRequest:
         assert payload["items"][0]["from_warehouse_code"] == "ERP-WH-001"
         assert "to_warehouse_code" not in payload["items"][0]
 
+    def test_issue_payload_includes_selected_serial_numbers(self, mr_sync, full_mr, db_session):
+        full_mr.items[0].serial_numbers = ["ONT-001", "ONT-002"]
+        db_session.commit()
+        db_session.refresh(full_mr)
+
+        payload = mr_sync._map_material_request(full_mr)
+
+        assert payload["items"][0]["serial_numbers"] == ["ONT-001", "ONT-002"]
+
     def test_ticket_fields_included(self, mr_sync, full_mr):
         payload = mr_sync._map_material_request(full_mr)
 
@@ -155,8 +168,23 @@ class TestSyncMaterialRequest:
 
         assert result.success is True
         assert result.erp_material_request_id == "MAT-REQ-2026-00001"
+        assert result.erp_material_status == "issued"
         assert full_mr.erp_material_request_id == "MAT-REQ-2026-00001"
+        assert full_mr.erp_material_status == "issued"
         mock_client.push_material_request.assert_called_once()
+
+    def test_success_records_pending_stock_status(self, mr_sync, mock_client, full_mr):
+        mock_client.push_material_request.return_value = {
+            "request_id": "MAT-REQ-2026-00002",
+            "omni_id": str(full_mr.id),
+            "status": "pending stock",
+        }
+
+        result = mr_sync.sync_material_request(full_mr)
+
+        assert result.success is True
+        assert result.erp_material_status == "pending_stock"
+        assert full_mr.erp_material_status == "pending_stock"
 
     def test_success_on_identical_resend_200(self, mr_sync, mock_client, full_mr):
         mock_client.push_material_request.return_value = {
@@ -248,6 +276,43 @@ class TestSyncMaterialRequest:
         mock_client.push_material_request.assert_not_called()
 
 
+class TestRefreshMaterialRequestStatus:
+    def test_refresh_records_pending_stock(self, mr_sync, mock_client, full_mr):
+        mock_client.get_material_request_status.return_value = {
+            "request_id": "MAT-REQ-2026-00001",
+            "status": "pending stock",
+        }
+
+        result = mr_sync.refresh_material_request_status(full_mr)
+
+        assert result.success is True
+        assert result.erp_material_status == "pending_stock"
+        assert full_mr.erp_material_status == "pending_stock"
+        assert full_mr.status == MaterialRequestStatus.issued
+
+    def test_refresh_marks_fulfilled_when_erp_fulfilled(self, mr_sync, mock_client, full_mr):
+        mock_client.get_material_request_status.return_value = {
+            "request_id": "MAT-REQ-2026-00001",
+            "status": "fulfilled",
+        }
+
+        result = mr_sync.refresh_material_request_status(full_mr)
+
+        assert result.success is True
+        assert result.erp_material_status == "fulfilled"
+        assert full_mr.erp_material_status == "fulfilled"
+        assert full_mr.status == MaterialRequestStatus.fulfilled
+        assert full_mr.fulfilled_at is not None
+
+    def test_refresh_returns_not_found(self, mr_sync, mock_client, full_mr):
+        mock_client.get_material_request_status.return_value = None
+
+        result = mr_sync.refresh_material_request_status(full_mr)
+
+        assert result.success is False
+        assert result.status_code == 404
+
+
 class TestFactory:
     def test_raises_when_not_configured(self, db_session):
         from unittest.mock import patch
@@ -259,3 +324,206 @@ class TestFactory:
             pytest.raises(ValueError, match="not configured"),
         ):
             dotmac_erp_material_request_sync(db_session)
+
+
+class TestMaterialRequestSyncTask:
+    def test_task_marks_synced_and_records_stats(self, db_session, full_mr, monkeypatch):
+        from app.tasks.integrations import sync_material_request_to_erp
+
+        mock_sync_service = MagicMock()
+        mock_sync_service.sync_material_request.return_value = MaterialRequestSyncResult(
+            success=True,
+            material_request_id=str(full_mr.id),
+            erp_material_request_id="MAT-REQ-2026-00001",
+            erp_material_status="pending_stock",
+        )
+        mock_sync_service.close.return_value = None
+        record_mock = MagicMock()
+
+        monkeypatch.setattr("app.tasks.integrations.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_request_sync.dotmac_erp_material_request_sync",
+            lambda session: mock_sync_service,
+        )
+        monkeypatch.setattr("app.services.dotmac_erp.record_material_request_sync_result", record_mock)
+
+        result = sync_material_request_to_erp.run(str(full_mr.id))
+
+        synced_mr = db_session.get(MaterialRequest, full_mr.id)
+        assert result["success"] is True
+        assert synced_mr.erp_sync_status == MaterialRequestERPSyncStatus.synced
+        assert synced_mr.erp_sync_error is None
+        assert synced_mr.erp_synced_at is not None
+        assert synced_mr.erp_sync_attempts == 1
+        assert synced_mr.erp_material_status == "pending_stock"
+        record_mock.assert_called_once()
+
+    def test_task_marks_failed_on_non_retryable_error(self, db_session, full_mr, monkeypatch):
+        from app.tasks.integrations import sync_material_request_to_erp
+
+        mock_sync_service = MagicMock()
+        mock_sync_service.sync_material_request.return_value = MaterialRequestSyncResult(
+            success=False,
+            material_request_id=str(full_mr.id),
+            error="API error (422): items required",
+            error_type="DotMacERPError",
+            status_code=422,
+        )
+        mock_sync_service.close.return_value = None
+
+        monkeypatch.setattr("app.tasks.integrations.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_request_sync.dotmac_erp_material_request_sync",
+            lambda session: mock_sync_service,
+        )
+        monkeypatch.setattr("app.services.dotmac_erp.record_material_request_sync_result", MagicMock())
+
+        result = sync_material_request_to_erp.run(str(full_mr.id))
+
+        synced_mr = db_session.get(MaterialRequest, full_mr.id)
+        assert result["success"] is False
+        assert synced_mr.erp_sync_status == MaterialRequestERPSyncStatus.failed
+        assert "422" in (synced_mr.erp_sync_error or "")
+        assert synced_mr.erp_sync_attempts == 1
+
+    def test_task_marks_not_configured(self, db_session, full_mr, monkeypatch):
+        from app.tasks.integrations import sync_material_request_to_erp
+
+        monkeypatch.setattr("app.tasks.integrations.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_request_sync.dotmac_erp_material_request_sync",
+            MagicMock(side_effect=ValueError("DotMac ERP is not configured")),
+        )
+        monkeypatch.setattr("app.services.dotmac_erp.record_material_request_sync_result", MagicMock())
+
+        result = sync_material_request_to_erp.run(str(full_mr.id))
+
+        synced_mr = db_session.get(MaterialRequest, full_mr.id)
+        assert result["success"] is False
+        assert result["error_type"] == "not_configured"
+        assert synced_mr.erp_sync_status == MaterialRequestERPSyncStatus.not_configured
+        assert "not configured" in (synced_mr.erp_sync_error or "")
+        assert synced_mr.erp_sync_attempts == 1
+
+    def test_task_marks_retrying_on_transient_error(self, db_session, full_mr, monkeypatch):
+        from app.tasks.integrations import sync_material_request_to_erp
+
+        mock_sync_service = MagicMock()
+        mock_sync_service.sync_material_request.side_effect = DotMacERPTransientError("ERP timeout")
+        mock_sync_service.close.return_value = None
+
+        monkeypatch.setattr("app.tasks.integrations.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_request_sync.dotmac_erp_material_request_sync",
+            lambda session: mock_sync_service,
+        )
+        monkeypatch.setattr("app.services.dotmac_erp.record_material_request_sync_result", MagicMock())
+
+        with pytest.raises(DotMacERPTransientError):
+            sync_material_request_to_erp.run(str(full_mr.id))
+
+        synced_mr = db_session.get(MaterialRequest, full_mr.id)
+        assert synced_mr.erp_sync_status == MaterialRequestERPSyncStatus.retrying
+        assert "ERP timeout" in (synced_mr.erp_sync_error or "")
+        assert synced_mr.erp_sync_attempts == 1
+
+    def test_refresh_task_updates_status_to_fulfilled(self, db_session, full_mr, monkeypatch):
+        from app.tasks.integrations import refresh_material_request_erp_status
+
+        mock_sync_service = MagicMock()
+        mock_sync_service.refresh_material_request_status.side_effect = lambda mr: (
+            setattr(mr, "erp_material_status", "fulfilled"),
+            setattr(mr, "status", MaterialRequestStatus.fulfilled),
+            setattr(mr, "fulfilled_at", mr.fulfilled_at),
+            MaterialRequestSyncResult(
+                success=True,
+                material_request_id=str(mr.id),
+                erp_material_request_id="MAT-REQ-2026-00001",
+                erp_material_status="fulfilled",
+            ),
+        )[-1]
+        mock_sync_service.close.return_value = None
+        record_mock = MagicMock()
+
+        monkeypatch.setattr("app.tasks.integrations.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_request_sync.dotmac_erp_material_request_sync",
+            lambda session: mock_sync_service,
+        )
+        monkeypatch.setattr("app.services.dotmac_erp.record_material_request_sync_result", record_mock)
+
+        result = refresh_material_request_erp_status.run(str(full_mr.id))
+
+        refreshed_mr = db_session.get(MaterialRequest, full_mr.id)
+        assert result["success"] is True
+        assert result["erp_material_status"] == "fulfilled"
+        assert refreshed_mr.erp_sync_status == MaterialRequestERPSyncStatus.synced
+        assert refreshed_mr.erp_material_status == "fulfilled"
+        assert refreshed_mr.status == MaterialRequestStatus.fulfilled
+        assert refreshed_mr.erp_sync_attempts == 1
+        record_mock.assert_called_once()
+
+    def test_batch_refresh_updates_pending_stock_requests(self, db_session, full_mr, monkeypatch):
+        from app.tasks.integrations import refresh_pending_material_request_erp_statuses
+
+        full_mr.erp_material_request_id = "MAT-REQ-2026-00001"
+        full_mr.erp_material_status = "pending_stock"
+        mr_id = full_mr.id
+        db_session.commit()
+
+        mock_sync_service = MagicMock()
+
+        def refresh_status(mr):
+            mr.erp_material_status = "fulfilled"
+            mr.status = MaterialRequestStatus.fulfilled
+            return MaterialRequestSyncResult(
+                success=True,
+                material_request_id=str(mr.id),
+                erp_material_request_id="MAT-REQ-2026-00001",
+                erp_material_status="fulfilled",
+            )
+
+        mock_sync_service.refresh_material_request_status.side_effect = refresh_status
+        mock_sync_service.close.return_value = None
+        record_mock = MagicMock()
+
+        monkeypatch.setattr("app.tasks.integrations.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_request_sync.dotmac_erp_material_request_sync",
+            lambda session: mock_sync_service,
+        )
+        monkeypatch.setattr("app.services.dotmac_erp.record_material_request_sync_result", record_mock)
+
+        result = refresh_pending_material_request_erp_statuses.run(limit=10)
+
+        refreshed_mr = db_session.get(MaterialRequest, mr_id)
+        assert result["success"] is True
+        assert result["refreshed"] == 1
+        assert result["failed"] == 0
+        assert refreshed_mr.erp_sync_status == MaterialRequestERPSyncStatus.synced
+        assert refreshed_mr.erp_material_status == "fulfilled"
+        assert refreshed_mr.status == MaterialRequestStatus.fulfilled
+        assert refreshed_mr.erp_sync_attempts == 1
+        record_mock.assert_called_once()
+
+    def test_batch_refresh_marks_not_configured(self, db_session, full_mr, monkeypatch):
+        from app.tasks.integrations import refresh_pending_material_request_erp_statuses
+
+        full_mr.erp_material_request_id = "MAT-REQ-2026-00001"
+        full_mr.erp_material_status = "pending_stock"
+        mr_id = full_mr.id
+        db_session.commit()
+
+        monkeypatch.setattr("app.tasks.integrations.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_request_sync.dotmac_erp_material_request_sync",
+            MagicMock(side_effect=ValueError("DotMac ERP is not configured")),
+        )
+
+        result = refresh_pending_material_request_erp_statuses.run(limit=10)
+
+        refreshed_mr = db_session.get(MaterialRequest, mr_id)
+        assert result["success"] is False
+        assert result["failed"] == 1
+        assert refreshed_mr.erp_sync_status == MaterialRequestERPSyncStatus.not_configured
+        assert "not configured" in (refreshed_mr.erp_sync_error or "")

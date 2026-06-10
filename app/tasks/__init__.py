@@ -30,6 +30,8 @@ from app.tasks.customer_retention import (
 )
 from app.tasks.gis import sync_gis_sources
 from app.tasks.integrations import (
+    refresh_material_request_erp_status,
+    refresh_pending_material_request_erp_statuses,
     run_integration_job,
     sync_chatwoot,
     sync_dotmac_erp,
@@ -100,6 +102,8 @@ __all__ = [
     "reconcile_subscriber_identity",
     "refresh_billing_risk_cache",
     "refresh_expiring_tokens",
+    "refresh_material_request_erp_status",
+    "refresh_pending_material_request_erp_statuses",
     "reopen_due_snoozed_conversations_task",
     "resolve_stale_offline_outreach_conversations_task",
     "retry_failed_deliveries",

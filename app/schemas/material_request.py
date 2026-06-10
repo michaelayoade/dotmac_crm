@@ -12,6 +12,7 @@ class MaterialRequestItemBase(BaseModel):
     item_id: UUID
     quantity: int = Field(ge=1)
     notes: str | None = None
+    serial_numbers: list[str] | None = None
 
 
 class MaterialRequestItemCreate(MaterialRequestItemBase):
@@ -60,6 +61,7 @@ class MaterialRequestRead(MaterialRequestBase):
     approved_by_person_id: UUID | None = None
     collected_by_person_id: UUID | None = None
     erp_material_request_id: str | None = None
+    erp_material_status: str | None = None
     number: str | None = None
     is_active: bool
     submitted_at: datetime | None = None

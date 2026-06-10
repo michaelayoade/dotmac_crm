@@ -37,6 +37,14 @@ class MaterialRequestPriority(enum.Enum):
     urgent = "urgent"
 
 
+class MaterialRequestERPSyncStatus(enum.Enum):
+    pending = "pending"
+    synced = "synced"
+    failed = "failed"
+    retrying = "retrying"
+    not_configured = "not_configured"
+
+
 class MaterialRequest(Base):
     __tablename__ = "material_requests"
     __table_args__ = (
@@ -68,6 +76,11 @@ class MaterialRequest(Base):
     )
     notes: Mapped[str | None] = mapped_column(Text)
     erp_material_request_id: Mapped[str | None] = mapped_column(String(120))
+    erp_sync_status: Mapped[MaterialRequestERPSyncStatus | None] = mapped_column(Enum(MaterialRequestERPSyncStatus))
+    erp_sync_error: Mapped[str | None] = mapped_column(String(500))
+    erp_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    erp_sync_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    erp_material_status: Mapped[str | None] = mapped_column(String(40))
     number: Mapped[str | None] = mapped_column(String(40))
     source_location_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("inventory_locations.id")
@@ -111,6 +124,7 @@ class MaterialRequestItem(Base):
     item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("inventory_items.id"), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
+    serial_numbers: Mapped[list[str] | None] = mapped_column(JSON)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 

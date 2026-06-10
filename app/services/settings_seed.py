@@ -716,7 +716,7 @@ def seed_workflow_settings(db: Session) -> None:
         db,
         key="ticket_auto_assign_max_open_tickets",
         value_type=SettingValueType.integer,
-        value_text=os.getenv("TICKET_AUTO_ASSIGN_MAX_OPEN_TICKETS"),
+        value_text=os.getenv("TICKET_AUTO_ASSIGN_MAX_OPEN_TICKETS", "25"),
     )
 
 

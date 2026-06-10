@@ -91,6 +91,7 @@
                                 <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Item</th>
                                 <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">SKU</th>
                                 <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Quantity</th>
+                                <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Serials</th>
                                 <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Notes</th>
                                 {% if has_actions %}
                                 <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Actions</th>
@@ -104,6 +105,17 @@
                                 <td class="{{ pad }} font-medium text-slate-900 dark:text-white">{{ item.item.name if item.item else '-' }}</td>
                                 <td class="{{ pad }} text-slate-500 dark:text-slate-400">{{ item.item.sku if item.item else '-' }}</td>
                                 <td class="{{ pad }} text-right font-semibold text-slate-900 dark:text-white">{{ item.quantity }}</td>
+                                <td class="{{ pad }} text-slate-500 dark:text-slate-400">
+                                    {% if item.serial_numbers %}
+                                    <div class="flex flex-wrap gap-1.5">
+                                        {% for serial in item.serial_numbers %}
+                                        <span class="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-200">{{ serial }}</span>
+                                        {% endfor %}
+                                    </div>
+                                    {% else %}
+                                    -
+                                    {% endif %}
+                                </td>
                                 <td class="{{ pad }} text-slate-500 dark:text-slate-400">{{ item.notes or '-' }}</td>
                                 {% if has_actions %}
                                 <td class="{{ pad }} text-right">
@@ -116,7 +128,7 @@
                             {% endcall %}
                             {% endfor %}
                             {% else %}
-                            {{ empty_state("No items added", "Add items to this request to proceed.", colspan=5 if has_actions else 4) }}
+                            {{ empty_state("No items added", "Add items to this request to proceed.", colspan=6 if has_actions else 5) }}
                             {% endif %}
                         </tbody>
                     </table>
@@ -178,7 +190,7 @@
                                 class="mt-2 block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
                             <option value="">Select warehouse...</option>
                             {% for wh in warehouses %}
-                            <option value="{{ wh.id }}" {{ 'selected' if (mr.source_location_id == wh.id or (not mr.source_location_id and wh.code == "Stores - DT")) else '' }}>
+                            <option value="{{ wh.id }}" data-warehouse-code="{{ wh.code or wh.id }}" {{ 'selected' if (mr.source_location_id == wh.id or (not mr.source_location_id and wh.code == "Stores - DT")) else '' }}>
                                 {{ wh.name }}{% if wh.code %} ({{ wh.code }}){% endif %}
                             </option>
                             {% endfor %}
@@ -194,8 +206,29 @@
                                 {{ wh.name }}{% if wh.code %} ({{ wh.code }}){% endif %}
                             </option>
                             {% endfor %}
-                        </select>
+                            </select>
+                        </div>
+                    {% if mr.items %}
+                    <div class="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-900/30">
+                        <div class="flex items-center justify-between gap-3">
+                            <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Serial Numbers</h3>
+                            <span class="text-xs text-slate-400 dark:text-slate-500">Loaded from ERP</span>
+                        </div>
+                        {% for line in mr.items %}
+                        {% set line_code = line.item.sku if line.item else '' %}
+                        <div class="serial-picker" data-item-code="{{ line_code or '' }}" data-quantity="{{ line.quantity }}" data-item-name="{{ line.item.name if line.item else 'Item' }}">
+                            <label for="serial_numbers_{{ line.id }}" class="block text-xs font-medium text-slate-600 dark:text-slate-300">
+                                {{ line.item.name if line.item else 'Item' }}{% if line_code %} ({{ line_code }}){% endif %}
+                            </label>
+                            <select id="serial_numbers_{{ line.id }}" name="serial_numbers_{{ line.id }}" multiple disabled
+                                    class="mt-1 block h-24 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                                <option value="">Select a warehouse to load serials</option>
+                            </select>
+                            <p class="mt-1 text-xs text-slate-400 dark:text-slate-500" data-serial-help>Needed only if this ERP item tracks serial numbers.</p>
+                        </div>
+                        {% endfor %}
                     </div>
+                    {% endif %}
                     <div>
                         <label for="collected_by_person_id" class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Collected By</label>
                         <select id="collected_by_person_id" name="collected_by_person_id"
@@ -211,6 +244,90 @@
                     </div>
                     {{ submit_button("Issue & Sync to ERP", color="emerald", size="sm") }}
                 </form>
+            </div>
+            {% endif %}
+
+            {% set erp_sync = mr.erp_sync_status.value if mr.erp_sync_status else '' %}
+            {% set erp_material = mr.erp_material_status or '' %}
+            {% if erp_sync or erp_material or mr.erp_material_request_id or sv in ['issued', 'approved'] %}
+            <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 70ms;">
+                <div class="flex items-center gap-3 border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
+                    <h2 class="font-semibold text-slate-900 dark:text-white">ERP Status</h2>
+                </div>
+                <div class="space-y-4 p-5">
+                    {% if erp_sync %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Sync</dt>
+                        <dd class="mt-1.5">
+                            {% if erp_sync == 'synced' %}
+                            <span class="inline-flex items-center rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">Synced</span>
+                            {% elif erp_sync == 'pending' %}
+                            <span class="inline-flex items-center rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">Pending</span>
+                            {% elif erp_sync == 'retrying' %}
+                            <span class="inline-flex items-center rounded-lg bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-700 dark:bg-orange-500/20 dark:text-orange-300">Retrying</span>
+                            {% elif erp_sync == 'failed' %}
+                            <span class="inline-flex items-center rounded-lg bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700 dark:bg-red-500/20 dark:text-red-300">Failed</span>
+                            {% elif erp_sync == 'not_configured' %}
+                            <span class="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">Not configured</span>
+                            {% else %}
+                            <span class="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{{ erp_sync|replace('_', ' ')|title }}</span>
+                            {% endif %}
+                        </dd>
+                    </div>
+                    {% endif %}
+                    {% if erp_material %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Material</dt>
+                        <dd class="mt-1.5">
+                            {% if erp_material == 'pending_stock' %}
+                            <span class="inline-flex items-center rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">Pending stock</span>
+                            {% elif erp_material == 'fulfilled' %}
+                            <span class="inline-flex items-center rounded-lg bg-teal-100 px-2.5 py-1 text-xs font-semibold text-teal-700 dark:bg-teal-500/20 dark:text-teal-300">Fulfilled</span>
+                            {% else %}
+                            <span class="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{{ erp_material|replace('_', ' ')|title }}</span>
+                            {% endif %}
+                        </dd>
+                    </div>
+                    {% endif %}
+                    {% if mr.erp_material_request_id %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">ERP ID</dt>
+                        <dd class="mt-1.5 font-mono text-sm text-slate-600 dark:text-slate-400">{{ mr.erp_material_request_id }}</dd>
+                    </div>
+                    {% endif %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Attempts</dt>
+                        <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ mr.erp_sync_attempts or 0 }}</dd>
+                    </div>
+                    {% if mr.erp_synced_at %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Last Synced</dt>
+                        <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ mr.erp_synced_at.strftime('%b %d, %Y at %H:%M') }}</dd>
+                    </div>
+                    {% endif %}
+                    {% if mr.erp_sync_error %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Last Error</dt>
+                        <dd class="mt-1.5 break-words rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{{ mr.erp_sync_error }}</dd>
+                    </div>
+                    {% endif %}
+                    {% if sv in ['issued', 'approved'] and (mr.erp_material_request_id or erp_material) %}
+                    <form method="POST" action="/admin/operations/material-requests/{{ mr.id }}/refresh-erp-status">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="inline-flex w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+                            Refresh ERP Status
+                        </button>
+                    </form>
+                    {% endif %}
+                    {% if sv in ['issued', 'approved'] and erp_sync in ['failed', 'retrying', 'not_configured', ''] %}
+                    <form method="POST" action="/admin/operations/material-requests/{{ mr.id }}/retry-erp-sync">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="inline-flex w-full items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-700 transition hover:bg-teal-100 dark:border-teal-500/30 dark:bg-teal-500/15 dark:text-teal-300 dark:hover:bg-teal-500/25">
+                            Retry ERP Sync
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
             </div>
             {% endif %}
 
@@ -282,12 +399,6 @@
                         </dd>
                     </div>
                     {% endif %}
-                    {% if mr.erp_material_request_id %}
-                    <div>
-                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">ERP ID</dt>
-                        <dd class="mt-1.5 text-sm text-slate-600 dark:text-slate-400 font-mono">{{ mr.erp_material_request_id }}</dd>
-                    </div>
-                    {% endif %}
                     <div class="pt-4 border-t border-slate-100 dark:border-slate-700/50">
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Created</dt>
                         <dd class="mt-1.5 text-sm text-slate-900 dark:text-white">{{ mr.created_at.strftime('%b %d, %Y at %H:%M') if mr.created_at else '-' }}</dd>
@@ -315,4 +426,106 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{% if sv == 'submitted' %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const sourceSelect = document.getElementById('source_location_id');
+    const issueForm = document.querySelector('#issue-form form');
+    const pickers = Array.from(document.querySelectorAll('.serial-picker'));
+
+    const selectedWarehouseCode = () => {
+        const option = sourceSelect?.selectedOptions?.[0];
+        return option?.dataset?.warehouseCode || '';
+    };
+
+    const setSelectMessage = (select, message) => {
+        select.innerHTML = '';
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = message;
+        select.appendChild(option);
+    };
+
+    const loadSerials = async () => {
+        const warehouseCode = selectedWarehouseCode();
+        for (const picker of pickers) {
+            const itemCode = picker.dataset.itemCode || '';
+            const quantity = Number.parseInt(picker.dataset.quantity || '0', 10);
+            const select = picker.querySelector('select');
+            const help = picker.querySelector('[data-serial-help]');
+            if (!select || !help) {
+                continue;
+            }
+            select.disabled = true;
+            select.required = false;
+            setSelectMessage(select, warehouseCode ? 'Loading serials...' : 'Select a warehouse to load serials');
+            help.textContent = 'Needed only if this ERP item tracks serial numbers.';
+
+            if (!warehouseCode || !itemCode) {
+                continue;
+            }
+
+            try {
+                const params = new URLSearchParams({ item_code: itemCode, warehouse_code: warehouseCode, limit: '500' });
+                const response = await fetch(`/admin/operations/material-requests/serials/available?${params.toString()}`, {
+                    headers: { 'Accept': 'application/json' },
+                });
+                if (!response.ok) {
+                    throw new Error('Serials could not be loaded');
+                }
+                const data = await response.json();
+                if (!data.track_serial_numbers) {
+                    setSelectMessage(select, 'This ERP item does not use serial numbers');
+                    help.textContent = 'No serial selection is needed for this line.';
+                    continue;
+                }
+                const serials = Array.isArray(data.serials) ? data.serials : [];
+                if (serials.length === 0) {
+                    setSelectMessage(select, 'No available serials in this warehouse');
+                    help.textContent = 'ERP has no available serials for this item and warehouse.';
+                    continue;
+                }
+                select.innerHTML = '';
+                for (const serial of serials) {
+                    const option = document.createElement('option');
+                    option.value = serial.serial_number;
+                    option.textContent = serial.serial_number;
+                    select.appendChild(option);
+                }
+                select.disabled = false;
+                select.required = quantity > 0;
+                help.textContent = `Select ${quantity} serial number${quantity === 1 ? '' : 's'} for this line.`;
+            } catch (error) {
+                setSelectMessage(select, 'Unable to load serials from ERP');
+                help.textContent = 'Check ERP connection or enter after serials are available.';
+            }
+        }
+    };
+
+    sourceSelect?.addEventListener('change', loadSerials);
+    issueForm?.addEventListener('submit', (event) => {
+        for (const picker of pickers) {
+            const select = picker.querySelector('select');
+            if (!select || select.disabled || !select.required) {
+                continue;
+            }
+            const quantity = Number.parseInt(picker.dataset.quantity || '0', 10);
+            const selected = Array.from(select.selectedOptions).filter((option) => option.value).length;
+            if (selected !== quantity) {
+                event.preventDefault();
+                select.setCustomValidity(`Select exactly ${quantity} serial number${quantity === 1 ? '' : 's'}.`);
+                select.reportValidity();
+                return;
+            }
+            select.setCustomValidity('');
+        }
+    });
+    loadSerials();
+});
+</script>
+{% endif %}
 {% endblock %}

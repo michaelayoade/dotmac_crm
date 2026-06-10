@@ -2,7 +2,7 @@ import logging
 import time
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import text
+from sqlalchemy import or_, text
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 
@@ -698,6 +698,7 @@ def sync_material_request_to_erp(self, material_request_id: str):
         DotMacERPError,
         DotMacERPRateLimitError,
         DotMacERPTransientError,
+        record_material_request_sync_result,
     )
     from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
 
@@ -710,7 +711,7 @@ def sync_material_request_to_erp(self, material_request_id: str):
     try:
         from sqlalchemy.orm import selectinload
 
-        from app.models.material_request import MaterialRequest
+        from app.models.material_request import MaterialRequest, MaterialRequestERPSyncStatus
 
         mr = session.get(
             MaterialRequest,
@@ -721,11 +722,36 @@ def sync_material_request_to_erp(self, material_request_id: str):
             logger.warning("MATERIAL_REQUEST_SYNC_NOT_FOUND material_request_id=%s", material_request_id)
             return {"success": False, "error": "Material request not found"}
 
+        mr.erp_sync_status = MaterialRequestERPSyncStatus.pending
+        mr.erp_sync_error = None
+        mr.erp_sync_attempts = (mr.erp_sync_attempts or 0) + 1
+        session.commit()
+
+        def record_result(success: bool, error: str | None = None, erp_id: str | None = None) -> None:
+            record_material_request_sync_result(
+                material_request_id=str(mr.id),
+                erp_material_request_id=erp_id or mr.erp_material_request_id,
+                success=success,
+                error=error,
+                duration_seconds=time.monotonic() - start,
+            )
+
         sync_service = dotmac_erp_material_request_sync(session)
-        result = sync_service.sync_material_request(mr)
-        sync_service.close()
+        try:
+            result = sync_service.sync_material_request(mr)
+        finally:
+            sync_service.close()
 
         if result.success:
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.synced
+            mr.erp_sync_error = None
+            mr.erp_synced_at = datetime.now(UTC)
+            if result.erp_material_request_id and not mr.erp_material_request_id:
+                mr.erp_material_request_id = result.erp_material_request_id
+            if result.erp_material_status:
+                mr.erp_material_status = result.erp_material_status
+            session.commit()
+            record_result(True, erp_id=result.erp_material_request_id)
             logger.info(
                 "MATERIAL_REQUEST_SYNC_COMPLETE material_request_id=%s erp_id=%s",
                 material_request_id,
@@ -733,6 +759,10 @@ def sync_material_request_to_erp(self, material_request_id: str):
             )
         else:
             status = "error"
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+            mr.erp_sync_error = (result.error or "ERP sync failed")[:500]
+            session.commit()
+            record_result(False, error=result.error)
             logger.warning(
                 "MATERIAL_REQUEST_SYNC_FAILED material_request_id=%s error=%s",
                 material_request_id,
@@ -746,8 +776,38 @@ def sync_material_request_to_erp(self, material_request_id: str):
             "error": result.error,
         }
 
+    except ValueError as e:
+        status = "error"
+        if "mr" in locals() and mr:
+            from app.models.material_request import MaterialRequestERPSyncStatus
+
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.not_configured
+            mr.erp_sync_error = str(e)[:500]
+            session.commit()
+            record_material_request_sync_result(
+                material_request_id=str(mr.id),
+                erp_material_request_id=mr.erp_material_request_id,
+                success=False,
+                error=str(e),
+                duration_seconds=time.monotonic() - start,
+            )
+        logger.error("MATERIAL_REQUEST_SYNC_NOT_CONFIGURED material_request_id=%s error=%s", material_request_id, e)
+        return {"success": False, "error": str(e), "error_type": "not_configured"}
     except DotMacERPRateLimitError as e:
         status = "retry"
+        if "mr" in locals() and mr:
+            from app.models.material_request import MaterialRequestERPSyncStatus
+
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.retrying
+            mr.erp_sync_error = str(e)[:500]
+            session.commit()
+            record_material_request_sync_result(
+                material_request_id=str(mr.id),
+                erp_material_request_id=mr.erp_material_request_id,
+                success=False,
+                error=str(e),
+                duration_seconds=time.monotonic() - start,
+            )
         retry_after = e.retry_after or 60
         logger.warning(
             "MATERIAL_REQUEST_SYNC_RATE_LIMITED material_request_id=%s retry_after=%s",
@@ -757,6 +817,19 @@ def sync_material_request_to_erp(self, material_request_id: str):
         raise self.retry(exc=e, countdown=retry_after)
     except DotMacERPAuthError as e:
         status = "error"
+        if "mr" in locals() and mr:
+            from app.models.material_request import MaterialRequestERPSyncStatus
+
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+            mr.erp_sync_error = str(e)[:500]
+            session.commit()
+            record_material_request_sync_result(
+                material_request_id=str(mr.id),
+                erp_material_request_id=mr.erp_material_request_id,
+                success=False,
+                error=str(e),
+                duration_seconds=time.monotonic() - start,
+            )
         logger.error(
             "MATERIAL_REQUEST_SYNC_AUTH_ERROR material_request_id=%s error=%s",
             material_request_id,
@@ -765,6 +838,19 @@ def sync_material_request_to_erp(self, material_request_id: str):
         return {"success": False, "error": str(e), "error_type": "auth"}
     except DotMacERPTransientError as e:
         status = "retry"
+        if "mr" in locals() and mr:
+            from app.models.material_request import MaterialRequestERPSyncStatus
+
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.retrying
+            mr.erp_sync_error = str(e)[:500]
+            session.commit()
+            record_material_request_sync_result(
+                material_request_id=str(mr.id),
+                erp_material_request_id=mr.erp_material_request_id,
+                success=False,
+                error=str(e),
+                duration_seconds=time.monotonic() - start,
+            )
         logger.warning(
             "MATERIAL_REQUEST_SYNC_TRANSIENT material_request_id=%s error=%s",
             material_request_id,
@@ -773,6 +859,19 @@ def sync_material_request_to_erp(self, material_request_id: str):
         raise
     except DotMacERPError as e:
         status = "error"
+        if "mr" in locals() and mr:
+            from app.models.material_request import MaterialRequestERPSyncStatus
+
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+            mr.erp_sync_error = str(e)[:500]
+            session.commit()
+            record_material_request_sync_result(
+                material_request_id=str(mr.id),
+                erp_material_request_id=mr.erp_material_request_id,
+                success=False,
+                error=str(e),
+                duration_seconds=time.monotonic() - start,
+            )
         logger.error(
             "MATERIAL_REQUEST_SYNC_ERROR material_request_id=%s error=%s",
             material_request_id,
@@ -781,6 +880,23 @@ def sync_material_request_to_erp(self, material_request_id: str):
         return {"success": False, "error": str(e)}
     except Exception as e:
         status = "error"
+        if "mr" in locals() and mr:
+            try:
+                from app.models.material_request import MaterialRequestERPSyncStatus
+
+                session.rollback()
+                mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+                mr.erp_sync_error = str(e)[:500]
+                session.commit()
+                record_material_request_sync_result(
+                    material_request_id=str(mr.id),
+                    erp_material_request_id=mr.erp_material_request_id,
+                    success=False,
+                    error=str(e),
+                    duration_seconds=time.monotonic() - start,
+                )
+            except Exception:
+                session.rollback()
         logger.exception(
             "MATERIAL_REQUEST_SYNC_FAILED material_request_id=%s error=%s",
             material_request_id,
@@ -793,6 +909,325 @@ def sync_material_request_to_erp(self, material_request_id: str):
         session.close()
         duration = time.monotonic() - start
         observe_job("material_request_sync", status, duration)
+
+
+@celery_app.task(
+    name="app.tasks.integrations.refresh_material_request_erp_status",
+    bind=True,
+    time_limit=60,
+    soft_time_limit=45,
+    max_retries=5,
+    autoretry_for=(DotMacERPTransientError,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+)
+def refresh_material_request_erp_status(self, material_request_id: str):
+    """Refresh ERP-side material request stock/fulfillment status."""
+    from app.services.dotmac_erp import (
+        DotMacERPAuthError,
+        DotMacERPError,
+        DotMacERPRateLimitError,
+        DotMacERPTransientError,
+        record_material_request_sync_result,
+    )
+    from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
+
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("MATERIAL_REQUEST_ERP_STATUS_REFRESH_START material_request_id=%s", material_request_id)
+
+    try:
+        from sqlalchemy.orm import selectinload
+
+        from app.models.material_request import MaterialRequest, MaterialRequestERPSyncStatus
+
+        mr = session.get(
+            MaterialRequest,
+            coerce_uuid(material_request_id),
+            options=[selectinload(MaterialRequest.items)],
+        )
+        if not mr:
+            logger.warning("MATERIAL_REQUEST_ERP_STATUS_REFRESH_NOT_FOUND material_request_id=%s", material_request_id)
+            return {"success": False, "error": "Material request not found"}
+
+        mr.erp_sync_status = MaterialRequestERPSyncStatus.pending
+        mr.erp_sync_error = None
+        mr.erp_sync_attempts = (mr.erp_sync_attempts or 0) + 1
+        session.commit()
+
+        sync_service = dotmac_erp_material_request_sync(session)
+        try:
+            result = sync_service.refresh_material_request_status(mr)
+        finally:
+            sync_service.close()
+
+        if result.success:
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.synced
+            mr.erp_sync_error = None
+            mr.erp_synced_at = datetime.now(UTC)
+            if result.erp_material_status:
+                mr.erp_material_status = result.erp_material_status
+            session.commit()
+            record_material_request_sync_result(
+                material_request_id=str(mr.id),
+                erp_material_request_id=result.erp_material_request_id or mr.erp_material_request_id,
+                success=True,
+                error=None,
+                duration_seconds=time.monotonic() - start,
+            )
+            logger.info(
+                "MATERIAL_REQUEST_ERP_STATUS_REFRESH_COMPLETE material_request_id=%s erp_status=%s",
+                material_request_id,
+                result.erp_material_status,
+            )
+        else:
+            status = "error"
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+            mr.erp_sync_error = (result.error or "ERP status refresh failed")[:500]
+            session.commit()
+            record_material_request_sync_result(
+                material_request_id=str(mr.id),
+                erp_material_request_id=mr.erp_material_request_id,
+                success=False,
+                error=result.error,
+                duration_seconds=time.monotonic() - start,
+            )
+
+        return {
+            "success": result.success,
+            "material_request_id": result.material_request_id,
+            "erp_material_request_id": result.erp_material_request_id,
+            "erp_material_status": result.erp_material_status,
+            "error": result.error,
+        }
+
+    except ValueError as e:
+        status = "error"
+        if "mr" in locals() and mr:
+            from app.models.material_request import MaterialRequestERPSyncStatus
+
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.not_configured
+            mr.erp_sync_error = str(e)[:500]
+            session.commit()
+        logger.error(
+            "MATERIAL_REQUEST_ERP_STATUS_REFRESH_NOT_CONFIGURED material_request_id=%s error=%s",
+            material_request_id,
+            e,
+        )
+        return {"success": False, "error": str(e), "error_type": "not_configured"}
+    except DotMacERPRateLimitError as e:
+        status = "retry"
+        if "mr" in locals() and mr:
+            from app.models.material_request import MaterialRequestERPSyncStatus
+
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.retrying
+            mr.erp_sync_error = str(e)[:500]
+            session.commit()
+        retry_after = e.retry_after or 60
+        logger.warning(
+            "MATERIAL_REQUEST_ERP_STATUS_REFRESH_RATE_LIMITED material_request_id=%s retry_after=%s",
+            material_request_id,
+            retry_after,
+        )
+        raise self.retry(exc=e, countdown=retry_after)
+    except DotMacERPAuthError as e:
+        status = "error"
+        if "mr" in locals() and mr:
+            from app.models.material_request import MaterialRequestERPSyncStatus
+
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+            mr.erp_sync_error = str(e)[:500]
+            session.commit()
+        return {"success": False, "error": str(e), "error_type": "auth"}
+    except DotMacERPTransientError as e:
+        status = "retry"
+        if "mr" in locals() and mr:
+            from app.models.material_request import MaterialRequestERPSyncStatus
+
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.retrying
+            mr.erp_sync_error = str(e)[:500]
+            session.commit()
+        logger.warning(
+            "MATERIAL_REQUEST_ERP_STATUS_REFRESH_TRANSIENT material_request_id=%s error=%s",
+            material_request_id,
+            str(e),
+        )
+        raise
+    except DotMacERPError as e:
+        status = "error"
+        if "mr" in locals() and mr:
+            from app.models.material_request import MaterialRequestERPSyncStatus
+
+            mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+            mr.erp_sync_error = str(e)[:500]
+            session.commit()
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        status = "error"
+        if "mr" in locals() and mr:
+            try:
+                from app.models.material_request import MaterialRequestERPSyncStatus
+
+                session.rollback()
+                mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+                mr.erp_sync_error = str(e)[:500]
+                session.commit()
+            except Exception:
+                session.rollback()
+        logger.exception(
+            "MATERIAL_REQUEST_ERP_STATUS_REFRESH_FAILED material_request_id=%s error=%s",
+            material_request_id,
+            str(e),
+        )
+        raise
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("material_request_erp_status_refresh", status, duration)
+
+
+@celery_app.task(
+    name="app.tasks.integrations.refresh_pending_material_request_erp_statuses",
+    time_limit=300,
+    soft_time_limit=240,
+)
+def refresh_pending_material_request_erp_statuses(limit: int = 50):
+    """Refresh ERP status for issued material requests still awaiting ERP-side completion."""
+    from app.models.material_request import MaterialRequest, MaterialRequestERPSyncStatus, MaterialRequestStatus
+    from app.services.dotmac_erp import DotMacERPError, DotMacERPTransientError, record_material_request_sync_result
+    from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
+
+    start = time.monotonic()
+    status = "success"
+    refreshed = 0
+    failed = 0
+    skipped = 0
+    errors: list[str] = []
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("PENDING_MATERIAL_REQUEST_ERP_STATUS_REFRESH_START limit=%s", limit)
+
+    try:
+        batch_limit = max(min(int(limit or 50), 200), 1)
+        candidates = (
+            session.query(MaterialRequest)
+            .filter(MaterialRequest.status.in_([MaterialRequestStatus.issued, MaterialRequestStatus.approved]))
+            .filter(
+                or_(
+                    MaterialRequest.erp_material_status == "pending_stock",
+                    MaterialRequest.erp_material_request_id.isnot(None),
+                )
+            )
+            .filter(
+                or_(
+                    MaterialRequest.erp_material_status.is_(None),
+                    MaterialRequest.erp_material_status.notin_(["fulfilled", "complete", "completed", "canceled"]),
+                )
+            )
+            .order_by(MaterialRequest.created_at.asc())
+            .limit(batch_limit)
+            .all()
+        )
+
+        if not candidates:
+            logger.info("PENDING_MATERIAL_REQUEST_ERP_STATUS_REFRESH_EMPTY")
+            return {"success": True, "refreshed": 0, "failed": 0, "skipped": 0, "errors": []}
+
+        try:
+            sync_service = dotmac_erp_material_request_sync(session)
+        except ValueError as exc:
+            status = "error"
+            message = str(exc)
+            for mr in candidates:
+                mr.erp_sync_status = MaterialRequestERPSyncStatus.not_configured
+                mr.erp_sync_error = message[:500]
+                failed += 1
+            session.commit()
+            return {"success": False, "refreshed": 0, "failed": failed, "skipped": 0, "errors": [message]}
+
+        try:
+            for mr in candidates:
+                item_start = time.monotonic()
+                mr.erp_sync_status = MaterialRequestERPSyncStatus.pending
+                mr.erp_sync_error = None
+                mr.erp_sync_attempts = (mr.erp_sync_attempts or 0) + 1
+                session.commit()
+
+                try:
+                    result = sync_service.refresh_material_request_status(mr)
+                    if result.success:
+                        mr.erp_sync_status = MaterialRequestERPSyncStatus.synced
+                        mr.erp_sync_error = None
+                        mr.erp_synced_at = datetime.now(UTC)
+                        if result.erp_material_status:
+                            mr.erp_material_status = result.erp_material_status
+                        session.commit()
+                        record_material_request_sync_result(
+                            material_request_id=str(mr.id),
+                            erp_material_request_id=result.erp_material_request_id or mr.erp_material_request_id,
+                            success=True,
+                            error=None,
+                            duration_seconds=time.monotonic() - item_start,
+                        )
+                        refreshed += 1
+                    else:
+                        mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+                        mr.erp_sync_error = (result.error or "ERP status refresh failed")[:500]
+                        session.commit()
+                        record_material_request_sync_result(
+                            material_request_id=str(mr.id),
+                            erp_material_request_id=mr.erp_material_request_id,
+                            success=False,
+                            error=result.error,
+                            duration_seconds=time.monotonic() - item_start,
+                        )
+                        failed += 1
+                        if result.error:
+                            errors.append(result.error)
+                except DotMacERPTransientError as exc:
+                    mr.erp_sync_status = MaterialRequestERPSyncStatus.retrying
+                    mr.erp_sync_error = str(exc)[:500]
+                    session.commit()
+                    failed += 1
+                    errors.append(str(exc))
+                except DotMacERPError as exc:
+                    mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+                    mr.erp_sync_error = str(exc)[:500]
+                    session.commit()
+                    failed += 1
+                    errors.append(str(exc))
+                except Exception as exc:
+                    session.rollback()
+                    mr = session.get(MaterialRequest, mr.id)
+                    if mr:
+                        mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+                        mr.erp_sync_error = str(exc)[:500]
+                        session.commit()
+                    failed += 1
+                    errors.append(str(exc))
+        finally:
+            sync_service.close()
+
+        if failed:
+            status = "partial" if refreshed else "error"
+        return {
+            "success": failed == 0,
+            "refreshed": refreshed,
+            "failed": failed,
+            "skipped": skipped,
+            "errors": errors[:20],
+        }
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("pending_material_request_erp_status_refresh", status, duration)
 
 
 @celery_app.task(

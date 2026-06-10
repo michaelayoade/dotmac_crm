@@ -284,6 +284,28 @@ def build_beat_schedule() -> dict:
             interval_seconds=max(billing_risk_cache_interval, 600),
         )
 
+        pending_mr_refresh_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "dotmac_erp_material_request_status_refresh_enabled",
+            "DOTMAC_ERP_MATERIAL_REQUEST_STATUS_REFRESH_ENABLED",
+            True,
+        )
+        pending_mr_refresh_interval = _effective_int(
+            session,
+            SettingDomain.integration,
+            "dotmac_erp_material_request_status_refresh_interval_seconds",
+            "DOTMAC_ERP_MATERIAL_REQUEST_STATUS_REFRESH_INTERVAL_SECONDS",
+            300,
+        )
+        _sync_scheduled_task(
+            session,
+            name="dotmac_erp_material_request_status_refresh",
+            task_name="app.tasks.integrations.refresh_pending_material_request_erp_statuses",
+            enabled=pending_mr_refresh_enabled,
+            interval_seconds=max(pending_mr_refresh_interval, 120),
+        )
+
         retention_enabled = _effective_bool(
             session,
             SettingDomain.catalog,
