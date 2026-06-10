@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/api/token_store.dart' show LoginMode;
 import '../features/auth/auth_state.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/mfa_screen.dart';
@@ -10,6 +11,7 @@ import '../features/profile/profile_screen.dart';
 import '../features/schedule/schedule_screen.dart';
 import '../features/today/map_screen.dart';
 import '../features/today/today_screen.dart';
+import '../features/vendor/vendor_screens.dart';
 
 /// App shell: login gate + 4-tab bottom navigation per the visual plan.
 GoRouter buildRouter(Ref ref) {
@@ -43,7 +45,7 @@ GoRouter buildRouter(Ref ref) {
         builder: (context, state, shell) => _AppShell(shell: shell),
         branches: [
           StatefulShellBranch(routes: [
-            GoRoute(path: '/today', builder: (_, _) => const TodayScreen()),
+            GoRoute(path: '/today', builder: (_, _) => const _HomeSwitch()),
           ]),
           StatefulShellBranch(routes: [
             GoRoute(path: '/map', builder: (_, _) => const MapScreen()),
@@ -61,6 +63,20 @@ GoRouter buildRouter(Ref ref) {
 }
 
 final routerProvider = Provider<GoRouter>(buildRouter);
+
+/// Vendor crews get their Projects module where techs see Today.
+class _HomeSwitch extends ConsumerWidget {
+  const _HomeSwitch();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authControllerProvider);
+    if (auth is Authenticated && auth.mode == LoginMode.vendor) {
+      return const VendorProjectsScreen();
+    }
+    return const TodayScreen();
+  }
+}
 
 class _AppShell extends StatelessWidget {
   const _AppShell({required this.shell});
