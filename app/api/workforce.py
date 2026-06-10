@@ -17,6 +17,7 @@ from app.schemas.workforce import (
 )
 from app.services import timecost as timecost_service
 from app.services import workforce as workforce_service
+from app.services.auth_dependencies import require_permission
 
 router = APIRouter()
 
@@ -26,17 +27,28 @@ router = APIRouter()
     response_model=WorkOrderRead,
     status_code=status.HTTP_201_CREATED,
     tags=["work-orders"],
+    dependencies=[Depends(require_permission("operations:work_order:create"))],
 )
 def create_work_order(payload: WorkOrderCreate, db: Session = Depends(get_db)):
     return workforce_service.work_orders.create(db, payload)
 
 
-@router.get("/work-orders/{work_order_id}", response_model=WorkOrderRead, tags=["work-orders"])
+@router.get(
+    "/work-orders/{work_order_id}",
+    response_model=WorkOrderRead,
+    tags=["work-orders"],
+    dependencies=[Depends(require_permission("operations:work_order:read"))],
+)
 def get_work_order(work_order_id: str, db: Session = Depends(get_db)):
     return workforce_service.work_orders.get(db, work_order_id)
 
 
-@router.get("/work-orders", response_model=ListResponse[WorkOrderRead], tags=["work-orders"])
+@router.get(
+    "/work-orders",
+    response_model=ListResponse[WorkOrderRead],
+    tags=["work-orders"],
+    dependencies=[Depends(require_permission("operations:work_order:read"))],
+)
 def list_work_orders(
     subscriber_id: str | None = None,
     ticket_id: str | None = None,
@@ -69,7 +81,12 @@ def list_work_orders(
     )
 
 
-@router.patch("/work-orders/{work_order_id}", response_model=WorkOrderRead, tags=["work-orders"])
+@router.patch(
+    "/work-orders/{work_order_id}",
+    response_model=WorkOrderRead,
+    tags=["work-orders"],
+    dependencies=[Depends(require_permission("operations:work_order:update"))],
+)
 def update_work_order(work_order_id: str, payload: WorkOrderUpdate, db: Session = Depends(get_db)):
     return workforce_service.work_orders.update(db, work_order_id, payload)
 
@@ -78,6 +95,7 @@ def update_work_order(work_order_id: str, payload: WorkOrderUpdate, db: Session 
     "/work-orders/{work_order_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["work-orders"],
+    dependencies=[Depends(require_permission("operations:work_order:delete"))],
 )
 def delete_work_order(work_order_id: str, db: Session = Depends(get_db)):
     workforce_service.work_orders.delete(db, work_order_id)
@@ -87,6 +105,7 @@ def delete_work_order(work_order_id: str, db: Session = Depends(get_db)):
     "/work-orders/{work_order_id}/cost-summary",
     response_model=CostSummary,
     tags=["work-orders"],
+    dependencies=[Depends(require_permission("operations:work_order:read"))],
 )
 def work_order_cost_summary(work_order_id: str, db: Session = Depends(get_db)):
     return timecost_service.work_order_cost_summary(db, work_order_id)
@@ -97,6 +116,7 @@ def work_order_cost_summary(work_order_id: str, db: Session = Depends(get_db)):
     response_model=WorkOrderAssignmentRead,
     status_code=status.HTTP_201_CREATED,
     tags=["work-order-assignments"],
+    dependencies=[Depends(require_permission("operations:work_order:update"))],
 )
 def create_work_order_assignment(payload: WorkOrderAssignmentCreate, db: Session = Depends(get_db)):
     return workforce_service.work_order_assignments.create(db, payload)
@@ -106,6 +126,7 @@ def create_work_order_assignment(payload: WorkOrderAssignmentCreate, db: Session
     "/work-order-assignments/{assignment_id}",
     response_model=WorkOrderAssignmentRead,
     tags=["work-order-assignments"],
+    dependencies=[Depends(require_permission("operations:work_order:read"))],
 )
 def get_work_order_assignment(assignment_id: str, db: Session = Depends(get_db)):
     return workforce_service.work_order_assignments.get(db, assignment_id)
@@ -115,6 +136,7 @@ def get_work_order_assignment(assignment_id: str, db: Session = Depends(get_db))
     "/work-order-assignments",
     response_model=ListResponse[WorkOrderAssignmentRead],
     tags=["work-order-assignments"],
+    dependencies=[Depends(require_permission("operations:work_order:read"))],
 )
 def list_work_order_assignments(
     work_order_id: str | None = None,
@@ -134,6 +156,7 @@ def list_work_order_assignments(
     "/work-order-assignments/{assignment_id}",
     response_model=WorkOrderAssignmentRead,
     tags=["work-order-assignments"],
+    dependencies=[Depends(require_permission("operations:work_order:update"))],
 )
 def update_work_order_assignment(assignment_id: str, payload: WorkOrderAssignmentUpdate, db: Session = Depends(get_db)):
     return workforce_service.work_order_assignments.update(db, assignment_id, payload)
@@ -143,6 +166,7 @@ def update_work_order_assignment(assignment_id: str, payload: WorkOrderAssignmen
     "/work-order-assignments/{assignment_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["work-order-assignments"],
+    dependencies=[Depends(require_permission("operations:work_order:update"))],
 )
 def delete_work_order_assignment(assignment_id: str, db: Session = Depends(get_db)):
     workforce_service.work_order_assignments.delete(db, assignment_id)
@@ -153,6 +177,7 @@ def delete_work_order_assignment(assignment_id: str, db: Session = Depends(get_d
     response_model=WorkOrderNoteRead,
     status_code=status.HTTP_201_CREATED,
     tags=["work-order-notes"],
+    dependencies=[Depends(require_permission("operations:work_order:update"))],
 )
 def create_work_order_note(payload: WorkOrderNoteCreate, db: Session = Depends(get_db)):
     return workforce_service.work_order_notes.create(db, payload)
@@ -162,6 +187,7 @@ def create_work_order_note(payload: WorkOrderNoteCreate, db: Session = Depends(g
     "/work-order-notes/{note_id}",
     response_model=WorkOrderNoteRead,
     tags=["work-order-notes"],
+    dependencies=[Depends(require_permission("operations:work_order:read"))],
 )
 def get_work_order_note(note_id: str, db: Session = Depends(get_db)):
     return workforce_service.work_order_notes.get(db, note_id)
@@ -171,6 +197,7 @@ def get_work_order_note(note_id: str, db: Session = Depends(get_db)):
     "/work-order-notes",
     response_model=ListResponse[WorkOrderNoteRead],
     tags=["work-order-notes"],
+    dependencies=[Depends(require_permission("operations:work_order:read"))],
 )
 def list_work_order_notes(
     work_order_id: str | None = None,
@@ -190,6 +217,7 @@ def list_work_order_notes(
     "/work-order-notes/{note_id}",
     response_model=WorkOrderNoteRead,
     tags=["work-order-notes"],
+    dependencies=[Depends(require_permission("operations:work_order:update"))],
 )
 def update_work_order_note(note_id: str, payload: WorkOrderNoteUpdate, db: Session = Depends(get_db)):
     return workforce_service.work_order_notes.update(db, note_id, payload)
@@ -199,6 +227,7 @@ def update_work_order_note(note_id: str, payload: WorkOrderNoteUpdate, db: Sessi
     "/work-order-notes/{note_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["work-order-notes"],
+    dependencies=[Depends(require_permission("operations:work_order:update"))],
 )
 def delete_work_order_note(note_id: str, db: Session = Depends(get_db)):
     workforce_service.work_order_notes.delete(db, note_id)

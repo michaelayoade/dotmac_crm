@@ -6,10 +6,16 @@ from sqlalchemy.orm import Session
 from app.db import get_db as _get_db
 from app.models.auth import ApiKey, SessionStatus
 from app.models.auth import Session as AuthSession
+from app.models.person import Person
 from app.models.rbac import Permission, PersonPermission, PersonRole, Role, RolePermission
 from app.services.auth import hash_api_key
 from app.services.auth_cache import get_cached_session, set_cached_session
-from app.services.auth_flow import _load_rbac_claims, decode_access_token, hash_session_token
+from app.services.auth_flow import (
+    _load_rbac_claims,
+    decode_access_token,
+    hash_session_token,
+    person_is_enabled,
+)
 
 
 def _extract_bearer_token(authorization: str | None) -> str | None:
@@ -180,6 +186,11 @@ def require_user_auth(
         .first()
     )
     if not session:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    # Deactivated people must lose access immediately, not at token expiry.
+    # The cached fast path is covered by revoke_sessions_for_person(), which
+    # invalidates cache entries when a person is disabled.
+    if not person_is_enabled(db.get(Person, session.person_id)):
         raise HTTPException(status_code=401, detail="Unauthorized")
     if roles_from_claim or scopes_from_claim:
         roles = roles_from_claim

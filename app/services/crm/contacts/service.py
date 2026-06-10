@@ -572,6 +572,10 @@ class Contacts(ListResponseMixin):
         person.is_active = False
         db.commit()
 
+        from app.services.auth_flow import revoke_sessions_for_person
+
+        revoke_sessions_for_person(db, person.id)
+
 
 class ContactChannels(ListResponseMixin):
     @staticmethod
