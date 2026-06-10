@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
@@ -34,7 +35,10 @@ class SyncService {
     this.throttle = const Duration(seconds: 1),
   }) : _delay = delay ?? Future.delayed {
     _subscription = connectivity.onlineChanges.listen((online) {
-      if (online) unawaited(flushOutbox());
+      if (online) {
+        unawaited(flushOutbox());
+        unawaited(flushPhotos());
+      }
     });
   }
 
@@ -164,6 +168,70 @@ class SyncService {
       _flushing = false;
     }
     return sent;
+  }
+
+  // ---- Photo uploads -----------------------------------------------------
+
+  bool _flushingPhotos = false;
+
+  /// Upload queued photos as multipart to the attachments endpoint. The
+  /// server dedupes on client_ref, so retries are safe. 4xx responses record
+  /// the error but keep the file — evidence is never silently dropped.
+  Future<int> flushPhotos() async {
+    if (_flushingPhotos) return 0;
+    if (!await connectivity.isOnline) return 0;
+    _flushingPhotos = true;
+    var uploaded = 0;
+    try {
+      final rows =
+          await (db.select(db.pendingPhotos)..where((row) => row.uploaded.equals(false))).get();
+      for (final photo in rows) {
+        final file = File(photo.localPath);
+        if (!file.existsSync()) {
+          // The file vanished (cleared cache): nothing left to upload.
+          await _markPhoto(photo.clientRef, uploaded: true, error: 'local file missing');
+          continue;
+        }
+        final form = FormData.fromMap({
+          'file': MultipartFile.fromBytes(await file.readAsBytes(), filename: 'photo.jpg'),
+          'kind': photo.kind,
+          'client_ref': photo.clientRef,
+          'work_order_id': ?photo.workOrderId,
+          'installation_project_id': ?photo.installationProjectId,
+          'latitude': ?photo.latitude?.toString(),
+          'longitude': ?photo.longitude?.toString(),
+          'captured_at': photo.capturedAt.toIso8601String(),
+        });
+        try {
+          await api.dio.post('/api/v1/field/attachments', data: form);
+          await _markPhoto(photo.clientRef, uploaded: true);
+          try {
+            file.deleteSync();
+          } on FileSystemException {
+            // Cleanup is best-effort; the row is already marked uploaded.
+          }
+          uploaded++;
+        } on DioException catch (error) {
+          final status = error.response?.statusCode;
+          if (status != null && status >= 400 && status < 500 && status != 429) {
+            await _markPhoto(photo.clientRef, uploaded: false, error: _detail(error));
+            continue;
+          }
+          await _markPhoto(photo.clientRef, uploaded: false, error: _detail(error));
+          break; // network/server/rate trouble: retry on the next trigger
+        }
+        await _delay(throttle);
+      }
+    } finally {
+      _flushingPhotos = false;
+    }
+    return uploaded;
+  }
+
+  Future<void> _markPhoto(String clientRef, {required bool uploaded, String? error}) async {
+    await (db.update(db.pendingPhotos)..where((row) => row.clientRef.equals(clientRef))).write(
+      PendingPhotosCompanion(uploaded: Value(uploaded), lastError: Value(error)),
+    );
   }
 
   String _detail(DioException error) {

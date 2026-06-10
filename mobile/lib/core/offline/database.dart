@@ -53,6 +53,7 @@ class PendingPhotos extends Table {
   RealColumn get longitude => real().nullable()();
   DateTimeColumn get capturedAt => dateTime()();
   BoolColumn get uploaded => boolean().withDefault(const Constant(false))();
+  TextColumn get lastError => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {clientRef};

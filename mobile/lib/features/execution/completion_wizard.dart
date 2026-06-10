@@ -6,11 +6,12 @@ import 'execution_controller.dart';
 import 'signature_pad.dart';
 
 /// Camera abstraction: returns true when a photo was captured and queued.
-/// The device implementation (camera plugin + compression + attachment
-/// outbox) lands at device-testing time.
-typedef PhotoCapture = Future<bool> Function();
+/// The device build overrides this with PhotoQueue.captureForJob at
+/// bootstrap; the default no-op keeps headless environments safe.
+typedef PhotoCapture = Future<bool> Function({String? workOrderId, String? installationProjectId});
 
-final photoCaptureProvider = Provider<PhotoCapture>((ref) => () async => false);
+final photoCaptureProvider =
+    Provider<PhotoCapture>((ref) => ({workOrderId, installationProjectId}) async => false);
 
 final completionStateProvider =
     NotifierProvider.autoDispose<CompletionNotifier, CompletionState>(CompletionNotifier.new);
@@ -89,7 +90,7 @@ class _CompletionWizardState extends ConsumerState<CompletionWizard> {
               photoCount: completion.photoCount,
               summary: _summary,
               onAddPhoto: () async {
-                final captured = await ref.read(photoCaptureProvider)();
+                final captured = await ref.read(photoCaptureProvider)(workOrderId: widget.jobId);
                 if (captured) {
                   ref
                       .read(completionStateProvider.notifier)
