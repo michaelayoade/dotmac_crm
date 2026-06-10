@@ -13,7 +13,7 @@ class DotmacFieldApp extends ConsumerWidget {
       title: 'DotMac Field',
       theme: lightTheme,
       darkTheme: darkTheme,
-      routerConfig: buildRouter(),
+      routerConfig: ref.watch(routerProvider),
     );
   }
 }
