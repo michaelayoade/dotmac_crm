@@ -1,6 +1,8 @@
 import 'package:dotmac_field/app/app.dart';
 import 'package:dotmac_field/core/api/token_store.dart';
 import 'package:dotmac_field/features/auth/auth_state.dart';
+import 'package:dotmac_field/features/jobs/job_models.dart';
+import 'package:dotmac_field/features/jobs/jobs_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,7 +15,13 @@ class _AuthedController extends AuthController {
 Widget _app({bool authenticated = true}) {
   return ProviderScope(
     overrides: [
-      if (authenticated) authControllerProvider.overrideWith(_AuthedController.new),
+      if (authenticated) ...[
+        authControllerProvider.overrideWith(_AuthedController.new),
+        meProvider.overrideWith(
+          (ref) async => const MeSummary(name: 'Chidi Tech', openJobs: 2, completedToday: 1),
+        ),
+        jobsListProvider.overrideWith((ref) async => <JobSummary>[]),
+      ],
     ],
     child: const DotmacFieldApp(),
   );
@@ -33,7 +41,7 @@ void main() {
     await tester.pumpWidget(_app());
     await tester.pumpAndSettle();
 
-    expect(find.text('Today'), findsWidgets);
+    expect(find.text('Hello, Chidi'), findsOneWidget);
     expect(find.text('Map'), findsOneWidget);
     expect(find.text('Schedule'), findsOneWidget);
     expect(find.text('Profile'), findsOneWidget);
