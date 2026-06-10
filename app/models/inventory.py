@@ -106,6 +106,7 @@ class WorkOrderMaterial(Base):
         UUID(as_uuid=True), ForeignKey("inventory_reservations.id")
     )
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    consumed_quantity: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[MaterialStatus] = mapped_column(Enum(MaterialStatus), default=MaterialStatus.required)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

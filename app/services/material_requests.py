@@ -344,6 +344,20 @@ class MaterialRequests(ListResponseMixin):
         return mr
 
     @staticmethod
+    def fulfill(db: Session, mr_id: str) -> MaterialRequest:
+        """Mark an issued request fulfilled (materials consumed in the field)."""
+        mr = get_or_404(db, MaterialRequest, mr_id, options=[selectinload(MaterialRequest.items)])
+        if mr.status == MaterialRequestStatus.fulfilled:
+            return mr
+        if mr.status != MaterialRequestStatus.issued:
+            raise HTTPException(status_code=400, detail="Only issued requests can be fulfilled")
+        mr.status = MaterialRequestStatus.fulfilled
+        mr.fulfilled_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(mr)
+        return mr
+
+    @staticmethod
     def cancel(db: Session, mr_id: str) -> MaterialRequest:
         mr = get_or_404(db, MaterialRequest, mr_id, options=[selectinload(MaterialRequest.items)])
         if mr.status in _TERMINAL_STATUSES:
