@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../features/auth/auth_state.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/mfa_screen.dart';
+import '../features/jobs/job_detail_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/schedule/schedule_screen.dart';
 import '../features/today/map_screen.dart';
@@ -34,6 +35,10 @@ GoRouter buildRouter(Ref ref) {
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       GoRoute(path: '/mfa', builder: (_, _) => const MfaScreen()),
       GoRoute(path: '/upgrade', builder: (_, _) => const UpgradeRequiredScreen()),
+      GoRoute(
+        path: '/jobs/:id',
+        builder: (_, state) => JobDetailScreen(jobId: state.pathParameters['id']!),
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) => _AppShell(shell: shell),
         branches: [
