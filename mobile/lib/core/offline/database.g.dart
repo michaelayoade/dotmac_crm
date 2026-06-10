@@ -1504,6 +1504,17 @@ class $PendingPhotosTable extends PendingPhotos
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _lastErrorMeta = const VerificationMeta(
+    'lastError',
+  );
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+    'last_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     clientRef,
@@ -1515,6 +1526,7 @@ class $PendingPhotosTable extends PendingPhotos
     longitude,
     capturedAt,
     uploaded,
+    lastError,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1594,6 +1606,12 @@ class $PendingPhotosTable extends PendingPhotos
         uploaded.isAcceptableOrUnknown(data['uploaded']!, _uploadedMeta),
       );
     }
+    if (data.containsKey('last_error')) {
+      context.handle(
+        _lastErrorMeta,
+        lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
+      );
+    }
     return context;
   }
 
@@ -1639,6 +1657,10 @@ class $PendingPhotosTable extends PendingPhotos
         DriftSqlType.bool,
         data['${effectivePrefix}uploaded'],
       )!,
+      lastError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error'],
+      ),
     );
   }
 
@@ -1658,6 +1680,7 @@ class PendingPhoto extends DataClass implements Insertable<PendingPhoto> {
   final double? longitude;
   final DateTime capturedAt;
   final bool uploaded;
+  final String? lastError;
   const PendingPhoto({
     required this.clientRef,
     required this.localPath,
@@ -1668,6 +1691,7 @@ class PendingPhoto extends DataClass implements Insertable<PendingPhoto> {
     this.longitude,
     required this.capturedAt,
     required this.uploaded,
+    this.lastError,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1689,6 +1713,9 @@ class PendingPhoto extends DataClass implements Insertable<PendingPhoto> {
     }
     map['captured_at'] = Variable<DateTime>(capturedAt);
     map['uploaded'] = Variable<bool>(uploaded);
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
     return map;
   }
 
@@ -1711,6 +1738,9 @@ class PendingPhoto extends DataClass implements Insertable<PendingPhoto> {
           : Value(longitude),
       capturedAt: Value(capturedAt),
       uploaded: Value(uploaded),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
     );
   }
 
@@ -1731,6 +1761,7 @@ class PendingPhoto extends DataClass implements Insertable<PendingPhoto> {
       longitude: serializer.fromJson<double?>(json['longitude']),
       capturedAt: serializer.fromJson<DateTime>(json['capturedAt']),
       uploaded: serializer.fromJson<bool>(json['uploaded']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
     );
   }
   @override
@@ -1748,6 +1779,7 @@ class PendingPhoto extends DataClass implements Insertable<PendingPhoto> {
       'longitude': serializer.toJson<double?>(longitude),
       'capturedAt': serializer.toJson<DateTime>(capturedAt),
       'uploaded': serializer.toJson<bool>(uploaded),
+      'lastError': serializer.toJson<String?>(lastError),
     };
   }
 
@@ -1761,6 +1793,7 @@ class PendingPhoto extends DataClass implements Insertable<PendingPhoto> {
     Value<double?> longitude = const Value.absent(),
     DateTime? capturedAt,
     bool? uploaded,
+    Value<String?> lastError = const Value.absent(),
   }) => PendingPhoto(
     clientRef: clientRef ?? this.clientRef,
     localPath: localPath ?? this.localPath,
@@ -1773,6 +1806,7 @@ class PendingPhoto extends DataClass implements Insertable<PendingPhoto> {
     longitude: longitude.present ? longitude.value : this.longitude,
     capturedAt: capturedAt ?? this.capturedAt,
     uploaded: uploaded ?? this.uploaded,
+    lastError: lastError.present ? lastError.value : this.lastError,
   );
   PendingPhoto copyWithCompanion(PendingPhotosCompanion data) {
     return PendingPhoto(
@@ -1791,6 +1825,7 @@ class PendingPhoto extends DataClass implements Insertable<PendingPhoto> {
           ? data.capturedAt.value
           : this.capturedAt,
       uploaded: data.uploaded.present ? data.uploaded.value : this.uploaded,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
     );
   }
 
@@ -1805,7 +1840,8 @@ class PendingPhoto extends DataClass implements Insertable<PendingPhoto> {
           ..write('latitude: $latitude, ')
           ..write('longitude: $longitude, ')
           ..write('capturedAt: $capturedAt, ')
-          ..write('uploaded: $uploaded')
+          ..write('uploaded: $uploaded, ')
+          ..write('lastError: $lastError')
           ..write(')'))
         .toString();
   }
@@ -1821,6 +1857,7 @@ class PendingPhoto extends DataClass implements Insertable<PendingPhoto> {
     longitude,
     capturedAt,
     uploaded,
+    lastError,
   );
   @override
   bool operator ==(Object other) =>
@@ -1834,7 +1871,8 @@ class PendingPhoto extends DataClass implements Insertable<PendingPhoto> {
           other.latitude == this.latitude &&
           other.longitude == this.longitude &&
           other.capturedAt == this.capturedAt &&
-          other.uploaded == this.uploaded);
+          other.uploaded == this.uploaded &&
+          other.lastError == this.lastError);
 }
 
 class PendingPhotosCompanion extends UpdateCompanion<PendingPhoto> {
@@ -1847,6 +1885,7 @@ class PendingPhotosCompanion extends UpdateCompanion<PendingPhoto> {
   final Value<double?> longitude;
   final Value<DateTime> capturedAt;
   final Value<bool> uploaded;
+  final Value<String?> lastError;
   final Value<int> rowid;
   const PendingPhotosCompanion({
     this.clientRef = const Value.absent(),
@@ -1858,6 +1897,7 @@ class PendingPhotosCompanion extends UpdateCompanion<PendingPhoto> {
     this.longitude = const Value.absent(),
     this.capturedAt = const Value.absent(),
     this.uploaded = const Value.absent(),
+    this.lastError = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   PendingPhotosCompanion.insert({
@@ -1870,6 +1910,7 @@ class PendingPhotosCompanion extends UpdateCompanion<PendingPhoto> {
     this.longitude = const Value.absent(),
     required DateTime capturedAt,
     this.uploaded = const Value.absent(),
+    this.lastError = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : clientRef = Value(clientRef),
        localPath = Value(localPath),
@@ -1884,6 +1925,7 @@ class PendingPhotosCompanion extends UpdateCompanion<PendingPhoto> {
     Expression<double>? longitude,
     Expression<DateTime>? capturedAt,
     Expression<bool>? uploaded,
+    Expression<String>? lastError,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1897,6 +1939,7 @@ class PendingPhotosCompanion extends UpdateCompanion<PendingPhoto> {
       if (longitude != null) 'longitude': longitude,
       if (capturedAt != null) 'captured_at': capturedAt,
       if (uploaded != null) 'uploaded': uploaded,
+      if (lastError != null) 'last_error': lastError,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1911,6 +1954,7 @@ class PendingPhotosCompanion extends UpdateCompanion<PendingPhoto> {
     Value<double?>? longitude,
     Value<DateTime>? capturedAt,
     Value<bool>? uploaded,
+    Value<String?>? lastError,
     Value<int>? rowid,
   }) {
     return PendingPhotosCompanion(
@@ -1924,6 +1968,7 @@ class PendingPhotosCompanion extends UpdateCompanion<PendingPhoto> {
       longitude: longitude ?? this.longitude,
       capturedAt: capturedAt ?? this.capturedAt,
       uploaded: uploaded ?? this.uploaded,
+      lastError: lastError ?? this.lastError,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1960,6 +2005,9 @@ class PendingPhotosCompanion extends UpdateCompanion<PendingPhoto> {
     if (uploaded.present) {
       map['uploaded'] = Variable<bool>(uploaded.value);
     }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1978,6 +2026,7 @@ class PendingPhotosCompanion extends UpdateCompanion<PendingPhoto> {
           ..write('longitude: $longitude, ')
           ..write('capturedAt: $capturedAt, ')
           ..write('uploaded: $uploaded, ')
+          ..write('lastError: $lastError, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2747,6 +2796,7 @@ typedef $$PendingPhotosTableCreateCompanionBuilder =
       Value<double?> longitude,
       required DateTime capturedAt,
       Value<bool> uploaded,
+      Value<String?> lastError,
       Value<int> rowid,
     });
 typedef $$PendingPhotosTableUpdateCompanionBuilder =
@@ -2760,6 +2810,7 @@ typedef $$PendingPhotosTableUpdateCompanionBuilder =
       Value<double?> longitude,
       Value<DateTime> capturedAt,
       Value<bool> uploaded,
+      Value<String?> lastError,
       Value<int> rowid,
     });
 
@@ -2814,6 +2865,11 @@ class $$PendingPhotosTableFilterComposer
 
   ColumnFilters<bool> get uploaded => $composableBuilder(
     column: $table.uploaded,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastError => $composableBuilder(
+    column: $table.lastError,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -2871,6 +2927,11 @@ class $$PendingPhotosTableOrderingComposer
     column: $table.uploaded,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$PendingPhotosTableAnnotationComposer
@@ -2914,6 +2975,9 @@ class $$PendingPhotosTableAnnotationComposer
 
   GeneratedColumn<bool> get uploaded =>
       $composableBuilder(column: $table.uploaded, builder: (column) => column);
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
 }
 
 class $$PendingPhotosTableTableManager
@@ -2956,6 +3020,7 @@ class $$PendingPhotosTableTableManager
                 Value<double?> longitude = const Value.absent(),
                 Value<DateTime> capturedAt = const Value.absent(),
                 Value<bool> uploaded = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => PendingPhotosCompanion(
                 clientRef: clientRef,
@@ -2967,6 +3032,7 @@ class $$PendingPhotosTableTableManager
                 longitude: longitude,
                 capturedAt: capturedAt,
                 uploaded: uploaded,
+                lastError: lastError,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -2980,6 +3046,7 @@ class $$PendingPhotosTableTableManager
                 Value<double?> longitude = const Value.absent(),
                 required DateTime capturedAt,
                 Value<bool> uploaded = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => PendingPhotosCompanion.insert(
                 clientRef: clientRef,
@@ -2991,6 +3058,7 @@ class $$PendingPhotosTableTableManager
                 longitude: longitude,
                 capturedAt: capturedAt,
                 uploaded: uploaded,
+                lastError: lastError,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

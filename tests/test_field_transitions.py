@@ -188,3 +188,50 @@ def test_unassigned_caller_gets_404(db_session, dispatched_job):
     with pytest.raises(HTTPException) as exc:
         _apply(db_session, stranger, dispatched_job, "start")
     assert exc.value.status_code == 404
+
+
+class TestCustomerNotifications:
+    """en_route and complete fire customer notifications, replay-safe."""
+
+    def test_en_route_sends_on_my_way(self, db_session, dispatched_job, person, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "app.services.eta_notifications.send_eta_notification",
+            lambda db, wo_id: calls.append(wo_id) or True,
+        )
+        _apply(db_session, person, dispatched_job, "en_route")
+        assert calls == [str(dispatched_job.id)]
+
+    def test_complete_sends_completion_notification(
+        self, db_session, dispatched_job, person, fake_storage, monkeypatch
+    ):
+        calls = []
+        monkeypatch.setattr(
+            "app.services.eta_notifications.send_work_order_completed_notification",
+            lambda db, wo_id: calls.append(wo_id) or True,
+        )
+        _apply(db_session, person, dispatched_job, "start")
+        _add_evidence(db_session, dispatched_job, fake_storage)
+        _apply(db_session, person, dispatched_job, "complete")
+        assert calls == [str(dispatched_job.id)]
+
+    def test_replay_does_not_resend(self, db_session, dispatched_job, person, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "app.services.eta_notifications.send_eta_notification",
+            lambda db, wo_id: calls.append(wo_id) or True,
+        )
+        client_event_id = str(uuid.uuid4())
+        _apply(db_session, person, dispatched_job, "en_route", client_event_id=client_event_id)
+        _apply(db_session, person, dispatched_job, "en_route", client_event_id=client_event_id)
+        assert len(calls) == 1
+
+    def test_notification_failure_does_not_break_transition(
+        self, db_session, dispatched_job, person, monkeypatch
+    ):
+        def _boom(db, wo_id):
+            raise RuntimeError("smtp down")
+
+        monkeypatch.setattr("app.services.eta_notifications.send_eta_notification", _boom)
+        result = _apply(db_session, person, dispatched_job, "en_route")
+        assert result["replayed"] is False

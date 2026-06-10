@@ -196,7 +196,35 @@ class FieldTransitions:
 
             stop_open_worklog(db, work_order.id, person_uuid, stopped_at=now)
 
+        _notify_customer_for_event(db, work_order, event_value)
+
         return {"work_order": work_order, "event": order_event, "replayed": False}
+
+
+def _notify_customer_for_event(db: Session, work_order: WorkOrder, event: FieldJobEvent) -> None:
+    """Customer-facing notifications for field events.
+
+    Fired only for fresh events (idempotent replays return before reaching
+    this), and failures never break the transition — same contract as the
+    workforce assignment notifications.
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+    try:
+        from app.services import eta_notifications
+
+        if event == FieldJobEvent.en_route:
+            # "Your technician is on the way" with name + ETA.
+            eta_notifications.send_eta_notification(db, str(work_order.id))
+        elif event == FieldJobEvent.complete:
+            eta_notifications.send_work_order_completed_notification(db, str(work_order.id))
+    except Exception:
+        logger.exception(
+            "field_transition_customer_notification_failed work_order_id=%s event=%s",
+            work_order.id,
+            event.value,
+        )
 
 
 def _coerce_occurred_at(value: str | datetime | None) -> datetime | None:
