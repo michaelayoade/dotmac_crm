@@ -1,0 +1,47 @@
+name: field-app-ci
+
+on:
+  pull_request:
+    branches:
+      - main
+      - field-app-phase-0
+      - field-app-phase-1
+      - field-app-phase-2
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install poetry and dependencies
+        run: |
+          pip install poetry
+          poetry install --no-interaction --no-root
+      - name: Ruff
+        run: poetry run ruff check app/
+      - name: Field-app test suite
+        run: poetry run pytest tests/ -q -k "field or push_service or vendor_auth or auth_person or workforce_api"
+
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Dependencies
+        run: flutter pub get
+      - name: Drift codegen
+        run: dart run build_runner build --delete-conflicting-outputs
+      - name: Analyze
+        run: flutter analyze
+      - name: Tests
+        run: flutter test
