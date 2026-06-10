@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/theme.dart';
+import '../execution/completion_wizard.dart';
+import '../execution/execution_controller.dart';
 import 'job_models.dart';
 import 'jobs_providers.dart';
 
@@ -124,8 +126,15 @@ class _JobDetailView extends ConsumerWidget {
                 padding: const EdgeInsets.all(16),
                 child: FilledButton(
                   key: const Key('primary-action'),
-                  onPressed: () {
-                    // Wired to the transition outbox in the execution task.
+                  onPressed: () async {
+                    if (action == 'complete') {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => CompletionWizard(jobId: job.id)),
+                      );
+                    } else {
+                      await ref.read(executionControllerProvider.notifier).transition(job.id, action);
+                    }
+                    ref.invalidate(jobDetailProvider(job.id));
                   },
                   child: Text(actionLabel(action)),
                 ),

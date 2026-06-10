@@ -1,0 +1,139 @@
+import 'dart:convert';
+import 'dart:ffi';
+import 'dart:io';
+
+import 'package:dio/dio.dart';
+import 'package:dotmac_field/core/api/api_client.dart';
+import 'package:dotmac_field/core/api/token_store.dart';
+import 'package:dotmac_field/core/location/location_source.dart';
+import 'package:dotmac_field/core/offline/connectivity.dart';
+import 'package:dotmac_field/core/offline/database.dart';
+import 'package:dotmac_field/core/offline/sync_service.dart';
+import 'package:dotmac_field/features/execution/completion_state.dart';
+import 'package:dotmac_field/features/execution/execution_controller.dart';
+import 'package:drift/native.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sqlite3/open.dart';
+
+import 'helpers/fake_http.dart';
+
+void main() {
+  if (Platform.isLinux) {
+    open.overrideFor(OperatingSystem.linux, () => DynamicLibrary.open('libsqlite3.so.0'));
+  }
+
+  late AppDatabase db;
+  late SyncService sync;
+  late FakeConnectivity connectivity;
+  late FakeLocation location;
+  late ProviderContainer container;
+
+  setUp(() async {
+    db = AppDatabase(NativeDatabase.memory());
+    connectivity = FakeConnectivity(online: false); // keep entries queued for inspection
+    location = FakeLocation((latitude: 6.43, longitude: 3.42));
+    final adapter = FakeHttpAdapter();
+    final store = InMemoryTokenStore();
+    final dio = Dio(BaseOptions(baseUrl: 'https://test.local'));
+    dio.httpClientAdapter = adapter;
+    sync = SyncService(
+      db: db,
+      api: ApiClient(baseUrl: 'https://test.local', tokenStore: store, dio: dio),
+      connectivity: connectivity,
+      delay: (_) async {},
+    );
+    container = ProviderContainer(overrides: [
+      syncServiceProvider.overrideWithValue(sync),
+      locationSourceProvider.overrideWithValue(location),
+    ]);
+  });
+
+  tearDown(() async {
+    container.dispose();
+    await sync.dispose();
+    await db.close();
+  });
+
+  Future<List<Map<String, dynamic>>> queued(String kind) async {
+    final rows = await db.select(db.outboxEntries).get();
+    return rows
+        .where((row) => row.kind == kind)
+        .map((row) => (jsonDecode(row.payloadJson) as Map).cast<String, dynamic>())
+        .toList();
+  }
+
+  group('transition outbox payloads', () {
+    test('carry client_event_id, GPS, and occurred_at', () async {
+      final controller = container.read(executionControllerProvider.notifier);
+      final clientEventId = await controller.transition('wo-1', 'start');
+
+      final payloads = await queued('transition');
+      expect(payloads.single['client_event_id'], clientEventId);
+      expect(payloads.single['event'], 'start');
+      expect(payloads.single['latitude'], 6.43);
+      expect(payloads.single['longitude'], 3.42);
+      expect(payloads.single['occurred_at'], isNotNull);
+    });
+
+    test('GPS denial still queues the event', () async {
+      location.point = null;
+      final controller = container.read(executionControllerProvider.notifier);
+      await controller.transition('wo-1', 'accept');
+
+      final payloads = await queued('transition');
+      expect(payloads.single.containsKey('latitude'), isFalse);
+    });
+  });
+
+  group('timer', () {
+    test('start opens a timer; hold queues a closed worklog and clears it', () async {
+      final controller = container.read(executionControllerProvider.notifier);
+      await controller.transition('wo-1', 'start');
+      expect(container.read(executionControllerProvider), isNotNull);
+
+      await controller.transition('wo-1', 'hold');
+      expect(container.read(executionControllerProvider), isNull);
+
+      final worklogs = await queued('worklog');
+      final entry = (worklogs.single['entries'] as List).single as Map;
+      expect(entry['start_at'], isNotNull);
+      expect(entry['end_at'], isNotNull);
+    });
+
+    test('complete also stops the timer', () async {
+      final controller = container.read(executionControllerProvider.notifier);
+      await controller.transition('wo-1', 'start');
+      await controller.transition('wo-1', 'complete');
+      expect(container.read(executionControllerProvider), isNull);
+      expect((await queued('worklog')).length, 1);
+    });
+  });
+
+  group('completion gating mirrors the server gate', () {
+    test('blocked until checklist + photo + sign-off', () {
+      var state = const CompletionState();
+      expect(state.canComplete, isFalse);
+      expect(state.blockers.length, 3);
+
+      state = state.copyWith(checklistDone: true, photoCount: 1);
+      expect(state.canComplete, isFalse);
+      expect(state.blockers.single, contains('signature'));
+
+      expect(state.copyWith(hasSignature: true).canComplete, isTrue);
+    });
+
+    test('signature fallback reason satisfies sign-off', () {
+      final state = const CompletionState(checklistDone: true, photoCount: 1)
+          .copyWith(signatureUnavailableReason: 'customer absent');
+      expect(state.canComplete, isTrue);
+      expect(state.transitionPayload['signature_unavailable_reason'], 'customer absent');
+    });
+
+    test('whitespace-only fallback does not count', () {
+      final state =
+          const CompletionState(checklistDone: true, photoCount: 1).copyWith(signatureUnavailableReason: '   ');
+      expect(state.canComplete, isFalse);
+    });
+  });
+}
