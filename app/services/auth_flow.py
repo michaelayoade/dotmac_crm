@@ -27,7 +27,7 @@ from app.models.auth import (
     Session as AuthSession,
 )
 from app.models.domain_settings import DomainSetting, SettingDomain
-from app.models.person import Person
+from app.models.person import Person, PersonStatus
 from app.models.rbac import Permission, PersonPermission, PersonRole, Role, RolePermission
 from app.schemas.auth_flow import LoginResponse, LogoutResponse, TokenResponse
 from app.services.auth_cache import invalidate_session
@@ -346,6 +346,62 @@ def _person_or_404(db: Session, person_id: str) -> Person:
     return person
 
 
+def person_is_enabled(person: Person | None) -> bool:
+    """A person may authenticate only while active and not archived/inactive."""
+    if not person or not person.is_active:
+        return False
+    return person.status == PersonStatus.active
+
+
+def revoke_sessions_for_person(db: Session, person_id: str | uuid.UUID) -> int:
+    """Revoke every active auth session for a person and drop them from cache.
+
+    Call this whenever a person is deactivated, archived, or merged away so
+    issued refresh tokens stop working immediately rather than at expiry.
+    """
+    now = datetime.now(UTC)
+    sessions = (
+        db.query(AuthSession)
+        .filter(AuthSession.person_id == coerce_uuid(person_id))
+        .filter(AuthSession.status == SessionStatus.active)
+        .filter(AuthSession.revoked_at.is_(None))
+        .all()
+    )
+    for session in sessions:
+        session.status = SessionStatus.revoked
+        session.revoked_at = now
+    db.commit()
+    for session in sessions:
+        invalidate_session(str(session.id))
+    if sessions:
+        logger.info(
+            "auth_sessions_revoked person_id=%s count=%s reason=person_disabled",
+            person_id,
+            len(sessions),
+        )
+    return len(sessions)
+
+
+def invalidate_cached_sessions_for_person(db: Session, person_id: str | uuid.UUID) -> int:
+    """Drop cached RBAC claims for a person's active sessions.
+
+    Call on role/permission changes so the next request reloads claims from the
+    database instead of serving stale cached roles. Claims baked into already
+    issued access tokens still apply until the token expires (bounded by the
+    access-token TTL).
+    """
+    session_ids = (
+        db.query(AuthSession.id)
+        .filter(AuthSession.person_id == coerce_uuid(person_id))
+        .filter(AuthSession.status == SessionStatus.active)
+        .filter(AuthSession.revoked_at.is_(None))
+        .all()
+    )
+    for (session_id,) in session_ids:
+        invalidate_session(str(session_id))
+    return len(session_ids)
+
+
 def _load_rbac_claims(db: Session, person_id: str):
     if db is None:
         return [], []
@@ -518,6 +574,17 @@ class AuthFlow(ListResponseMixin):
                 _request_ip(request),
             )
             raise HTTPException(status_code=403, detail="Account locked")
+
+        person = db.get(Person, credential.person_id)
+        if not person_is_enabled(person):
+            logger.warning(
+                "auth_login_blocked reason=person_disabled provider=%s person_id=%s username=%s ip=%s",
+                resolved_provider.value,
+                credential.person_id,
+                credential.username,
+                _request_ip(request),
+            )
+            raise HTTPException(status_code=403, detail="Account disabled")
 
         if credential.must_change_password:
             raise HTTPException(
@@ -729,6 +796,20 @@ class AuthFlow(ListResponseMixin):
             )
             raise HTTPException(status_code=401, detail="Refresh token expired")
 
+        person = db.get(Person, session.person_id)
+        if not person_is_enabled(person):
+            session.status = SessionStatus.revoked
+            session.revoked_at = now
+            db.commit()
+            invalidate_session(str(session.id))
+            logger.warning(
+                "auth_refresh_failed reason=person_disabled session_id=%s person_id=%s ip=%s",
+                session.id,
+                session.person_id,
+                _request_ip(request),
+            )
+            raise HTTPException(status_code=401, detail="Account disabled")
+
         new_refresh = secrets.token_urlsafe(48)
         session.previous_token_hash = session.token_hash
         session.token_hash = _hash_token(new_refresh)
@@ -802,6 +883,13 @@ class AuthFlow(ListResponseMixin):
     @staticmethod
     def _issue_tokens(db: Session, person_id: str | uuid.UUID, request: Request):
         person_uuid = coerce_uuid(person_id)
+        if not person_is_enabled(db.get(Person, person_uuid)):
+            logger.warning(
+                "auth_token_issue_blocked reason=person_disabled person_id=%s ip=%s",
+                person_uuid,
+                _request_ip(request),
+            )
+            raise HTTPException(status_code=403, detail="Account disabled")
         refresh_token = secrets.token_urlsafe(48)
         now = _now()
         expires_at = now + timedelta(days=_refresh_ttl_days(db))

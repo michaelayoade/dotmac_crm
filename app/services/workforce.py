@@ -184,6 +184,15 @@ def _notify_work_order_assignment_customer(db: Session, work_order: WorkOrder) -
         logger.exception("work_order_customer_assignment_notification_failed work_order_id=%s", work_order.id)
 
 
+def _notify_work_order_assignment_mobile_push(db: Session, work_order: WorkOrder) -> None:
+    try:
+        from app.services.push import queue_work_order_assignment_push
+
+        queue_work_order_assignment_push(db, work_order)
+    except Exception:
+        logger.exception("work_order_mobile_push_failed work_order_id=%s", work_order.id)
+
+
 class WorkOrders(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: WorkOrderCreate):
@@ -217,6 +226,7 @@ class WorkOrders(ListResponseMixin):
 
         _notify_work_order_assignment_in_app(db, work_order)
         _notify_work_order_assignment_customer(db, work_order)
+        _notify_work_order_assignment_mobile_push(db, work_order)
 
         return work_order
 
@@ -333,6 +343,7 @@ class WorkOrders(ListResponseMixin):
         if work_order.assigned_to_person_id and work_order.assigned_to_person_id != previous_assigned_to:
             _notify_work_order_assignment_in_app(db, work_order)
             _notify_work_order_assignment_customer(db, work_order)
+            _notify_work_order_assignment_mobile_push(db, work_order)
 
         return work_order
 

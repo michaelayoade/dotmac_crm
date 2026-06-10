@@ -155,6 +155,16 @@ DEFAULT_PERMISSIONS = [
     ("subscriber:read", "Read subscribers and accounts"),
     ("subscriber:write", "Manage subscribers and accounts"),
     ("subscriber:impersonate", "Impersonate subscriber accounts"),
+    # Field app (technician mobile)
+    ("field:job:read", "View own assigned field jobs"),
+    ("field:job:transition", "Accept, start, hold, and complete own field jobs"),
+    ("field:note:create", "Add notes to own field jobs"),
+    ("field:worklog:write", "Log time on own field jobs"),
+    ("field:attachment:create", "Upload field photos, signatures, and documents"),
+    ("field:attachment:read", "View field attachments"),
+    ("field:material:confirm", "Confirm material receipt and usage in the field"),
+    ("field:schedule:read", "View own shifts and availability"),
+    ("field:device:register", "Register a mobile device for push notifications"),
 ]
 
 DEFAULT_ROLES = [
@@ -162,6 +172,19 @@ DEFAULT_ROLES = [
     ("auditor", "Audit read-only access"),
     ("operator", "Network and provisioning operations"),
     ("support", "Subscriber and billing support"),
+    ("field_technician", "Field technician mobile app access"),
+]
+
+FIELD_TECHNICIAN_PERMISSIONS = [
+    "field:job:read",
+    "field:job:transition",
+    "field:note:create",
+    "field:worklog:write",
+    "field:attachment:create",
+    "field:attachment:read",
+    "field:material:confirm",
+    "field:schedule:read",
+    "field:device:register",
 ]
 
 ROLE_PERMISSIONS = {
@@ -219,6 +242,7 @@ ROLE_PERMISSIONS = {
         "crm:macro:write",
         "reports:subscribers",
     ],
+    "field_technician": FIELD_TECHNICIAN_PERMISSIONS,
 }
 
 
@@ -276,29 +300,35 @@ def _ensure_person_role(db, person_id, role_id):
     return link
 
 
+def seed_roles_and_permissions(db) -> dict:
+    """Idempotently seed default roles, permissions, and role grants."""
+    for name, description in DEFAULT_ROLES:
+        _ensure_role(db, name, description)
+    for key, description in DEFAULT_PERMISSIONS:
+        _ensure_permission(db, key, description)
+    db.commit()
+
+    roles = {role.name: role for role in db.query(Role).all()}
+    permissions = {perm.key: perm for perm in db.query(Permission).all()}
+    for role_name, permission_keys in ROLE_PERMISSIONS.items():
+        role = roles.get(role_name)
+        if not role:
+            continue
+        for key in permission_keys:
+            permission = permissions.get(key)
+            if not permission:
+                continue
+            _ensure_role_permission(db, role.id, permission.id)
+    db.commit()
+    return roles
+
+
 def main():
     load_dotenv()
     args = parse_args()
     db = SessionLocal()
     try:
-        for name, description in DEFAULT_ROLES:
-            _ensure_role(db, name, description)
-        for key, description in DEFAULT_PERMISSIONS:
-            _ensure_permission(db, key, description)
-        db.commit()
-
-        roles = {role.name: role for role in db.query(Role).all()}
-        permissions = {perm.key: perm for perm in db.query(Permission).all()}
-        for role_name, permission_keys in ROLE_PERMISSIONS.items():
-            role = roles.get(role_name)
-            if not role:
-                continue
-            for key in permission_keys:
-                permission = permissions.get(key)
-                if not permission:
-                    continue
-                _ensure_role_permission(db, role.id, permission.id)
-        db.commit()
+        roles = seed_roles_and_permissions(db)
 
         admin_role = roles.get("admin")
         if admin_role and (args.admin_email or args.admin_person_id):
