@@ -8,6 +8,7 @@ from app.api.field.materials import router as materials_router
 from app.api.field.notes import router as notes_router
 from app.api.field.schedule import router as schedule_router
 from app.api.field.transitions import router as transitions_router
+from app.api.field.vendor_projects import router as vendor_projects_router
 from app.api.field.worklogs import router as worklogs_router
 
 router = APIRouter(prefix="/field")
@@ -19,4 +20,5 @@ router.include_router(materials_router)
 router.include_router(notes_router)
 router.include_router(schedule_router)
 router.include_router(transitions_router)
+router.include_router(vendor_projects_router)
 router.include_router(worklogs_router)
