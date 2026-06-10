@@ -102,6 +102,8 @@ from app.models.field import (  # noqa: F401
     DeviceToken,
     FieldAttachment,
     FieldAttachmentKind,
+    FieldJobEvent,
+    WorkOrderEvent,
 )
 from app.models.gis import (  # noqa: F401
     GeoArea,

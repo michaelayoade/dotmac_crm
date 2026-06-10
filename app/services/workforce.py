@@ -184,6 +184,68 @@ def _notify_work_order_assignment_customer(db: Session, work_order: WorkOrder) -
         logger.exception("work_order_customer_assignment_notification_failed work_order_id=%s", work_order.id)
 
 
+def emit_work_order_status_events(
+    db: Session,
+    work_order: WorkOrder,
+    previous_status: WorkOrderStatus | None,
+    *,
+    changed_fields: list[str] | None = None,
+) -> None:
+    """Emit the domain events for a work order status change.
+
+    Shared by the admin update path and the field-app transition service so
+    ERP sync, webhooks, notifications, and automation always fire regardless
+    of which surface changed the status.
+    """
+    new_status = work_order.status
+    event_payload: dict[str, object] = {
+        "work_order_id": str(work_order.id),
+        "title": work_order.title,
+        "from_status": previous_status.value if previous_status else None,
+        "to_status": new_status.value if new_status else None,
+        "project_id": str(work_order.project_id) if work_order.project_id else None,
+        "ticket_id": str(work_order.ticket_id) if work_order.ticket_id else None,
+    }
+
+    if new_status == WorkOrderStatus.dispatched and previous_status != WorkOrderStatus.dispatched:
+        emit_event(
+            db,
+            EventType.work_order_dispatched,
+            event_payload,
+            work_order_id=work_order.id,
+            project_id=work_order.project_id,
+            ticket_id=work_order.ticket_id,
+        )
+    elif new_status == WorkOrderStatus.completed and previous_status != WorkOrderStatus.completed:
+        emit_event(
+            db,
+            EventType.work_order_completed,
+            event_payload,
+            work_order_id=work_order.id,
+            project_id=work_order.project_id,
+            ticket_id=work_order.ticket_id,
+        )
+    elif new_status == WorkOrderStatus.canceled and previous_status != WorkOrderStatus.canceled:
+        emit_event(
+            db,
+            EventType.work_order_canceled,
+            event_payload,
+            work_order_id=work_order.id,
+            project_id=work_order.project_id,
+            ticket_id=work_order.ticket_id,
+        )
+    elif previous_status != new_status or (changed_fields is not None and len(changed_fields) > 1):
+        event_payload["changed_fields"] = changed_fields or ["status"]
+        emit_event(
+            db,
+            EventType.work_order_updated,
+            event_payload,
+            work_order_id=work_order.id,
+            project_id=work_order.project_id,
+            ticket_id=work_order.ticket_id,
+        )
+
+
 def _notify_work_order_assignment_mobile_push(db: Session, work_order: WorkOrder) -> None:
     try:
         from app.services.push import queue_work_order_assignment_push
@@ -291,54 +353,7 @@ class WorkOrders(ListResponseMixin):
         db.commit()
         db.refresh(work_order)
 
-        # Emit events based on status changes
-        new_status = work_order.status
-        event_payload: dict[str, object] = {
-            "work_order_id": str(work_order.id),
-            "title": work_order.title,
-            "from_status": previous_status.value if previous_status else None,
-            "to_status": new_status.value if new_status else None,
-            "project_id": str(work_order.project_id) if work_order.project_id else None,
-            "ticket_id": str(work_order.ticket_id) if work_order.ticket_id else None,
-        }
-
-        if new_status == WorkOrderStatus.dispatched and previous_status != WorkOrderStatus.dispatched:
-            emit_event(
-                db,
-                EventType.work_order_dispatched,
-                event_payload,
-                work_order_id=work_order.id,
-                project_id=work_order.project_id,
-                ticket_id=work_order.ticket_id,
-            )
-        elif new_status == WorkOrderStatus.completed and previous_status != WorkOrderStatus.completed:
-            emit_event(
-                db,
-                EventType.work_order_completed,
-                event_payload,
-                work_order_id=work_order.id,
-                project_id=work_order.project_id,
-                ticket_id=work_order.ticket_id,
-            )
-        elif new_status == WorkOrderStatus.canceled and previous_status != WorkOrderStatus.canceled:
-            emit_event(
-                db,
-                EventType.work_order_canceled,
-                event_payload,
-                work_order_id=work_order.id,
-                project_id=work_order.project_id,
-                ticket_id=work_order.ticket_id,
-            )
-        elif previous_status != new_status or len(data) > 1:
-            event_payload["changed_fields"] = list(data.keys())
-            emit_event(
-                db,
-                EventType.work_order_updated,
-                event_payload,
-                work_order_id=work_order.id,
-                project_id=work_order.project_id,
-                ticket_id=work_order.ticket_id,
-            )
+        emit_work_order_status_events(db, work_order, previous_status, changed_fields=list(data.keys()))
 
         if work_order.assigned_to_person_id and work_order.assigned_to_person_id != previous_assigned_to:
             _notify_work_order_assignment_in_app(db, work_order)

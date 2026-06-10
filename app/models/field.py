@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, String
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,6 +13,43 @@ class FieldAttachmentKind(enum.Enum):
     photo = "photo"
     signature = "signature"
     document = "document"
+
+
+class FieldJobEvent(enum.Enum):
+    accept = "accept"
+    en_route = "en_route"
+    start = "start"
+    hold = "hold"
+    resume = "resume"
+    complete = "complete"
+
+
+class WorkOrderEvent(Base):
+    """A field-app action on a work order, recorded as an immutable fact.
+
+    ``client_event_id`` is unique so offline retries replay safely;
+    ``occurred_at`` is the device clock, ``received_at`` the server clock —
+    large deltas are flagged in ``payload`` rather than rejected.
+    """
+
+    __tablename__ = "work_order_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    work_order_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("work_orders.id"), nullable=False, index=True
+    )
+    event: Mapped[FieldJobEvent] = mapped_column(Enum(FieldJobEvent), nullable=False)
+    actor_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    client_event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), unique=True, index=True, nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    work_order = relationship("WorkOrder")
+    actor = relationship("Person", foreign_keys=[actor_person_id])
 
 
 class DevicePlatform(enum.Enum):
