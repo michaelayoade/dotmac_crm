@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import logging
 from datetime import UTC, date, datetime, time, timedelta
 
@@ -346,7 +347,9 @@ class MaterialRequests(ListResponseMixin):
         if erp_status:
             normalized_erp_status = erp_status.strip().lower().replace("-", "_").replace(" ", "_")
             if normalized_erp_status in {item.value for item in MaterialRequestERPSyncStatus}:
-                query = query.filter(MaterialRequest.erp_sync_status == MaterialRequestERPSyncStatus(normalized_erp_status))
+                query = query.filter(
+                    MaterialRequest.erp_sync_status == MaterialRequestERPSyncStatus(normalized_erp_status)
+                )
             else:
                 query = query.filter(MaterialRequest.erp_material_status == normalized_erp_status)
         if ticket_id:
@@ -413,7 +416,7 @@ class MaterialRequests(ListResponseMixin):
         source_location_id: str | None = None,
         destination_location_id: str | None = None,
         collected_by_person_id: str | None = None,
-        serial_numbers_by_item: dict[str, list[str] | str] | None = None,
+        serial_numbers_by_item: dict[str, builtins.list[str] | str] | None = None,
     ) -> MaterialRequest:
         mr = get_or_404(
             db,

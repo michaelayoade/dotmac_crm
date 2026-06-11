@@ -356,6 +356,22 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     # op.create_index('idx_.*_geom', 'geo_locations', ['geom'], unique=False, postgresql_using='gist')
+    op.create_table('vendors',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('name', sa.String(length=160), nullable=False),
+    sa.Column('code', sa.String(length=60), nullable=True),
+    sa.Column('contact_name', sa.String(length=160), nullable=True),
+    sa.Column('contact_email', sa.String(length=255), nullable=True),
+    sa.Column('contact_phone', sa.String(length=40), nullable=True),
+    sa.Column('license_number', sa.String(length=120), nullable=True),
+    sa.Column('service_area', sa.Text(), nullable=True),
+    sa.Column('is_active', sa.Boolean(), nullable=False),
+    sa.Column('notes', sa.Text(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('code')
+    )
     op.create_table('installation_projects',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('project_id', sa.UUID(), nullable=False),
@@ -374,9 +390,6 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['assigned_vendor_id'], ['vendors.id'], ),
-    sa.ForeignKeyConstraint(['buildout_project_id'], ['buildout_projects.id'], ),
-    sa.ForeignKeyConstraint(['created_by_person_id'], ['people.id'], ),
-    sa.ForeignKeyConstraint(['project_id'], ['projects.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('project_id', name='uq_installation_projects_project')
     )
@@ -543,9 +556,7 @@ def upgrade() -> None:
     sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
-    sa.ForeignKeyConstraint(['created_by_person_id'], ['people.id'], ),
     sa.ForeignKeyConstraint(['project_id'], ['installation_projects.id'], ),
-    sa.ForeignKeyConstraint(['reviewed_by_person_id'], ['people.id'], ),
     sa.ForeignKeyConstraint(['vendor_id'], ['vendors.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -696,22 +707,6 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
     sa.PrimaryKeyConstraint('id')
-    )
-    op.create_table('vendors',
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('name', sa.String(length=160), nullable=False),
-    sa.Column('code', sa.String(length=60), nullable=True),
-    sa.Column('contact_name', sa.String(length=160), nullable=True),
-    sa.Column('contact_email', sa.String(length=255), nullable=True),
-    sa.Column('contact_phone', sa.String(length=40), nullable=True),
-    sa.Column('license_number', sa.String(length=120), nullable=True),
-    sa.Column('service_area', sa.Text(), nullable=True),
-    sa.Column('is_active', sa.Boolean(), nullable=False),
-    sa.Column('notes', sa.Text(), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('code')
     )
     op.create_table('wireguard_servers',
     sa.Column('id', sa.UUID(), nullable=False),
@@ -1945,6 +1940,41 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['subscriber_id'], ['subscribers.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_foreign_key(
+        'fk_installation_projects_buildout_project_id_buildout_projects',
+        'installation_projects',
+        'buildout_projects',
+        ['buildout_project_id'],
+        ['id'],
+    )
+    op.create_foreign_key(
+        'fk_installation_projects_created_by_person_id_people',
+        'installation_projects',
+        'people',
+        ['created_by_person_id'],
+        ['id'],
+    )
+    op.create_foreign_key(
+        'fk_installation_projects_project_id_projects',
+        'installation_projects',
+        'projects',
+        ['project_id'],
+        ['id'],
+    )
+    op.create_foreign_key(
+        'fk_project_quotes_created_by_person_id_people',
+        'project_quotes',
+        'people',
+        ['created_by_person_id'],
+        ['id'],
+    )
+    op.create_foreign_key(
+        'fk_project_quotes_reviewed_by_person_id_people',
+        'project_quotes',
+        'people',
+        ['reviewed_by_person_id'],
+        ['id'],
+    )
     op.create_table('provisioning_runs',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('workflow_id', sa.UUID(), nullable=False),
@@ -2440,6 +2470,31 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_constraint(
+        'fk_project_quotes_reviewed_by_person_id_people',
+        'project_quotes',
+        type_='foreignkey',
+    )
+    op.drop_constraint(
+        'fk_project_quotes_created_by_person_id_people',
+        'project_quotes',
+        type_='foreignkey',
+    )
+    op.drop_constraint(
+        'fk_installation_projects_project_id_projects',
+        'installation_projects',
+        type_='foreignkey',
+    )
+    op.drop_constraint(
+        'fk_installation_projects_created_by_person_id_people',
+        'installation_projects',
+        type_='foreignkey',
+    )
+    op.drop_constraint(
+        'fk_installation_projects_buildout_project_id_buildout_projects',
+        'installation_projects',
+        type_='foreignkey',
+    )
     op.drop_table('work_order_materials')
     op.drop_table('survey_los_paths')
     op.drop_table('project_task_comments')
@@ -2569,7 +2624,6 @@ def downgrade() -> None:
     op.drop_index('idx_wireless_masts_geom', table_name='wireless_masts', postgresql_using='gist')
     op.drop_table('wireless_masts')
     op.drop_table('wireguard_servers')
-    op.drop_table('vendors')
     op.drop_table('ticket_status_transitions')
     op.drop_table('surveys')
     op.drop_table('sla_policies')
@@ -2602,6 +2656,7 @@ def downgrade() -> None:
     op.drop_table('inventory_locations')
     op.drop_table('inventory_items')
     op.drop_table('installation_projects')
+    op.drop_table('vendors')
     op.drop_index('idx_geo_locations_geom', table_name='geo_locations', postgresql_using='gist')
     op.drop_table('geo_locations')
     op.drop_table('geo_layers')

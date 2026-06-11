@@ -9,6 +9,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "t5b6c7d8e9f0"
@@ -18,8 +19,15 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    strategy_enum = sa.Enum("round_robin", "least_loaded", name="ticketassignmentstrategy")
-    strategy_enum.create(op.get_bind(), checkfirst=True)
+    postgresql.ENUM("round_robin", "least_loaded", name="ticketassignmentstrategy").create(
+        op.get_bind(), checkfirst=True
+    )
+    strategy_enum = postgresql.ENUM(
+        "round_robin",
+        "least_loaded",
+        name="ticketassignmentstrategy",
+        create_type=False,
+    )
 
     op.create_table(
         "ticket_assignment_rules",

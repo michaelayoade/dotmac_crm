@@ -16,6 +16,11 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if inspector.has_table("document_sequences"):
+        return
+
     op.create_table(
         "document_sequences",
         sa.Column("id", sa.UUID(), primary_key=True, nullable=False),
@@ -38,4 +43,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if not inspector.has_table("document_sequences"):
+        return
+
     op.drop_table("document_sequences")

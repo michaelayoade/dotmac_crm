@@ -1201,10 +1201,10 @@ def refresh_pending_material_request_erp_statuses(limit: int = 50):
                     errors.append(str(exc))
                 except Exception as exc:
                     session.rollback()
-                    mr = session.get(MaterialRequest, mr.id)
-                    if mr:
-                        mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
-                        mr.erp_sync_error = str(exc)[:500]
+                    refreshed_mr = session.get(MaterialRequest, mr.id)
+                    if refreshed_mr:
+                        refreshed_mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+                        refreshed_mr.erp_sync_error = str(exc)[:500]
                         session.commit()
                     failed += 1
                     errors.append(str(exc))

@@ -285,7 +285,9 @@ class TestMaterialRequestStatusTransitions:
         delay_mock.assert_called_once_with(str(mr.id))
         assert approved.erp_sync_status == MaterialRequestERPSyncStatus.pending
 
-    def test_approve_saves_selected_serial_numbers(self, db_session, person, ticket, inventory_item, inventory_location):
+    def test_approve_saves_selected_serial_numbers(
+        self, db_session, person, ticket, inventory_item, inventory_location
+    ):
         mr = _make_mr(
             db_session,
             person,

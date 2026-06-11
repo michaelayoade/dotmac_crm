@@ -14,7 +14,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("ALTER TYPE connectortype ADD VALUE IF NOT EXISTS 'zabbix'")
+    with op.get_context().autocommit_block():
+        op.execute("ALTER TYPE connectortype ADD VALUE IF NOT EXISTS 'zabbix'")
 
 
 def downgrade() -> None:

@@ -13,6 +13,7 @@ class DbScheduler(Scheduler):
 
     def setup_schedule(self):
         configure_celery_app(use_db=True)
+        super().setup_schedule()
         self._refresh_schedule()
 
     def tick(self):

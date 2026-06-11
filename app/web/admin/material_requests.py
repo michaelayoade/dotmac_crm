@@ -92,8 +92,8 @@ def _collector_choices(db: Session) -> list[Person]:
     )
 
 
-def _parse_serial_number_form(form) -> dict[str, list[str]]:
-    serials_by_item: dict[str, list[str]] = {}
+def _parse_serial_number_form(form) -> dict[str, list[str] | str]:
+    serials_by_item: dict[str, list[str] | str] = {}
     for key in form:
         if not key.startswith("serial_numbers_"):
             continue
