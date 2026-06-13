@@ -207,4 +207,50 @@ void main() {
     await sync.flushAll();
     expect(order, ['photo', 'transition']);
   });
+
+  test('5xx poison entry parks as conflict after the attempt cap, queue drains', () async {
+    adapter.on('POST', '/api/v1/field/jobs/wo-1/transition', (_) => (500, {'detail': 'boom'}));
+
+    await sync.enqueue(kind: 'transition', clientRef: 'poison', payload: transitionPayload('poison'));
+    await sync.enqueue(kind: 'transition', clientRef: 'behind', payload: transitionPayload('behind'));
+
+    // Each flush bumps attempts and breaks (5xx). After the cap it parks.
+    for (var i = 0; i < 6; i++) {
+      await sync.flushOutbox();
+    }
+
+    final rows = await db.select(db.outboxEntries).get();
+    final poison = rows.firstWhere((r) => r.clientRef == 'poison');
+    expect(poison.status, 'conflict');
+    expect(poison.lastError, contains('Gave up'));
+    // The entry behind it is no longer head-of-line blocked.
+    final behind = rows.firstWhere((r) => r.clientRef == 'behind');
+    expect(behind.status, 'pending');
+    expect(await sync.pending(), [behind]);
+  });
+
+  test('permanently-4xx photo is marked failed and not retried', () async {
+    await db.into(db.pendingPhotos).insert(PendingPhotosCompanion.insert(
+          clientRef: 'pp-bad',
+          localPath: '${tempDir.path}/pp-bad.jpg',
+          capturedAt: DateTime.now().toUtc(),
+          workOrderId: const Value('wo-1'),
+        ));
+    File('${tempDir.path}/pp-bad.jpg').writeAsBytesSync([1, 2, 3]);
+
+    var calls = 0;
+    adapter.on('POST', '/api/v1/field/attachments', (_) {
+      calls++;
+      return (415, {'detail': 'Unsupported file type'});
+    });
+
+    await sync.flushPhotos();
+    await sync.flushPhotos(); // second flush must NOT retry it
+
+    expect(calls, 1);
+    final row = (await db.select(db.pendingPhotos).get()).single;
+    expect(row.failed, isTrue);
+    expect(row.uploaded, isFalse);
+    expect(File(row.localPath).existsSync(), isTrue); // kept for review
+  });
 }
