@@ -2,11 +2,12 @@ name: field-app-ci
 
 on:
   pull_request:
-    branches:
-      - main
-      - field-app-phase-0
-      - field-app-phase-1
-      - field-app-phase-2
+    branches: [main]
+
+# Cancel superseded runs for the same PR ref.
+concurrency:
+  group: field-app-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend:
@@ -17,6 +18,13 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Cache Poetry artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: pypoetry-${{ runner.os }}-py3.12-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            pypoetry-${{ runner.os }}-py3.12-
       - name: Install poetry and dependencies
         run: |
           pip install poetry
