@@ -228,9 +228,7 @@ class TestCustomerNotifications:
         _apply(db_session, person, dispatched_job, "en_route", client_event_id=client_event_id)
         assert len(calls) == 1
 
-    def test_notification_failure_does_not_break_transition(
-        self, db_session, dispatched_job, person, monkeypatch
-    ):
+    def test_notification_failure_does_not_break_transition(self, db_session, dispatched_job, person, monkeypatch):
         def _boom(db, wo_id):
             raise RuntimeError("smtp down")
 

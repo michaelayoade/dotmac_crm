@@ -75,11 +75,7 @@ def _find_duplicate(db: Session, person_uuid: UUID, work_order_id: UUID, start_a
 
 
 def _check_overlap(db: Session, person_uuid: UUID, start_at: datetime, end_at: datetime | None) -> None:
-    query = (
-        db.query(WorkLog)
-        .filter(WorkLog.person_id == person_uuid)
-        .filter(WorkLog.is_active.is_(True))
-    )
+    query = db.query(WorkLog).filter(WorkLog.person_id == person_uuid).filter(WorkLog.is_active.is_(True))
     if end_at is not None:
         query = query.filter(or_(WorkLog.end_at.is_(None), WorkLog.end_at > start_at))
         candidates = query.all()

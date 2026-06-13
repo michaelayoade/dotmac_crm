@@ -179,9 +179,7 @@ def test_list_filters_by_work_order_and_kind(db_session, assigned_job, person, f
         db_session, caller_person_id=str(person.id), work_order_id=str(assigned_job.id), kind="photo"
     )
     assert len(photos) == 1
-    everything = field_attachments.list(
-        db_session, caller_person_id=str(person.id), work_order_id=str(assigned_job.id)
-    )
+    everything = field_attachments.list(db_session, caller_person_id=str(person.id), work_order_id=str(assigned_job.id))
     assert len(everything) == 2
 
 
@@ -191,9 +189,7 @@ def test_soft_delete_hides_attachment(db_session, assigned_job, person, fake_sto
     with pytest.raises(HTTPException) as exc:
         field_attachments.get(db_session, str(attachment.id), caller_person_id=str(person.id))
     assert exc.value.status_code == 404
-    assert (
-        field_attachments.list(db_session, caller_person_id=str(person.id), work_order_id=str(assigned_job.id)) == []
-    )
+    assert field_attachments.list(db_session, caller_person_id=str(person.id), work_order_id=str(assigned_job.id)) == []
 
 
 class TestAttachmentScopingIDOR:

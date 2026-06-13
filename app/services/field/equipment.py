@@ -55,10 +55,7 @@ class FieldEquipment:
         # ont_assignments(subscriber_id) WHERE active, for DB-level enforcement.
         prior = (
             db.query(OntAssignment)
-            .filter(
-                (OntAssignment.subscriber_id == work_order.subscriber_id)
-                | (OntAssignment.ont_unit_id == unit.id)
-            )
+            .filter((OntAssignment.subscriber_id == work_order.subscriber_id) | (OntAssignment.ont_unit_id == unit.id))
             .filter(OntAssignment.active.is_(True))
             .with_for_update()
             .all()
