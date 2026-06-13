@@ -9,6 +9,7 @@ import 'package:dotmac_field/core/api/token_store.dart';
 import 'package:dotmac_field/core/offline/connectivity.dart';
 import 'package:dotmac_field/core/offline/database.dart';
 import 'package:dotmac_field/core/offline/sync_service.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -25,10 +26,12 @@ void main() {
   late FakeConnectivity connectivity;
   late SyncService sync;
   late List<Duration> delays;
+  late Directory tempDir;
 
   final freshToken = fakeJwt(expiry: DateTime.now().toUtc().add(const Duration(minutes: 15)));
 
   setUp(() async {
+    tempDir = Directory.systemTemp.createTempSync('sync-test');
     db = AppDatabase(NativeDatabase.memory());
     adapter = FakeHttpAdapter();
     connectivity = FakeConnectivity();
@@ -51,6 +54,7 @@ void main() {
   tearDown(() async {
     await sync.dispose();
     await db.close();
+    tempDir.deleteSync(recursive: true);
   });
 
   Map<String, dynamic> transitionPayload(String ref) => {
@@ -177,5 +181,30 @@ void main() {
     cached = await db.select(db.cachedJobs).get();
     expect(cached.single.status, 'in_progress');
     expect(cached.length, 1);
+  });
+
+  test('flushAll uploads photos before outbox mutations', () async {
+    final order = <String>[];
+    adapter.on('POST', '/api/v1/field/attachments', (_) {
+      order.add('photo');
+      return (201, {'id': 'att-1'});
+    });
+    adapter.on('POST', '/api/v1/field/jobs/wo-1/transition', (_) {
+      order.add('transition');
+      return (200, {'ok': true});
+    });
+
+    // A pending photo and a queued complete transition.
+    await db.into(db.pendingPhotos).insert(PendingPhotosCompanion.insert(
+          clientRef: 'pp-1',
+          localPath: '${tempDir.path}/pp-1.jpg',
+          capturedAt: DateTime.now().toUtc(),
+          workOrderId: const Value('wo-1'),
+        ));
+    File('${tempDir.path}/pp-1.jpg').writeAsBytesSync([1, 2, 3]);
+    await sync.enqueue(kind: 'transition', clientRef: 'tx-1', payload: transitionPayload('tx-1'));
+
+    await sync.flushAll();
+    expect(order, ['photo', 'transition']);
   });
 }

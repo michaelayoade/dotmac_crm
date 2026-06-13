@@ -35,11 +35,16 @@ class SyncService {
     this.throttle = const Duration(seconds: 1),
   }) : _delay = delay ?? Future.delayed {
     _subscription = connectivity.onlineChanges.listen((online) {
-      if (online) {
-        unawaited(flushOutbox());
-        unawaited(flushPhotos());
-      }
+      if (online) unawaited(flushAll());
     });
+  }
+
+  /// Upload evidence (photos + signatures) BEFORE outbox mutations, so a queued
+  /// "complete" transition never reaches the server ahead of its attachments
+  /// (which would trip the server's photo+signature completion gate).
+  Future<void> flushAll() async {
+    await flushPhotos();
+    await flushOutbox();
   }
 
   final AppDatabase db;

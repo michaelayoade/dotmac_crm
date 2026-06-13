@@ -147,4 +147,15 @@ void main() {
       expect(await sync.flushPhotos(), 0);
     });
   });
+
+  group('enqueueImageBytes (signatures)', () {
+    test('queues a kind=signature pending photo from raw bytes', () async {
+      await queue.enqueueImageBytes(_testImage(width: 600, height: 220), kind: 'signature', workOrderId: 'wo-1');
+      final row = (await db.select(db.pendingPhotos).get()).single;
+      expect(row.kind, 'signature');
+      expect(row.workOrderId, 'wo-1');
+      expect(row.uploaded, isFalse);
+      expect(File(row.localPath).existsSync(), isTrue);
+    });
+  });
 }
