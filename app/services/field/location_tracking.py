@@ -8,6 +8,7 @@ data this records.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
@@ -22,6 +23,8 @@ from app.services.common import coerce_uuid, validate_enum
 DEFAULT_PING_RETENTION_HOURS = 72
 DEFAULT_STALE_AFTER_SECONDS = 120
 MAX_BATCH_PINGS = 200
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -177,7 +180,23 @@ class FieldLocationTracking:
         db.commit()
         presence = last["presence"] if last else FieldLocationTracking.get_or_create_presence(db, person_id)
         db.refresh(presence)
-        return {"accepted": accepted, "errors": errors, "presence": presence}
+
+        # Geofence auto-status (task #46): a best-effort convenience over ingest —
+        # never let it break the upload.
+        transitions: list[dict] = []
+        if presence.last_latitude is not None and presence.last_longitude is not None:
+            try:
+                from app.services.field import geofence
+
+                transitions = geofence.evaluate(
+                    db, person_id, presence.last_latitude, presence.last_longitude
+                )
+                if transitions:
+                    db.refresh(presence)
+            except Exception:
+                logger.exception("geofence_evaluate_failed person_id=%s", person_id)
+
+        return {"accepted": accepted, "errors": errors, "presence": presence, "transitions": transitions}
 
     @staticmethod
     def list_live_locations(
