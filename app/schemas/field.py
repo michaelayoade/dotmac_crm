@@ -246,3 +246,61 @@ class FieldEquipmentRead(BaseModel):
             assigned_at=assignment.assigned_at,
             active=assignment.active,
         )
+
+
+# ---------------------------------------------------------------------------
+# Live location (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+class LocationPingInput(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    accuracy_m: float | None = Field(default=None, ge=0)
+    captured_at: datetime | None = None
+    work_order_id: UUID | None = None
+    source: str = Field(default="mobile", max_length=32)
+    status: str | None = Field(default=None, max_length=20)
+
+
+class LocationPingBatch(BaseModel):
+    pings: list[LocationPingInput] = Field(min_length=1, max_length=200)
+
+
+class LocationSharingUpdate(BaseModel):
+    enabled: bool
+    status: str | None = Field(default=None, max_length=20)
+
+
+class FieldPresenceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    person_id: UUID
+    status: str
+    location_sharing_enabled: bool
+    last_latitude: float | None
+    last_longitude: float | None
+    last_location_accuracy_m: float | None
+    last_location_at: datetime | None
+    last_seen_at: datetime | None
+
+    @classmethod
+    def from_presence(cls, presence) -> FieldPresenceRead:
+        return cls(
+            person_id=presence.person_id,
+            status=presence.status.value,
+            location_sharing_enabled=presence.location_sharing_enabled,
+            last_latitude=presence.last_latitude,
+            last_longitude=presence.last_longitude,
+            last_location_accuracy_m=presence.last_location_accuracy_m,
+            last_location_at=presence.last_location_at,
+            last_seen_at=presence.last_seen_at,
+        )
+
+
+class LocationIngestResponse(BaseModel):
+    accepted: int
+    errors: list[dict] = Field(default_factory=list)
+    presence: FieldPresenceRead
+    # Geofence auto-transitions triggered by this batch (task #46).
+    transitions: list[dict] = Field(default_factory=list)
