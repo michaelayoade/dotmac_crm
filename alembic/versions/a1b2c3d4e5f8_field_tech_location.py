@@ -1,15 +1,18 @@
 """field-tech live location: presence snapshot + ping audit
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: a1b2c3d4e5f8
 Revises: zu8f9a0b1c2d
 Create Date: 2026-06-13 00:00:00.000000
+
+Note: the original a1b2c3d4e5f6 id collided with an existing migration
+(add_sales_crm_fields); renamed to a1b2c3d4e5f8 to keep the graph acyclic.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "a1b2c3d4e5f6"
+revision = "a1b2c3d4e5f8"
 down_revision = "zu8f9a0b1c2d"
 branch_labels = None
 depends_on = None
