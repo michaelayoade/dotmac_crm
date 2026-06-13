@@ -129,6 +129,28 @@ void main() {
     expect(response.statusCode, 200);
   });
 
+  test('concurrent refreshes share one in-flight request and all get the new token', () async {
+    final expiringSoon = fakeJwt(expiry: DateTime.now().toUtc().add(const Duration(seconds: 30)));
+    await store.save(accessToken: expiringSoon, refreshToken: 'refresh-old', loginMode: LoginMode.staff);
+
+    var refreshCalls = 0;
+    adapter.on('POST', '/api/v1/auth/refresh', (_) {
+      refreshCalls++;
+      return (200, {'access_token': freshToken, 'refresh_token': 'refresh-new'});
+    });
+
+    final client = _client(adapter, store);
+    final results = await Future.wait([
+      client.ensureFreshToken(),
+      client.ensureFreshToken(),
+      client.ensureFreshToken(),
+    ]);
+
+    expect(refreshCalls, 1); // one shared in-flight refresh, not three
+    expect(results, everyElement(freshToken));
+    expect(await store.refreshToken, 'refresh-new');
+  });
+
   test('refresh failure signals session expiry', () async {
     final expiringSoon = fakeJwt(expiry: DateTime.now().toUtc().add(const Duration(seconds: 10)));
     await store.save(accessToken: expiringSoon, refreshToken: 'refresh-dead', loginMode: LoginMode.staff);
