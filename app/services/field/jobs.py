@@ -33,11 +33,7 @@ _OPEN_STATUSES = (
 
 
 def _assignment_member_subquery(db: Session, person_id: UUID):
-    return (
-        db.query(WorkOrderAssignment.work_order_id)
-        .filter(WorkOrderAssignment.person_id == person_id)
-        .subquery()
-    )
+    return db.query(WorkOrderAssignment.work_order_id).filter(WorkOrderAssignment.person_id == person_id).subquery()
 
 
 def _scoped_query(db: Session, person_id: UUID):

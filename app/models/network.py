@@ -261,6 +261,9 @@ class OntAssignment(Base):
             "ont_unit_id",
             unique=True,
             postgresql_where=text("active"),
+            # Mirror the partial predicate on SQLite so tests enforce the same
+            # "one active assignment per unit" invariant as production Postgres.
+            sqlite_where=text("active"),
         ),
     )
 

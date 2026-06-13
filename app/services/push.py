@@ -210,14 +210,21 @@ class PushDevices(ListResponseMixin):
 
 class PushSender:
     @staticmethod
-    def _is_duplicate(db: Session, recipient: str, subject: str) -> bool:
-        """House rule: check for duplicate notifications before sending."""
+    def _is_duplicate(db: Session, recipient: str, subject: str, body: str) -> bool:
+        """House rule: suppress a genuine resend within the window.
+
+        Keys on (recipient, subject, body) — the body carries the per-job
+        discriminator (e.g. the work order title), so two DIFFERENT job
+        assignments to the same tech are not mistaken for duplicates while a
+        true resend of the same notification still is.
+        """
         cutoff = datetime.now(UTC).timestamp() - _DEDUPE_WINDOW_SECONDS
         recent = (
             db.query(Notification)
             .filter(Notification.channel == NotificationChannel.push)
             .filter(Notification.recipient == recipient)
             .filter(Notification.subject == subject)
+            .filter(Notification.body == body)
             .order_by(Notification.created_at.desc())
             .first()
         )
@@ -266,7 +273,7 @@ class PushSender:
         if not tokens:
             results["skipped"] += 1
             return results
-        if PushSender._is_duplicate(db, recipient, title):
+        if PushSender._is_duplicate(db, recipient, title, body):
             logger.info("push_skipped_duplicate recipient=%s subject=%s", recipient, title)
             results["skipped"] += 1
             return results

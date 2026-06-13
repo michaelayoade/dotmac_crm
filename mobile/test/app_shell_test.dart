@@ -1,8 +1,10 @@
 import 'package:dotmac_field/app/app.dart';
 import 'package:dotmac_field/core/api/token_store.dart';
 import 'package:dotmac_field/features/auth/auth_state.dart';
+import 'package:dotmac_field/core/offline/database.dart';
 import 'package:dotmac_field/features/jobs/job_models.dart';
 import 'package:dotmac_field/features/jobs/jobs_providers.dart';
+import 'package:dotmac_field/features/profile/profile_screen.dart';
 import 'package:dotmac_field/features/schedule/schedule_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,8 +23,13 @@ Widget _app({bool authenticated = true}) {
         meProvider.overrideWith(
           (ref) async => const MeSummary(name: 'Chidi Tech', openJobs: 2, completedToday: 1),
         ),
-        jobsListProvider.overrideWith((ref) async => <JobSummary>[]),
+        jobsListProvider.overrideWith((ref) async => const JobList(<JobSummary>[])),
         scheduleProvider.overrideWith((ref) async => <ScheduleEntry>[]),
+        // SyncStatusBar reads these; empty streams keep it off-screen without
+        // needing a real SyncService.
+        pendingOutboxProvider.overrideWith((ref) => Stream.value(<OutboxEntry>[])),
+        conflictOutboxProvider.overrideWith((ref) => Stream.value(<OutboxEntry>[])),
+        pendingPhotosProvider.overrideWith((ref) => Stream.value(0)),
       ],
     ],
     child: const DotmacFieldApp(),
