@@ -53,6 +53,9 @@ class PendingPhotos extends Table {
   RealColumn get longitude => real().nullable()();
   DateTimeColumn get capturedAt => dateTime()();
   BoolColumn get uploaded => boolean().withDefault(const Constant(false))();
+  // Terminal rejection (permanent 4xx) — excluded from upload retries and
+  // surfaced in the Profile conflict-review list. Distinct from `uploaded`.
+  BoolColumn get failed => boolean().withDefault(const Constant(false))();
   TextColumn get lastError => text().nullable()();
 
   @override
@@ -64,5 +67,14 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            await m.addColumn(pendingPhotos, pendingPhotos.failed);
+          }
+        },
+      );
 }
