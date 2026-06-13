@@ -188,8 +188,10 @@ class FieldTransitions:
             db.rollback()
             existing = db.query(WorkOrderEvent).filter(WorkOrderEvent.client_event_id == client_uuid).first()
             if existing:
-                work_order = db.get(WorkOrder, existing.work_order_id)
-                return {"work_order": work_order, "event": existing, "replayed": True}
+                # Fresh name: work_order is already narrowed to WorkOrder above, and
+                # db.get returns WorkOrder | None — reusing it would be a type error.
+                replayed_work_order = db.get(WorkOrder, existing.work_order_id)
+                return {"work_order": replayed_work_order, "event": existing, "replayed": True}
             raise
         db.refresh(order_event)
 
