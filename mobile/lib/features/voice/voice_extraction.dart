@@ -108,8 +108,8 @@ final voiceCaptureControllerProvider = Provider<VoiceCaptureController>((ref) {
         '/api/v1/field/voice/extract',
         data: {
           'transcript': transcript,
-          if (context != null) 'context': context,
-          if (asrConfidence != null) 'asr_confidence': asrConfidence,
+          'context': ?context,
+          'asr_confidence': ?asrConfidence,
         },
       );
       return (response.data as Map).cast<String, dynamic>();

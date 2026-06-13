@@ -728,9 +728,7 @@ def auto_assign_work_order(db: Session, work_order_id: str):
         try:
             from app.services.field.routing import suggest_nearest_tech
 
-            nearest = suggest_nearest_tech(
-                db, work_order_id, candidate_person_ids=[str(t.person_id) for t in tied]
-            )
+            nearest = suggest_nearest_tech(db, work_order_id, candidate_person_ids=[str(t.person_id) for t in tied])
             if nearest:
                 by_person = {str(t.person_id): t for t in tied}
                 best_technician = by_person.get(nearest["person_id"], best_technician)

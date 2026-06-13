@@ -1155,9 +1155,7 @@ def field_techs_live_map_feed(
     """JSON feed of sharing-enabled, non-stale field techs for the live map (task #43)."""
     from app.services.field.location_tracking import field_location_tracking
 
-    items = field_location_tracking.list_live_locations(
-        db, stale_after_seconds=stale_after_seconds, limit=limit
-    )
+    items = field_location_tracking.list_live_locations(db, stale_after_seconds=stale_after_seconds, limit=limit)
     return JSONResponse(jsonable_encoder({"items": items, "count": len(items), "limit": limit, "offset": 0}))
 
 

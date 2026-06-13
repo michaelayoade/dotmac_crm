@@ -11,7 +11,9 @@ from app.services.ai.use_cases import voice_field_extraction as vfe
 
 
 def _mock_gateway(monkeypatch, payload: dict):
-    response = SimpleNamespace(content=json.dumps(payload), provider="vllm", model="test-model", tokens_in=10, tokens_out=20)
+    response = SimpleNamespace(
+        content=json.dumps(payload), provider="vllm", model="test-model", tokens_in=10, tokens_out=20
+    )
 
     def _fake(db, **kwargs):
         return response, {"endpoint": "primary", "fallback_used": False}

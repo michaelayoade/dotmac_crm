@@ -50,7 +50,7 @@ class LocationPingService {
       'longitude': point.longitude,
       'captured_at': _clock().toIso8601String(),
       'status': _shift.apiValue,
-      if (workOrderId != null) 'work_order_id': workOrderId,
+      'work_order_id': ?workOrderId,
     });
     if (_buffer.length > maxBuffer) {
       _buffer.removeRange(0, _buffer.length - maxBuffer);

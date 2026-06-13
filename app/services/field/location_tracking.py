@@ -188,9 +188,7 @@ class FieldLocationTracking:
             try:
                 from app.services.field import geofence
 
-                transitions = geofence.evaluate(
-                    db, person_id, presence.last_latitude, presence.last_longitude
-                )
+                transitions = geofence.evaluate(db, person_id, presence.last_latitude, presence.last_longitude)
                 if transitions:
                     db.refresh(presence)
             except Exception:
