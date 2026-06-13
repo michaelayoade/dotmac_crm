@@ -8,8 +8,11 @@ from fastapi.routing import APIRoute
 
 from app.api.field import router as field_router
 from app.models.field import FieldAttachmentKind
+from app.models.person import Person
+from app.schemas.workforce import WorkOrderUpdate
 from app.services.field import attachments as attachments_module
 from app.services.field import field_attachments
+from app.services.workforce import work_orders
 
 
 class _FakeStorage:
@@ -36,69 +39,85 @@ def fake_storage(monkeypatch):
     return fake
 
 
-def _create(db_session, work_order, fake_storage, **overrides):
+@pytest.fixture()
+def assigned_job(db_session, work_order, person):
+    """work_order assigned to `person` — the caller in these tests."""
+    return work_orders.update(db_session, str(work_order.id), WorkOrderUpdate(assigned_to_person_id=person.id))
+
+
+@pytest.fixture()
+def stranger(db_session):
+    other = Person(first_name="Stray", last_name="Tech", email=f"x-{uuid.uuid4().hex}@example.com")
+    db_session.add(other)
+    db_session.commit()
+    db_session.refresh(other)
+    return other
+
+
+def _create(db_session, job, person, fake_storage, **overrides):
     payload = {
         "kind": "photo",
         "file_name": "install.jpg",
         "mime_type": "image/jpeg",
         "content": b"fake-jpeg-bytes",
-        "work_order_id": str(work_order.id),
+        "work_order_id": str(job.id),
+        "uploaded_by_person_id": str(person.id),
     }
     payload.update(overrides)
     return field_attachments.create(db_session, **payload)
 
 
-def test_upload_and_download_roundtrip(db_session, work_order, fake_storage, person):
+def test_upload_and_download_roundtrip(db_session, assigned_job, fake_storage, person):
     attachment = _create(
         db_session,
-        work_order,
+        assigned_job,
+        person,
         fake_storage,
         latitude=6.5244,
         longitude=3.3792,
         captured_at="2026-06-10T09:30:00+00:00",
-        uploaded_by_person_id=str(person.id),
     )
     assert attachment.kind == FieldAttachmentKind.photo
-    assert attachment.work_order_id == work_order.id
-    assert attachment.latitude == 6.5244
+    assert attachment.work_order_id == assigned_job.id
     assert attachment.uploaded_by_person_id == person.id
     assert attachment.storage_key.startswith("field-attachments/")
 
-    fetched, content = field_attachments.get_content(db_session, str(attachment.id))
+    fetched, content = field_attachments.get_content(db_session, str(attachment.id), caller_person_id=str(person.id))
     assert content == b"fake-jpeg-bytes"
     assert fetched.id == attachment.id
 
 
-def test_client_ref_makes_upload_idempotent(db_session, work_order, fake_storage):
+def test_client_ref_makes_upload_idempotent(db_session, assigned_job, person, fake_storage):
     client_ref = str(uuid.uuid4())
-    first = _create(db_session, work_order, fake_storage, client_ref=client_ref)
-    replay = _create(db_session, work_order, fake_storage, client_ref=client_ref, content=b"different")
+    first = _create(db_session, assigned_job, person, fake_storage, client_ref=client_ref)
+    replay = _create(db_session, assigned_job, person, fake_storage, client_ref=client_ref, content=b"different")
     assert replay.id == first.id
-    # Only one object stored — the replay never re-wrote content.
     assert len(fake_storage.objects) == 1
 
 
-def test_oversize_upload_rejected_before_write(db_session, work_order, fake_storage):
+def test_oversize_upload_rejected_before_write(db_session, assigned_job, person, fake_storage):
     with pytest.raises(HTTPException) as exc:
-        _create(db_session, work_order, fake_storage, content=b"x" * (5 * 1024 * 1024 + 1))
+        _create(db_session, assigned_job, person, fake_storage, content=b"x" * (5 * 1024 * 1024 + 1))
     assert exc.value.status_code == 413
     assert fake_storage.objects == {}
 
 
-def test_disallowed_mime_rejected(db_session, work_order, fake_storage):
+def test_disallowed_mime_rejected(db_session, assigned_job, person, fake_storage):
     with pytest.raises(HTTPException) as exc:
-        _create(db_session, work_order, fake_storage, mime_type="application/x-msdownload", file_name="evil.exe")
+        _create(
+            db_session, assigned_job, person, fake_storage, mime_type="application/x-msdownload", file_name="evil.exe"
+        )
     assert exc.value.status_code == 415
     assert fake_storage.objects == {}
 
 
-def test_empty_file_rejected(db_session, work_order, fake_storage):
+def test_empty_file_rejected(db_session, assigned_job, person, fake_storage):
     with pytest.raises(HTTPException) as exc:
-        _create(db_session, work_order, fake_storage, content=b"")
+        _create(db_session, assigned_job, person, fake_storage, content=b"")
     assert exc.value.status_code == 422
 
 
-def test_attachment_requires_a_parent(db_session, fake_storage):
+def test_attachment_requires_a_parent(db_session, person, fake_storage):
     with pytest.raises(HTTPException) as exc:
         field_attachments.create(
             db_session,
@@ -106,11 +125,12 @@ def test_attachment_requires_a_parent(db_session, fake_storage):
             file_name="orphan.jpg",
             mime_type="image/jpeg",
             content=b"data",
+            uploaded_by_person_id=str(person.id),
         )
     assert exc.value.status_code == 422
 
 
-def test_unknown_work_order_404(db_session, fake_storage):
+def test_unknown_work_order_404(db_session, person, fake_storage):
     with pytest.raises(HTTPException) as exc:
         field_attachments.create(
             db_session,
@@ -119,14 +139,23 @@ def test_unknown_work_order_404(db_session, fake_storage):
             mime_type="image/jpeg",
             content=b"data",
             work_order_id=str(uuid.uuid4()),
+            uploaded_by_person_id=str(person.id),
         )
     assert exc.value.status_code == 404
 
 
-def test_signature_kind_with_signer_name(db_session, work_order, fake_storage):
+def test_upload_to_unassigned_job_rejected(db_session, assigned_job, stranger, fake_storage):
+    with pytest.raises(HTTPException) as exc:
+        _create(db_session, assigned_job, stranger, fake_storage)
+    assert exc.value.status_code == 404
+    assert fake_storage.objects == {}
+
+
+def test_signature_kind_with_signer_name(db_session, assigned_job, person, fake_storage):
     attachment = _create(
         db_session,
-        work_order,
+        assigned_job,
+        person,
         fake_storage,
         kind="signature",
         file_name="signoff.png",
@@ -137,28 +166,79 @@ def test_signature_kind_with_signer_name(db_session, work_order, fake_storage):
     assert attachment.signer_name == "Adaeze Okafor"
 
 
-def test_invalid_kind_rejected(db_session, work_order, fake_storage):
+def test_invalid_kind_rejected(db_session, assigned_job, person, fake_storage):
     with pytest.raises(HTTPException):
-        _create(db_session, work_order, fake_storage, kind="video")
+        _create(db_session, assigned_job, person, fake_storage, kind="video")
 
 
-def test_list_filters_by_work_order_and_kind(db_session, work_order, fake_storage):
-    _create(db_session, work_order, fake_storage)
-    _create(db_session, work_order, fake_storage, kind="signature", file_name="s.png", mime_type="image/png")
+def test_list_filters_by_work_order_and_kind(db_session, assigned_job, person, fake_storage):
+    _create(db_session, assigned_job, person, fake_storage)
+    _create(db_session, assigned_job, person, fake_storage, kind="signature", file_name="s.png", mime_type="image/png")
 
-    photos = field_attachments.list(db_session, work_order_id=str(work_order.id), kind="photo")
+    photos = field_attachments.list(
+        db_session, caller_person_id=str(person.id), work_order_id=str(assigned_job.id), kind="photo"
+    )
     assert len(photos) == 1
-    everything = field_attachments.list(db_session, work_order_id=str(work_order.id))
+    everything = field_attachments.list(db_session, caller_person_id=str(person.id), work_order_id=str(assigned_job.id))
     assert len(everything) == 2
 
 
-def test_soft_delete_hides_attachment(db_session, work_order, fake_storage):
-    attachment = _create(db_session, work_order, fake_storage)
-    field_attachments.delete(db_session, str(attachment.id))
+def test_soft_delete_hides_attachment(db_session, assigned_job, person, fake_storage):
+    attachment = _create(db_session, assigned_job, person, fake_storage)
+    field_attachments.delete(db_session, str(attachment.id), caller_person_id=str(person.id))
     with pytest.raises(HTTPException) as exc:
-        field_attachments.get(db_session, str(attachment.id))
+        field_attachments.get(db_session, str(attachment.id), caller_person_id=str(person.id))
     assert exc.value.status_code == 404
-    assert field_attachments.list(db_session, work_order_id=str(work_order.id)) == []
+    assert field_attachments.list(db_session, caller_person_id=str(person.id), work_order_id=str(assigned_job.id)) == []
+
+
+class TestAttachmentScopingIDOR:
+    """A caller not on the attachment's job cannot read/download/delete/list it."""
+
+    def test_get_foreign_attachment_404(self, db_session, assigned_job, person, stranger, fake_storage):
+        attachment = _create(db_session, assigned_job, person, fake_storage)
+        with pytest.raises(HTTPException) as exc:
+            field_attachments.get(db_session, str(attachment.id), caller_person_id=str(stranger.id))
+        assert exc.value.status_code == 404
+
+    def test_download_foreign_attachment_404(self, db_session, assigned_job, person, stranger, fake_storage):
+        attachment = _create(db_session, assigned_job, person, fake_storage)
+        with pytest.raises(HTTPException) as exc:
+            field_attachments.get_content(db_session, str(attachment.id), caller_person_id=str(stranger.id))
+        assert exc.value.status_code == 404
+
+    def test_delete_foreign_attachment_404(self, db_session, assigned_job, person, stranger, fake_storage):
+        attachment = _create(db_session, assigned_job, person, fake_storage)
+        with pytest.raises(HTTPException) as exc:
+            field_attachments.delete(db_session, str(attachment.id), caller_person_id=str(stranger.id))
+        assert exc.value.status_code == 404
+        db_session.refresh(attachment)
+        assert attachment.is_active is True
+
+    def test_list_foreign_job_404(self, db_session, assigned_job, person, stranger, fake_storage):
+        _create(db_session, assigned_job, person, fake_storage)
+        with pytest.raises(HTTPException) as exc:
+            field_attachments.list(db_session, caller_person_id=str(stranger.id), work_order_id=str(assigned_job.id))
+        assert exc.value.status_code == 404
+
+    def test_list_without_scope_rejected(self, db_session, person, fake_storage):
+        with pytest.raises(HTTPException) as exc:
+            field_attachments.list(db_session, caller_person_id=str(person.id))
+        assert exc.value.status_code == 404
+
+
+def test_attachment_routes_require_auth():
+    """Every attachment route resolves the caller (no anonymous IDOR surface)."""
+    from app.services.auth_dependencies import require_user_auth
+
+    found = {}
+    for route in field_router.routes:
+        if isinstance(route, APIRoute) and "/attachments" in route.path:
+            has_auth = any(dep.call is require_user_auth for dep in route.dependant.dependencies)
+            found[(tuple(sorted(route.methods)), route.path)] = has_auth
+    assert found, "no attachment routes found"
+    for key, has_auth in found.items():
+        assert has_auth, f"{key} missing require_user_auth"
 
 
 def test_field_routes_are_not_under_static():

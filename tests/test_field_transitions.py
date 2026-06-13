@@ -56,7 +56,7 @@ def _apply(db, person, job, event, **kwargs):
     return field_transitions.apply(db, str(person.id), str(job.id), event=event, **kwargs)
 
 
-def _add_evidence(db, job, fake_storage, *, signature=True):
+def _add_evidence(db, job, fake_storage, person, *, signature=True):
     field_attachments.create(
         db,
         kind="photo",
@@ -64,6 +64,7 @@ def _add_evidence(db, job, fake_storage, *, signature=True):
         mime_type="image/jpeg",
         content=b"jpeg",
         work_order_id=str(job.id),
+        uploaded_by_person_id=str(person.id),
     )
     if signature:
         field_attachments.create(
@@ -74,6 +75,7 @@ def _add_evidence(db, job, fake_storage, *, signature=True):
             content=b"png",
             work_order_id=str(job.id),
             signer_name="Customer",
+            uploaded_by_person_id=str(person.id),
         )
 
 
@@ -129,7 +131,7 @@ def test_completion_gate_blocks_without_evidence(db_session, dispatched_job, per
 
 def test_completion_with_photo_and_signature(db_session, dispatched_job, person, fake_storage):
     _apply(db_session, person, dispatched_job, "start")
-    _add_evidence(db_session, dispatched_job, fake_storage)
+    _add_evidence(db_session, dispatched_job, fake_storage, person)
 
     _apply(db_session, person, dispatched_job, "complete")
     db_session.refresh(dispatched_job)
@@ -139,7 +141,7 @@ def test_completion_with_photo_and_signature(db_session, dispatched_job, person,
 
 def test_completion_with_signature_fallback(db_session, dispatched_job, person, fake_storage):
     _apply(db_session, person, dispatched_job, "start")
-    _add_evidence(db_session, dispatched_job, fake_storage, signature=False)
+    _add_evidence(db_session, dispatched_job, fake_storage, person, signature=False)
 
     _apply(
         db_session,
@@ -211,7 +213,7 @@ class TestCustomerNotifications:
             lambda db, wo_id: calls.append(wo_id) or True,
         )
         _apply(db_session, person, dispatched_job, "start")
-        _add_evidence(db_session, dispatched_job, fake_storage)
+        _add_evidence(db_session, dispatched_job, fake_storage, person)
         _apply(db_session, person, dispatched_job, "complete")
         assert calls == [str(dispatched_job.id)]
 
@@ -226,12 +228,42 @@ class TestCustomerNotifications:
         _apply(db_session, person, dispatched_job, "en_route", client_event_id=client_event_id)
         assert len(calls) == 1
 
-    def test_notification_failure_does_not_break_transition(
-        self, db_session, dispatched_job, person, monkeypatch
-    ):
+    def test_notification_failure_does_not_break_transition(self, db_session, dispatched_job, person, monkeypatch):
         def _boom(db, wo_id):
             raise RuntimeError("smtp down")
 
         monkeypatch.setattr("app.services.eta_notifications.send_eta_notification", _boom)
         result = _apply(db_session, person, dispatched_job, "en_route")
         assert result["replayed"] is False
+
+
+def test_replay_enforces_caller_access(db_session, dispatched_job, person):
+    """A replayed client_event_id must not leak a job to a non-assigned caller."""
+    import uuid as _uuid
+
+    from app.models.person import Person
+
+    client_event_id = str(_uuid.uuid4())
+    _apply(db_session, person, dispatched_job, "start", client_event_id=client_event_id)
+
+    stranger = Person(first_name="S", last_name="T", email=f"s-{_uuid.uuid4().hex}@example.com")
+    db_session.add(stranger)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        field_transitions.apply(
+            db_session, str(stranger.id), str(dispatched_job.id), event="start", client_event_id=client_event_id
+        )
+    assert exc.value.status_code == 404
+
+
+def test_repeated_en_route_notifies_customer_once(db_session, dispatched_job, person, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "app.services.eta_notifications.send_eta_notification",
+        lambda db, wo_id: calls.append(wo_id) or True,
+    )
+    # dispatched -> dispatched is allowed; two distinct en_route taps.
+    _apply(db_session, person, dispatched_job, "en_route")
+    _apply(db_session, person, dispatched_job, "en_route")
+    assert calls == [str(dispatched_job.id)]  # only the first notifies

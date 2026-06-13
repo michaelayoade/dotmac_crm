@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,6 +14,15 @@ typedef PhotoCapture = Future<bool> Function({String? workOrderId, String? insta
 
 final photoCaptureProvider =
     Provider<PhotoCapture>((ref) => ({workOrderId, installationProjectId}) async => false);
+
+/// Queues a rendered customer signature as a kind=signature attachment.
+/// Overridden at bootstrap with PhotoQueue.enqueueImageBytes; no-op in tests.
+typedef SignatureSink = Future<void> Function({required String workOrderId, required Uint8List png});
+
+final signatureSinkProvider = Provider<SignatureSink>((ref) => ({required workOrderId, required png}) async {});
+
+/// Canvas size the signature is rendered at for upload.
+const _signatureCanvas = Size(800, 220);
 
 final completionStateProvider =
     NotifierProvider.autoDispose<CompletionNotifier, CompletionState>(CompletionNotifier.new);
@@ -52,17 +63,30 @@ class _CompletionWizardState extends ConsumerState<CompletionWizard> {
   Future<void> _finish() async {
     final completion = ref.read(completionStateProvider);
     final controller = ref.read(executionControllerProvider.notifier);
+    final sync = ref.read(syncServiceProvider);
+
+    // Render the drawn signature and queue it as evidence so the server's
+    // photo+signature completion gate is satisfied.
+    if (completion.hasSignature && _signature.hasInk) {
+      final png = await _signature.toPng(_signatureCanvas);
+      await ref.read(signatureSinkProvider)(workOrderId: widget.jobId, png: png);
+    }
     if (_serial.text.trim().isNotEmpty) {
-      // Equipment is queued separately; the server links it to the job.
-      await ref.read(syncServiceProvider).enqueue(
-        kind: 'note',
+      // Record the installed ONT through the dedicated equipment endpoint,
+      // which links it to the subscriber + work order (not a free-text note).
+      await sync.enqueue(
+        kind: 'equipment',
         clientRef: 'equip-${DateTime.now().microsecondsSinceEpoch}',
         payload: {
           'work_order_id': widget.jobId,
-          'body': 'Installed equipment serial: ${_serial.text.trim()}',
+          'serial_number': _serial.text.trim(),
         },
       );
     }
+    // Push evidence (photos + signature) up first so the complete transition
+    // never races ahead of its attachments. Offline, the photos-before-outbox
+    // ordering in flushAll preserves this on reconnect.
+    await sync.flushPhotos();
     await controller.transition(widget.jobId, 'complete', payload: completion.transitionPayload);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

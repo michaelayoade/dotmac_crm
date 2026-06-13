@@ -94,3 +94,20 @@ def test_unassigned_caller_404(db_session, job_with_subscriber):
     with pytest.raises(HTTPException) as exc:
         field_equipment.record(db_session, str(stranger.id), str(job.id), serial_number="X-2")
     assert exc.value.status_code == 404
+
+
+def test_only_one_active_assignment_after_repeat_records(db_session, job_with_subscriber, person):
+    job, subscriber = job_with_subscriber
+    # Two records for the same subscriber (different serials) must leave exactly
+    # one active assignment — the latter.
+    field_equipment.record(db_session, str(person.id), str(job.id), serial_number="A-1")
+    field_equipment.record(db_session, str(person.id), str(job.id), serial_number="A-2")
+
+    active = (
+        db_session.query(OntAssignment)
+        .filter(OntAssignment.subscriber_id == subscriber.id)
+        .filter(OntAssignment.active.is_(True))
+        .all()
+    )
+    assert len(active) == 1
+    assert active[0].ont_unit.serial_number == "A-2"

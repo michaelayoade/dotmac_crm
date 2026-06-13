@@ -75,26 +75,55 @@ class PhotoQueue {
   }) async {
     final raw = await source.pick();
     if (raw == null) return false;
+    final position = await location.current();
+    await enqueueImageBytes(
+      raw,
+      kind: kind,
+      workOrderId: workOrderId,
+      installationProjectId: installationProjectId,
+      latitude: position?.latitude,
+      longitude: position?.longitude,
+    );
+    return true;
+  }
 
-    final processed = processPhoto(raw);
+  /// Queue already-captured image bytes (e.g. a rendered signature) for upload.
+  /// Bytes run through [processPhoto] so the stored file is JPEG, matching the
+  /// upload's photo.jpg filename / image-jpeg content type.
+  Future<void> enqueueImageBytes(
+    Uint8List bytes, {
+    required String kind,
+    String? workOrderId,
+    String? installationProjectId,
+    double? latitude,
+    double? longitude,
+  }) async {
+    final processed = processPhoto(bytes);
     final clientRef = _uuid.v4();
     final file = File('${storageDir.path}/$clientRef.jpg');
     await file.writeAsBytes(processed, flush: true);
-    final position = await location.current();
-
-    await db.into(db.pendingPhotos).insert(
-          PendingPhotosCompanion.insert(
-            clientRef: clientRef,
-            localPath: file.path,
-            kind: Value(kind),
-            workOrderId: Value(workOrderId),
-            installationProjectId: Value(installationProjectId),
-            latitude: Value(position?.latitude),
-            longitude: Value(position?.longitude),
-            capturedAt: DateTime.now().toUtc(),
-          ),
-        );
-    return true;
+    try {
+      await db.into(db.pendingPhotos).insert(
+            PendingPhotosCompanion.insert(
+              clientRef: clientRef,
+              localPath: file.path,
+              kind: Value(kind),
+              workOrderId: Value(workOrderId),
+              installationProjectId: Value(installationProjectId),
+              latitude: Value(latitude),
+              longitude: Value(longitude),
+              capturedAt: DateTime.now().toUtc(),
+            ),
+          );
+    } catch (_) {
+      // Don't orphan the file if the row insert fails.
+      try {
+        file.deleteSync();
+      } on FileSystemException {
+        // best effort
+      }
+      rethrow;
+    }
   }
 
   Future<int> pendingCount() async {
