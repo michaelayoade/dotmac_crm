@@ -70,6 +70,12 @@ class SyncService {
   Future<int> downSyncJobs() async {
     final response = await api.dio.get('/api/v1/field/jobs', queryParameters: {'limit': 200});
     final items = (response.data['items'] as List).cast<Map>();
+    await cacheJobs(items);
+    return items.length;
+  }
+
+  /// Upsert job-list rows into the offline cache.
+  Future<void> cacheJobs(List<Map> items) async {
     final now = DateTime.now().toUtc();
     await db.batch((batch) {
       for (final item in items) {
@@ -96,13 +102,29 @@ class SyncService {
         );
       }
     });
-    return items.length;
+  }
+
+  /// Cached job-list rows (optionally filtered by status), newest schedule first.
+  Future<List<CachedJob>> readCachedJobs({String? status}) async {
+    final query = db.select(db.cachedJobs);
+    if (status != null) {
+      query.where((row) => row.status.equals(status));
+    }
+    query.orderBy([(row) => OrderingTerm.asc(row.scheduledStart)]);
+    return query.get();
   }
 
   Future<void> cacheJobDetail(String jobId, Map<String, dynamic> detail) async {
     await (db.update(db.cachedJobs)..where((row) => row.id.equals(jobId))).write(
       CachedJobsCompanion(detailJson: Value(jsonEncode(detail))),
     );
+  }
+
+  /// Cached job-detail JSON, or null if not cached.
+  Future<Map<String, dynamic>?> readCachedDetail(String jobId) async {
+    final row = await (db.select(db.cachedJobs)..where((r) => r.id.equals(jobId))).getSingleOrNull();
+    if (row?.detailJson == null) return null;
+    return (jsonDecode(row!.detailJson!) as Map).cast<String, dynamic>();
   }
 
   // ---- Outbox ------------------------------------------------------------
