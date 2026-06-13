@@ -170,3 +170,53 @@ def test_list_for_job_scoped(db_session, assigned_job, person, stocked_material)
     db_session.commit()
     with pytest.raises(HTTPException):
         field_materials.list_for_job(db_session, str(stranger.id), str(assigned_job.id))
+
+
+def test_full_consumption_is_idempotent_on_retry(db_session, assigned_job, person, stocked_material):
+    material, stock, reservation = stocked_material
+    payload = [{"material_id": str(material.id), "consumed_quantity": 5}]
+
+    field_materials.consume(db_session, str(person.id), str(assigned_job.id), payload)
+    field_materials.consume(db_session, str(person.id), str(assigned_job.id), payload)  # retry
+
+    db_session.refresh(stock)
+    db_session.refresh(reservation)
+    # Stock decremented exactly once despite the retry.
+    assert stock.quantity_on_hand == 5
+    assert stock.reserved_quantity == 0
+    assert reservation.status == ReservationStatus.consumed
+
+
+def test_consumed_quantity_does_not_regress(db_session, assigned_job, person, stocked_material):
+    material, _stock, _reservation = stocked_material
+    field_materials.consume(
+        db_session, str(person.id), str(assigned_job.id),
+        [{"material_id": str(material.id), "consumed_quantity": 3}],
+    )
+    field_materials.consume(
+        db_session, str(person.id), str(assigned_job.id),
+        [{"material_id": str(material.id), "consumed_quantity": 1}],
+    )
+    db_session.refresh(material)
+    assert material.consumed_quantity == 3
+
+
+def test_invalid_item_in_batch_decrements_nothing(db_session, assigned_job, person, stocked_material):
+    material, stock, reservation = stocked_material
+    # Second item is invalid → whole batch must reject before any stock change.
+    with pytest.raises(HTTPException):
+        field_materials.consume(
+            db_session,
+            str(person.id),
+            str(assigned_job.id),
+            [
+                {"material_id": str(material.id), "consumed_quantity": 5},
+                {"material_id": str(uuid.uuid4()), "consumed_quantity": 1},
+            ],
+        )
+    db_session.refresh(stock)
+    db_session.refresh(reservation)
+    db_session.refresh(material)
+    assert stock.quantity_on_hand == 10  # untouched
+    assert reservation.status == ReservationStatus.active
+    assert material.status == MaterialStatus.reserved
