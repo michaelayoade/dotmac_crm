@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -58,3 +58,16 @@ def get_my_presence(
     presence = field_location_tracking.get_or_create_presence(db, auth["person_id"])
     db.commit()
     return FieldPresenceRead.from_presence(presence)
+
+
+@router.get("/route")
+def my_day_route(
+    start_lat: float = Query(ge=-90, le=90),
+    start_lng: float = Query(ge=-180, le=180),
+    auth=Depends(require_user_auth),
+    db: Session = Depends(get_db),
+):
+    """Greedy nearest-neighbour order of the authed tech's open jobs (task #47)."""
+    from app.services.field.routing import order_day_route
+
+    return {"route": order_day_route(db, auth["person_id"], start_latitude=start_lat, start_longitude=start_lng)}
