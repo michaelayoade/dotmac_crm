@@ -102,7 +102,7 @@ def _clamp_confidence(value: object) -> float | None:
     if value is None:
         return None
     try:
-        return max(0.0, min(1.0, float(value)))
+        return max(0.0, min(1.0, float(value)))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
 

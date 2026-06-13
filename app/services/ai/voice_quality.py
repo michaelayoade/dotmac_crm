@@ -66,17 +66,20 @@ def evaluate_wer_corpus(samples: list[WerSample], transcribe: Callable[[WerSampl
     this function free of any audio/IO dependency.
     """
     rows = []
+    wers: list[float] = []
     for sample in samples:
         hypothesis = transcribe(sample)
+        wer = word_error_rate(sample.reference, hypothesis)
+        wers.append(wer)
         rows.append(
             {
                 "key": sample.key,
                 "reference": sample.reference,
                 "hypothesis": hypothesis,
-                "wer": word_error_rate(sample.reference, hypothesis),
+                "wer": wer,
             }
         )
-    mean_wer = sum(r["wer"] for r in rows) / len(rows) if rows else None
+    mean_wer = sum(wers) / len(wers) if wers else None
     return {"count": len(rows), "mean_wer": mean_wer, "samples": rows}
 
 

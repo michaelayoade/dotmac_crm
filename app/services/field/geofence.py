@@ -59,7 +59,7 @@ def arrival_radius_m(db: Session) -> float:
         return DEFAULT_ARRIVAL_RADIUS_M
     value = row.value_json if row.value_json is not None else row.value_text
     try:
-        radius = float(value)
+        radius = float(str(value))
     except (TypeError, ValueError):
         return DEFAULT_ARRIVAL_RADIUS_M
     return radius if radius > 0 else DEFAULT_ARRIVAL_RADIUS_M
