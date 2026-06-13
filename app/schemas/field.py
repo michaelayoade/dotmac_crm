@@ -304,3 +304,27 @@ class LocationIngestResponse(BaseModel):
     presence: FieldPresenceRead
     # Geofence auto-transitions triggered by this batch (task #46).
     transitions: list[dict] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Voice capture → structured field data (Phase 3, tasks #48/#49/#50)
+# ---------------------------------------------------------------------------
+
+
+class VoiceExtractRequest(BaseModel):
+    transcript: str = Field(min_length=1, max_length=4000)
+    context: str | None = Field(default=None, max_length=120)
+    # ASR-reported confidence, if the on-device transcriber provides one.
+    asr_confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+class VoiceExtractResponse(BaseModel):
+    work_status: str | None
+    equipment_serial: str | None
+    signal_readings: dict
+    materials_used: list[dict]
+    notes: str
+    confidence: float | None
+    # Quality gate (task #50): when true the tech must confirm before saving.
+    requires_review: bool
+    review_reasons: list[str] = Field(default_factory=list)
