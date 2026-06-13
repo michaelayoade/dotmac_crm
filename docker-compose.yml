@@ -106,8 +106,9 @@ services:
   # Main Application
   # =============================================================================
   app:
-    build: .
-    image: ghcr.io/michaelayoade/dotmac_crm:latest
+    # Artifact deploy: run a pinned, registry-built image (no source bind-mount).
+    # Pin a specific build at deploy time, e.g. APP_IMAGE_TAG=sha-<commit>.
+    image: ghcr.io/michaelayoade/dotmac_crm:${APP_IMAGE_TAG:-latest}
     container_name: dotmac_omni_app
     restart: unless-stopped
     ports:
@@ -164,11 +165,8 @@ services:
       net.ipv4.ip_forward: "1"
     volumes:
       - /etc/wireguard:/etc/wireguard
-      - ./app:/app/app
-      - ./pyproject.toml:/app/pyproject.toml:ro
-      - ./templates:/app/templates
-      - ./static:/app/static
-      - ./alembic:/app/alembic
+      # Code (app/, alembic/, templates/, static/, pyproject) ships in the image —
+      # no source bind-mounts, so prod runs the built artifact, not a host checkout.
       - uploads_data:/app/static/uploads
     command:
       - /bin/sh
@@ -203,7 +201,7 @@ services:
   # Celery Worker
   # =============================================================================
   celery-worker:
-    build: .
+    image: ghcr.io/michaelayoade/dotmac_crm:${APP_IMAGE_TAG:-latest}
     container_name: dotmac_omni_celery_worker
     restart: unless-stopped
     environment:
@@ -241,7 +239,6 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./app:/app/app
       - uploads_data:/app/static/uploads
     command:
       - /bin/sh
@@ -253,7 +250,7 @@ services:
   # Celery Beat (Scheduler)
   # =============================================================================
   celery-beat:
-    build: .
+    image: ghcr.io/michaelayoade/dotmac_crm:${APP_IMAGE_TAG:-latest}
     container_name: dotmac_omni_celery_beat
     restart: unless-stopped
     environment:
@@ -281,7 +278,6 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./app:/app/app
       - celerybeat_data:/app/celerybeat
     command:
       - /bin/sh
