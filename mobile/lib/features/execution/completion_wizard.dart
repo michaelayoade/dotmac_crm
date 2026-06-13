@@ -72,13 +72,14 @@ class _CompletionWizardState extends ConsumerState<CompletionWizard> {
       await ref.read(signatureSinkProvider)(workOrderId: widget.jobId, png: png);
     }
     if (_serial.text.trim().isNotEmpty) {
-      // Equipment is queued separately; the server links it to the job.
+      // Record the installed ONT through the dedicated equipment endpoint,
+      // which links it to the subscriber + work order (not a free-text note).
       await sync.enqueue(
-        kind: 'note',
+        kind: 'equipment',
         clientRef: 'equip-${DateTime.now().microsecondsSinceEpoch}',
         payload: {
           'work_order_id': widget.jobId,
-          'body': 'Installed equipment serial: ${_serial.text.trim()}',
+          'serial_number': _serial.text.trim(),
         },
       );
     }

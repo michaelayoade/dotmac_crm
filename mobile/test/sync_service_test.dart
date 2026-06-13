@@ -253,4 +253,19 @@ void main() {
     expect(row.uploaded, isFalse);
     expect(File(row.localPath).existsSync(), isTrue); // kept for review
   });
+
+  test('equipment outbox entry routes to the equipment endpoint', () async {
+    final (method, path) = OutboxRouting.route('equipment', {'work_order_id': 'wo-9', 'serial_number': 'SN-1'});
+    expect(method, 'POST');
+    expect(path, '/api/v1/field/jobs/wo-9/equipment');
+
+    Map? sent;
+    adapter.on('POST', '/api/v1/field/jobs/wo-9/equipment', (options) {
+      sent = options.data is String ? null : options.data as Map;
+      return (201, {'assignment_id': 'a-1'});
+    });
+    await sync.enqueue(kind: 'equipment', clientRef: 'eq-1', payload: {'work_order_id': 'wo-9', 'serial_number': 'SN-1'});
+    expect(await sync.flushOutbox(), 1);
+    expect(sent?['serial_number'], 'SN-1');
+  });
 }
