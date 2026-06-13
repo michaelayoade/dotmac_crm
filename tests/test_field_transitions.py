@@ -235,3 +235,23 @@ class TestCustomerNotifications:
         monkeypatch.setattr("app.services.eta_notifications.send_eta_notification", _boom)
         result = _apply(db_session, person, dispatched_job, "en_route")
         assert result["replayed"] is False
+
+
+def test_replay_enforces_caller_access(db_session, dispatched_job, person):
+    """A replayed client_event_id must not leak a job to a non-assigned caller."""
+    import uuid as _uuid
+
+    from app.models.person import Person
+
+    client_event_id = str(_uuid.uuid4())
+    _apply(db_session, person, dispatched_job, "start", client_event_id=client_event_id)
+
+    stranger = Person(first_name="S", last_name="T", email=f"s-{_uuid.uuid4().hex}@example.com")
+    db_session.add(stranger)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        field_transitions.apply(
+            db_session, str(stranger.id), str(dispatched_job.id), event="start", client_event_id=client_event_id
+        )
+    assert exc.value.status_code == 404
