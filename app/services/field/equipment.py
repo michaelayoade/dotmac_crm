@@ -46,8 +46,13 @@ class FieldEquipment:
             unit.model = model or unit.model
 
         now = datetime.now(UTC)
-        # Replacement flow: a subscriber has at most one active ONT, and a
-        # unit can be active at one premises only (partial unique index).
+        # Replacement flow: a subscriber has at most one active ONT, and a unit
+        # is active at one premises only. The unit side has a partial unique
+        # index; the subscriber side is enforced here, so lock the prior active
+        # rows FOR UPDATE to serialize concurrent records for the same
+        # subscriber/unit (prevents two "active" assignments racing in).
+        # Follow-up migration recommended: a partial unique index on
+        # ont_assignments(subscriber_id) WHERE active, for DB-level enforcement.
         prior = (
             db.query(OntAssignment)
             .filter(
@@ -55,10 +60,14 @@ class FieldEquipment:
                 | (OntAssignment.ont_unit_id == unit.id)
             )
             .filter(OntAssignment.active.is_(True))
+            .with_for_update()
             .all()
         )
         for assignment in prior:
             assignment.active = False
+        # Flush the deactivations before inserting the new active row so the
+        # unit-side partial unique index sees a deterministic UPDATE→INSERT order.
+        db.flush()
 
         assignment = OntAssignment(
             ont_unit_id=unit.id,
