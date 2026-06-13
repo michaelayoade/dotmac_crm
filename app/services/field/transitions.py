@@ -227,8 +227,18 @@ def _notify_customer_for_event(db: Session, work_order: WorkOrder, event: FieldJ
         from app.services import eta_notifications
 
         if event == FieldJobEvent.en_route:
-            # "Your technician is on the way" with name + ETA.
-            eta_notifications.send_eta_notification(db, str(work_order.id))
+            # Only the FIRST en_route notifies the customer — a tech tapping
+            # "on my way" twice (dispatched→dispatched is allowed) must not send
+            # two "on the way" messages. This event row is already committed, so
+            # exactly one en_route event means this is the first.
+            en_route_count = (
+                db.query(WorkOrderEvent)
+                .filter(WorkOrderEvent.work_order_id == work_order.id)
+                .filter(WorkOrderEvent.event == FieldJobEvent.en_route)
+                .count()
+            )
+            if en_route_count <= 1:
+                eta_notifications.send_eta_notification(db, str(work_order.id))
         elif event == FieldJobEvent.complete:
             eta_notifications.send_work_order_completed_notification(db, str(work_order.id))
     except Exception:
