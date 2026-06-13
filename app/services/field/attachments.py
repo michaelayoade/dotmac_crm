@@ -267,7 +267,9 @@ class FieldAttachments(ListResponseMixin):
         return attachment
 
     @staticmethod
-    def get_content(db: Session, attachment_id: str, caller_person_id: str | None = None) -> tuple[FieldAttachment, bytes]:
+    def get_content(
+        db: Session, attachment_id: str, caller_person_id: str | None = None
+    ) -> tuple[FieldAttachment, bytes]:
         attachment = FieldAttachments.get(db, attachment_id, caller_person_id)
         try:
             content = storage.get(attachment.storage_key)

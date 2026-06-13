@@ -72,9 +72,7 @@ def test_partial_consumption(db_session, assigned_job, person, stocked_material)
     assert reservation.status == ReservationStatus.active
 
 
-def test_full_consumption_decrements_stock_and_fulfills_request(
-    db_session, assigned_job, person, stocked_material
-):
+def test_full_consumption_decrements_stock_and_fulfills_request(db_session, assigned_job, person, stocked_material):
     material, stock, reservation = stocked_material
     request = MaterialRequest(
         work_order_id=assigned_job.id,
@@ -190,11 +188,15 @@ def test_full_consumption_is_idempotent_on_retry(db_session, assigned_job, perso
 def test_consumed_quantity_does_not_regress(db_session, assigned_job, person, stocked_material):
     material, _stock, _reservation = stocked_material
     field_materials.consume(
-        db_session, str(person.id), str(assigned_job.id),
+        db_session,
+        str(person.id),
+        str(assigned_job.id),
         [{"material_id": str(material.id), "consumed_quantity": 3}],
     )
     field_materials.consume(
-        db_session, str(person.id), str(assigned_job.id),
+        db_session,
+        str(person.id),
+        str(assigned_job.id),
         [{"material_id": str(material.id), "consumed_quantity": 1}],
     )
     db_session.refresh(material)
