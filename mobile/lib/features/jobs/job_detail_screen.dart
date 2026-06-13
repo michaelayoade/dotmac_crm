@@ -116,6 +116,26 @@ class _JobDetailView extends ConsumerWidget {
               ),
             ),
           ],
+          if (detail.notes.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Notes', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 8),
+                    for (final note in detail.notes)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Text(note['body'] as String? ?? ''),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 96),
         ],
       ),

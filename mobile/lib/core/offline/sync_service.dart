@@ -20,6 +20,7 @@ class OutboxRouting {
       'note' => ('POST', '/api/v1/field/jobs/${payload['work_order_id']}/notes'),
       'worklog' => ('POST', '/api/v1/field/jobs/${payload['work_order_id']}/worklogs'),
       'material_consume' => ('POST', '/api/v1/field/jobs/${payload['work_order_id']}/materials/consume'),
+      'equipment' => ('POST', '/api/v1/field/jobs/${payload['work_order_id']}/equipment'),
       'as_built' => ('POST', '/api/v1/field/projects/${payload['project_id']}/as-built'),
       _ => throw ArgumentError('Unknown outbox kind: $kind'),
     };
@@ -35,11 +36,16 @@ class SyncService {
     this.throttle = const Duration(seconds: 1),
   }) : _delay = delay ?? Future.delayed {
     _subscription = connectivity.onlineChanges.listen((online) {
-      if (online) {
-        unawaited(flushOutbox());
-        unawaited(flushPhotos());
-      }
+      if (online) unawaited(flushAll());
     });
+  }
+
+  /// Upload evidence (photos + signatures) BEFORE outbox mutations, so a queued
+  /// "complete" transition never reaches the server ahead of its attachments
+  /// (which would trip the server's photo+signature completion gate).
+  Future<void> flushAll() async {
+    await flushPhotos();
+    await flushOutbox();
   }
 
   final AppDatabase db;
@@ -47,6 +53,10 @@ class SyncService {
   final ConnectivitySource connectivity;
   final Duration throttle;
   final DelayFn _delay;
+
+  // After this many failed attempts a 5xx/network entry is parked as a
+  // conflict so it can't block the FIFO queue indefinitely.
+  static const _maxOutboxAttempts = 5;
 
   StreamSubscription<bool>? _subscription;
   bool _flushing = false;
@@ -60,6 +70,12 @@ class SyncService {
   Future<int> downSyncJobs() async {
     final response = await api.dio.get('/api/v1/field/jobs', queryParameters: {'limit': 200});
     final items = (response.data['items'] as List).cast<Map>();
+    await cacheJobs(items);
+    return items.length;
+  }
+
+  /// Upsert job-list rows into the offline cache.
+  Future<void> cacheJobs(List<Map> items) async {
     final now = DateTime.now().toUtc();
     await db.batch((batch) {
       for (final item in items) {
@@ -86,13 +102,29 @@ class SyncService {
         );
       }
     });
-    return items.length;
+  }
+
+  /// Cached job-list rows (optionally filtered by status), newest schedule first.
+  Future<List<CachedJob>> readCachedJobs({String? status}) async {
+    final query = db.select(db.cachedJobs);
+    if (status != null) {
+      query.where((row) => row.status.equals(status));
+    }
+    query.orderBy([(row) => OrderingTerm.asc(row.scheduledStart)]);
+    return query.get();
   }
 
   Future<void> cacheJobDetail(String jobId, Map<String, dynamic> detail) async {
     await (db.update(db.cachedJobs)..where((row) => row.id.equals(jobId))).write(
       CachedJobsCompanion(detailJson: Value(jsonEncode(detail))),
     );
+  }
+
+  /// Cached job-detail JSON, or null if not cached.
+  Future<Map<String, dynamic>?> readCachedDetail(String jobId) async {
+    final row = await (db.select(db.cachedJobs)..where((r) => r.id.equals(jobId))).getSingleOrNull();
+    if (row?.detailJson == null) return null;
+    return (jsonDecode(row!.detailJson!) as Map).cast<String, dynamic>();
   }
 
   // ---- Outbox ------------------------------------------------------------
@@ -159,8 +191,16 @@ class SyncService {
             await _mark(entry, 'conflict', error: _detail(error));
             continue;
           }
+          // Network/5xx trouble. Stop to preserve FIFO order and retry next
+          // trigger — but cap attempts so one poison entry can't block the
+          // whole queue forever; park it for review and let the rest drain.
+          final attempts = entry.attempts + 1;
+          if (attempts >= _maxOutboxAttempts) {
+            await _mark(entry, 'conflict', error: 'Gave up after $attempts attempts: ${_detail(error)}');
+            continue;
+          }
           await _bumpAttempts(entry, _detail(error));
-          break; // network/server trouble: stop, retry on next trigger
+          break;
         }
         await _delay(throttle);
       }
@@ -183,8 +223,9 @@ class SyncService {
     _flushingPhotos = true;
     var uploaded = 0;
     try {
-      final rows =
-          await (db.select(db.pendingPhotos)..where((row) => row.uploaded.equals(false))).get();
+      final rows = await (db.select(db.pendingPhotos)
+            ..where((row) => row.uploaded.equals(false) & row.failed.equals(false)))
+          .get();
       for (final photo in rows) {
         final file = File(photo.localPath);
         if (!file.existsSync()) {
@@ -214,7 +255,9 @@ class SyncService {
         } on DioException catch (error) {
           final status = error.response?.statusCode;
           if (status != null && status >= 400 && status < 500 && status != 429) {
-            await _markPhoto(photo.clientRef, uploaded: false, error: _detail(error));
+            // Permanent rejection (bad MIME, too large, gone): terminal. Mark
+            // failed so it's not retried forever; keep the file for review.
+            await _markPhoto(photo.clientRef, uploaded: false, failed: true, error: _detail(error));
             continue;
           }
           await _markPhoto(photo.clientRef, uploaded: false, error: _detail(error));
@@ -228,9 +271,9 @@ class SyncService {
     return uploaded;
   }
 
-  Future<void> _markPhoto(String clientRef, {required bool uploaded, String? error}) async {
+  Future<void> _markPhoto(String clientRef, {required bool uploaded, bool failed = false, String? error}) async {
     await (db.update(db.pendingPhotos)..where((row) => row.clientRef.equals(clientRef))).write(
-      PendingPhotosCompanion(uploaded: Value(uploaded), lastError: Value(error)),
+      PendingPhotosCompanion(uploaded: Value(uploaded), failed: Value(failed), lastError: Value(error)),
     );
   }
 

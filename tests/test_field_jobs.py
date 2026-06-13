@@ -38,9 +38,7 @@ def test_jobs_scoped_to_assigned_technician(db_session, assigned_job, person, ot
 
 
 def test_assignment_member_sees_job(db_session, assigned_job, other_person):
-    db_session.add(
-        WorkOrderAssignment(work_order_id=assigned_job.id, person_id=other_person.id, role="helper")
-    )
+    db_session.add(WorkOrderAssignment(work_order_id=assigned_job.id, person_id=other_person.id, role="helper"))
     db_session.commit()
 
     visible = field_jobs.list(db_session, str(other_person.id))
