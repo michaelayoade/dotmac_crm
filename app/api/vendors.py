@@ -25,13 +25,16 @@ router = APIRouter(prefix="/vendors", tags=["vendors-admin"])
 # reachable by any authenticated principal (including vendor-portal users), which
 # allowed a vendor to assign projects to itself and self-approve its own quotes.
 # vendor:read / vendor:project:read for reads, vendor:write / vendor:project:write
-# for mutations — admins bypass via require_permission. Reviewer identity for the
-# approve/reject/accept actions is taken from the authenticated caller, never the
-# request body or query, to preserve audit integrity.
+# for mutations — admins bypass via require_permission. The high-value financial
+# actions (approve / reject / accept) sit behind a dedicated, separately-grantable
+# vendor:quote:approve key so that managing vendor projects does not implicitly
+# confer approval authority. Reviewer identity for those actions is taken from the
+# authenticated caller, never the request body or query, to preserve audit integrity.
 VENDOR_READ = require_permission("vendor:read")
 VENDOR_WRITE = require_permission("vendor:write")
 PROJECT_READ = require_permission("vendor:project:read")
 PROJECT_WRITE = require_permission("vendor:project:write")
+QUOTE_APPROVE = require_permission("vendor:quote:approve")
 
 
 @router.post("", response_model=VendorRead, status_code=status.HTTP_201_CREATED)
@@ -96,7 +99,7 @@ def approve_quote(
     quote_id: str,
     payload: QuoteApprovalRequest,
     db: Session = Depends(get_db),
-    auth: dict = Depends(PROJECT_WRITE),
+    auth: dict = Depends(QUOTE_APPROVE),
 ):
     return vendor_service.project_quotes.approve(
         db,
@@ -112,7 +115,7 @@ def reject_quote(
     quote_id: str,
     payload: QuoteRejectRequest,
     db: Session = Depends(get_db),
-    auth: dict = Depends(PROJECT_WRITE),
+    auth: dict = Depends(QUOTE_APPROVE),
 ):
     return vendor_service.project_quotes.reject(
         db,
@@ -123,7 +126,7 @@ def reject_quote(
 
 
 @router.post("/as-built/{as_built_id}/accept", response_model=AsBuiltRouteRead)
-def accept_as_built(as_built_id: str, db: Session = Depends(get_db), auth: dict = Depends(PROJECT_WRITE)):
+def accept_as_built(as_built_id: str, db: Session = Depends(get_db), auth: dict = Depends(QUOTE_APPROVE)):
     return vendor_service.as_built_routes.accept_and_convert(db, as_built_id, auth["person_id"])
 
 

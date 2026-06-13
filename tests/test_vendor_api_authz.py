@@ -37,9 +37,9 @@ EXPECTED_PERMISSIONS = {
     ("POST", "/vendors/projects"): "vendor:project:write",
     ("POST", "/vendors/projects/{project_id}/open-bidding"): "vendor:project:write",
     ("POST", "/vendors/projects/{project_id}/assign/{vendor_id}"): "vendor:project:write",
-    ("POST", "/vendors/quotes/{quote_id}/approve"): "vendor:project:write",
-    ("POST", "/vendors/quotes/{quote_id}/reject"): "vendor:project:write",
-    ("POST", "/vendors/as-built/{as_built_id}/accept"): "vendor:project:write",
+    ("POST", "/vendors/quotes/{quote_id}/approve"): "vendor:quote:approve",
+    ("POST", "/vendors/quotes/{quote_id}/reject"): "vendor:quote:approve",
+    ("POST", "/vendors/as-built/{as_built_id}/accept"): "vendor:quote:approve",
     ("GET", "/vendors/as-built/{as_built_id}/compare"): "vendor:project:read",
 }
 
