@@ -225,3 +225,57 @@ Visual language: "Industrial Modern, outdoors" — Outfit/Plus Jakarta fonts, te
 - **Material stock decrement:** inventory never decrements `quantity_on_hand` today — the fulfillment work touches warehouse process, not just code; needs ops sign-off.
 - **Equipment model decision:** `subscriber_id` on `OntAssignment` vs. a new junction table — decide during Phase 1 design review.
 - **Battery/data:** location pings deliberately deferred to v1.x and opt-in.
+
+---
+
+## 9. Phase 3 — Live location + voice capture (v1.x)
+
+Phase 3 delivers the two strategic threads: **field-tech live location** (map, geofence
+auto-status, nearest-tech assignment) and **voice→structured capture**.
+
+### 9.1 Location model decision (task #41)
+
+**Decision: a dedicated, _person-keyed_ field-tech location store — not a reuse of
+`crm_agent_presence`.**
+
+Rationale:
+- **Keying.** Field jobs are assigned to `work_orders.assigned_to_person_id` (a `Person`)
+  and the transition engine is person-keyed (`field_transitions.apply(db, person_id, …)`).
+  CRM agent presence is keyed 1:1 to `crm_agents`, and a field tech is not necessarily a
+  CRM agent. Keying the new store by `person_id` aligns with how the field domain already
+  identifies a tech and lets geofence logic join directly to assigned work orders.
+- **Separation of concerns.** Field movement has different semantics from support-agent
+  presence: shift-scoped, geofence-driven, dispatch-facing (not inbox-facing), and a
+  different retention posture. Overloading `crm_agent_presence` would couple two unrelated
+  domains and force every field tech to own a CRM agent row.
+- **Proven shape, copied not coupled.** The two-table design mirrors the battle-tested agent
+  presence (`crm_agent_presence` + `crm_agent_location_pings`): a 1:1 current-snapshot row
+  plus an immutable ping audit log with a retention prune. We copy the design, not the table.
+
+Tables (task #42):
+- `field_tech_presence` — one row per person: current lat/lng + accuracy, `last_location_at`,
+  `last_seen_at`, `status` (`on_shift` / `on_break` / `off_shift`), `location_sharing_enabled`.
+- `field_tech_location_pings` — immutable audit of every accepted ping, pruned on a retention
+  window (default 72h), with lat/lng range check constraints.
+
+Proximity (task #47) is computed in Python (haversine) over the small set of active,
+sharing-enabled techs rather than PostGIS `ST_DWithin`, so the path is DB-agnostic and unit
+testable; a PostGIS spatial index can replace it later if the active-tech set grows large.
+
+### 9.2 Task map
+
+| # | Task | Surface |
+|---|------|---------|
+| 42 | Location store + ingest endpoint + retention prune | Backend |
+| 43 | Admin live-map field-tech feed (JSON) | Backend |
+| 44 | Admin map UI: field-tech marker layer on the Leaflet live-map | Admin web |
+| 45 | Shift-scoped adaptive location ping client | Flutter |
+| 46 | Geofence auto-status via the field transition service | Backend |
+| 47 | Nearest-tech auto-assignment + day routing | Backend |
+| 48 | Voice→structured field-extraction AI use case | Backend |
+| 49 | Voice capture → form pre-fill with confirm | Flutter |
+| 50 | Voice quality gate: WER harness + confidence clamp | Backend |
+
+Privacy posture: location is **opt-in per tech** (`location_sharing_enabled`) and only
+collected while on shift; pings prune on the retention window; the admin feed shows only
+sharing-enabled, non-stale techs — mirroring the agent live-map's privacy gate.
