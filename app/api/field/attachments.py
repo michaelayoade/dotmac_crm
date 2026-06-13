@@ -55,10 +55,12 @@ def list_field_attachments(
     kind: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    auth=Depends(require_user_auth),
     db: Session = Depends(get_db),
 ):
     items = field_attachments.list(
         db,
+        caller_person_id=auth["person_id"],
         work_order_id=work_order_id,
         installation_project_id=installation_project_id,
         note_id=note_id,
@@ -70,13 +72,13 @@ def list_field_attachments(
 
 
 @router.get("/attachments/{attachment_id}", response_model=FieldAttachmentRead)
-def get_field_attachment(attachment_id: str, db: Session = Depends(get_db)):
-    return field_attachments.get(db, attachment_id)
+def get_field_attachment(attachment_id: str, auth=Depends(require_user_auth), db: Session = Depends(get_db)):
+    return field_attachments.get(db, attachment_id, caller_person_id=auth["person_id"])
 
 
 @router.get("/attachments/{attachment_id}/content")
-def download_field_attachment(attachment_id: str, db: Session = Depends(get_db)):
-    attachment, content = field_attachments.get_content(db, attachment_id)
+def download_field_attachment(attachment_id: str, auth=Depends(require_user_auth), db: Session = Depends(get_db)):
+    attachment, content = field_attachments.get_content(db, attachment_id, caller_person_id=auth["person_id"])
     return Response(
         content=content,
         media_type=attachment.mime_type,
@@ -85,5 +87,5 @@ def download_field_attachment(attachment_id: str, db: Session = Depends(get_db))
 
 
 @router.delete("/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_field_attachment(attachment_id: str, db: Session = Depends(get_db)):
-    field_attachments.delete(db, attachment_id)
+def delete_field_attachment(attachment_id: str, auth=Depends(require_user_auth), db: Session = Depends(get_db)):
+    field_attachments.delete(db, attachment_id, caller_person_id=auth["person_id"])

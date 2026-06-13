@@ -102,6 +102,56 @@ def _coerce_captured_at(value: str | datetime | None) -> datetime | None:
         raise HTTPException(status_code=422, detail="Invalid captured_at timestamp") from exc
 
 
+def _resolve_governing_work_order_id(db: Session, attachment: FieldAttachment):
+    if attachment.work_order_id is not None:
+        return attachment.work_order_id
+    if attachment.note_id is not None:
+        note = db.get(WorkOrderNote, attachment.note_id)
+        return note.work_order_id if note else None
+    return None
+
+
+def _caller_can_access(
+    db: Session,
+    person_id: str | None,
+    *,
+    work_order_id=None,
+    installation_project_id=None,
+) -> bool:
+    """True if the caller may touch an attachment governed by this work order
+    (staff assignment) or installation project (their vendor)."""
+    if person_id is None:
+        return False
+    from app.services.field.jobs import caller_can_access
+
+    if work_order_id is not None:
+        work_order = db.get(WorkOrder, work_order_id)
+        if work_order and caller_can_access(db, person_id, work_order):
+            return True
+    if installation_project_id is not None:
+        from app.services.vendor_portal import get_vendor_user
+
+        vendor_user = get_vendor_user(db, person_id)
+        if vendor_user:
+            project = db.get(InstallationProject, installation_project_id)
+            if project and project.assigned_vendor_id == vendor_user.vendor_id:
+                return True
+    return False
+
+
+def _assert_attachment_access(db: Session, person_id: str | None, attachment: FieldAttachment) -> None:
+    """Uniform 404 (no existence leak) when the caller isn't on the attachment's
+    work order / project."""
+    if _caller_can_access(
+        db,
+        person_id,
+        work_order_id=_resolve_governing_work_order_id(db, attachment),
+        installation_project_id=attachment.installation_project_id,
+    ):
+        return
+    raise HTTPException(status_code=404, detail="Attachment not found")
+
+
 class FieldAttachments(ListResponseMixin):
     @staticmethod
     def create(
@@ -156,8 +206,20 @@ class FieldAttachments(ListResponseMixin):
         if project_uuid and not db.get(InstallationProject, project_uuid):
             raise HTTPException(status_code=404, detail="Installation project not found")
         note_uuid = coerce_uuid(note_id) if note_id else None
-        if note_uuid and not db.get(WorkOrderNote, note_uuid):
+        note_obj = db.get(WorkOrderNote, note_uuid) if note_uuid else None
+        if note_uuid and not note_obj:
             raise HTTPException(status_code=404, detail="Work order note not found")
+
+        # The caller must be assigned to the governing work order / own the
+        # vendor project — otherwise it's a foreign job (uniform 404).
+        governing_wo = work_order_uuid or (note_obj.work_order_id if note_obj else None)
+        if not _caller_can_access(
+            db,
+            uploaded_by_person_id,
+            work_order_id=governing_wo,
+            installation_project_id=project_uuid,
+        ):
+            raise HTTPException(status_code=404, detail="Job not found")
 
         processed, exif_lat, exif_lng = _process_image(content, normalized_mime)
         storage_key = f"{_STORAGE_PREFIX}/{uuid.uuid4().hex}{_safe_extension(file_name)}"
@@ -197,15 +259,16 @@ class FieldAttachments(ListResponseMixin):
         return attachment
 
     @staticmethod
-    def get(db: Session, attachment_id: str) -> FieldAttachment:
+    def get(db: Session, attachment_id: str, caller_person_id: str | None = None) -> FieldAttachment:
         attachment = db.get(FieldAttachment, coerce_uuid(attachment_id))
         if not attachment or not attachment.is_active:
             raise HTTPException(status_code=404, detail="Attachment not found")
+        _assert_attachment_access(db, caller_person_id, attachment)
         return attachment
 
     @staticmethod
-    def get_content(db: Session, attachment_id: str) -> tuple[FieldAttachment, bytes]:
-        attachment = FieldAttachments.get(db, attachment_id)
+    def get_content(db: Session, attachment_id: str, caller_person_id: str | None = None) -> tuple[FieldAttachment, bytes]:
+        attachment = FieldAttachments.get(db, attachment_id, caller_person_id)
         try:
             content = storage.get(attachment.storage_key)
         except FileNotFoundError as exc:
@@ -216,6 +279,7 @@ class FieldAttachments(ListResponseMixin):
     def list(
         db: Session,
         *,
+        caller_person_id: str | None = None,
         work_order_id: str | None = None,
         installation_project_id: str | None = None,
         note_id: str | None = None,
@@ -223,6 +287,20 @@ class FieldAttachments(ListResponseMixin):
         limit: int = 50,
         offset: int = 0,
     ) -> list[FieldAttachment]:
+        # No unscoped global listing: a caller must name a container they can
+        # access, and we verify access before returning anything.
+        note_wo_id = None
+        if note_id and not work_order_id:
+            note = db.get(WorkOrderNote, coerce_uuid(note_id))
+            note_wo_id = note.work_order_id if note else None
+        if not _caller_can_access(
+            db,
+            caller_person_id,
+            work_order_id=coerce_uuid(work_order_id) if work_order_id else note_wo_id,
+            installation_project_id=coerce_uuid(installation_project_id) if installation_project_id else None,
+        ):
+            raise HTTPException(status_code=404, detail="Job not found")
+
         query = db.query(FieldAttachment).filter(FieldAttachment.is_active.is_(True))
         if work_order_id:
             query = query.filter(FieldAttachment.work_order_id == coerce_uuid(work_order_id))
@@ -236,8 +314,8 @@ class FieldAttachments(ListResponseMixin):
         return apply_pagination(query, limit, offset).all()
 
     @staticmethod
-    def delete(db: Session, attachment_id: str) -> None:
-        attachment = FieldAttachments.get(db, attachment_id)
+    def delete(db: Session, attachment_id: str, caller_person_id: str | None = None) -> None:
+        attachment = FieldAttachments.get(db, attachment_id, caller_person_id)
         attachment.is_active = False
         db.commit()
 
