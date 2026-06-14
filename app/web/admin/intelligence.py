@@ -34,6 +34,12 @@ templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/intelligence", tags=["web-admin-intelligence"])
 
 
+@router.get("", response_class=HTMLResponse)
+def intelligence_index():
+    # No dedicated landing page; send to insights (NOTE-110).
+    return RedirectResponse(url="/admin/intelligence/insights", status_code=307)
+
+
 def get_db():
     db = SessionLocal()
     try:

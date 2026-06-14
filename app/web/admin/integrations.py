@@ -27,6 +27,12 @@ router = APIRouter(prefix="/integrations", tags=["web-admin-integrations"])
 templates = Jinja2Templates(directory="templates")
 
 
+@router.get("", response_class=HTMLResponse)
+def integrations_index():
+    # No dedicated landing page; send to connectors (NOTE-110).
+    return RedirectResponse(url="/admin/integrations/connectors", status_code=307)
+
+
 def get_db():
     db = SessionLocal()
     try:

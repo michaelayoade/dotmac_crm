@@ -46,6 +46,13 @@ logger = logging.getLogger(__name__)
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/network", tags=["web-admin-network"])
 
+
+@router.get("", response_class=HTMLResponse)
+def network_index():
+    # No dedicated landing page; send to the network map (NOTE-110).
+    return RedirectResponse(url="/admin/network/map", status_code=307)
+
+
 _ASSET_MODEL_BY_TYPE = {
     "fdh_cabinet": FdhCabinet,
     "splice_closure": FiberSpliceClosure,
