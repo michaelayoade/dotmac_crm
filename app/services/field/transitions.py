@@ -13,6 +13,7 @@ audit rows, and the completion evidence gate.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
@@ -115,9 +116,11 @@ class FieldTransitions:
             raise HTTPException(status_code=422, detail="client_event_id is required")
 
         # Idempotent replay: same client_event_id returns the original result.
+        # Still enforce caller access so a replayed/guessed client_event_id can't
+        # leak another technician's work order (uniform 404 on mismatch).
         existing = db.query(WorkOrderEvent).filter(WorkOrderEvent.client_event_id == client_uuid).first()
         if existing:
-            work_order = db.get(WorkOrder, existing.work_order_id)
+            work_order = get_scoped_work_order(db, person_id, str(existing.work_order_id))
             return {"work_order": work_order, "event": existing, "replayed": True}
 
         work_order = get_scoped_work_order(db, person_id, work_order_id)
@@ -185,16 +188,27 @@ class FieldTransitions:
             db.rollback()
             existing = db.query(WorkOrderEvent).filter(WorkOrderEvent.client_event_id == client_uuid).first()
             if existing:
-                work_order = db.get(WorkOrder, existing.work_order_id)
-                return {"work_order": work_order, "event": existing, "replayed": True}
+                # Fresh name: work_order is already narrowed to WorkOrder above, and
+                # db.get returns WorkOrder | None — reusing it would be a type error.
+                replayed_work_order = db.get(WorkOrder, existing.work_order_id)
+                return {"work_order": replayed_work_order, "event": existing, "replayed": True}
             raise
         db.refresh(order_event)
 
         if event_value in (FieldJobEvent.hold, FieldJobEvent.complete):
-            # Timers must not run overnight or past completion.
+            # Timers must not run overnight or past completion. Best-effort:
+            # the transition is already committed, so a worklog-stop failure
+            # must not 500 an otherwise-successful completion.
             from app.services.field.worklogs import stop_open_worklog
 
-            stop_open_worklog(db, work_order.id, person_uuid, stopped_at=now)
+            try:
+                stop_open_worklog(db, work_order.id, person_uuid, stopped_at=now)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "field_worklog_autostop_failed work_order_id=%s event=%s",
+                    work_order.id,
+                    event_value.value,
+                )
 
         _notify_customer_for_event(db, work_order, event_value)
 
@@ -215,8 +229,18 @@ def _notify_customer_for_event(db: Session, work_order: WorkOrder, event: FieldJ
         from app.services import eta_notifications
 
         if event == FieldJobEvent.en_route:
-            # "Your technician is on the way" with name + ETA.
-            eta_notifications.send_eta_notification(db, str(work_order.id))
+            # Only the FIRST en_route notifies the customer — a tech tapping
+            # "on my way" twice (dispatched→dispatched is allowed) must not send
+            # two "on the way" messages. This event row is already committed, so
+            # exactly one en_route event means this is the first.
+            en_route_count = (
+                db.query(WorkOrderEvent)
+                .filter(WorkOrderEvent.work_order_id == work_order.id)
+                .filter(WorkOrderEvent.event == FieldJobEvent.en_route)
+                .count()
+            )
+            if en_route_count <= 1:
+                eta_notifications.send_eta_notification(db, str(work_order.id))
         elif event == FieldJobEvent.complete:
             eta_notifications.send_work_order_completed_notification(db, str(work_order.id))
     except Exception:

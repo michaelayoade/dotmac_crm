@@ -10,7 +10,7 @@ import '../jobs/jobs_providers.dart';
 import 'map_models.dart';
 
 final mapPinsProvider = FutureProvider<List<JobPin>>((ref) async {
-  final jobs = await ref.watch(jobsListProvider.future);
+  final jobs = (await ref.watch(jobsListProvider.future)).jobs;
   final db = ref.watch(syncServiceProvider).db;
   final cached = await db.select(db.cachedJobs).get();
   final detailById = {for (final row in cached) row.id: row.detailJson};

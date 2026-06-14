@@ -52,7 +52,11 @@ class ApiClient {
 
   static const _refreshSkew = Duration(seconds: 60);
 
-  bool _refreshing = false;
+  // A single shared in-flight refresh: concurrent callers await the SAME
+  // future and all receive the freshly-saved token, instead of one rotating
+  // the refresh token while others replay the stale one (which trips the
+  // server's reuse-detection and forces a spurious logout).
+  Future<String?>? _inFlight;
 
   Future<String?> ensureFreshToken() async {
     final access = await tokenStore.accessToken;
@@ -64,9 +68,11 @@ class ApiClient {
     return refresh();
   }
 
-  Future<String?> refresh() async {
-    if (_refreshing) return tokenStore.accessToken;
-    _refreshing = true;
+  Future<String?> refresh() {
+    return _inFlight ??= _doRefresh().whenComplete(() => _inFlight = null);
+  }
+
+  Future<String?> _doRefresh() async {
     try {
       final refreshToken = await tokenStore.refreshToken;
       if (refreshToken == null) {
@@ -90,8 +96,6 @@ class ApiClient {
     } on DioException {
       onSessionExpired?.call();
       return null;
-    } finally {
-      _refreshing = false;
     }
   }
 }
@@ -121,6 +125,13 @@ class _AuthInterceptor extends Interceptor {
     final response = err.response;
     final alreadyRetried = err.requestOptions.extra['retried'] == true;
     if (response?.statusCode == 401 && !alreadyRetried && !_isPublic(err.requestOptions.path)) {
+      // A multipart body is a one-shot stream — already consumed by the failed
+      // attempt, so we can't refetch it. The photo/attachment outbox retries
+      // these uploads itself, so don't auto-retry them here.
+      if (err.requestOptions.data is FormData) {
+        handler.next(err);
+        return;
+      }
       final token = await client.refresh();
       if (token != null) {
         final options = err.requestOptions..extra['retried'] = true;

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../jobs/jobs_providers.dart';
 import '../jobs/widgets/job_card.dart';
+import '../profile/profile_screen.dart';
 
 const _filters = <(String?, String)>[
   (null, 'All'),
@@ -57,6 +58,9 @@ class TodayScreen extends ConsumerWidget {
                         loading: () => const SizedBox.shrink(),
                         error: (_, _) => const SizedBox.shrink(),
                       ),
+                      const SizedBox(height: 12),
+                      const SyncStatusBar(),
+                      if (jobs.value?.fromCache ?? false) const _OfflineBanner(),
                       const SizedBox(height: 16),
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
@@ -78,7 +82,7 @@ class TodayScreen extends ConsumerWidget {
                 ),
               ),
               jobs.when(
-                data: (items) => items.isEmpty
+                data: (list) => list.jobs.isEmpty
                     ? const SliverFillRemaining(
                         hasScrollBody: false,
                         child: Center(child: Text('No jobs in this view')),
@@ -86,10 +90,10 @@ class TodayScreen extends ConsumerWidget {
                     : SliverPadding(
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                         sliver: SliverList.separated(
-                          itemCount: items.length,
+                          itemCount: list.jobs.length,
                           separatorBuilder: (_, _) => const SizedBox(height: 12),
                           itemBuilder: (context, index) {
-                            final job = items[index];
+                            final job = list.jobs[index];
                             return JobCard(
                               job: job,
                               onTap: () => context.push('/jobs/${job.id}'),
@@ -138,6 +142,69 @@ class _MetricTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Compact sync state: queued work + items needing review, tap → Profile.
+/// Calm by design — amber for attention, never red.
+class SyncStatusBar extends ConsumerWidget {
+  const SyncStatusBar({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pending = ref.watch(pendingOutboxProvider).value?.length ?? 0;
+    final photos = ref.watch(pendingPhotosProvider).value ?? 0;
+    final conflicts = ref.watch(conflictOutboxProvider).value?.length ?? 0;
+    final queued = pending + photos;
+    if (queued == 0 && conflicts == 0) return const SizedBox.shrink();
+
+    final amber = const Color(0xFFF59E0B);
+    final parts = <String>[
+      if (queued > 0) '$queued queued',
+      if (conflicts > 0) '$conflicts need review',
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: InkWell(
+        key: const Key('sync-status-bar'),
+        onTap: () => context.go('/profile'),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: amber.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.sync, size: 16, color: amber),
+              const SizedBox(width: 8),
+              Expanded(child: Text(parts.join(' · '), style: Theme.of(context).textTheme.bodySmall)),
+              const Icon(Icons.chevron_right, size: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OfflineBanner extends StatelessWidget {
+  const _OfflineBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        key: const Key('offline-banner'),
+        children: [
+          const Icon(Icons.cloud_off_outlined, size: 16),
+          const SizedBox(width: 8),
+          Text('Offline — showing saved jobs', style: Theme.of(context).textTheme.bodySmall),
+        ],
       ),
     );
   }

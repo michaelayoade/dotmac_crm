@@ -39,6 +39,7 @@ from app.schemas.workflow import (
 )
 from app.schemas.workforce import WorkOrderRead
 from app.services import workflow as workflow_service
+from app.services.auth_dependencies import require_permission
 from app.services.response import list_response
 
 router = APIRouter()
@@ -564,6 +565,11 @@ def transition_ticket(ticket_id: str, payload: StatusTransitionRequest, db: Sess
     "/work-orders/{work_order_id}/transition",
     response_model=WorkOrderRead,
     tags=["work-orders"],
+    # Requires operations:work_order:update — which field technicians do NOT
+    # hold. Techs must go through /field/jobs/{id}/transition, which enforces
+    # assignment scoping and the photo+signature completion gate. This route is
+    # for dispatchers/admins doing manual overrides.
+    dependencies=[Depends(require_permission("operations:work_order:update"))],
 )
 def transition_work_order(work_order_id: str, payload: StatusTransitionRequest, db: Session = Depends(get_db)):
     return workflow_service.transition_work_order(db, work_order_id, payload)
