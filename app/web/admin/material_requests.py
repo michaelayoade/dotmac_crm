@@ -298,13 +298,19 @@ def material_request_update(
 
 @router.get("/{mr_id}", response_class=HTMLResponse)
 def material_request_detail(request: Request, mr_id: str, db: Session = Depends(get_db)):
+    from app.models.inventory import InventoryItem
+
     mr = material_requests.get(db, mr_id)
+    inventory_items = (
+        db.query(InventoryItem).filter(InventoryItem.is_active.is_(True)).order_by(InventoryItem.name).all()
+    )
     context = _base_ctx(
         request,
         db,
         mr=mr,
         warehouses=_warehouse_choices(db),
         collectors=_collector_choices(db),
+        inventory_items=inventory_items,
     )
     return templates.TemplateResponse("admin/material_requests/detail.html", context)
 

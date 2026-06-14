@@ -704,7 +704,10 @@
 
 {% endblock %}
 
-{% block scripts %}
+{# Shared layout JS lives in `layout_scripts` (not `scripts`) so page templates
+   that override `{% block scripts %}` without `{{ super() }}` cannot drop the
+   header widgets / confirm modal / voice input (BUG-040). #}
+{% block layout_scripts %}
 <script src="/static/js/session-refresh.js?v=2026052601"></script>
 <script>
     if (typeof initSessionRefresh === 'function') {

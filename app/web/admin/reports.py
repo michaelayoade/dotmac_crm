@@ -42,6 +42,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
 templates = Jinja2Templates(directory="templates")
 
+
+@router.get("", response_class=HTMLResponse)
+def reports_index():
+    # No dedicated reports landing page; send to the operations report (NOTE-110).
+    return RedirectResponse(url="/admin/reports/operations", status_code=307)
+
+
 REPORTS_ONLINE_LAST_24H_READ_PERMISSIONS = (
     "reports:online-last-24h:read",
     "reports:operations",
@@ -3075,6 +3082,12 @@ def revenue_service_report(
         downtime_log = report["downtime_log"]
     except revenue_service_report_service.SplynxReportError as exc:
         report_error = str(exc)
+    except Exception:
+        logger.exception("revenue_service_report_build_failed")
+        report_error = (
+            "The revenue & service report could not be generated right now "
+            "(an upstream data source may be unavailable). Please try again later."
+        )
 
     return templates.TemplateResponse(
         "admin/reports/revenue_service_report.html",

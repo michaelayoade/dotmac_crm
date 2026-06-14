@@ -12,17 +12,17 @@
         <form id="audit-filters" hx-get="/admin/system/audit" hx-target="#audit-table" hx-trigger="submit, change from:select" class="flex flex-col gap-4 sm:flex-row sm:items-end">
             <div class="flex-1">
                 <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Actor ID</label>
-                <input type="text" name="actor_id" value="{{ actor_id | default('') }}" placeholder="UUID or system"
+                <input type="text" name="actor_id" value="{{ actor_id | default('', true) }}" placeholder="UUID or system"
                     class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
             </div>
             <div class="w-full sm:w-40">
                 <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Action</label>
-                <input type="text" name="action" value="{{ action | default('') }}" placeholder="create, update"
+                <input type="text" name="action" value="{{ action | default('', true) }}" placeholder="create, update"
                     class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
             </div>
             <div class="w-full sm:w-48">
                 <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">Entity</label>
-                <input type="text" name="entity_type" value="{{ entity_type | default('') }}" placeholder="ticket, user"
+                <input type="text" name="entity_type" value="{{ entity_type | default('', true) }}" placeholder="ticket, user"
                     class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm transition-all focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white dark:focus:bg-slate-700">
             </div>
             <div>

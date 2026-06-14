@@ -36,7 +36,9 @@
 {% set user_roles_lower = user_roles | map('lower') | list %}
 {% set is_admin = 'admin' in user_roles_lower %}
 
-{% set can_workqueue = is_admin or 'workqueue:view' in user_permissions %}
+{# Match the workqueue endpoint's actual guard (has_workqueue_view = workqueue:view
+   permission, no admin bypass) so the link never 403s for users who see it (BUG-090). #}
+{% set can_workqueue = 'workqueue:view' in user_permissions %}
 {% set can_inbox = is_admin or 'crm:conversation:read' in user_permissions or 'crm:conversation:write' in user_permissions or 'crm:conversation' in user_permissions or 'crm' in user_permissions %}
 {% set can_contacts = is_admin or 'crm:contact:read' in user_permissions or 'crm:contact:write' in user_permissions or 'crm:contact' in user_permissions or 'crm' in user_permissions %}
 {% set can_subscribers = can_contacts %}
@@ -253,7 +255,7 @@
 
 	        <!-- Leads -->
 	        {% if can_quotes %}
-	        <a href="https://crm.dotmac.io/admin/crm/leads"
+	        <a href="/admin/crm/leads"
 	           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
 	                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'leads' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
 	            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

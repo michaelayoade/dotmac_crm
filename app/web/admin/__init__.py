@@ -1,6 +1,6 @@
 """Admin web route builder and shared helpers."""
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from starlette.datastructures import QueryParams
@@ -11,6 +11,11 @@ from app.web.auth.dependencies import require_web_auth
 
 _META_OAUTH_CALLBACK_PATH = "/admin/crm/meta/callback"
 
+# Roles permitted into the admin area. Portal-only principals (reseller_admin,
+# reseller_member, vendor users, etc.) must NOT reach admin pages even though
+# they hold a valid web session.
+_ADMIN_STAFF_ROLES = {"admin", "operator", "support", "auditor", "field_technician"}
+
 
 def require_web_auth_or_meta_callback(
     request: Request,
@@ -18,7 +23,16 @@ def require_web_auth_or_meta_callback(
 ):
     if request.url.path == _META_OAUTH_CALLBACK_PATH:
         return {}
-    return require_web_auth(request, db)
+    auth = require_web_auth(request, db)
+    # Admin-area access control (BUG-140): a valid web session is not enough.
+    # The principal must hold a staff role OR at least one effective permission.
+    # This is a router-level backstop so admin routes that lack their own
+    # require_permission() guard are not reachable by portal-only users.
+    roles = set(auth.get("roles") or [])
+    scopes = auth.get("scopes") or []
+    if (roles & _ADMIN_STAFF_ROLES) or scopes:
+        return auth
+    raise HTTPException(status_code=403, detail="Admin access required")
 
 
 def _redirect_with_query(path: str, query_params: QueryParams) -> RedirectResponse:

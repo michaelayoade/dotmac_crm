@@ -62,11 +62,26 @@ class InventoryItems(ListResponseMixin):
             )
             if sku:
                 data["sku"] = sku
+        InventoryItems._assert_unique_sku(db, (data.get("sku") or "").strip())
         item = InventoryItem(**data)
         db.add(item)
         db.commit()
         db.refresh(item)
         return item
+
+    @staticmethod
+    def _assert_unique_sku(db: Session, sku: str, exclude_id: object | None = None) -> None:
+        """Reject duplicate SKUs among active items (BUG-071)."""
+        if not sku:
+            return
+        query = db.query(InventoryItem).filter(
+            InventoryItem.sku == sku,
+            InventoryItem.is_active.is_(True),
+        )
+        if exclude_id is not None:
+            query = query.filter(InventoryItem.id != exclude_id)
+        if query.first():
+            raise HTTPException(status_code=400, detail=f"An active inventory item with SKU '{sku}' already exists.")
 
     @staticmethod
     def get(db: Session, item_id: str):
@@ -118,7 +133,10 @@ class InventoryItems(ListResponseMixin):
         item = db.get(InventoryItem, item_id)
         if not item:
             raise HTTPException(status_code=404, detail="Inventory item not found")
-        for key, value in payload.model_dump(exclude_unset=True).items():
+        updates = payload.model_dump(exclude_unset=True)
+        if "sku" in updates:
+            InventoryItems._assert_unique_sku(db, (updates.get("sku") or "").strip(), exclude_id=item.id)
+        for key, value in updates.items():
             setattr(item, key, value)
         db.commit()
         db.refresh(item)

@@ -371,7 +371,7 @@
                 {% call table_row(color="primary") %}
                     <td data-project-column="project" class="{{ pad }}">
                         <p class="text-sm font-medium text-slate-900 dark:text-white">{{ project.name }}</p>
-                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ project.code | default(project.number or (project.id|string|truncate(8, True, ''))) }}</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ project.code | default(project.number or (project.id|string|truncate(8, True, '')), true) }}</p>
                     </td>
                     <td data-project-column="code" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
                         {{ project.code or project.number or '—' }}

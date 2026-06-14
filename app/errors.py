@@ -1,12 +1,46 @@
 from fastapi import HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.datastructures import UploadFile
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.auth_exceptions import AuthenticationRequired
 from app.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Status codes that have a dedicated styled HTML error page.
+_HTML_ERROR_TEMPLATES = {403: "errors/403.html", 404: "errors/404.html"}
+
+
+def _wants_html(request: Request) -> bool:
+    """True for browser navigations (HTML-accepting, non-API, non-HTMX) so we can
+    return a styled error page instead of raw JSON (NOTE-052 / BUG-051 / BUG-090)."""
+    if request.url.path.startswith(("/api/", "/metrics", "/health")):
+        return False
+    if request.headers.get("HX-Request") == "true":
+        return False
+    accept = request.headers.get("accept", "")
+    return "text/html" in accept
+
+
+def _render_html_error(request: Request, status_code: int, message: str) -> HTMLResponse | None:
+    """Render a styled error page if one applies; return None to fall back to JSON."""
+    from app.web.templates import Jinja2Templates
+
+    template = _HTML_ERROR_TEMPLATES.get(status_code, "errors/500.html" if status_code >= 500 else None)
+    if not template:
+        return None
+    try:
+        templates = Jinja2Templates(directory="templates")
+        return templates.TemplateResponse(
+            template,
+            {"request": request, "message": message},
+            status_code=status_code,
+        )
+    except Exception:
+        return None
+
 
 _REDACTED = "[REDACTED]"
 _SENSITIVE_KEY_MARKERS = (
@@ -57,6 +91,7 @@ def register_error_handlers(app) -> None:
             response.headers["HX-Redirect"] = exc.redirect_url
         return response
 
+    @app.exception_handler(StarletteHTTPException)
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException):
         detail = exc.detail
@@ -71,6 +106,10 @@ def register_error_handlers(app) -> None:
             message = detail
         else:
             details = detail
+        if _wants_html(request):
+            html = _render_html_error(request, exc.status_code, message)
+            if html is not None:
+                return html
         return JSONResponse(
             status_code=exc.status_code,
             content=_error_payload(code, message, details),
@@ -94,6 +133,10 @@ def register_error_handlers(app) -> None:
             exc,
             exc_info=True,
         )
+        if _wants_html(request):
+            html = _render_html_error(request, 500, "Something went wrong on our end.")
+            if html is not None:
+                return html
         return JSONResponse(
             status_code=500,
             content=_error_payload("internal_error", "Internal server error", None),
