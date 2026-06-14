@@ -1,8 +1,17 @@
 name: CI
 
+# Run once per change: on PRs, and on pushes to main (merges). Previously this
+# triggered on every push AND every pull_request, so each PR commit ran CI twice.
 on:
   push:
+    branches: [main]
   pull_request:
+
+# Cancel superseded runs for the same ref so a new push doesn't queue behind a
+# stale one (frees the runner pool and speeds feedback).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -19,6 +28,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Cache Poetry artifacts
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: pypoetry-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            pypoetry-${{ runner.os }}-py${{ matrix.python-version }}-
 
       - name: Install Poetry
         run: |

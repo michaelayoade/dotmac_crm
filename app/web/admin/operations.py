@@ -9,7 +9,8 @@ from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -1139,6 +1140,41 @@ def technicians_list(
             "per_page": per_page,
             "total": total,
             "total_pages": total_pages,
+        },
+    )
+
+
+@router.get("/field-techs/live-map")
+def field_techs_live_map_feed(
+    request: Request,
+    stale_after_seconds: int = Query(default=120, ge=30, le=3600),
+    limit: int = Query(default=200, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _auth=Depends(require_permission("operations:work_order:read")),
+):
+    """JSON feed of sharing-enabled, non-stale field techs for the live map (task #43)."""
+    from app.services.field.location_tracking import field_location_tracking
+
+    items = field_location_tracking.list_live_locations(db, stale_after_seconds=stale_after_seconds, limit=limit)
+    return JSONResponse(jsonable_encoder({"items": items, "count": len(items), "limit": limit, "offset": 0}))
+
+
+@router.get("/field-techs/map", response_class=HTMLResponse)
+def field_techs_map(
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth=Depends(require_permission("operations:work_order:read")),
+):
+    """Live map of field technicians who opted into location sharing (task #44)."""
+    user = get_current_user(request)
+    return templates.TemplateResponse(
+        "admin/operations/field-live-map.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "operations",
         },
     )
 

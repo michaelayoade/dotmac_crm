@@ -105,6 +105,11 @@ from app.models.field import (  # noqa: F401
     FieldJobEvent,
     WorkOrderEvent,
 )
+from app.models.field_location import (  # noqa: F401
+    FieldPresenceStatus,
+    FieldTechLocationPing,
+    FieldTechPresence,
+)
 from app.models.gis import (  # noqa: F401
     GeoArea,
     GeoAreaType,

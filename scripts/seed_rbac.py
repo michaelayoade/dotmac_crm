@@ -121,6 +121,7 @@ DEFAULT_PERMISSIONS = [
     ("vendor:write", "Manage vendors"),
     ("vendor:project:read", "View vendor projects"),
     ("vendor:project:write", "Manage vendor projects"),
+    ("vendor:quote:approve", "Approve, reject, and accept vendor quotes and as-builts"),
     # Inventory
     ("inventory:read", "View inventory"),
     ("inventory:write", "Manage inventory"),

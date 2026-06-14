@@ -68,8 +68,14 @@ def test_create_note_with_linked_attachments(db_session, assigned_job, person, f
 
 
 def test_foreign_attachment_rejected(db_session, assigned_job, person, fake_storage):
+    # A helper on the same job uploads their own photo (they're assigned, so the
+    # upload is allowed); the primary tech then can't claim it on their note.
+    from app.models.workforce import WorkOrderAssignment
+
     other = Person(first_name="O", last_name="T", email=f"o-{uuid.uuid4().hex}@example.com")
     db_session.add(other)
+    db_session.commit()
+    db_session.add(WorkOrderAssignment(work_order_id=assigned_job.id, person_id=other.id, role="helper"))
     db_session.commit()
     foreign = _upload(db_session, assigned_job, other, uploaded_by_person_id=str(other.id))
 

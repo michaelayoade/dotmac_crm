@@ -85,6 +85,18 @@ def test_duplicate_push_is_skipped(db_session, person, configured_fcm):
     assert len(configured_fcm) == 1
 
 
+def test_distinct_jobs_both_notify(db_session, person, configured_fcm):
+    """Two different assignments to the same tech within the window must both
+    notify — the body discriminator prevents false-duplicate suppression."""
+    push_devices.register(db_session, platform="android", fcm_token="tok-1", person_id=str(person.id))
+
+    first = push_sender.send_to_person(db_session, str(person.id), title="New job assigned", body="WO-1 install")
+    second = push_sender.send_to_person(db_session, str(person.id), title="New job assigned", body="WO-2 repair")
+    assert first["sent"] == 1
+    assert second["sent"] == 1
+    assert len(configured_fcm) == 2
+
+
 def test_invalid_token_is_pruned(db_session, person, monkeypatch):
     monkeypatch.setattr(push_module, "_load_service_account", lambda: FAKE_ACCOUNT)
 

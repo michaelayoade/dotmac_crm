@@ -304,3 +304,16 @@ def delete_queue_entry(entry_id: str, db: Session = Depends(get_db)):
 def auto_assign_work_order(work_order_id: str, db: Session = Depends(get_db)):
     payload = dispatch_service.auto_assign_response(db, work_order_id)
     return AutoAssignResponse(**payload)
+
+
+@router.get("/work-orders/{work_order_id}/nearest-techs", tags=["work-orders"])
+def nearest_techs(
+    work_order_id: str,
+    limit: int = Query(default=5, ge=1, le=25),
+    max_km: float | None = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+):
+    """Live, on-shift technicians ranked by distance to the job (task #47)."""
+    from app.services.field.routing import nearest_techs_for_job
+
+    return nearest_techs_for_job(db, work_order_id, limit=limit, max_km=max_km)

@@ -398,13 +398,13 @@ class ProjectBidOpenRequest(BaseModel):
 
 
 class QuoteApprovalRequest(BaseModel):
-    reviewer_person_id: UUID
+    # reviewer identity is derived from the authenticated caller in the route,
+    # never accepted from the request, to keep the approval audit trail honest.
     review_notes: str | None = None
     override_threshold: bool = False
 
 
 class QuoteRejectRequest(BaseModel):
-    reviewer_person_id: UUID
     review_notes: str | None = None
 
 
