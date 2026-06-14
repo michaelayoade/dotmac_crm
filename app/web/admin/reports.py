@@ -42,6 +42,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
 templates = Jinja2Templates(directory="templates")
 
+
+@router.get("", response_class=HTMLResponse)
+def reports_index():
+    # No dedicated reports landing page; send to the operations report (NOTE-110).
+    return RedirectResponse(url="/admin/reports/operations", status_code=307)
+
+
 REPORTS_ONLINE_LAST_24H_READ_PERMISSIONS = (
     "reports:online-last-24h:read",
     "reports:operations",
