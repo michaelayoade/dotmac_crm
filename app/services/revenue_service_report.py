@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import time
 from calendar import monthrange
@@ -16,6 +17,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.services import splynx
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_PAGE_LIMIT = 5000
 DEFAULT_TRANSACTION_START_OFFSET = 210000
@@ -725,7 +728,11 @@ def _fallback_service_price(db: Session, customer_id: str, service_id: Any) -> D
     service_key = str(service_id or "").strip()
     if not service_key:
         return Decimal("0")
-    services = splynx.fetch_customer_internet_services(db, customer_id)
+    try:
+        services = splynx.fetch_customer_internet_services(db, customer_id)
+    except Exception:
+        logger.warning("revenue_service_report_splynx_price_lookup_failed customer_id=%s", customer_id)
+        return Decimal("0")
     match = next((service for service in services if str(service.get("id") or "") == service_key), None)
     return _money((match or {}).get("unit_price"))
 

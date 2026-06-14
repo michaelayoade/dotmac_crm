@@ -1,0 +1,120 @@
+{
+  "counts": {
+    "leak": 45,
+    "gated": 31,
+    "other": 7
+  },
+  "LEAK_200": [
+    "/admin/dashboard",
+    "/admin/crm/inbox",
+    "/admin/crm/contacts",
+    "/admin/crm/contacts/new",
+    "/admin/crm/contacts/merge",
+    "/admin/crm/quotes",
+    "/admin/crm/quotes/new",
+    "/admin/crm/sales",
+    "/admin/crm/widget",
+    "/admin/gis",
+    "/admin/integrations/connectors",
+    "/admin/integrations/targets",
+    "/admin/integrations/webhooks",
+    "/admin/integrations/erpnext",
+    "/admin/inventory",
+    "/admin/inventory/items/new",
+    "/admin/network/map",
+    "/admin/network/pop-sites",
+    "/admin/network/fdh-cabinets",
+    "/admin/network/fiber-change-requests",
+    "/admin/notifications",
+    "/admin/operations/dispatch",
+    "/admin/operations/installations",
+    "/admin/operations/material-requests",
+    "/admin/operations/sales-orders",
+    "/admin/operations/technicians",
+    "/admin/operations/work-orders",
+    "/admin/reports/technician",
+    "/admin/reports/agent-performance",
+    "/admin/reports/crm-performance",
+    "/admin/subscribers",
+    "/admin/subscribers/new",
+    "/admin/subscribers/resellers",
+    "/admin/surveys",
+    "/admin/surveys/new",
+    "/admin/system/api-keys",
+    "/admin/system/teams",
+    "/admin/system/health",
+    "/admin/vendors",
+    "/admin/vendors/new",
+    "/admin/vendors/projects",
+    "/admin/vendors/as-built",
+    "/admin/user-guide",
+    "/admin/inventory/items/3627b225-b752-4199-ab5d-42982553d7cd",
+    "/admin/operations/material-requests/b4b5e82c-93de-48f1-a6d4-c1ee416b61a5"
+  ],
+  "gated403": [
+    "/admin/crm/campaigns",
+    "/admin/crm/leads",
+    "/admin/crm/leads/new",
+    "/admin/crm/live-map",
+    "/admin/data-quality",
+    "/admin/intelligence/insights",
+    "/admin/notifications/templates",
+    "/admin/performance/team",
+    "/admin/projects",
+    "/admin/projects/new",
+    "/admin/projects/tasks",
+    "/admin/projects/templates",
+    "/admin/reports/ncc",
+    "/admin/system",
+    "/admin/system/users",
+    "/admin/system/roles",
+    "/admin/system/permissions",
+    "/admin/system/audit",
+    "/admin/system/webhooks",
+    "/admin/system/scheduler",
+    "/admin/system/settings",
+    "/admin/system/configuration",
+    "/admin/system/automations",
+    "/admin/system/workflow",
+    "/admin/vendors/quotes",
+    "/admin/vendors/purchase-invoices",
+    "/admin/support/tickets",
+    "/admin/support/tickets/create",
+    "/admin/support/tickets/34",
+    "/admin/projects/PROJ-12",
+    "/admin/crm/leads/8c99db98-d364-4e62-92b7-e4a5d9bd2fc0"
+  ],
+  "other": [
+    {
+      "u": "/admin/ai/insights",
+      "s": "redirect"
+    },
+    {
+      "u": "/admin/reports/operations",
+      "s": "redirect"
+    },
+    {
+      "u": "/admin/reports/churn",
+      "s": "redirect"
+    },
+    {
+      "u": "/admin/reports/subscribers",
+      "s": "redirect"
+    },
+    {
+      "u": "/admin/sales",
+      "s": 404,
+      "ct": "application/json"
+    },
+    {
+      "u": "/admin/legal",
+      "s": 404,
+      "ct": "application/json"
+    },
+    {
+      "u": "/admin/contacts/4910cc11-0728-43b2-80fb-58397e4db1e5",
+      "s": 404,
+      "ct": "application/json"
+    }
+  ]
+}

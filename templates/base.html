@@ -408,6 +408,9 @@
     <script src="/static/js/live-filters.js"></script>
     <script src="/static/js/search-autofill-guard.js"></script>
     {% block scripts %}{% endblock %}
+    {# layout_scripts: shared layout JS (header widgets, etc.) that page templates
+       must not be able to drop by overriding `scripts` without super() (BUG-040). #}
+    {% block layout_scripts %}{% endblock %}
 
     <!-- Global Confirmation Modal -->
     {% if show_confirm_modal|default(true) %}
