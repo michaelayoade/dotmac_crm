@@ -3075,6 +3075,12 @@ def revenue_service_report(
         downtime_log = report["downtime_log"]
     except revenue_service_report_service.SplynxReportError as exc:
         report_error = str(exc)
+    except Exception:
+        logger.exception("revenue_service_report_build_failed")
+        report_error = (
+            "The revenue & service report could not be generated right now "
+            "(an upstream data source may be unavailable). Please try again later."
+        )
 
     return templates.TemplateResponse(
         "admin/reports/revenue_service_report.html",

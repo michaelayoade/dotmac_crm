@@ -1,0 +1,54 @@
+# Test app instance for Playwright-driven QA against the seeded `crm_test` DB.
+# Reuses the existing image, Redis, and the dotmac_omni_default network, but
+# points DATABASE_URL at crm_test and serves on :8010 so the dev app on :8000
+# and the dev DB stay untouched.
+#
+# Usage:
+#   docker compose -p dotmac_omni_test -f docker-compose.test.yml up -d
+#   docker compose -p dotmac_omni_test -f docker-compose.test.yml down
+services:
+  app_test:
+    image: ghcr.io/michaelayoade/dotmac_crm:latest
+    container_name: dotmac_omni_app_test
+    restart: unless-stopped
+    ports:
+      - "8010:8000"
+    env_file:
+      - .env
+    environment:
+      # Override: point the test app at the seeded crm_test database (app role).
+      DATABASE_URL: postgresql+psycopg://dotmac_omni_app:RchMmBvcAEsfWhMMROldZTIOnOssPu@db:5432/crm_test
+      # Use a separate Redis logical DB so caches/sessions don't collide with dev.
+      REDIS_URL: redis://:x4qeiXfoyI6Lf3cj91VtlemWh6oUC06mOfkSti_9H-s@redis:6379/5
+      UVICORN_RELOAD: "0"
+      # VPN/wireguard not needed for web QA; avoid nsenter requirements.
+      WIREGUARD_USE_NSENTER: "0"
+    volumes:
+      - ./app:/app/app
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./templates:/app/templates
+      - ./static:/app/static
+      - ./alembic:/app/alembic
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        # crm_test is already stamped at head; this is a no-op safety check.
+        alembic upgrade heads || true
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s = socket.create_connection(('127.0.0.1', 8000), 5); s.close()"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  default:
+    name: dotmac_omni_default
+    external: true
