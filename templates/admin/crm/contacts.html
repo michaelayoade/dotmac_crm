@@ -305,8 +305,8 @@
                 </label>
             </div>
             <div class="flex items-center gap-2">
-                <a href="/admin/crm/contacts?page={{ page - 1 }}&per_page={{ per_page }}&search={{ search }}&party_status={{ party_status }}&is_active={{ is_active }}&has_channels={{ has_channels }}&linked_to_org={{ linked_to_org }}" class="rounded-lg border border-slate-300 px-3 py-1.5 {{ 'opacity-50 pointer-events-none' if page <= 1 else '' }}">Prev</a>
-                <a href="/admin/crm/contacts?page={{ page + 1 }}&per_page={{ per_page }}&search={{ search }}&party_status={{ party_status }}&is_active={{ is_active }}&has_channels={{ has_channels }}&linked_to_org={{ linked_to_org }}" class="rounded-lg border border-slate-300 px-3 py-1.5 {{ 'opacity-50 pointer-events-none' if page >= total_pages else '' }}">Next</a>
+                <a {% if page > 1 %}href="/admin/crm/contacts?page={{ page - 1 }}&per_page={{ per_page }}&search={{ search }}&party_status={{ party_status }}&is_active={{ is_active }}&has_channels={{ has_channels }}&linked_to_org={{ linked_to_org }}"{% endif %} class="rounded-lg border border-slate-300 px-3 py-1.5 {{ 'opacity-50 pointer-events-none' if page <= 1 else '' }}" {{ 'aria-disabled=true' if page <= 1 else '' }}>Prev</a>
+                <a {% if page < total_pages %}href="/admin/crm/contacts?page={{ page + 1 }}&per_page={{ per_page }}&search={{ search }}&party_status={{ party_status }}&is_active={{ is_active }}&has_channels={{ has_channels }}&linked_to_org={{ linked_to_org }}"{% endif %} class="rounded-lg border border-slate-300 px-3 py-1.5 {{ 'opacity-50 pointer-events-none' if page >= total_pages else '' }}" {{ 'aria-disabled=true' if page >= total_pages else '' }}>Next</a>
             </div>
         </div>
     {% endcall %}

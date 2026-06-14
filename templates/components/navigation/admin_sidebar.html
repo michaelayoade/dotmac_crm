@@ -36,7 +36,9 @@
 {% set user_roles_lower = user_roles | map('lower') | list %}
 {% set is_admin = 'admin' in user_roles_lower %}
 
-{% set can_workqueue = is_admin or 'workqueue:view' in user_permissions %}
+{# Match the workqueue endpoint's actual guard (has_workqueue_view = workqueue:view
+   permission, no admin bypass) so the link never 403s for users who see it (BUG-090). #}
+{% set can_workqueue = 'workqueue:view' in user_permissions %}
 {% set can_inbox = is_admin or 'crm:conversation:read' in user_permissions or 'crm:conversation:write' in user_permissions or 'crm:conversation' in user_permissions or 'crm' in user_permissions %}
 {% set can_contacts = is_admin or 'crm:contact:read' in user_permissions or 'crm:contact:write' in user_permissions or 'crm:contact' in user_permissions or 'crm' in user_permissions %}
 {% set can_subscribers = can_contacts %}
