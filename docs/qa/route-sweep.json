@@ -1,0 +1,662 @@
+{
+  "counts": {
+    "ok": 0,
+    "json_bug": 0,
+    "notfound": 0,
+    "server_error": 0,
+    "other": 162
+  },
+  "json_bug": [],
+  "server_error": [],
+  "notfound": [],
+  "other": [
+    {
+      "u": "/admin",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin"
+    },
+    {
+      "u": "/admin/admin-hub",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/admin-hub"
+    },
+    {
+      "u": "/admin/agents/presence/live-map",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/agents/presence/live-map"
+    },
+    {
+      "u": "/admin/ai/insights",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/ai/insights"
+    },
+    {
+      "u": "/admin/contacts/merge",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/contacts/merge"
+    },
+    {
+      "u": "/admin/contacts/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/contacts/new"
+    },
+    {
+      "u": "/admin/crm/campaigns",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/crm/campaigns"
+    },
+    {
+      "u": "/admin/crm/campaigns/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/crm/campaigns/new"
+    },
+    {
+      "u": "/admin/crm/campaigns/templates/whatsapp",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/crm/campaigns/templates/whatsapp"
+    },
+    {
+      "u": "/admin/crm/inbox",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/crm/inbox"
+    },
+    {
+      "u": "/admin/dashboard",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/dashboard"
+    },
+    {
+      "u": "/admin/data-quality",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/data-quality"
+    },
+    {
+      "u": "/admin/gis",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/gis"
+    },
+    {
+      "u": "/admin/gis/locations/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/gis/locations/new"
+    },
+    {
+      "u": "/admin/inbox/agent-teams",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inbox/agent-teams"
+    },
+    {
+      "u": "/admin/inbox/agents",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inbox/agents"
+    },
+    {
+      "u": "/admin/inbox/conversations",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inbox/conversations"
+    },
+    {
+      "u": "/admin/inbox/email-connector",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inbox/email-connector"
+    },
+    {
+      "u": "/admin/inbox/settings",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inbox/settings"
+    },
+    {
+      "u": "/admin/inbox/teams",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inbox/teams"
+    },
+    {
+      "u": "/admin/inbox/whatsapp-connector",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inbox/whatsapp-connector"
+    },
+    {
+      "u": "/admin/inbox/whatsapp-contacts",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inbox/whatsapp-contacts"
+    },
+    {
+      "u": "/admin/inbox/whatsapp-templates",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inbox/whatsapp-templates"
+    },
+    {
+      "u": "/admin/integrations/channels",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/channels"
+    },
+    {
+      "u": "/admin/integrations/channels/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/channels/new"
+    },
+    {
+      "u": "/admin/integrations/connectors",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/connectors"
+    },
+    {
+      "u": "/admin/integrations/connectors/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/connectors/new"
+    },
+    {
+      "u": "/admin/integrations/dotmac-erp",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/dotmac-erp"
+    },
+    {
+      "u": "/admin/integrations/erpnext",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/erpnext"
+    },
+    {
+      "u": "/admin/integrations/jobs",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/jobs"
+    },
+    {
+      "u": "/admin/integrations/jobs/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/jobs/new"
+    },
+    {
+      "u": "/admin/integrations/providers",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/providers"
+    },
+    {
+      "u": "/admin/integrations/providers/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/providers/new"
+    },
+    {
+      "u": "/admin/integrations/targets",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/targets"
+    },
+    {
+      "u": "/admin/integrations/targets/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/targets/new"
+    },
+    {
+      "u": "/admin/integrations/webhooks",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/webhooks"
+    },
+    {
+      "u": "/admin/integrations/webhooks/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/webhooks/new"
+    },
+    {
+      "u": "/admin/intelligence/insights",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/intelligence/insights"
+    },
+    {
+      "u": "/admin/intelligence/readiness",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/intelligence/readiness"
+    },
+    {
+      "u": "/admin/inventory",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inventory"
+    },
+    {
+      "u": "/admin/inventory/items/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inventory/items/new"
+    },
+    {
+      "u": "/admin/inventory/locations/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inventory/locations/new"
+    },
+    {
+      "u": "/admin/legal",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/legal"
+    },
+    {
+      "u": "/admin/legal/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/legal/new"
+    },
+    {
+      "u": "/admin/live-map",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/live-map"
+    },
+    {
+      "u": "/admin/network/fdh-cabinets",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/network/fdh-cabinets"
+    },
+    {
+      "u": "/admin/network/fdh-cabinets/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/network/fdh-cabinets/new"
+    },
+    {
+      "u": "/admin/network/fiber-change-requests",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/network/fiber-change-requests"
+    },
+    {
+      "u": "/admin/network/fiber-map",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/network/fiber-map"
+    },
+    {
+      "u": "/admin/network/fiber-plant",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/network/fiber-plant"
+    },
+    {
+      "u": "/admin/network/map",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/network/map"
+    },
+    {
+      "u": "/admin/network/pop-sites",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/network/pop-sites"
+    },
+    {
+      "u": "/admin/network/qa/remediations",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/network/qa/remediations"
+    },
+    {
+      "u": "/admin/notifications",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/notifications"
+    },
+    {
+      "u": "/admin/notifications/history",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/notifications/history"
+    },
+    {
+      "u": "/admin/notifications/queue",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/notifications/queue"
+    },
+    {
+      "u": "/admin/notifications/templates",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/notifications/templates"
+    },
+    {
+      "u": "/admin/notifications/templates/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/notifications/templates/new"
+    },
+    {
+      "u": "/admin/operations/dispatch",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/operations/dispatch"
+    },
+    {
+      "u": "/admin/operations/installations",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/operations/installations"
+    },
+    {
+      "u": "/admin/operations/material-requests",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/operations/material-requests"
+    },
+    {
+      "u": "/admin/operations/material-requests/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/operations/material-requests/new"
+    },
+    {
+      "u": "/admin/operations/sales-orders",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/operations/sales-orders"
+    },
+    {
+      "u": "/admin/operations/sales-orders/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/operations/sales-orders/new"
+    },
+    {
+      "u": "/admin/operations/technicians",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/operations/technicians"
+    },
+    {
+      "u": "/admin/operations/work-orders",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/operations/work-orders"
+    },
+    {
+      "u": "/admin/operations/work-orders/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/operations/work-orders/new"
+    },
+    {
+      "u": "/admin/performance",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/performance"
+    },
+    {
+      "u": "/admin/performance/controls",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/performance/controls"
+    },
+    {
+      "u": "/admin/performance/goals",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/performance/goals"
+    },
+    {
+      "u": "/admin/performance/team",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/performance/team"
+    },
+    {
+      "u": "/admin/projects",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/projects"
+    },
+    {
+      "u": "/admin/projects/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/projects/new"
+    },
+    {
+      "u": "/admin/projects/tasks",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/projects/tasks"
+    },
+    {
+      "u": "/admin/projects/tasks/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/projects/tasks/new"
+    },
+    {
+      "u": "/admin/projects/templates",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/projects/templates"
+    },
+    {
+      "u": "/admin/projects/templates/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/projects/templates/new"
+    },
+    {
+      "u": "/admin/reports/agent-performance",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/agent-performance"
+    },
+    {
+      "u": "/admin/reports/churn",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/churn"
+    },
+    {
+      "u": "/admin/reports/crm-performance",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/crm-performance"
+    },
+    {
+      "u": "/admin/reports/ncc",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/ncc"
+    },
+    {
+      "u": "/admin/reports/network",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/network"
+    },
+    {
+      "u": "/admin/reports/operations",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/operations"
+    },
+    {
+      "u": "/admin/reports/operations-sla-violations",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/operations-sla-violations"
+    },
+    {
+      "u": "/admin/reports/project-task-performance",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/project-task-performance"
+    },
+    {
+      "u": "/admin/reports/quarterly",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/quarterly"
+    },
+    {
+      "u": "/admin/reports/revenue-service",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/revenue-service"
+    },
+    {
+      "u": "/admin/reports/subscribers",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/subscribers"
+    },
+    {
+      "u": "/admin/reports/subscribers/billing-risk",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/subscribers/billing-risk"
+    },
+    {
+      "u": "/admin/reports/subscribers/churned",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/subscribers/churned"
+    },
+    {
+      "u": "/admin/reports/subscribers/lifecycle",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/subscribers/lifecycle"
+    },
+    {
+      "u": "/admin/reports/subscribers/online-last-24h",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/subscribers/online-last-24h"
+    },
+    {
+      "u": "/admin/reports/subscribers/overview",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/subscribers/overview"
+    },
+    {
+      "u": "/admin/reports/subscribers/revenue",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/subscribers/revenue"
+    },
+    {
+      "u": "/admin/reports/subscribers/service-quality",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/subscribers/service-quality"
+    },
+    {
+      "u": "/admin/reports/technician",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/reports/technician"
+    },
+    {
+      "u": "/admin/sales",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/sales"
+    },
+    {
+      "u": "/admin/sales/pipeline",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/sales/pipeline"
+    },
+    {
+      "u": "/admin/settings/pipelines",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/settings/pipelines"
+    },
+    {
+      "u": "/admin/settings/pipelines/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/settings/pipelines/new"
+    },
+    {
+      "u": "/admin/subscribers",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/subscribers"
+    },
+    {
+      "u": "/admin/subscribers/billing-risk",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/subscribers/billing-risk"
+    },
+    {
+      "u": "/admin/subscribers/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/subscribers/new"
+    },
+    {
+      "u": "/admin/subscribers/resellers",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/subscribers/resellers"
+    },
+    {
+      "u": "/admin/subscribers/resellers/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/subscribers/resellers/new"
+    },
+    {
+      "u": "/admin/subscribers/resellers/promote",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/subscribers/resellers/promote"
+    },
+    {
+      "u": "/admin/support/tickets",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/support/tickets"
+    },
+    {
+      "u": "/admin/support/tickets/create",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/support/tickets/create"
+    },
+    {
+      "u": "/admin/surveys",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/surveys"
+    },
+    {
+      "u": "/admin/surveys/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/surveys/new"
+    },
+    {
+      "u": "/admin/system",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system"
+    },
+    {
+      "u": "/admin/system/api-keys",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/api-keys"
+    },
+    {
+      "u": "/admin/system/api-keys/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/api-keys/new"
+    },
+    {
+      "u": "/admin/system/audit",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/audit"
+    },
+    {
+      "u": "/admin/system/automations",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/automations"
+    },
+    {
+      "u": "/admin/system/automations/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/automations/new"
+    },
+    {
+      "u": "/admin/system/configuration",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/configuration"
+    },
+    {
+      "u": "/admin/system/health",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/health"
+    },
+    {
+      "u": "/admin/system/permissions",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/permissions"
+    },
+    {
+      "u": "/admin/system/permissions/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/permissions/new"
+    },
+    {
+      "u": "/admin/system/roles",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/roles"
+    },
+    {
+      "u": "/admin/system/roles/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/roles/new"
+    },
+    {
+      "u": "/admin/system/scheduler",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/scheduler"
+    },
+    {
+      "u": "/admin/system/settings",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/settings"
+    },
+    {
+      "u": "/admin/system/settings/campaign-smtp",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/settings/campaign-smtp"
+    },
+    {
+      "u": "/admin/system/settings/domain-numbering",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/settings/domain-numbering"
+    },
+    {
+      "u": "/admin/system/teams",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/teams"
+    },
+    {
+      "u": "/admin/system/teams/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/teams/new"
+    },
+    {
+      "u": "/admin/system/users",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/users"
+    },
+    {
+      "u": "/admin/system/users/profile",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/users/profile"
+    },
+    {
+      "u": "/admin/system/webhooks",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/webhooks"
+    },
+    {
+      "u": "/admin/system/webhooks/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/webhooks/new"
+    },
+    {
+      "u": "/admin/system/workflow",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/workflow"
+    },
+    {
+      "u": "/admin/system/workqueue",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/workqueue"
+    },
+    {
+      "u": "/admin/user-guide",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/user-guide"
+    },
+    {
+      "u": "/admin/user-guide/full",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/user-guide/full"
+    },
+    {
+      "u": "/admin/vendors",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/vendors"
+    },
+    {
+      "u": "/admin/vendors/as-built",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/vendors/as-built"
+    },
+    {
+      "u": "/admin/vendors/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/vendors/new"
+    },
+    {
+      "u": "/admin/vendors/projects",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/vendors/projects"
+    },
+    {
+      "u": "/admin/vendors/purchase-invoices",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/vendors/purchase-invoices"
+    },
+    {
+      "u": "/admin/vendors/quotes",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/vendors/quotes"
+    },
+    {
+      "u": "/admin/widget",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/widget"
+    },
+    {
+      "u": "/admin/widget/new",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/widget/new"
+    },
+    {
+      "u": "/admin/contacts/4910cc11-0728-43b2-80fb-58397e4db1e5",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/contacts/4910cc11-0728-43b2-80fb-58397e4db1e5"
+    },
+    {
+      "u": "/admin/contacts/4910cc11-0728-43b2-80fb-58397e4db1e5/edit",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/contacts/4910cc11-0728-43b2-80fb-58397e4db1e5/edit"
+    },
+    {
+      "u": "/admin/data-quality/people",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/data-quality/people"
+    },
+    {
+      "u": "/admin/inbox/contact/4910cc11-0728-43b2-80fb-58397e4db1e5",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inbox/contact/4910cc11-0728-43b2-80fb-58397e4db1e5"
+    },
+    {
+      "u": "/admin/inventory/items/3627b225-b752-4199-ab5d-42982553d7cd",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inventory/items/3627b225-b752-4199-ab5d-42982553d7cd"
+    },
+    {
+      "u": "/admin/inventory/items/3627b225-b752-4199-ab5d-42982553d7cd/edit",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/inventory/items/3627b225-b752-4199-ab5d-42982553d7cd/edit"
+    },
+    {
+      "u": "/admin/leads/8c99db98-d364-4e62-92b7-e4a5d9bd2fc0",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/leads/8c99db98-d364-4e62-92b7-e4a5d9bd2fc0"
+    },
+    {
+      "u": "/admin/leads/8c99db98-d364-4e62-92b7-e4a5d9bd2fc0/edit",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/leads/8c99db98-d364-4e62-92b7-e4a5d9bd2fc0/edit"
+    },
+    {
+      "u": "/admin/operations/material-requests/b4b5e82c-93de-48f1-a6d4-c1ee416b61a5",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/operations/material-requests/b4b5e82c-93de-48f1-a6d4-c1ee416b61a5"
+    },
+    {
+      "u": "/admin/operations/material-requests/b4b5e82c-93de-48f1-a6d4-c1ee416b61a5/edit",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/operations/material-requests/b4b5e82c-93de-48f1-a6d4-c1ee416b61a5/edit"
+    },
+    {
+      "u": "/admin/projects/PROJ-12",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/projects/PROJ-12"
+    },
+    {
+      "u": "/admin/projects/PROJ-12/edit",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/projects/PROJ-12/edit"
+    },
+    {
+      "u": "/admin/support/tickets/34",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/support/tickets/34"
+    },
+    {
+      "u": "/admin/support/tickets/34/edit",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/support/tickets/34/edit"
+    },
+    {
+      "u": "/admin/system/users/834d8aad-4c09-4952-af28-eb89f0200e7a",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/users/834d8aad-4c09-4952-af28-eb89f0200e7a"
+    },
+    {
+      "u": "/admin/system/users/834d8aad-4c09-4952-af28-eb89f0200e7a/edit",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/system/users/834d8aad-4c09-4952-af28-eb89f0200e7a/edit"
+    },
+    {
+      "u": "/admin/tickets/34",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/tickets/34"
+    },
+    {
+      "u": "/admin/tickets/34/edit",
+      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/tickets/34/edit"
+    }
+  ]
+}

@@ -567,6 +567,13 @@ async def static_cache_middleware(request: Request, call_next):
     return response
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    # Browsers auto-request /favicon.ico; redirect to the shipped SVG to avoid
+    # app-wide 404 noise (NOTE-042).
+    return RedirectResponse(url="/static/favicon.svg", status_code=308)
+
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
