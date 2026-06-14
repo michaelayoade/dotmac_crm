@@ -716,7 +716,10 @@ def seed_workflow_settings(db: Session) -> None:
         db,
         key="ticket_auto_assign_max_open_tickets",
         value_type=SettingValueType.integer,
-        value_text=os.getenv("TICKET_AUTO_ASSIGN_MAX_OPEN_TICKETS"),
+        # Empty string (not None) keeps "no limit" semantics while satisfying the
+        # non-json value_text requirement; passing None crashed startup on a fresh
+        # DB (BUG-002).
+        value_text=os.getenv("TICKET_AUTO_ASSIGN_MAX_OPEN_TICKETS", ""),
     )
 
 

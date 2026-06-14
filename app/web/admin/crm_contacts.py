@@ -45,6 +45,21 @@ templates = Jinja2Templates(directory="templates")
 logger = get_logger(__name__)
 
 
+def _friendly_validation_error(exc: Exception, fallback: str) -> str:
+    """Turn a pydantic ValidationError into a user-facing message without leaking
+    the schema class name / type tags (BUG-151)."""
+    if isinstance(exc, ValidationError):
+        parts = []
+        for err in exc.errors():
+            loc = err.get("loc") or ()
+            field = str(loc[-1]).replace("_", " ").strip().title() if loc else "Field"
+            msg = err.get("msg") or "is invalid"
+            parts.append(f"{field}: {msg}")
+        if parts:
+            return "; ".join(parts)
+    return str(exc) or fallback
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -376,7 +391,7 @@ def crm_contact_create(
         return RedirectResponse(url="/admin/crm/contacts", status_code=303)
     except (ValidationError, ValueError) as exc:
         db.rollback()
-        error = str(exc) or "Unable to save contact."
+        error = _friendly_validation_error(exc, "Unable to save contact.")
         logger.exception(
             "contact_create_validation_failed display_name=%s phones=%s whatsapp_phones=%s emails=%s request_id=%s",
             (display_name or "").strip(),
@@ -466,7 +481,7 @@ def crm_contact_update(
         return RedirectResponse(url="/admin/crm/contacts", status_code=303)
     except (ValidationError, ValueError) as exc:
         db.rollback()
-        error = str(exc) or "Unable to save contact."
+        error = _friendly_validation_error(exc, "Unable to save contact.")
         logger.exception(
             "contact_update_validation_failed contact_id=%s phones=%s whatsapp_phones=%s emails=%s",
             contact_id,
