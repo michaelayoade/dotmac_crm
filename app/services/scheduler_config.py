@@ -262,6 +262,21 @@ def build_beat_schedule() -> dict:
             interval_seconds=3600,
         )
 
+        ncc_report_email_enabled = _effective_bool(
+            session,
+            SettingDomain.notification,
+            "ncc_report_email_enabled",
+            "NCC_REPORT_EMAIL_ENABLED",
+            False,
+        )
+        _sync_scheduled_task(
+            session,
+            name="ncc_report_email",
+            task_name="app.tasks.reports.send_scheduled_ncc_report",
+            enabled=ncc_report_email_enabled,
+            interval_seconds=300,
+        )
+
         billing_risk_cache_enabled = _effective_bool(
             session,
             SettingDomain.scheduler,

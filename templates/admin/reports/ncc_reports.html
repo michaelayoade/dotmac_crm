@@ -4,6 +4,31 @@
 {% block title %}NCC Reports - Admin{% endblock %}
 
 {% block content %}
+<style>
+    .ncc-automation-field,
+    .ncc-automation-field:focus,
+    .ncc-automation-field:active {
+        background-color: #ffffff !important;
+        color: #020617 !important;
+        caret-color: #4f46e5 !important;
+        -webkit-text-fill-color: #020617 !important;
+    }
+
+    .dark .ncc-automation-field,
+    .dark .ncc-automation-field:focus,
+    .dark .ncc-automation-field:active {
+        background-color: #0f172a !important;
+        color: #f8fafc !important;
+        caret-color: #a5b4fc !important;
+        -webkit-text-fill-color: #f8fafc !important;
+        color-scheme: dark;
+    }
+
+    .dark .ncc-automation-field::placeholder {
+        color: #94a3b8 !important;
+        -webkit-text-fill-color: #94a3b8 !important;
+    }
+</style>
 <div class="space-y-6">
     {{ page_header("NCC Reports", "Complaint intake and regulatory reporting table for NCC submissions.", color="indigo", color2="blue") }}
 
@@ -18,9 +43,86 @@
                 <input type="date" name="end_date" value="{{ window_end }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
             </div>
             <div class="md:col-span-2 flex items-center gap-2 md:justify-end">
-                <a href="/admin/reports/ncc/export?start_date={{ window_start }}&end_date={{ window_end }}" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Download CSV</a>
+                <a href="/admin/reports/ncc/export?start_date={{ window_start }}&end_date={{ window_end }}" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Download XLSX</a>
                 <a href="/admin/reports/ncc" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Reset</a>
                 <button type="submit" class="inline-flex items-center rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Apply</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <form method="post" action="/admin/reports/ncc/email-settings" class="space-y-4">
+            <input type="hidden" name="next_url" value="/admin/reports/ncc?start_date={{ window_start }}&end_date={{ window_end }}">
+            <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <h2 class="text-base font-semibold text-slate-900 dark:text-white">Weekly email automation</h2>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                        Sends the same NCC XLSX export in the selected lookback window.
+                    </p>
+                </div>
+                <label class="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+                    <input type="checkbox" name="enabled" value="true" {% if ncc_email_settings.enabled %}checked{% endif %} class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
+                    Enabled
+                </label>
+            </div>
+
+            <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                <div>
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Recipient Email</label>
+                    <input type="email" name="recipient_email" value="{{ ncc_email_settings.recipient_email }}" placeholder="name@example.com" class="ncc-automation-field block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 caret-indigo-600 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:caret-indigo-300 dark:focus:bg-slate-900">
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">CC</label>
+                    <input type="text" name="cc" value="{{ ncc_email_settings.cc }}" placeholder="optional@example.com" class="ncc-automation-field block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 caret-indigo-600 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:caret-indigo-300 dark:focus:bg-slate-900">
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">BCC</label>
+                    <input type="text" name="bcc" value="{{ ncc_email_settings.bcc }}" placeholder="optional@example.com" class="ncc-automation-field block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 caret-indigo-600 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:caret-indigo-300 dark:focus:bg-slate-900">
+                </div>
+                <div class="lg:col-span-3">
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From Name</label>
+                    <input type="text" name="from_name" value="{{ ncc_email_settings.from_name }}" placeholder="Aisha Ibrahim" class="ncc-automation-field block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 caret-indigo-600 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:caret-indigo-300 dark:focus:bg-slate-900">
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Controls the visible sender name while still using the configured support mailbox.</p>
+                </div>
+                <div class="lg:col-span-3">
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Subject</label>
+                    <input type="text" name="subject" value="{{ ncc_email_settings.subject }}" class="ncc-automation-field block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 caret-indigo-600 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:caret-indigo-300 dark:focus:bg-slate-900">
+                </div>
+                <div class="lg:col-span-3">
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Email Body</label>
+                    <textarea name="body_template" rows="4" class="ncc-automation-field block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 caret-indigo-600 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:caret-indigo-300 dark:focus:bg-slate-900">{{ ncc_email_settings.body_template }}</textarea>
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Send Time</label>
+                    <input type="time" name="local_time" value="{{ ncc_email_settings.local_time }}" class="ncc-automation-field block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 caret-indigo-600 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:caret-indigo-300 dark:focus:bg-slate-900">
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Send Day</label>
+                    <select name="send_day" class="ncc-automation-field block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 caret-indigo-600 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:caret-indigo-300 dark:focus:bg-slate-900">
+                        {% for day in ncc_email_settings.send_day_options %}
+                        <option value="{{ day }}" {% if ncc_email_settings.send_day == day %}selected{% endif %}>{{ day | title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Timezone</label>
+                    <input type="text" name="timezone" value="{{ ncc_email_settings.timezone }}" class="ncc-automation-field block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 caret-indigo-600 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:caret-indigo-300 dark:focus:bg-slate-900">
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Lookback Days</label>
+                    <input type="number" min="1" max="366" name="lookback_days" value="{{ ncc_email_settings.lookback_days }}" class="ncc-automation-field block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 caret-indigo-600 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:caret-indigo-300 dark:focus:bg-slate-900">
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <p class="text-xs text-slate-500 dark:text-slate-400">
+                    {% if ncc_email_settings.last_sent_local_date %}
+                    Last sent: {{ ncc_email_settings.last_sent_local_date }}
+                    {% else %}
+                    Last sent: never
+                    {% endif %}
+                </p>
+                <button type="submit" class="inline-flex items-center justify-center rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Save automation</button>
             </div>
         </form>
     </section>
