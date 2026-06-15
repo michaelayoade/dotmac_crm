@@ -1,11 +1,12 @@
-import tomllib
 from pathlib import Path
 
-from app.version import get_app_version
+from app.version import FALLBACK_VERSION, get_app_version, tomllib
 from app.web.templates import Jinja2Templates
 
 
 def _pyproject_version() -> str:
+    if tomllib is None:
+        return FALLBACK_VERSION
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
     data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
     return str(data["tool"]["poetry"]["version"])
