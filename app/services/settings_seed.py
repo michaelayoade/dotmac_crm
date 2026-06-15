@@ -476,6 +476,83 @@ def seed_notification_settings(db: Session) -> None:
         value_type=SettingValueType.string,
         value_text="",
     )
+    ncc_report_email_enabled_raw = os.getenv("NCC_REPORT_EMAIL_ENABLED", "false")
+    notification_settings.ensure_by_key(
+        db,
+        key="ncc_report_email_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=ncc_report_email_enabled_raw,
+        value_json=ncc_report_email_enabled_raw.lower() in {"1", "true", "yes", "on"},
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="ncc_report_email_to",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("NCC_REPORT_EMAIL_TO", ""),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="ncc_report_email_cc",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("NCC_REPORT_EMAIL_CC", ""),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="ncc_report_email_bcc",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("NCC_REPORT_EMAIL_BCC", ""),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="ncc_report_email_from_name",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("NCC_REPORT_EMAIL_FROM_NAME", ""),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="ncc_report_email_subject",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("NCC_REPORT_EMAIL_SUBJECT", "Weekly NCC Report"),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="ncc_report_email_body_template",
+        value_type=SettingValueType.string,
+        value_text=os.getenv(
+            "NCC_REPORT_EMAIL_BODY_TEMPLATE",
+            "Please find attached the NCC report for the last {lookback_days} day(s).\nRows included: {row_count}.",
+        ),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="ncc_report_email_local_time",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("NCC_REPORT_EMAIL_LOCAL_TIME", "08:00"),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="ncc_report_email_timezone",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("NCC_REPORT_EMAIL_TIMEZONE", "Africa/Lagos"),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="ncc_report_email_send_day",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("NCC_REPORT_EMAIL_SEND_DAY", "monday"),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="ncc_report_email_lookback_days",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("NCC_REPORT_EMAIL_LOOKBACK_DAYS", "7"),
+    )
+    notification_settings.ensure_by_key(
+        db,
+        key="ncc_report_email_last_sent_local_date",
+        value_type=SettingValueType.string,
+        value_text="",
+    )
 
 
 def seed_geocoding_settings(db: Session) -> None:

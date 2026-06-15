@@ -1434,9 +1434,12 @@ def ncc_reports_page(
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
 ):
+    from app.services import ncc_report_email as ncc_report_email_service
+
     user = get_current_user(request)
     start_dt, end_dt, start_value, end_value = _parse_ncc_window(start_date, end_date)
     records = _build_ncc_records(db, start_dt, end_dt)
+    ncc_email_settings = ncc_report_email_service.get_settings_snapshot(db)
 
     return templates.TemplateResponse(
         "admin/reports/ncc_reports.html",
@@ -1451,7 +1454,60 @@ def ncc_reports_page(
             "records": records,
             "window_start": start_value,
             "window_end": end_value,
+            "ncc_email_settings": ncc_email_settings,
         },
+    )
+
+
+@router.post(
+    "/ncc/email-settings",
+    dependencies=[Depends(require_any_permission("reports:operations", "reports"))],
+)
+def ncc_reports_save_email_settings(
+    enabled: str | None = Form(None),
+    recipient_email: str = Form(""),
+    cc: str = Form(""),
+    bcc: str = Form(""),
+    from_name: str = Form(""),
+    subject: str = Form("Weekly NCC Report"),
+    body_template: str = Form(""),
+    local_time: str = Form("08:00"),
+    timezone: str = Form("Africa/Lagos"),
+    send_day: str = Form("monday"),
+    lookback_days: int = Form(7),
+    next_url: str = Form("/admin/reports/ncc"),
+    db: Session = Depends(get_db),
+):
+    from app.services import ncc_report_email as ncc_report_email_service
+
+    if not next_url.startswith("/admin/reports/ncc"):
+        next_url = "/admin/reports/ncc"
+
+    try:
+        ncc_report_email_service.save_email_settings(
+            db,
+            enabled=str(enabled or "").strip().lower() in {"1", "true", "yes", "on"},
+            recipient_email=recipient_email,
+            cc=cc,
+            bcc=bcc,
+            from_name=from_name,
+            subject=subject,
+            body_template=body_template,
+            local_time=local_time,
+            timezone=timezone,
+            send_day=send_day,
+            lookback_days=lookback_days,
+        )
+    except Exception as exc:
+        db.rollback()
+        detail = getattr(exc, "detail", None) or str(exc)
+        return _toast_redirect(next_url, message=str(detail), toast_type="error", status_code=303)
+
+    return _toast_redirect(
+        next_url,
+        message="NCC report email automation settings saved. The scheduler checks every 5 minutes and sends once per week on the selected day after the selected time.",
+        toast_type="success",
+        status_code=303,
     )
 
 
