@@ -1,15 +1,15 @@
 """Add missing ERP material status to material requests.
 
-Revision ID: zq4b5c6d7e8f
-Revises: zp3a4b5c6d7e
+Revision ID: mr2026061002
+Revises: mr2026061001
 Create Date: 2026-06-10 14:20:00.000000
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "zq4b5c6d7e8f"
-down_revision = "zp3a4b5c6d7e"
+revision = "mr2026061002"
+down_revision = "mr2026061001"
 branch_labels = None
 depends_on = None
 

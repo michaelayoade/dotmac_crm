@@ -1,7 +1,7 @@
 """Add ERP sync tracking fields to material requests.
 
-Revision ID: zp3a4b5c6d7e
-Revises: zo2f3a4b5c6d
+Revision ID: mr2026061001
+Revises: a1b2c3d4e5f8
 Create Date: 2026-06-10 00:00:00.000000
 """
 
@@ -9,8 +9,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "zp3a4b5c6d7e"
-down_revision = "zo2f3a4b5c6d"
+revision = "mr2026061001"
+down_revision = "a1b2c3d4e5f8"
 branch_labels = None
 depends_on = None
 
