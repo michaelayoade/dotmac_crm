@@ -326,6 +326,42 @@ class TestFactory:
             dotmac_erp_material_request_sync(db_session)
 
 
+class TestAvailableSerialsClient:
+    def test_list_available_serials_sends_search_pagination_params(self, monkeypatch):
+        from app.services.dotmac_erp.client import DotMacERPClient
+
+        client = DotMacERPClient(base_url="https://erp.example.test", token="token")
+        captured: dict[str, object] = {}
+
+        def fake_request(method, path, params=None, **kwargs):
+            captured["method"] = method
+            captured["path"] = path
+            captured["params"] = params
+            captured["kwargs"] = kwargs
+            return {"track_serial_numbers": True, "serials": [], "has_more": False}
+
+        monkeypatch.setattr(client, "_request", fake_request)
+
+        result = client.list_available_serials(
+            item_code="ONT-001",
+            warehouse_code="Stores - DT",
+            limit=50,
+            offset=100,
+            search="SN-123",
+        )
+
+        assert result["track_serial_numbers"] is True
+        assert captured["method"] == "GET"
+        assert captured["path"] == "/api/v1/sync/crm/inventory/serials/available"
+        assert captured["params"] == {
+            "item_code": "ONT-001",
+            "warehouse_code": "Stores - DT",
+            "limit": 50,
+            "offset": 100,
+            "search": "SN-123",
+        }
+
+
 class TestMaterialRequestSyncTask:
     def test_task_marks_synced_and_records_stats(self, db_session, full_mr, monkeypatch):
         from app.tasks.integrations import sync_material_request_to_erp

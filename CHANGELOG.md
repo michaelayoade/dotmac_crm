@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Material Requests**: Searchable, paginated ERP serial picker during issue approval, with backend revalidation for large ERP serial pools.
+
+### Changed
+- **Material Requests**: Issued requests awaiting ERP confirmation now display an explicit “Awaiting ERP issue” state and ERP pending issue filter.
+
 ---
 
 ## [2026-02-28]

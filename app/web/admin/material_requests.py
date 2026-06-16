@@ -1,16 +1,24 @@
 """Admin material request management web routes."""
 
-from datetime import date
+import csv
+import io
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy.orm import Session
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from sqlalchemy.orm import Session, selectinload
 
 from app.csrf import get_csrf_token
 from app.db import SessionLocal
 from app.models.auth import UserCredential
 from app.models.inventory import InventoryLocation
-from app.models.material_request import MaterialRequestPriority
+from app.models.material_request import (
+    MaterialRequest,
+    MaterialRequestERPSyncStatus,
+    MaterialRequestItem,
+    MaterialRequestPriority,
+    MaterialRequestStatus,
+)
 from app.models.person import Person
 from app.schemas.material_request import (
     MaterialRequestCreate,
@@ -102,6 +110,119 @@ def _parse_serial_number_form(form) -> dict[str, list[str] | str]:
     return serials_by_item
 
 
+def _csv_response(data: list[dict[str, str]], filename: str) -> Response:
+    output = io.StringIO()
+    if data:
+        writer = csv.DictWriter(output, fieldnames=list(data[0].keys()))
+        writer.writeheader()
+        writer.writerows(data)
+    else:
+        output.write("No data available\n")
+    output.seek(0)
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _export_value(value: object | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value)
+    return str(value).strip()
+
+
+def _person_name(person: Person | None) -> str:
+    if person is None:
+        return ""
+    name = " ".join(part for part in [person.first_name, person.last_name] if part).strip()
+    return name or person.email or str(person.id)
+
+
+def _normalize_material_request_status(value: str | None) -> str | None:
+    normalized = (value or "").strip().lower().replace("cancelled", "canceled")
+    if not normalized or normalized == "all":
+        return None
+    return normalized
+
+
+def _material_request_status_label(status: MaterialRequestStatus | None) -> str:
+    if status is None:
+        return ""
+    if status == MaterialRequestStatus.canceled:
+        return "Cancelled"
+    return status.value.title()
+
+
+def _material_request_export_rows(requests: list[MaterialRequest]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for mr in requests:
+        base_row = {
+            "Request ID": _export_value(mr.id),
+            "Request Number": _export_value(mr.number),
+            "Status": _export_value(_material_request_status_label(mr.status)),
+            "Priority": _export_value(mr.priority.value.title() if mr.priority else ""),
+            "Requested By": _person_name(mr.requested_by),
+            "Requested By ID": _export_value(mr.requested_by_person_id),
+            "Approved By": _person_name(mr.approved_by),
+            "Collected By": _person_name(mr.collected_by),
+            "Number of Items": _export_value(len(mr.items or [])),
+            "Created Date": _export_value(mr.created_at),
+            "Submitted Date": _export_value(mr.submitted_at),
+            "Approved Date": _export_value(mr.approved_at),
+            "Rejected Date": _export_value(mr.rejected_at),
+            "Fulfilled Date": _export_value(mr.fulfilled_at),
+            "Ticket ID": _export_value(mr.ticket_id),
+            "Ticket Number": _export_value(mr.ticket.number if mr.ticket else ""),
+            "Ticket Title": _export_value(mr.ticket.title if mr.ticket else ""),
+            "Project ID": _export_value(mr.project_id),
+            "Project Number": _export_value(mr.project.number if mr.project else ""),
+            "Project Name": _export_value(mr.project.name if mr.project else ""),
+            "Work Order ID": _export_value(mr.work_order_id),
+            "Work Order Title": _export_value(mr.work_order.title if mr.work_order else ""),
+            "Source Warehouse": _export_value(mr.source_location.name if mr.source_location else ""),
+            "Destination Warehouse": _export_value(mr.destination_location.name if mr.destination_location else ""),
+            "Notes": _export_value(mr.notes),
+        }
+        if not mr.items:
+            rows.append(
+                {
+                    **base_row,
+                    "Line Item ID": "",
+                    "Item ID": "",
+                    "Item SKU": "",
+                    "Item Name": "",
+                    "Item Description": "",
+                    "Unit": "",
+                    "Quantity": "",
+                    "Line Notes": "",
+                    "Serial Numbers": "",
+                }
+            )
+            continue
+        for line in mr.items:
+            item = line.item
+            rows.append(
+                {
+                    **base_row,
+                    "Line Item ID": _export_value(line.id),
+                    "Item ID": _export_value(line.item_id),
+                    "Item SKU": _export_value(item.sku if item else ""),
+                    "Item Name": _export_value(item.name if item else ""),
+                    "Item Description": _export_value(item.description if item else ""),
+                    "Unit": _export_value(item.unit if item else ""),
+                    "Quantity": _export_value(line.quantity),
+                    "Line Notes": _export_value(line.notes),
+                    "Serial Numbers": _export_value(line.serial_numbers),
+                }
+            )
+    return rows
+
+
 @router.get("", response_class=HTMLResponse)
 def material_request_list(
     request: Request,
@@ -150,6 +271,68 @@ def material_request_list(
         filter_date_to=date_to or "",
     )
     return templates.TemplateResponse("admin/material_requests/index.html", context)
+
+
+@router.get("/export.csv")
+def material_request_export_csv(
+    status: str | None = None,
+    erp_status: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    ticket_id: str | None = None,
+    project_id: str | None = None,
+    db: Session = Depends(get_db),
+):
+    selected_status = _normalize_material_request_status(status)
+    selected_erp_status = (erp_status or "").strip().lower().replace("-", "_").replace(" ", "_") or None
+    if selected_erp_status == "all":
+        selected_erp_status = None
+
+    selected_date_from = _resolve_date(date_from)
+    selected_date_to = _resolve_date(date_to)
+    if not (selected_date_from and selected_date_to):
+        selected_date_from = None
+        selected_date_to = None
+
+    query = db.query(MaterialRequest).options(
+        selectinload(MaterialRequest.items).selectinload(MaterialRequestItem.item),
+        selectinload(MaterialRequest.requested_by),
+        selectinload(MaterialRequest.approved_by),
+        selectinload(MaterialRequest.collected_by),
+        selectinload(MaterialRequest.ticket),
+        selectinload(MaterialRequest.project),
+        selectinload(MaterialRequest.work_order),
+        selectinload(MaterialRequest.source_location),
+        selectinload(MaterialRequest.destination_location),
+    )
+    query = query.filter(MaterialRequest.is_active.is_(True))
+    if selected_status:
+        try:
+            query = query.filter(MaterialRequest.status == MaterialRequestStatus(selected_status))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid material request status") from exc
+    if selected_erp_status:
+        if selected_erp_status in {item.value for item in MaterialRequestERPSyncStatus}:
+            query = query.filter(MaterialRequest.erp_sync_status == MaterialRequestERPSyncStatus(selected_erp_status))
+        else:
+            query = query.filter(MaterialRequest.erp_material_status == selected_erp_status)
+    if ticket_id:
+        query = query.filter(MaterialRequest.ticket_id == coerce_uuid(ticket_id))
+    if project_id:
+        query = query.filter(MaterialRequest.project_id == coerce_uuid(project_id))
+    if selected_date_from and selected_date_to:
+        if selected_date_from > selected_date_to:
+            raise HTTPException(status_code=400, detail="From date must be before or equal to To date")
+        start_dt = datetime.combine(selected_date_from, datetime.min.time(), tzinfo=UTC)
+        end_dt = datetime.combine(selected_date_to, datetime.max.time(), tzinfo=UTC)
+        query = query.filter(MaterialRequest.created_at >= start_dt)
+        query = query.filter(MaterialRequest.created_at <= end_dt)
+
+    requests = query.order_by(MaterialRequest.created_at.desc()).all()
+    rows = _material_request_export_rows(requests)
+    status_part = selected_status or "all_statuses"
+    filename = f"material_requests_{status_part}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
+    return _csv_response(rows, filename)
 
 
 @router.get("/new", response_class=HTMLResponse)
@@ -276,6 +459,7 @@ def material_request_available_serials(
     warehouse_code: str = Query(..., min_length=1),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
+    search: str | None = Query(None, max_length=120),
     db: Session = Depends(get_db),
 ):
     from app.services.dotmac_erp import DotMacERPError
@@ -292,6 +476,7 @@ def material_request_available_serials(
             warehouse_code=warehouse_code,
             limit=limit,
             offset=offset,
+            search=(search or "").strip() or None,
         )
         return JSONResponse(data)
     except DotMacERPError as exc:

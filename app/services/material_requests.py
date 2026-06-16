@@ -249,6 +249,27 @@ def _validate_serial_numbers_in_erp(db: Session, mr: MaterialRequest, source_loc
                         status_code=400,
                         detail=f"Serial number(s) not available in ERP: {', '.join(missing)}",
                     )
+            else:
+                missing: list[str] = []
+                for serial in selected:
+                    serial_data = sync_service.client.list_available_serials(
+                        item_code=item_code,
+                        warehouse_code=warehouse_code,
+                        limit=20,
+                        search=serial,
+                    )
+                    available_serials = {
+                        str(entry.get("serial_number") or "").strip().lower()
+                        for entry in serial_data.get("serials", [])
+                        if isinstance(entry, dict)
+                    }
+                    if serial.lower() not in available_serials:
+                        missing.append(serial)
+                if missing:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Serial number(s) not available in ERP: {', '.join(missing)}",
+                    )
     except DotMacERPError as exc:
         raise HTTPException(
             status_code=502,
