@@ -1,11 +1,16 @@
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
 
 from app.models.inventory import InventoryItem, InventoryLocation
-from app.models.material_request import MaterialRequest, MaterialRequestPriority, MaterialRequestStatus
+from app.models.material_request import (
+    MaterialRequest,
+    MaterialRequestERPSyncStatus,
+    MaterialRequestPriority,
+    MaterialRequestStatus,
+)
 from app.schemas.material_request import (
     MaterialRequestCreate,
     MaterialRequestItemCreate,
@@ -48,6 +53,48 @@ class TestMaterialRequestCRUD:
         assert mr.submitted_at is not None
         assert mr.ticket_id == ticket.id
         assert mr.requested_by_person_id == person.id
+        assert mr.erp_sync_status is None
+        assert mr.erp_sync_error is None
+        assert mr.erp_synced_at is None
+        assert mr.erp_sync_attempts == 0
+
+    def test_create_requires_ticket_or_project(self, db_session, person):
+        payload = MaterialRequestCreate(requested_by_person_id=person.id)
+
+        with pytest.raises(HTTPException) as exc:
+            material_requests.create(db_session, payload)
+
+        assert exc.value.status_code == 400
+        assert "ticket or" in str(exc.value.detail).lower()
+
+    def test_create_rejects_same_source_and_destination(
+        self,
+        db_session,
+        person,
+        ticket,
+        inventory_location,
+    ):
+        payload = MaterialRequestCreate(
+            ticket_id=ticket.id,
+            requested_by_person_id=person.id,
+            source_location_id=inventory_location.id,
+            destination_location_id=inventory_location.id,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            material_requests.create(db_session, payload)
+
+        assert exc.value.status_code == 400
+        assert "cannot be the same" in str(exc.value.detail)
+
+    def test_erp_sync_status_values(self):
+        assert [status.value for status in MaterialRequestERPSyncStatus] == [
+            "pending",
+            "synced",
+            "failed",
+            "retrying",
+            "not_configured",
+        ]
 
     def test_create_assigns_generated_number(self, db_session, person, ticket):
         with patch("app.services.material_requests.generate_number", return_value="MR-0001"):
@@ -68,6 +115,21 @@ class TestMaterialRequestCRUD:
         )
         assert len(mr.items) == 1
         assert mr.items[0].quantity == 3
+
+    def test_create_with_item_serial_numbers(self, db_session, person, ticket, inventory_item):
+        mr = _make_mr(
+            db_session,
+            person,
+            ticket,
+            items=[
+                MaterialRequestItemCreate(
+                    item_id=inventory_item.id,
+                    quantity=2,
+                    serial_numbers=["ONT-001", "ONT-002"],
+                )
+            ],
+        )
+        assert mr.items[0].serial_numbers == ["ONT-001", "ONT-002"]
 
     def test_get(self, db_session, person, ticket):
         mr = _make_mr(db_session, person, ticket)
@@ -125,6 +187,32 @@ class TestMaterialRequestCRUD:
         assert in_range.id in item_ids
         assert out_of_status.id not in item_ids
 
+    def test_list_by_erp_material_status(self, db_session, person, ticket):
+        pending_stock = _make_mr(db_session, person, ticket)
+        synced = _make_mr(db_session, person, ticket)
+        pending_stock.erp_material_status = "pending_stock"
+        synced.erp_sync_status = MaterialRequestERPSyncStatus.synced
+        db_session.commit()
+
+        items = material_requests.list(db_session, erp_status="pending stock")
+
+        item_ids = {item.id for item in items}
+        assert pending_stock.id in item_ids
+        assert synced.id not in item_ids
+
+    def test_list_by_erp_sync_status(self, db_session, person, ticket):
+        failed = _make_mr(db_session, person, ticket)
+        pending_stock = _make_mr(db_session, person, ticket)
+        failed.erp_sync_status = MaterialRequestERPSyncStatus.failed
+        pending_stock.erp_material_status = "pending_stock"
+        db_session.commit()
+
+        items = material_requests.list(db_session, erp_status="failed")
+
+        item_ids = {item.id for item in items}
+        assert failed.id in item_ids
+        assert pending_stock.id not in item_ids
+
     def test_list_by_ticket(self, db_session, person, ticket):
         _make_mr(db_session, person, ticket)
         items = material_requests.list(db_session, ticket_id=str(ticket.id))
@@ -158,32 +246,36 @@ class TestMaterialRequestStatusTransitions:
 
     def test_approve(self, db_session, person, ticket, inventory_location):
         mr = _make_mr(db_session, person, ticket)
-        approved = material_requests.approve(
-            db_session,
-            str(mr.id),
-            str(person.id),
-            source_location_id=str(inventory_location.id),
-        )
+        with patch("app.tasks.integrations.sync_material_request_to_erp.delay"):
+            approved = material_requests.approve(
+                db_session,
+                str(mr.id),
+                str(person.id),
+                source_location_id=str(inventory_location.id),
+            )
         assert approved.status == MaterialRequestStatus.issued
         assert approved.approved_at is not None
         assert approved.approved_by_person_id == person.id
         assert approved.source_location_id == inventory_location.id
+        assert approved.erp_sync_status == MaterialRequestERPSyncStatus.pending
+        assert approved.erp_sync_error is None
 
     def test_approve_sets_collected_by(self, db_session, person, ticket, inventory_location):
         mr = _make_mr(db_session, person, ticket)
-        approved = material_requests.approve(
-            db_session,
-            str(mr.id),
-            str(person.id),
-            source_location_id=str(inventory_location.id),
-            collected_by_person_id=str(person.id),
-        )
+        with patch("app.tasks.integrations.sync_material_request_to_erp.delay"):
+            approved = material_requests.approve(
+                db_session,
+                str(mr.id),
+                str(person.id),
+                source_location_id=str(inventory_location.id),
+                collected_by_person_id=str(person.id),
+            )
         assert approved.collected_by_person_id == person.id
 
     def test_approve_enqueues_erp_sync(self, db_session, person, ticket, inventory_location):
         mr = _make_mr(db_session, person, ticket)
         with patch("app.tasks.integrations.sync_material_request_to_erp.delay") as delay_mock:
-            material_requests.approve(
+            approved = material_requests.approve(
                 db_session,
                 str(mr.id),
                 str(person.id),
@@ -191,6 +283,145 @@ class TestMaterialRequestStatusTransitions:
             )
 
         delay_mock.assert_called_once_with(str(mr.id))
+        assert approved.erp_sync_status == MaterialRequestERPSyncStatus.pending
+
+    def test_approve_saves_selected_serial_numbers(
+        self, db_session, person, ticket, inventory_item, inventory_location
+    ):
+        mr = _make_mr(
+            db_session,
+            person,
+            ticket,
+            items=[MaterialRequestItemCreate(item_id=inventory_item.id, quantity=2)],
+        )
+        line = mr.items[0]
+
+        with patch("app.tasks.integrations.sync_material_request_to_erp.delay"):
+            approved = material_requests.approve(
+                db_session,
+                str(mr.id),
+                str(person.id),
+                source_location_id=str(inventory_location.id),
+                serial_numbers_by_item={str(line.id): ["ONT-001", "ONT-002"]},
+            )
+
+        assert approved.items[0].serial_numbers == ["ONT-001", "ONT-002"]
+
+    def test_approve_rejects_wrong_serial_count(self, db_session, person, ticket, inventory_item, inventory_location):
+        mr = _make_mr(
+            db_session,
+            person,
+            ticket,
+            items=[MaterialRequestItemCreate(item_id=inventory_item.id, quantity=2)],
+        )
+        line = mr.items[0]
+
+        with pytest.raises(HTTPException) as exc:
+            material_requests.approve(
+                db_session,
+                str(mr.id),
+                str(person.id),
+                source_location_id=str(inventory_location.id),
+                serial_numbers_by_item={str(line.id): ["ONT-001"]},
+            )
+
+        assert exc.value.status_code == 400
+        assert "exactly 2 serial" in str(exc.value.detail)
+
+    def test_approve_requires_serials_when_erp_tracks_item(
+        self,
+        db_session,
+        person,
+        ticket,
+        inventory_item,
+        inventory_location,
+        monkeypatch,
+    ):
+        mr = _make_mr(
+            db_session,
+            person,
+            ticket,
+            items=[MaterialRequestItemCreate(item_id=inventory_item.id, quantity=1)],
+        )
+        mock_sync_service = MagicMock()
+        mock_sync_service.client.get_inventory_items.return_value = [{"item_code": inventory_item.sku}]
+        mock_sync_service.client.list_available_serials.return_value = {
+            "track_serial_numbers": True,
+            "serials": [{"serial_number": "ONT-001"}],
+            "has_more": False,
+        }
+
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_request_sync.dotmac_erp_material_request_sync",
+            lambda session: mock_sync_service,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            material_requests.approve(
+                db_session,
+                str(mr.id),
+                str(person.id),
+                source_location_id=str(inventory_location.id),
+            )
+
+        assert exc.value.status_code == 400
+        assert "exactly 1 serial" in str(exc.value.detail)
+
+    def test_approve_marks_sync_failed_when_enqueue_fails(self, db_session, person, ticket, inventory_location):
+        mr = _make_mr(db_session, person, ticket)
+        with patch(
+            "app.tasks.integrations.sync_material_request_to_erp.delay",
+            side_effect=RuntimeError("queue unavailable"),
+        ):
+            approved = material_requests.approve(
+                db_session,
+                str(mr.id),
+                str(person.id),
+                source_location_id=str(inventory_location.id),
+            )
+
+        assert approved.status == MaterialRequestStatus.issued
+        assert approved.erp_sync_status == MaterialRequestERPSyncStatus.failed
+        assert "queue unavailable" in (approved.erp_sync_error or "")
+
+    def test_retry_erp_sync_marks_pending_and_enqueues(self, db_session, person, ticket, inventory_location):
+        mr = _make_mr(db_session, person, ticket)
+        with patch("app.tasks.integrations.sync_material_request_to_erp.delay"):
+            approved = material_requests.approve(
+                db_session,
+                str(mr.id),
+                str(person.id),
+                source_location_id=str(inventory_location.id),
+            )
+        approved.erp_sync_status = MaterialRequestERPSyncStatus.failed
+        approved.erp_sync_error = "previous failure"
+        db_session.commit()
+
+        with patch("app.tasks.integrations.sync_material_request_to_erp.delay") as delay_mock:
+            retried = material_requests.retry_erp_sync(db_session, str(approved.id))
+
+        delay_mock.assert_called_once_with(str(approved.id))
+        assert retried.erp_sync_status == MaterialRequestERPSyncStatus.pending
+        assert retried.erp_sync_error is None
+
+    def test_retry_erp_sync_records_enqueue_failure(self, db_session, person, ticket, inventory_location):
+        mr = _make_mr(db_session, person, ticket)
+        with patch("app.tasks.integrations.sync_material_request_to_erp.delay"):
+            approved = material_requests.approve(
+                db_session,
+                str(mr.id),
+                str(person.id),
+                source_location_id=str(inventory_location.id),
+            )
+
+        with patch(
+            "app.tasks.integrations.sync_material_request_to_erp.delay",
+            side_effect=RuntimeError("queue unavailable"),
+        ):
+            retried = material_requests.retry_erp_sync(db_session, str(approved.id))
+
+        assert retried.erp_sync_status == MaterialRequestERPSyncStatus.failed
+        assert "queue unavailable" in (retried.erp_sync_error or "")
 
     def test_approve_requires_source_warehouse(self, db_session, person, ticket):
         mr = _make_mr(db_session, person, ticket)

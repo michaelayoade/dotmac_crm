@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -22,6 +23,7 @@ class MaterialRequestSyncResult:
     success: bool = False
     material_request_id: str | None = None
     erp_material_request_id: str | None = None
+    erp_material_status: str | None = None
     error: str | None = None
     error_type: str | None = None
     status_code: int | None = None
@@ -36,6 +38,37 @@ class DotMacERPMaterialRequestSync:
 
     def close(self):
         self.client.close()
+
+    def refresh_material_request_status(self, mr: MaterialRequest) -> MaterialRequestSyncResult:
+        """Refresh the ERP-side fulfillment/stock status for a material request."""
+        response = self.client.get_material_request_status(str(mr.id))
+        if not response:
+            return MaterialRequestSyncResult(
+                success=False,
+                material_request_id=str(mr.id),
+                erp_material_request_id=mr.erp_material_request_id,
+                error="Material request was not found in ERP",
+                error_type="NotFound",
+                status_code=404,
+            )
+
+        erp_id = self._extract_material_request_id(response) or mr.erp_material_request_id
+        erp_material_status = self._extract_material_status(response)
+        if erp_id and not mr.erp_material_request_id:
+            mr.erp_material_request_id = erp_id
+        if erp_material_status:
+            mr.erp_material_status = erp_material_status
+            if erp_material_status in {"fulfilled", "complete", "completed"}:
+                mr.status = MaterialRequestStatus.fulfilled
+                mr.fulfilled_at = mr.fulfilled_at or datetime.now(UTC)
+        self.session.commit()
+
+        return MaterialRequestSyncResult(
+            success=True,
+            material_request_id=str(mr.id),
+            erp_material_request_id=erp_id,
+            erp_material_status=erp_material_status,
+        )
 
     def sync_material_request(self, mr: MaterialRequest) -> MaterialRequestSyncResult:
         """Push a single material request to ERP."""
@@ -55,18 +88,26 @@ class DotMacERPMaterialRequestSync:
         try:
             response = self.client.push_material_request(payload, idempotency_key=idempotency_key)
             erp_id = self._extract_material_request_id(response)
+            erp_material_status = self._extract_material_status(response)
 
             if not erp_id:
                 raise DotMacERPTransientError(f"ERP sync response missing request_id for material request {mr.id}")
 
+            should_commit = False
             if not mr.erp_material_request_id:
                 mr.erp_material_request_id = erp_id
+                should_commit = True
+            if erp_material_status:
+                mr.erp_material_status = erp_material_status
+                should_commit = True
+            if should_commit:
                 self.session.commit()
 
             return MaterialRequestSyncResult(
                 success=True,
                 material_request_id=str(mr.id),
                 erp_material_request_id=erp_id,
+                erp_material_status=erp_material_status,
             )
         except DotMacERPTransientError:
             raise
@@ -107,14 +148,16 @@ class DotMacERPMaterialRequestSync:
         item_rows: list[dict[str, object]] = []
         for item in mr.items:
             inv_item = item.item
-            item_rows.append(
-                {
-                    "item_code": inv_item.sku or inv_item.name or str(inv_item.id),
-                    "quantity": item.quantity,
-                    "uom": inv_item.unit or "PCS",
-                    "from_warehouse_code": source_warehouse_code,
-                }
-            )
+            row: dict[str, object] = {
+                "item_code": inv_item.sku or inv_item.name or str(inv_item.id),
+                "quantity": item.quantity,
+                "uom": inv_item.unit or "PCS",
+                "from_warehouse_code": source_warehouse_code,
+            }
+            serial_numbers = [str(serial).strip() for serial in (item.serial_numbers or []) if str(serial).strip()]
+            if serial_numbers:
+                row["serial_numbers"] = serial_numbers
+            item_rows.append(row)
 
         schedule_date = (mr.approved_at or mr.submitted_at or mr.created_at).date().isoformat()
 
@@ -139,6 +182,16 @@ class DotMacERPMaterialRequestSync:
             return None
         erp_id = response.get("request_id") or response.get("material_request_id") or response.get("request_number")
         return str(erp_id) if erp_id else None
+
+    @staticmethod
+    def _extract_material_status(response: dict | None) -> str | None:
+        if not response or not isinstance(response, dict):
+            return None
+        raw_status = response.get("material_status") or response.get("erp_material_status") or response.get("status")
+        if not raw_status:
+            return None
+        status = str(raw_status).strip().lower().replace("-", "_").replace(" ", "_")
+        return status[:40] if status else None
 
     @staticmethod
     def _is_transient_error(error: DotMacERPError) -> bool:
