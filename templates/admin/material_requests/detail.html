@@ -488,15 +488,12 @@
                     throw new Error('Serials could not be loaded');
                 }
                 const data = await response.json();
-                if (!data.track_serial_numbers) {
-                    setSelectMessage(select, 'This ERP item does not use serial numbers');
-                    help.textContent = 'No serial selection is needed for this line.';
-                    continue;
-                }
                 const serials = Array.isArray(data.serials) ? data.serials : [];
                 if (serials.length === 0) {
                     setSelectMessage(select, 'No available serials in this warehouse');
-                    help.textContent = 'ERP has no available serials for this item and warehouse.';
+                    help.textContent = data.track_serial_numbers
+                        ? 'ERP requires serials for this item, but none are available in this warehouse.'
+                        : 'ERP has no available serials for this item and warehouse.';
                     continue;
                 }
                 select.innerHTML = '';
@@ -507,8 +504,10 @@
                     select.appendChild(option);
                 }
                 select.disabled = false;
-                select.required = quantity > 0;
-                help.textContent = `Select ${quantity} serial number${quantity === 1 ? '' : 's'} for this line.`;
+                select.required = Boolean(data.track_serial_numbers) && quantity > 0;
+                help.textContent = data.track_serial_numbers
+                    ? `Select ${quantity} serial number${quantity === 1 ? '' : 's'} for this line.`
+                    : 'Available ERP serials for this selected item. Selection is optional.';
             } catch (error) {
                 setSelectMessage(select, 'Unable to load serials from ERP');
                 help.textContent = 'Check ERP connection or enter after serials are available.';
