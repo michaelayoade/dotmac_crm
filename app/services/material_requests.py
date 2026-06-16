@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import logging
+from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, time, timedelta
 
 from fastapi import HTTPException
@@ -8,6 +11,7 @@ from app.models.domain_settings import SettingDomain
 from app.models.inventory import InventoryItem, InventoryLocation
 from app.models.material_request import (
     MaterialRequest,
+    MaterialRequestERPSyncStatus,
     MaterialRequestItem,
     MaterialRequestPriority,
     MaterialRequestStatus,
@@ -89,6 +93,26 @@ _TERMINAL_STATUSES = {
 }
 
 
+def _enqueue_erp_sync(db: Session, mr: MaterialRequest) -> MaterialRequest:
+    mr.erp_sync_status = MaterialRequestERPSyncStatus.pending
+    mr.erp_sync_error = None
+    db.commit()
+    db.refresh(mr)
+
+    try:
+        from app.tasks.integrations import sync_material_request_to_erp
+
+        sync_material_request_to_erp.delay(str(mr.id))
+    except Exception as exc:
+        mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
+        mr.erp_sync_error = f"ERP sync enqueue failed: {exc}"[:500]
+        db.commit()
+        db.refresh(mr)
+        logger.debug("ERP sync enqueue failed for material request.", exc_info=True)
+
+    return mr
+
+
 def _validate_items_exist_in_erp(db: Session, mr: MaterialRequest) -> None:
     """Validate that all material request item SKUs exist in ERP before approval."""
     from app.services.dotmac_erp import DotMacERPError
@@ -134,10 +158,116 @@ def _validate_items_exist_in_erp(db: Session, mr: MaterialRequest) -> None:
         )
 
 
+def normalize_serial_numbers(value: Sequence[str] | str | None) -> list[str]:
+    """Normalize user-entered serial numbers from form/API input."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_values = value.replace(",", "\n").splitlines()
+    else:
+        raw_values = []
+        for item in value:
+            raw_values.extend(str(item).replace(",", "\n").splitlines())
+
+    serials: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        serial = str(raw).strip()
+        if not serial:
+            continue
+        key = serial.lower()
+        if key in seen:
+            raise HTTPException(status_code=400, detail=f"Duplicate serial number selected: {serial}")
+        seen.add(key)
+        serials.append(serial)
+    return serials
+
+
+def _apply_serial_numbers(
+    mr: MaterialRequest,
+    serial_numbers_by_item: Mapping[str, Sequence[str] | str] | None,
+) -> None:
+    if not serial_numbers_by_item:
+        return
+    item_by_id = {str(item.id): item for item in mr.items}
+    for item_id, raw_serials in serial_numbers_by_item.items():
+        mr_item = item_by_id.get(str(item_id))
+        if not mr_item:
+            raise HTTPException(status_code=400, detail="Serial numbers were submitted for an unknown request line")
+        serials = normalize_serial_numbers(raw_serials)
+        if serials and len(serials) != mr_item.quantity:
+            item_name = mr_item.item.name if mr_item.item else "this item"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Select exactly {mr_item.quantity} serial number(s) for {item_name}",
+            )
+        mr_item.serial_numbers = serials or None
+
+
+def _validate_serial_numbers_in_erp(db: Session, mr: MaterialRequest, source_location: InventoryLocation) -> None:
+    """Require serial selections when ERP marks an item as serial-tracked."""
+    from app.services.dotmac_erp import DotMacERPError
+    from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
+
+    warehouse_code = (source_location.code or str(source_location.id)).strip()
+    try:
+        sync_service = dotmac_erp_material_request_sync(db)
+    except ValueError:
+        return
+
+    try:
+        for mr_item in mr.items:
+            item_code = ((mr_item.item.sku if mr_item.item else None) or "").strip()
+            if not item_code:
+                continue
+
+            data = sync_service.client.list_available_serials(
+                item_code=item_code,
+                warehouse_code=warehouse_code,
+                limit=500,
+            )
+            if not data.get("track_serial_numbers"):
+                continue
+
+            selected = normalize_serial_numbers(mr_item.serial_numbers)
+            if len(selected) != mr_item.quantity:
+                item_name = mr_item.item.name if mr_item.item else item_code
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Select exactly {mr_item.quantity} serial number(s) for {item_name}",
+                )
+
+            if not data.get("has_more"):
+                available_serials = {
+                    str(serial.get("serial_number") or "").strip().lower()
+                    for serial in data.get("serials", [])
+                    if isinstance(serial, dict)
+                }
+                missing = [serial for serial in selected if serial.lower() not in available_serials]
+                if missing:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Serial number(s) not available in ERP: {', '.join(missing)}",
+                    )
+    except DotMacERPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Cannot validate ERP serial numbers right now: {exc}",
+        ) from exc
+    finally:
+        sync_service.close()
+
+
 class MaterialRequests(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: MaterialRequestCreate) -> MaterialRequest:
         get_or_404(db, Person, str(payload.requested_by_person_id), detail="Person not found")
+
+        if not (payload.ticket_id or payload.project_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Material request must be linked to a ticket or project",
+            )
 
         if payload.source_location_id:
             get_or_404(db, InventoryLocation, str(payload.source_location_id), detail="Source warehouse not found")
@@ -148,6 +278,8 @@ class MaterialRequests(ListResponseMixin):
                 str(payload.destination_location_id),
                 detail="Destination warehouse not found",
             )
+        if payload.source_location_id and payload.destination_location_id == payload.source_location_id:
+            raise HTTPException(status_code=400, detail="Source and destination warehouse cannot be the same")
 
         data = payload.model_dump(exclude={"items"})
         number = generate_number(
@@ -177,6 +309,7 @@ class MaterialRequests(ListResponseMixin):
                     item_id=item_payload.item_id,
                     quantity=item_payload.quantity,
                     notes=item_payload.notes,
+                    serial_numbers=normalize_serial_numbers(item_payload.serial_numbers) or None,
                 )
                 db.add(mr_item)
 
@@ -198,6 +331,7 @@ class MaterialRequests(ListResponseMixin):
         db: Session,
         is_active: bool | None = None,
         status: str | None = None,
+        erp_status: str | None = None,
         ticket_id: str | None = None,
         project_id: str | None = None,
         priority: str | None = None,
@@ -213,6 +347,14 @@ class MaterialRequests(ListResponseMixin):
         if status:
             validated_status = validate_enum(status, MaterialRequestStatus, "status")
             query = query.filter(MaterialRequest.status == validated_status)
+        if erp_status:
+            normalized_erp_status = erp_status.strip().lower().replace("-", "_").replace(" ", "_")
+            if normalized_erp_status in {item.value for item in MaterialRequestERPSyncStatus}:
+                query = query.filter(
+                    MaterialRequest.erp_sync_status == MaterialRequestERPSyncStatus(normalized_erp_status)
+                )
+            else:
+                query = query.filter(MaterialRequest.erp_material_status == normalized_erp_status)
         if ticket_id:
             query = query.filter(MaterialRequest.ticket_id == coerce_uuid(ticket_id))
         if project_id:
@@ -277,6 +419,7 @@ class MaterialRequests(ListResponseMixin):
         source_location_id: str | None = None,
         destination_location_id: str | None = None,
         collected_by_person_id: str | None = None,
+        serial_numbers_by_item: Mapping[str, Sequence[str] | str] | None = None,
     ) -> MaterialRequest:
         mr = get_or_404(
             db,
@@ -300,7 +443,7 @@ class MaterialRequests(ListResponseMixin):
 
         if not source_uuid:
             raise HTTPException(status_code=400, detail="Select a source warehouse before issuing this request")
-        get_or_404(db, InventoryLocation, str(source_uuid), detail="Source warehouse not found")
+        source_location = get_or_404(db, InventoryLocation, str(source_uuid), detail="Source warehouse not found")
 
         if destination_uuid:
             get_or_404(db, InventoryLocation, str(destination_uuid), detail="Destination warehouse not found")
@@ -308,25 +451,28 @@ class MaterialRequests(ListResponseMixin):
                 raise HTTPException(status_code=400, detail="Source and destination warehouse cannot be the same")
 
         _validate_items_exist_in_erp(db, mr)
+        _apply_serial_numbers(mr, serial_numbers_by_item)
+        _validate_serial_numbers_in_erp(db, mr, source_location)
 
         mr.source_location_id = source_uuid
         mr.destination_location_id = destination_uuid
         mr.status = MaterialRequestStatus.issued
+        mr.erp_sync_status = MaterialRequestERPSyncStatus.pending
+        mr.erp_sync_error = None
         mr.approved_by_person_id = approver_uuid
         mr.collected_by_person_id = collected_by_uuid
         mr.approved_at = datetime.now(UTC)
         db.commit()
         db.refresh(mr)
 
-        # Trigger ERP sync task
-        try:
-            from app.tasks.integrations import sync_material_request_to_erp
+        return _enqueue_erp_sync(db, mr)
 
-            sync_material_request_to_erp.delay(str(mr.id))
-        except Exception:
-            logger.debug("ERP sync enqueue failed for material request approval.", exc_info=True)
-
-        return mr
+    @staticmethod
+    def retry_erp_sync(db: Session, mr_id: str) -> MaterialRequest:
+        mr = get_or_404(db, MaterialRequest, mr_id, options=[selectinload(MaterialRequest.items)])
+        if mr.status not in (MaterialRequestStatus.approved, MaterialRequestStatus.issued):
+            raise HTTPException(status_code=400, detail="Only issued material requests can be synced to ERP")
+        return _enqueue_erp_sync(db, mr)
 
     @staticmethod
     def reject(db: Session, mr_id: str, approved_by_person_id: str, reason: str | None = None) -> MaterialRequest:
@@ -378,6 +524,7 @@ class MaterialRequests(ListResponseMixin):
             item_id=payload.item_id,
             quantity=payload.quantity,
             notes=payload.notes,
+            serial_numbers=normalize_serial_numbers(payload.serial_numbers) or None,
         )
         db.add(item)
         db.commit()

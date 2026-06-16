@@ -381,6 +381,29 @@ class DotMacERPClient:
         except DotMacERPNotFoundError:
             return None
 
+    def list_available_serials(
+        self,
+        *,
+        item_code: str,
+        warehouse_code: str,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        """List available ERP serials for one item in one warehouse."""
+        params = {
+            "item_code": item_code,
+            "warehouse_code": warehouse_code,
+            "limit": limit,
+            "offset": offset,
+        }
+        result = self._request(
+            "GET",
+            "/api/v1/sync/crm/inventory/serials/available",
+            params=params,
+            expected_status_codes={200},
+        )
+        return result if isinstance(result, dict) else {}
+
     # ============ Purchase Order API Methods ============
 
     def create_purchase_order(self, payload: dict, idempotency_key: str | None = None) -> dict:

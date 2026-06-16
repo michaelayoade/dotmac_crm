@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
@@ -34,6 +35,8 @@ from app.schemas.dispatch import (
 )
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_person(db: Session, person_id: str):
@@ -733,7 +736,7 @@ def auto_assign_work_order(db: Session, work_order_id: str):
                 by_person = {str(t.person_id): t for t in tied}
                 best_technician = by_person.get(nearest["person_id"], best_technician)
         except Exception:
-            pass
+            logger.debug("Live proximity tie-break failed for work order assignment.", exc_info=True)
 
     work_order.assigned_to_person_id = best_technician.person_id
 
