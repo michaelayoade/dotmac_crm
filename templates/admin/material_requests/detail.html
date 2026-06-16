@@ -437,10 +437,15 @@
 {{ super() }}
 {% if sv == 'submitted' %}
 <script>
-document.addEventListener('DOMContentLoaded', () => {
+(() => {
+    const initSerialPickers = () => {
     const sourceSelect = document.getElementById('source_location_id');
     const issueForm = document.querySelector('#issue-form form');
     const pickers = Array.from(document.querySelectorAll('.serial-picker'));
+    if (!sourceSelect || !issueForm || pickers.length === 0 || issueForm.dataset.serialPickerInitialized === 'true') {
+        return;
+    }
+    issueForm.dataset.serialPickerInitialized = 'true';
 
     const selectedWarehouseCode = () => {
         const option = sourceSelect?.selectedOptions?.[0];
@@ -530,7 +535,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     loadSerials();
-});
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initSerialPickers);
+    } else {
+        initSerialPickers();
+    }
+    document.body?.addEventListener('htmx:afterSettle', initSerialPickers);
+})();
 </script>
 {% endif %}
 {% endblock %}
