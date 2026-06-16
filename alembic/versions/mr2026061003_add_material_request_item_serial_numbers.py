@@ -1,15 +1,15 @@
 """Add serial numbers to material request items.
 
-Revision ID: zr5c6d7e8f9a
-Revises: zq4b5c6d7e8f
+Revision ID: mr2026061003
+Revises: mr2026061002
 Create Date: 2026-06-10 15:05:00.000000
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "zr5c6d7e8f9a"
-down_revision = "zq4b5c6d7e8f"
+revision = "mr2026061003"
+down_revision = "mr2026061002"
 branch_labels = None
 depends_on = None
 
