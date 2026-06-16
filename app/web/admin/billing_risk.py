@@ -241,9 +241,9 @@ def _enrich_missing_street_fields(db: Session, rows: list[dict]) -> None:
             street_by_external_id[str(external_id)] = street
 
     for row in rows_missing_street:
-        street = street_by_external_id.get(_billing_risk_row_customer_id(row))
-        if street:
-            row["street"] = street
+        fallback_street = street_by_external_id.get(_billing_risk_row_customer_id(row))
+        if fallback_street:
+            row["street"] = fallback_street
 
 
 def _enrich_account_balance_deposit(db: Session, rows: list[dict]) -> None:

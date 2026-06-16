@@ -250,7 +250,7 @@ def _validate_serial_numbers_in_erp(db: Session, mr: MaterialRequest, source_loc
                         detail=f"Serial number(s) not available in ERP: {', '.join(missing)}",
                     )
             else:
-                missing: list[str] = []
+                unresolved_serials: list[str] = []
                 for serial in selected:
                     serial_data = sync_service.client.list_available_serials(
                         item_code=item_code,
@@ -264,11 +264,11 @@ def _validate_serial_numbers_in_erp(db: Session, mr: MaterialRequest, source_loc
                         if isinstance(entry, dict)
                     }
                     if serial.lower() not in available_serials:
-                        missing.append(serial)
-                if missing:
+                        unresolved_serials.append(serial)
+                if unresolved_serials:
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Serial number(s) not available in ERP: {', '.join(missing)}",
+                        detail=f"Serial number(s) not available in ERP: {', '.join(unresolved_serials)}",
                     )
     except DotMacERPError as exc:
         raise HTTPException(
