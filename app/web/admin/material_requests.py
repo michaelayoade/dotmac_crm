@@ -7,6 +7,8 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, selectinload
 
 from app.csrf import get_csrf_token
@@ -157,6 +159,101 @@ def _parse_serial_number_form(form) -> dict[str, list[str]]:
         item_id = key.removeprefix("serial_numbers_")
         serials_by_item[item_id] = [str(value) for value in form.getlist(key)]
     return serials_by_item
+
+
+def _load_available_serials_from_erp_db(
+    db: Session,
+    *,
+    item_code: str,
+    warehouse_code: str,
+    limit: int,
+    offset: int,
+) -> dict:
+    """Temporary ERP DB fallback while the ERP serial API is not exposed."""
+    bind = db.get_bind()
+    source_url = bind.url if isinstance(bind, Engine) else bind.engine.url
+    erp_url = source_url.set(database="son_erp")
+    engine = create_engine(erp_url, pool_pre_ping=True)
+
+    item_query = text(
+        """
+        select item_id, item_code, item_name, track_serial_numbers
+        from inv.item
+        where item_code = :item_code or item_name = :item_code
+        order by case when item_code = :item_code then 0 else 1 end, item_name
+        limit 1
+        """
+    )
+    warehouse_query = text(
+        """
+        select warehouse_id, warehouse_code, warehouse_name
+        from inv.warehouse
+        where warehouse_code = :warehouse_code or warehouse_name = :warehouse_code
+        order by case when warehouse_code = :warehouse_code then 0 else 1 end, warehouse_name
+        limit 1
+        """
+    )
+    serial_query = text(
+        """
+        select serial_number, status, updated_at
+        from inv.inventory_serial
+        where item_id = :item_id
+          and warehouse_id = :warehouse_id
+          and is_active is true
+          and upper(status) = 'AVAILABLE'
+        order by serial_number
+        limit :limit_plus_one offset :offset
+        """
+    )
+
+    try:
+        with engine.connect() as conn:
+            item = conn.execute(item_query, {"item_code": item_code}).mappings().first()
+            warehouse = conn.execute(warehouse_query, {"warehouse_code": warehouse_code}).mappings().first()
+            if item is None or warehouse is None:
+                return {
+                    "item_code": item_code,
+                    "warehouse_code": warehouse_code,
+                    "track_serial_numbers": bool(item["track_serial_numbers"]) if item else False,
+                    "serials": [],
+                    "limit": limit,
+                    "offset": offset,
+                    "has_more": False,
+                }
+
+            rows = (
+                conn.execute(
+                    serial_query,
+                    {
+                        "item_id": item["item_id"],
+                        "warehouse_id": warehouse["warehouse_id"],
+                        "limit_plus_one": limit + 1,
+                        "offset": offset,
+                    },
+                )
+                .mappings()
+                .all()
+            )
+    finally:
+        engine.dispose()
+
+    visible_rows = rows[:limit]
+    return {
+        "item_code": item["item_code"],
+        "warehouse_code": warehouse["warehouse_code"],
+        "track_serial_numbers": bool(item["track_serial_numbers"]),
+        "serials": [
+            {
+                "serial_number": row["serial_number"],
+                "status": row["status"],
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            }
+            for row in visible_rows
+        ],
+        "limit": limit,
+        "offset": offset,
+        "has_more": len(rows) > limit,
+    }
 
 
 def _csv_response(data: list[dict[str, str]], filename: str) -> Response:
@@ -511,7 +608,7 @@ def material_request_available_serials(
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
-    from app.services.dotmac_erp import DotMacERPError
+    from app.services.dotmac_erp import DotMacERPError, DotMacERPNotFoundError
     from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
 
     try:
@@ -521,6 +618,15 @@ def material_request_available_serials(
 
     try:
         data = sync_service.client.list_available_serials(
+            item_code=item_code,
+            warehouse_code=warehouse_code,
+            limit=limit,
+            offset=offset,
+        )
+        return JSONResponse(data)
+    except DotMacERPNotFoundError:
+        data = _load_available_serials_from_erp_db(
+            db,
             item_code=item_code,
             warehouse_code=warehouse_code,
             limit=limit,
