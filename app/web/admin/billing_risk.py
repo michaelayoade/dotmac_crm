@@ -204,6 +204,48 @@ def _enrich_missing_plan_fields(db: Session, rows: list[dict]) -> None:
             row["plan"] = plan
 
 
+def _enrich_missing_street_fields(db: Session, rows: list[dict]) -> None:
+    if not hasattr(db, "execute"):
+        return
+    rows_missing_street = [row for row in rows if not str(row.get("street") or "").strip()]
+    if not rows_missing_street:
+        return
+
+    external_ids = {
+        _billing_risk_row_customer_id(row) for row in rows_missing_street if _billing_risk_row_customer_id(row)
+    }
+    if not external_ids:
+        return
+
+    subscriber_rows = db.execute(
+        select(
+            Subscriber.external_id,
+            Subscriber.service_address_line1,
+            Subscriber.service_address_line2,
+        )
+        .where(Subscriber.external_system == "splynx")
+        .where(Subscriber.external_id.in_(external_ids))
+    ).all()
+    street_by_external_id: dict[str, str] = {}
+    for external_id, service_line1, service_line2 in subscriber_rows:
+        raw_street = ", ".join(
+            part
+            for part in [
+                str(service_line1 or "").strip(),
+                str(service_line2 or "").strip(),
+            ]
+            if part
+        )
+        street = billing_risk_service.normalize_street_display(raw_street)
+        if street:
+            street_by_external_id[str(external_id)] = street
+
+    for row in rows_missing_street:
+        street = street_by_external_id.get(_billing_risk_row_customer_id(row))
+        if street:
+            row["street"] = street
+
+
 def _enrich_account_balance_deposit(db: Session, rows: list[dict]) -> None:
     for row in rows:
         subscriber_status = str(row.get("subscriber_status") or row.get("status") or "").strip().lower()
@@ -463,6 +505,7 @@ def _billing_risk_page_rows(
     if not str(search or "").strip():
         billing_risk_service.enrich_billing_risk_rows(visible_rows)
     _enrich_missing_plan_fields(db, visible_rows)
+    _enrich_missing_street_fields(db, visible_rows)
     _enrich_missing_blocked_fields(visible_rows, force_live=False)
     _enrich_account_balance_deposit(db, visible_rows)
     _enrich_expiration_fields(visible_rows)
@@ -604,6 +647,7 @@ def _billing_risk_cached_page_rows(
     end = start + requested_page_size
     visible_rows = filtered_rows[start:end]
     _enrich_missing_plan_fields(db, visible_rows)
+    _enrich_missing_street_fields(db, visible_rows)
     _enrich_missing_blocked_fields(visible_rows, force_live=False)
     _enrich_account_balance_deposit(db, visible_rows)
     _enrich_expiration_fields(visible_rows)
@@ -625,6 +669,7 @@ def _billing_risk_initial_rows(
     visible_rows = [dict(row) for row in churn_rows[:page_size]]
     billing_risk_service.enrich_billing_risk_rows(visible_rows)
     _enrich_missing_plan_fields(db, visible_rows)
+    _enrich_missing_street_fields(db, visible_rows)
     _enrich_missing_blocked_fields(visible_rows, force_live=False)
     _enrich_account_balance_deposit(db, visible_rows)
     _enrich_expiration_fields(visible_rows)
@@ -1808,6 +1853,7 @@ def subscriber_billing_risk(
         full_metric_rows = _active_toggle_uptime_rows(db, full_metric_rows, normalized_customer_status)
         page_rows = [dict(row) for row in full_metric_rows[:50]]
         _enrich_missing_plan_fields(db, page_rows)
+        _enrich_missing_street_fields(db, page_rows)
         _enrich_missing_blocked_fields(page_rows, force_live=False)
         _enrich_account_balance_deposit(db, page_rows)
         _enrich_expiration_fields(page_rows)
@@ -1864,6 +1910,7 @@ def subscriber_billing_risk(
         full_metric_rows = _active_toggle_uptime_rows(db, full_metric_rows, normalized_customer_status)
         full_metric_rows = _billing_risk_billing_type_rows(full_metric_rows, normalized_billing_type)
         _enrich_missing_plan_fields(db, full_metric_rows)
+        _enrich_missing_street_fields(db, full_metric_rows)
         _enrich_account_balance_deposit(db, full_metric_rows)
         _enrich_expiration_fields(full_metric_rows)
         page_rows, page_metrics, has_next = _billing_risk_initial_rows(
@@ -2760,6 +2807,7 @@ def subscriber_billing_risk_export(
     churn_rows = _active_toggle_uptime_rows(db, churn_rows, normalized_customer_status)
     churn_rows = _billing_risk_billing_type_rows(churn_rows, normalized_billing_type)
     _enrich_missing_plan_fields(db, churn_rows)
+    _enrich_missing_street_fields(db, churn_rows)
     _enrich_missing_blocked_fields(churn_rows, force_live=False)
     _enrich_account_balance_deposit(db, churn_rows)
     _enrich_expiration_fields(churn_rows)

@@ -208,6 +208,37 @@ def _format_phone_display(raw_value: object) -> str:
     return ", ".join(deduped_parts)
 
 
+def normalize_street_display(raw_value: object) -> str:
+    text = str(raw_value or "").replace("\r", " ").replace("\n", " ")
+    if not text.strip():
+        return ""
+    text = (
+        text.replace("\u2018", "'")
+        .replace("\u2019", "'")
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
+        .replace("\u2013", "-")
+        .replace("\u2014", "-")
+    )
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s*,\s*", ", ", text)
+    text = re.sub(r"(?:,\s*){2,}", ", ", text)
+    text = re.sub(r"\s*;\s*", "; ", text)
+    text = re.sub(r"(?:;\s*){2,}", "; ", text)
+    text = re.sub(r"\s*/\s*", " / ", text)
+    text = re.sub(r"(?:/\s*){2,}", " / ", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    text = text.strip(" ,;/-")
+    if not text:
+        return ""
+
+    def _capitalize_word(match: re.Match[str]) -> str:
+        word = match.group(0)
+        return word[:1].upper() + word[1:].lower()
+
+    return re.sub(r"[A-Za-z]+", _capitalize_word, text)
+
+
 def get_billing_risk_table(
     db: Session,
     *,
@@ -1035,28 +1066,6 @@ def get_billing_risk_table(
         return ""
 
     def _live_street_address(customer_payload: Mapping[str, Any], cached_subscriber: Mapping[str, Any]) -> str:
-        def _normalize_street_text(raw_value: object) -> str:
-            text = str(raw_value or "").replace("\r", " ").replace("\n", " ")
-            if not text.strip():
-                return ""
-            text = (
-                text.replace("\u2018", "'")
-                .replace("\u2019", "'")
-                .replace("\u201c", '"')
-                .replace("\u201d", '"')
-                .replace("\u2013", "-")
-                .replace("\u2014", "-")
-            )
-            text = re.sub(r"\s+", " ", text).strip()
-            text = re.sub(r"\s*,\s*", ", ", text)
-            text = re.sub(r"(?:,\s*){2,}", ", ", text)
-            text = re.sub(r"\s*;\s*", "; ", text)
-            text = re.sub(r"(?:;\s*){2,}", "; ", text)
-            text = re.sub(r"\s*/\s*", " / ", text)
-            text = re.sub(r"(?:/\s*){2,}", " / ", text)
-            text = re.sub(r"\s{2,}", " ", text)
-            return text.strip(" ,;/-")
-
         ignored_values = {"", "-", "n/a", "na", "none", "null", "unknown"}
         street_parts: list[str] = []
         seen_parts: set[str] = set()
@@ -1065,7 +1074,7 @@ def get_billing_risk_table(
             customer_payload.get("street_2"),
             cached_subscriber.get("service_address_line1"),
         ):
-            part = _normalize_street_text(candidate)
+            part = normalize_street_display(candidate)
             if part.casefold() in ignored_values:
                 continue
             dedupe_key = part.casefold().strip(" ,")
