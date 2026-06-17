@@ -6,9 +6,9 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
-import argparse
 
 # Bootstrap the app environment
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -34,7 +34,9 @@ def _process_batch(db, conversation_ids: list[str], stats: dict[str, int], error
                 errors.append(f"{conversation_id}: {exc}")
 
 
-def backfill(*, dry_run: bool = False, active_only: bool = True, limit: int | None = None, batch_size: int = 200) -> dict:
+def backfill(
+    *, dry_run: bool = False, active_only: bool = True, limit: int | None = None, batch_size: int = 200
+) -> dict:
     """Recompute conversation summaries for a bounded set of conversations."""
     if batch_size <= 0:
         raise ValueError("batch_size must be greater than 0")

@@ -10,7 +10,8 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models.person import Person, PersonChannel, ChannelType as PersonChannelType, PartyStatus
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import PartyStatus, Person, PersonChannel
 from app.services.person import People
 
 
@@ -124,7 +125,7 @@ def split_name(full_name: str) -> tuple[str, str]:
 
 
 def pick_target_by_recent(people: list[Person]) -> Person:
-    return sorted(people, key=lambda p: (p.updated_at or p.created_at), reverse=True)[0]
+    return sorted(people, key=lambda p: p.updated_at or p.created_at, reverse=True)[0]
 
 
 def load_people(db: Session):
@@ -144,10 +145,18 @@ def load_people(db: Session):
             email_map[person.email.lower()].append(person)
         if person.phone:
             phone_map[person.phone].append(person)
-    channels = db.query(PersonChannel).filter(PersonChannel.channel_type.in_([
-        PersonChannelType.email,
-        PersonChannelType.phone,
-    ])).all()
+    channels = (
+        db.query(PersonChannel)
+        .filter(
+            PersonChannel.channel_type.in_(
+                [
+                    PersonChannelType.email,
+                    PersonChannelType.phone,
+                ]
+            )
+        )
+        .all()
+    )
     channel_email_map: dict[str, list[Person]] = defaultdict(list)
     channel_phone_map: dict[str, list[Person]] = defaultdict(list)
     for channel in channels:
@@ -233,7 +242,7 @@ def upsert_channels(
 
 def write_csv(path: Path, rows: list[dict]):
     path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = sorted({k for row in rows for k in row.keys()}) if rows else ["note"]
+    fieldnames = sorted({k for row in rows for k in row}) if rows else ["note"]
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -265,7 +274,7 @@ def main():
     reseller_emails = {e for e, c in email_counts.items() if c > 3}
 
     db = SessionLocal()
-    people, splynx_map, email_map, phone_map, channel_email_map, channel_phone_map = load_people(db)
+    _people, splynx_map, email_map, phone_map, channel_email_map, channel_phone_map = load_people(db)
 
     report_rows = []
     conflict_rows = []
@@ -298,15 +307,17 @@ def main():
                     matched.update(phone_map.get(p, []))
                     matched.update(channel_phone_map.get(p, []))
             if len(matched) == 1:
-                target = list(matched)[0]
+                target = next(iter(matched))
                 summary["match_by_contact"] += 1
             elif len(matched) > 1:
                 summary["conflict_multi_match"] += 1
-                conflict_rows.append({
-                    "customer_id": cust_id,
-                    "issue": "multi_match",
-                    "matched_person_ids": ",".join(sorted({str(p.id) for p in matched})),
-                })
+                conflict_rows.append(
+                    {
+                        "customer_id": cust_id,
+                        "issue": "multi_match",
+                        "matched_person_ids": ",".join(sorted({str(p.id) for p in matched})),
+                    }
+                )
                 continue
             else:
                 summary["create_new"] += 1
@@ -352,13 +363,15 @@ def main():
         if record.emails:
             res_emails = [e for e in record.emails if e in reseller_emails]
             if res_emails:
-                report_rows.append({
-                    "customer_id": cust_id,
-                    "name": record.name,
-                    "reseller_emails": ",".join(res_emails),
-                    "non_reseller_emails": ",".join([e for e in record.emails if e not in reseller_emails]),
-                    "phones": ",".join(record.phones),
-                })
+                report_rows.append(
+                    {
+                        "customer_id": cust_id,
+                        "name": record.name,
+                        "reseller_emails": ",".join(res_emails),
+                        "non_reseller_emails": ",".join([e for e in record.emails if e not in reseller_emails]),
+                        "phones": ",".join(record.phones),
+                    }
+                )
 
     if not args.dry_run:
         db.commit()

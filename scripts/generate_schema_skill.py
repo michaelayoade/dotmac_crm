@@ -105,9 +105,7 @@ def _default_dsn() -> str:
     dsn = os.environ.get("DOTMAC_OMNI_DB_DSN") or os.environ.get("DATABASE_URL", "")
     if dsn:
         # Convert SQLAlchemy-style DSN to psycopg2-style
-        return dsn.replace("postgresql+psycopg://", "postgresql://").replace(
-            "postgresql+psycopg2://", "postgresql://"
-        )
+        return dsn.replace("postgresql+psycopg://", "postgresql://").replace("postgresql+psycopg2://", "postgresql://")
     pw = os.environ.get("POSTGRES_PASSWORD", "postgres")
     db = os.environ.get("POSTGRES_DB", "dotmac_crm")
     return f"postgresql://postgres:{pw}@localhost:5432/{db}"
@@ -125,9 +123,7 @@ def _redact_dsn(dsn: str) -> str:
             netloc = f"{parts.username}:***@{host}"
         else:
             netloc = host
-        return urlunsplit(
-            (parts.scheme, netloc, parts.path, parts.query, parts.fragment)
-        )
+        return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
     except Exception:
         return "<redacted>"
 
@@ -213,10 +209,7 @@ def get_columns(cur, schema: str, table: str) -> list[dict[str, str]]:
     """,
         (schema, table),
     )
-    return [
-        {"name": row[0], "type": row[1], "nullable": row[2], "default": row[3]}
-        for row in rows
-    ]
+    return [{"name": row[0], "type": row[1], "nullable": row[2], "default": row[3]} for row in rows]
 
 
 def get_primary_keys(cur, schema: str, table: str) -> list[str]:
@@ -263,9 +256,7 @@ def get_foreign_keys(cur, schema: str, table: str) -> list[dict[str, str]]:
     """,
         (schema, table),
     )
-    return [
-        {"column": row[0], "ref_table": row[1], "ref_column": row[2]} for row in rows
-    ]
+    return [{"column": row[0], "ref_table": row[1], "ref_column": row[2]} for row in rows]
 
 
 def get_enums(cur) -> dict[str, list[str]]:
@@ -402,10 +393,9 @@ def generate() -> None:
         lines.append("")
         lines.append("| Table | Column | Geometry Type | SRID |")
         lines.append("|-------|--------|--------------|------|")
-        for key, info in geom_cols.items():
+        for _key, info in geom_cols.items():
             lines.append(
-                f"| `{info['schema']}.{info['table']}` | `{info['column']}` "
-                f"| {info['type']} | {info['srid']} |"
+                f"| `{info['schema']}.{info['table']}` | `{info['column']}` | {info['type']} | {info['srid']} |"
             )
         lines.append("")
 
@@ -470,9 +460,7 @@ def generate() -> None:
                 lines.append("")
                 lines.append("**Foreign keys:**")
                 for fk in fks:
-                    lines.append(
-                        f"- `{fk['column']}` -> `{fk['ref_table']}.{fk['ref_column']}`"
-                    )
+                    lines.append(f"- `{fk['column']}` -> `{fk['ref_table']}.{fk['ref_column']}`")
 
             if indexes:
                 lines.append("")

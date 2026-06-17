@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ruff: noqa: T201, E402
+# ruff: noqa: E402
 """Backfill PersonChannel rows for Persons who have email/phone but no matching channel.
 
 Usage:
@@ -124,9 +124,7 @@ def detect_dupes() -> None:
     db = SessionLocal()
     try:
         persons = (
-            db.query(Person)
-            .filter(Person.is_active.is_(True), Person.phone.isnot(None), Person.phone != "")
-            .all()
+            db.query(Person).filter(Person.is_active.is_(True), Person.phone.isnot(None), Person.phone != "").all()
         )
 
         phone_to_persons: dict[str, list] = defaultdict(list)
@@ -146,14 +144,16 @@ def detect_dupes() -> None:
         writer.writerow(["phone", "person_id", "email", "display_name", "party_status", "created_at"])
         for phone, ps in sorted(dupes.items()):
             for p in ps:
-                writer.writerow([
-                    phone,
-                    str(p.id),
-                    p.email,
-                    p.display_name or "",
-                    p.party_status.value if p.party_status else "",
-                    p.created_at.isoformat() if p.created_at else "",
-                ])
+                writer.writerow(
+                    [
+                        phone,
+                        str(p.id),
+                        p.email,
+                        p.display_name or "",
+                        p.party_status.value if p.party_status else "",
+                        p.created_at.isoformat() if p.created_at else "",
+                    ]
+                )
     finally:
         db.close()
 

@@ -5,10 +5,9 @@ Revises: g2b3c4d5e6f7
 Create Date: 2026-02-10 00:02:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
-
 
 # revision identifiers, used by Alembic.
 revision = "g3c4d5e6f7a8"
@@ -19,14 +18,24 @@ depends_on = None
 
 def upgrade() -> None:
     mr_status = postgresql.ENUM(
-        "draft", "submitted", "approved", "rejected", "fulfilled", "canceled",
-        name="materialrequeststatus", create_type=False,
+        "draft",
+        "submitted",
+        "approved",
+        "rejected",
+        "fulfilled",
+        "canceled",
+        name="materialrequeststatus",
+        create_type=False,
     )
     mr_status.create(op.get_bind(), checkfirst=True)
 
     mr_priority = postgresql.ENUM(
-        "low", "medium", "high", "urgent",
-        name="materialrequestpriority", create_type=False,
+        "low",
+        "medium",
+        "high",
+        "urgent",
+        name="materialrequestpriority",
+        create_type=False,
     )
     mr_priority.create(op.get_bind(), checkfirst=True)
 

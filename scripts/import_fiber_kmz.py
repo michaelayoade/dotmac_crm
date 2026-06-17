@@ -62,7 +62,9 @@ _RE_CABINET = re.compile(r"cabinet|fdh|wall\s*cabinet", re.IGNORECASE)
 _RE_CLOSURE = re.compile(r"closure|joint|(?<!\w)icc(?!\w)|handhole", re.IGNORECASE)
 _RE_ACCESS_POINT = re.compile(r"pick\s*point|pickpoint|picking\s*point", re.IGNORECASE)
 _RE_OLT_BTS = re.compile(r"(?<!\w)bts(?!\w)|(?<!\w)gpon(?!\w)|(?<!\w)olt(?!\w)|nigcomsat", re.IGNORECASE)
-_RE_SKIP_INFRA = re.compile(r"(?<!\w)drainage(?!\w)|(?<!\w)trenching(?!\w)|(?<!\w)manhole(?!\w)|(?<!\w)duct\s", re.IGNORECASE)
+_RE_SKIP_INFRA = re.compile(
+    r"(?<!\w)drainage(?!\w)|(?<!\w)trenching(?!\w)|(?<!\w)manhole(?!\w)|(?<!\w)duct\s", re.IGNORECASE
+)
 _RE_JUNK_NAME = re.compile(r"^(untitled\s*(placemark|path)?|path\s*measure|line\s*measure|sightseeing)$", re.IGNORECASE)
 
 # Entity type constants
@@ -148,9 +150,21 @@ def _make_segment_name(name: str, coords: list[tuple[float, float]], counter: di
     """Generate a unique name for segments with generic names like 'Path Measure'."""
     nl = name.lower().strip()
     _generic_segment_names = (
-        "path measure", "line measure", "route", "proposed route", "untitled path",
-        "new route", "", "trenching", "drainage", "duct route", "new duct route",
-        "trenching route", "new trenching", "trenching part", "interlock and trenching",
+        "path measure",
+        "line measure",
+        "route",
+        "proposed route",
+        "untitled path",
+        "new route",
+        "",
+        "trenching",
+        "drainage",
+        "duct route",
+        "new duct route",
+        "trenching route",
+        "new trenching",
+        "trenching part",
+        "interlock and trenching",
         "interlock & trenching",
     )
     if nl not in _generic_segment_names:
@@ -196,9 +210,13 @@ def parse_args():
     parser.add_argument("--paths-kmz", action="append", default=[], help="KMZ with fiber paths (LineString).")
     parser.add_argument("--cabinet-kmz", action="append", default=[], help="KMZ with cabinets (Polygon/Point).")
     parser.add_argument("--splice-kmz", action="append", default=[], help="KMZ with splice closures (Polygon/Point).")
-    parser.add_argument("--access-point-kmz", action="append", default=[], help="KMZ with fiber access points (Polygon/Point).")
+    parser.add_argument(
+        "--access-point-kmz", action="append", default=[], help="KMZ with fiber access points (Polygon/Point)."
+    )
     parser.add_argument("--mast-kmz", action="append", default=[], help="KMZ with wireless masts/poles (Point).")
-    parser.add_argument("--building-kmz", action="append", default=[], help="KMZ with service buildings (Polygon/Point).")
+    parser.add_argument(
+        "--building-kmz", action="append", default=[], help="KMZ with service buildings (Polygon/Point)."
+    )
     # Merged KMZ input (new mode)
     parser.add_argument(
         "--merged-kmz",
@@ -311,8 +329,8 @@ def _polygon_centroid(coords: list[tuple[float, float]]) -> tuple[float, float]:
         avg_lat = sum(y for _, y in coords) / len(coords)
         return avg_lon, avg_lat
     area *= 0.5
-    cx /= (6.0 * area)
-    cy /= (6.0 * area)
+    cx /= 6.0 * area
+    cy /= 6.0 * area
     return cx, cy
 
 
@@ -718,7 +736,6 @@ def _import_cabinets_batch(db, placemarks: list[PlacemarkData], upsert: bool) ->
     """Import FDH cabinets from pre-classified placemarks."""
     created = updated = skipped = 0
     name_counter: dict[str, int] = {}
-    batch_names: set[str] = set()
     for pm in placemarks:
         point = _extract_point(pm)
         if not point:
@@ -1062,19 +1079,19 @@ def import_merged(
         results["Buildings"] = _import_buildings_batch(db, buckets[ENTITY_BUILDING], upsert)
 
     # Step 5: Summary
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  {'Entity':<20} {'Created':>8} {'Updated':>8} {'Skipped':>8}")
-    print(f"  {'-'*20} {'-'*8} {'-'*8} {'-'*8}")
+    print(f"  {'-' * 20} {'-' * 8} {'-' * 8} {'-' * 8}")
     total_c = total_u = total_s = 0
     for entity_name, (c, u, s) in results.items():
         print(f"  {entity_name:<20} {c:>8} {u:>8} {s:>8}")
         total_c += c
         total_u += u
         total_s += s
-    print(f"  {'-'*20} {'-'*8} {'-'*8} {'-'*8}")
+    print(f"  {'-' * 20} {'-' * 8} {'-' * 8} {'-' * 8}")
     print(f"  {'TOTAL':<20} {total_c:>8} {total_u:>8} {total_s:>8}")
     print(f"  Skipped (non-infra): {len(buckets[ENTITY_SKIP])}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     if dry_run:
         print("\n[merged] DRY RUN — no changes committed.")

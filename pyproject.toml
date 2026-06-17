@@ -91,6 +91,8 @@ known-first-party = ["app"]
 
 [tool.ruff.lint.per-file-ignores]
 "alembic/versions/*.py" = ["E501", "F401"]  # migrations have long lines and unused imports
+"scripts/*.py" = ["T20"]                     # command-line maintenance scripts print user-facing output
+"scripts/backfill_conversation_summaries.py" = ["E402"]  # bootstraps env before app imports
 "tests/**/*.py" = ["T20"]                    # allow print in tests
 
 [build-system]
