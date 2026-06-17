@@ -451,7 +451,7 @@
 
 {% block scripts %}
 {{ super() }}
-{% if sv == 'submitted' %}
+{% if (mr.status.value if mr.status else 'draft') == 'submitted' %}
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const sourceSelect = document.getElementById('source_location_id');
