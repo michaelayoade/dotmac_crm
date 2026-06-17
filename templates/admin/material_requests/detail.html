@@ -214,14 +214,14 @@
                             </select>
                         </div>
                     {% if mr.items %}
-                    <div class="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-900/30">
+                    <div class="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-900/30" data-serial-section hidden>
                         <div class="flex items-center justify-between gap-3">
                             <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Serial Numbers</h3>
                             <span class="text-xs text-slate-400 dark:text-slate-500">Loaded from ERP</span>
                         </div>
                         {% for line in mr.items %}
                         {% set line_code = line.item.sku if line.item else '' %}
-                        <div class="serial-picker" data-item-code="{{ line_code or '' }}" data-quantity="{{ line.quantity }}" data-item-name="{{ line.item.name if line.item else 'Item' }}">
+                        <div class="serial-picker" data-item-code="{{ line_code or '' }}" data-quantity="{{ line.quantity }}" data-item-name="{{ line.item.name if line.item else 'Item' }}" hidden>
                             <label for="serial_numbers_{{ line.id }}" class="block text-xs font-medium text-slate-600 dark:text-slate-300">
                                 {{ line.item.name if line.item else 'Item' }}{% if line_code %} ({{ line_code }}){% endif %}
                             </label>
@@ -435,13 +435,14 @@
 
 {% block scripts %}
 {{ super() }}
-{% if sv == 'submitted' %}
+{% if (mr.status.value if mr.status else 'draft') == 'submitted' %}
 <script>
 (() => {
     const initSerialPickers = () => {
     const sourceSelect = document.getElementById('source_location_id');
     const issueForm = document.querySelector('#issue-form form');
     const pickers = Array.from(document.querySelectorAll('.serial-picker'));
+    const serialSection = document.querySelector('[data-serial-section]');
     if (!sourceSelect || !issueForm || pickers.length === 0 || issueForm.dataset.serialPickerInitialized === 'true') {
         return;
     }
@@ -460,6 +461,18 @@
         select.appendChild(option);
     };
 
+    const updateSerialSectionVisibility = () => {
+        if (!serialSection) {
+            return;
+        }
+        serialSection.hidden = !pickers.some((picker) => !picker.hidden);
+    };
+
+    const setPickerVisible = (picker, visible) => {
+        picker.hidden = !visible;
+        updateSerialSectionVisibility();
+    };
+
     const loadSerials = async () => {
         const warehouseCode = selectedWarehouseCode();
         for (const picker of pickers) {
@@ -476,6 +489,7 @@
             help.textContent = 'Needed only if this ERP item tracks serial numbers.';
 
             if (!warehouseCode || !itemCode) {
+                setPickerVisible(picker, false);
                 continue;
             }
 
@@ -489,6 +503,11 @@
                 }
                 const data = await response.json();
                 const serials = Array.isArray(data.serials) ? data.serials : [];
+                if (!data.track_serial_numbers && serials.length === 0) {
+                    setPickerVisible(picker, false);
+                    continue;
+                }
+                setPickerVisible(picker, true);
                 if (serials.length === 0) {
                     setSelectMessage(select, 'No available serials in this warehouse');
                     help.textContent = data.track_serial_numbers
@@ -509,11 +528,16 @@
                     ? `Select ${quantity} serial number${quantity === 1 ? '' : 's'} for this line.`
                     : 'Available ERP serials for this selected item. Selection is optional.';
             } catch (error) {
+                setPickerVisible(picker, true);
                 setSelectMessage(select, 'Unable to load serials from ERP');
                 help.textContent = 'Check ERP connection or enter after serials are available.';
             }
         }
     };
+
+    for (const picker of pickers) {
+        setPickerVisible(picker, false);
+    }
 
     sourceSelect?.addEventListener('change', loadSerials);
     issueForm?.addEventListener('submit', (event) => {

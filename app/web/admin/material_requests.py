@@ -28,7 +28,7 @@ from app.schemas.material_request import (
     MaterialRequestUpdate,
 )
 from app.services.audit_helpers import log_audit_event
-from app.services.auth_dependencies import require_permission
+from app.services.auth_dependencies import require_any_permission, require_permission
 from app.services.common import coerce_uuid
 from app.services.material_requests import (
     ResolveError,
@@ -599,7 +599,7 @@ def material_request_create(
 @router.get(
     "/serials/available",
     response_class=JSONResponse,
-    dependencies=[Depends(require_permission("inventory:read"))],
+    dependencies=[Depends(require_any_permission("inventory:read", "inventory:write"))],
 )
 def material_request_available_serials(
     item_code: str = Query(..., min_length=1),
