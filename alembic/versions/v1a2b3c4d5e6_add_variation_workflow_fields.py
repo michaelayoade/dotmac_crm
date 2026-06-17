@@ -5,8 +5,8 @@ Revises: x9b0c1d2e3f4
 Create Date: 2026-03-11
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 revision = "v1a2b3c4d5e6"
 down_revision = "x9b0c1d2e3f4"
@@ -17,8 +17,11 @@ depends_on = None
 def upgrade() -> None:
     # Create the variation type enum
     variation_type_enum = sa.Enum(
-        "scope_change", "route_deviation", "material_change",
-        "additional_work", "reduction",
+        "scope_change",
+        "route_deviation",
+        "material_change",
+        "additional_work",
+        "reduction",
         name="variationtype",
     )
     variation_type_enum.create(op.get_bind(), checkfirst=True)

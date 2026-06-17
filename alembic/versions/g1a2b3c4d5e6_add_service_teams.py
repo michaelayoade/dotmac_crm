@@ -5,10 +5,9 @@ Revises: f5c6d7e8f9a0
 Create Date: 2026-02-10 00:00:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
-
 
 # revision identifiers, used by Alembic.
 revision = "g1a2b3c4d5e6"
@@ -18,10 +17,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    service_team_type = postgresql.ENUM("operations", "support", "field_service", name="serviceteamtype", create_type=False)
+    service_team_type = postgresql.ENUM(
+        "operations", "support", "field_service", name="serviceteamtype", create_type=False
+    )
     service_team_type.create(op.get_bind(), checkfirst=True)
 
-    service_team_member_role = postgresql.ENUM("member", "lead", "manager", name="serviceteammemberrole", create_type=False)
+    service_team_member_role = postgresql.ENUM(
+        "member", "lead", "manager", name="serviceteammemberrole", create_type=False
+    )
     service_team_member_role.create(op.get_bind(), checkfirst=True)
 
     op.create_table(

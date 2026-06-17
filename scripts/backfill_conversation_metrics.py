@@ -7,7 +7,6 @@ Usage:
 """
 
 import sys
-from datetime import UTC, datetime
 
 from app.db import SessionLocal
 from app.models.crm.conversation import Conversation, Message
@@ -65,13 +64,17 @@ def backfill(dry_run: bool = False) -> dict:
             stats["resolved_at_filled"] += 1
 
         if dry_run:
-            print(f"DRY RUN — would fill {stats['first_response_filled']} first_response_at, "
-                  f"{stats['resolved_at_filled']} resolved_at")
+            print(
+                f"DRY RUN — would fill {stats['first_response_filled']} first_response_at, "
+                f"{stats['resolved_at_filled']} resolved_at"
+            )
             db.rollback()
         else:
             db.commit()
-            print(f"Backfilled {stats['first_response_filled']} first_response_at, "
-                  f"{stats['resolved_at_filled']} resolved_at")
+            print(
+                f"Backfilled {stats['first_response_filled']} first_response_at, "
+                f"{stats['resolved_at_filled']} resolved_at"
+            )
 
     except Exception as exc:
         db.rollback()

@@ -101,7 +101,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tag", action="store_true", help="Create an annotated Git tag after updating pyproject.toml.")
     parser.add_argument("--tag-prefix", default="v", help="Tag prefix to use with --tag. Default: v")
     parser.add_argument("--message", help="Annotated tag message. Default: Release <tag>")
-    parser.add_argument("--dry-run", action="store_true", help="Print the version change without writing files or tags.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print the version change without writing files or tags."
+    )
     return parser
 
 
@@ -114,11 +116,11 @@ def main() -> int:
     if current == new_version:
         raise SystemExit(f"Version is already {new_version}.")
 
-    print(f"{current} -> {new_version} ({PYPROJECT.relative_to(ROOT)}:{line_no})")  # noqa: T201
+    print(f"{current} -> {new_version} ({PYPROJECT.relative_to(ROOT)}:{line_no})")
 
     if args.tag:
         ensure_tag_missing(tag_name)
-        print(f"tag: {tag_name}")  # noqa: T201
+        print(f"tag: {tag_name}")
 
     if args.dry_run:
         return 0

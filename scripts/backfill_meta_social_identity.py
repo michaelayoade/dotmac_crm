@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ruff: noqa: T201, E402
+# ruff: noqa: E402
 """Backfill Meta social conversation attribution and placeholder contact names.
 
 Usage:
@@ -160,19 +160,18 @@ def _placeholder_name_backfill(db: Session, *, dry_run: bool) -> dict[str, int]:
     ig_tokens = dict(token_state["ig_tokens"])  # type: ignore[arg-type]
     facebook_override_token = token_state["facebook_override_token"]
 
-    people = (
-        db.query(Person)
-        .filter(Person.is_active.is_(True))
-        .filter(Person.display_name.isnot(None))
-        .all()
-    )
+    people = db.query(Person).filter(Person.is_active.is_(True)).filter(Person.display_name.isnot(None)).all()
 
     for person in people:
         if not _is_meta_placeholder_name(person.display_name):
             continue
         stats["people_scanned"] += 1
 
-        social_channels = [ch for ch in (person.channels or []) if ch.channel_type in {PersonChannelType.instagram_dm, PersonChannelType.facebook_messenger}]
+        social_channels = [
+            ch
+            for ch in (person.channels or [])
+            if ch.channel_type in {PersonChannelType.instagram_dm, PersonChannelType.facebook_messenger}
+        ]
         if not social_channels:
             stats["people_skipped"] += 1
             continue
@@ -206,10 +205,7 @@ def _placeholder_name_backfill(db: Session, *, dry_run: bool) -> dict[str, int]:
 
         first_name, last_name, display_name = _split_display_name(resolved_name)
         if dry_run:
-            print(
-                f"[DRY RUN] Person {person.id} would change name "
-                f"from '{person.display_name}' to '{display_name}'"
-            )
+            print(f"[DRY RUN] Person {person.id} would change name from '{person.display_name}' to '{display_name}'")
             stats["people_updated"] += 1
             continue
 

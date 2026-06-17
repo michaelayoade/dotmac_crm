@@ -5,10 +5,9 @@ Revises: o1a2b3c4d5f2
 Create Date: 2026-02-14 00:00:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
-
 
 # revision identifiers, used by Alembic.
 revision = "p1a2b3c4d5e6"
@@ -74,7 +73,9 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.ForeignKeyConstraint(["person_id"], ["people.id"]),
         sa.ForeignKeyConstraint(["team_id"], ["service_teams.id"]),
-        sa.UniqueConstraint("person_id", "score_period_start", "score_period_end", name="uq_perf_snapshot_person_period"),
+        sa.UniqueConstraint(
+            "person_id", "score_period_start", "score_period_end", name="uq_perf_snapshot_person_period"
+        ),
     )
     op.create_index("ix_perf_snapshot_period", "agent_performance_snapshots", ["score_period_start"])
     op.create_index("ix_perf_snapshot_composite", "agent_performance_snapshots", ["composite_score"])
@@ -101,7 +102,9 @@ def upgrade() -> None:
         sa.Column("acknowledged_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
         sa.ForeignKeyConstraint(["person_id"], ["people.id"]),
-        sa.UniqueConstraint("person_id", "review_period_start", "review_period_end", name="uq_perf_review_person_period"),
+        sa.UniqueConstraint(
+            "person_id", "review_period_start", "review_period_end", name="uq_perf_review_person_period"
+        ),
     )
     op.create_index("ix_perf_review_person_period", "agent_performance_reviews", ["person_id", "review_period_start"])
     op.create_index("ix_perf_review_ack", "agent_performance_reviews", ["is_acknowledged"])
