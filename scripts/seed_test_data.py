@@ -11,7 +11,6 @@ Run (against crm_test):
 
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime, timedelta
 
 from app.db import SessionLocal
@@ -34,7 +33,7 @@ def _section(label: str, fn) -> None:
         db.commit()
         _count(label, n or 0)
         print(f"[ok]   {label}: +{n}")
-    except Exception as exc:  # noqa: BLE001 - we want to keep going
+    except Exception as exc:
         db.rollback()
         errors.append(f"{label}: {type(exc).__name__}: {exc}")
         print(f"[FAIL] {label}: {type(exc).__name__}: {exc}")
@@ -182,9 +181,7 @@ def seed_crm(db) -> int:
     db.flush()
 
     # Agents (need person)
-    agent_people = (
-        db.query(Person).filter(Person.email.in_(["grace.seed@test.local", "alan.seed@test.local"])).all()
-    )
+    agent_people = db.query(Person).filter(Person.email.in_(["grace.seed@test.local", "alan.seed@test.local"])).all()
     for ap in agent_people:
         db.add(CrmAgent(person_id=ap.id, title="Support Agent"))
         made += 1
@@ -311,9 +308,7 @@ def seed_network_gis(db) -> int:
     ]:
         if db.query(GeoLayer).filter(GeoLayer.layer_key == lkey).first():
             continue
-        gis_service.geo_layers.create(
-            db, GeoLayerCreate(name=lname, layer_key=lkey, layer_type=ltype)
-        )
+        gis_service.geo_layers.create(db, GeoLayerCreate(name=lname, layer_key=lkey, layer_type=ltype))
         made += 1
     return made
 

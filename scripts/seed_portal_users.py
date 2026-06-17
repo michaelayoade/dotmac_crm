@@ -27,11 +27,7 @@ RESELLER_PASSWORD = "ResellerQA!2026Secure#Pass"
 def seed_vendor() -> str:
     db = SessionLocal()
     try:
-        existing = (
-            db.query(UserCredential)
-            .filter(UserCredential.username == VENDOR_EMAIL)
-            .first()
-        )
+        existing = db.query(UserCredential).filter(UserCredential.username == VENDOR_EMAIL).first()
         if existing:
             return "vendor: already present, skipped"
 
@@ -53,11 +49,7 @@ def seed_vendor() -> str:
             db.add(vendor)
             db.flush()
 
-        link = (
-            db.query(VendorUser)
-            .filter(VendorUser.vendor_id == vendor.id, VendorUser.person_id == person.id)
-            .first()
-        )
+        link = db.query(VendorUser).filter(VendorUser.vendor_id == vendor.id, VendorUser.person_id == person.id).first()
         if not link:
             db.add(VendorUser(vendor_id=vendor.id, person_id=person.id, role="admin", is_active=True))
 
@@ -73,7 +65,7 @@ def seed_vendor() -> str:
         )
         db.commit()
         return f"vendor: created {VENDOR_EMAIL} / vendor='QA Fiber Contractors'"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         db.rollback()
         return f"vendor: FAILED {type(exc).__name__}: {exc}"
     finally:
@@ -83,16 +75,12 @@ def seed_vendor() -> str:
 def seed_reseller() -> str:
     db = SessionLocal()
     try:
-        existing = (
-            db.query(UserCredential)
-            .filter(UserCredential.username == RESELLER_EMAIL)
-            .first()
-        )
+        existing = db.query(UserCredential).filter(UserCredential.username == RESELLER_EMAIL).first()
         if existing:
             return "reseller: already present, skipped"
         from app.services.reseller import admin_create_reseller
 
-        org, person = admin_create_reseller(
+        org, _person = admin_create_reseller(
             db,
             organization_name="QA Reseller Networks",
             organization_domain="qa-reseller.test",
@@ -103,7 +91,7 @@ def seed_reseller() -> str:
             password=RESELLER_PASSWORD,
         )
         return f"reseller: created {RESELLER_EMAIL} / org='{org.name}'"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         db.rollback()
         return f"reseller: FAILED {type(exc).__name__}: {exc}"
     finally:

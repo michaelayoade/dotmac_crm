@@ -6,9 +6,8 @@ Create Date: 2026-02-17
 
 """
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision = "2c1a8e0f4d7b"
 down_revision = ("08c2b28e5407", "x8a9b0c1d2e3")
@@ -25,4 +24,3 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_column("olt_devices", "site_role")
-

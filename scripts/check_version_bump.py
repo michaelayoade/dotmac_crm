@@ -80,7 +80,7 @@ def main() -> int:
     paths = changed_files(args.base_ref, args.head_ref)
 
     if not needs_version_bump(paths):
-        print("No production-impacting changes detected; version bump not required.")  # noqa: T201
+        print("No production-impacting changes detected; version bump not required.")
         return 0
 
     base_version = version_from_text(read_file_at_ref(args.base_ref, PYPROJECT))
@@ -88,7 +88,7 @@ def main() -> int:
 
     if parse_version(head_version) <= parse_version(base_version):
         changed = "\n".join(f"  - {path}" for path in paths if is_production_path(path))
-        print(  # noqa: T201
+        print(
             "Production-impacting changes require a pyproject.toml version bump.\n"
             f"Base version: {base_version}\n"
             f"Head version: {head_version}\n"
@@ -101,7 +101,7 @@ def main() -> int:
         )
         return 1
 
-    print(f"Version bump detected: {base_version} -> {head_version}")  # noqa: T201
+    print(f"Version bump detected: {base_version} -> {head_version}")
     return 0
 
 

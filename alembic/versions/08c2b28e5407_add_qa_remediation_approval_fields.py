@@ -6,13 +6,12 @@ Create Date: 2026-02-17 10:34:37.638059
 
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
-
-revision = '08c2b28e5407'
-down_revision = 'bfcbe1032692'
+revision = "08c2b28e5407"
+down_revision = "bfcbe1032692"
 branch_labels = None
 depends_on = None
 
