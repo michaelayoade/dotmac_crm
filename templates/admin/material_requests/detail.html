@@ -220,14 +220,14 @@
                             </select>
                         </div>
                     {% if mr.items %}
-                    <div class="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-900/30">
+                    <div class="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-900/30" data-serial-section hidden>
                         <div class="flex items-center justify-between gap-3">
                             <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Serial Numbers</h3>
                             <span class="text-xs text-slate-400 dark:text-slate-500">Loaded from ERP</span>
                         </div>
                         {% for line in mr.items %}
                         {% set line_code = line.item.sku if line.item else '' %}
-                        <div class="serial-picker" data-item-code="{{ line_code or '' }}" data-quantity="{{ line.quantity }}" data-item-name="{{ line.item.name if line.item else 'Item' }}">
+                        <div class="serial-picker" data-item-code="{{ line_code or '' }}" data-quantity="{{ line.quantity }}" data-item-name="{{ line.item.name if line.item else 'Item' }}" hidden>
                             <label for="serial_search_{{ line.id }}" class="block text-xs font-medium text-slate-600 dark:text-slate-300">
                                 {{ line.item.name if line.item else 'Item' }}{% if line_code %} ({{ line_code }}){% endif %}
                             </label>
@@ -457,6 +457,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const sourceSelect = document.getElementById('source_location_id');
     const issueForm = document.querySelector('#issue-form form');
     const pickers = Array.from(document.querySelectorAll('.serial-picker'));
+    const serialSection = document.querySelector('[data-serial-section]');
     const serialLimit = 50;
     const pickerState = new WeakMap();
 
@@ -476,6 +477,18 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
         return pickerState.get(picker);
+    };
+
+    const updateSerialSectionVisibility = () => {
+        if (!serialSection) {
+            return;
+        }
+        serialSection.hidden = !pickers.some((picker) => !picker.hidden);
+    };
+
+    const setPickerVisible = (picker, visible) => {
+        picker.hidden = !visible;
+        updateSerialSectionVisibility();
     };
 
     const setResultsMessage = (picker, message) => {
@@ -586,6 +599,7 @@ document.addEventListener('DOMContentLoaded', () => {
         help.textContent = 'Needed only if this ERP item tracks serial numbers.';
 
         if (!warehouseCode || !itemCode) {
+            setPickerVisible(picker, false);
             if (search) {
                 search.disabled = true;
             }
@@ -621,15 +635,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error('Serials could not be loaded');
             }
             const data = await response.json();
-            if (!data.track_serial_numbers) {
+            const serials = Array.isArray(data.serials) ? data.serials : [];
+            if (!data.track_serial_numbers && serials.length === 0) {
                 state.trackSerialNumbers = false;
-                setResultsMessage(picker, 'This ERP item does not use serial numbers');
-                help.textContent = 'No serial selection is needed for this line.';
+                setPickerVisible(picker, false);
                 return;
             }
 
-            state.trackSerialNumbers = true;
-            const serials = Array.isArray(data.serials) ? data.serials : [];
+            setPickerVisible(picker, true);
+            state.trackSerialNumbers = Boolean(data.track_serial_numbers);
             state.offset += serials.length;
             state.hasMore = Boolean(data.has_more);
             renderSelected(picker);
@@ -637,8 +651,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (loadMore) {
                 loadMore.classList.toggle('hidden', !state.hasMore);
             }
-            help.textContent = `Search and select ${picker.dataset.quantity} serial number${picker.dataset.quantity === '1' ? '' : 's'} for this line.`;
+            help.textContent = state.trackSerialNumbers
+                ? `Search and select ${picker.dataset.quantity} serial number${picker.dataset.quantity === '1' ? '' : 's'} for this line.`
+                : 'Available ERP serials for this selected item. Selection is optional.';
         } catch (error) {
+            setPickerVisible(picker, true);
             setResultsMessage(picker, 'Unable to load serials from ERP');
             help.textContent = 'Check ERP connection or try another search.';
         }
@@ -653,6 +670,7 @@ document.addEventListener('DOMContentLoaded', () => {
     for (const picker of pickers) {
         const search = picker.querySelector('[data-serial-search]');
         const loadMore = picker.querySelector('[data-load-more]');
+        setPickerVisible(picker, false);
         search?.addEventListener('input', () => {
             const state = stateFor(picker);
             window.clearTimeout(state.timer);
