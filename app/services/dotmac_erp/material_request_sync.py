@@ -143,7 +143,7 @@ class DotMacERPMaterialRequestSync:
         """Map a MaterialRequest to the ERP API payload."""
         source_warehouse_code = None
         if mr.source_location:
-            source_warehouse_code = mr.source_location.code or str(mr.source_location.id)
+            source_warehouse_code = (mr.source_location.code or "").strip() or None
 
         item_rows: list[dict[str, object]] = []
         for item in mr.items:
@@ -208,6 +208,8 @@ class DotMacERPMaterialRequestSync:
             return f"Material request {mr.id} is in {mr.status.value} status and cannot be synced yet"
         if not mr.source_location:
             return "Source warehouse is required before syncing to ERP"
+        if not (mr.source_location.code or "").strip():
+            return "Source warehouse is missing an ERP warehouse code"
         if not mr.items:
             return f"Material request {mr.id} has no items — cannot sync to ERP"
         return None

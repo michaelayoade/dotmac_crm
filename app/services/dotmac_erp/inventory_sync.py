@@ -244,32 +244,51 @@ class DotMacERPInventorySync:
 
             for wh_data in warehouses:
                 try:
-                    # ERP uses: warehouse_id, warehouse_name
-                    code = wh_data.get("warehouse_id")
+                    # ERP serial/material APIs expect the warehouse code, not the ERP UUID.
+                    code = wh_data.get("code") or wh_data.get("warehouse_code") or wh_data.get("warehouse_id")
                     if not code:
-                        errors.append(f"Warehouse missing warehouse_id: {wh_data}")
+                        errors.append(f"Warehouse missing code: {wh_data}")
                         continue
+                    code = str(code).strip()
+                    warehouse_id = str(wh_data.get("warehouse_id") or "").strip()
+                    name = wh_data.get("name") or wh_data.get("warehouse_name") or code
 
-                    # Find existing location by code
+                    # Find existing location by code. Older syncs stored warehouse_id in code,
+                    # so update those rows in place instead of creating duplicates.
                     existing = self.db.query(InventoryLocation).filter(InventoryLocation.code == code).first()
+                    if existing is None and warehouse_id and warehouse_id != code:
+                        existing = (
+                            self.db.query(InventoryLocation).filter(InventoryLocation.code == warehouse_id).first()
+                        )
+                    if existing is None:
+                        existing = (
+                            self.db.query(InventoryLocation)
+                            .filter(
+                                InventoryLocation.name == name,
+                                (InventoryLocation.code.is_(None) | InventoryLocation.code.in_([warehouse_id, code])),
+                            )
+                            .first()
+                        )
 
                     if existing:
                         # Update existing location
-                        existing.name = wh_data.get("warehouse_name", existing.name)
+                        existing.code = code
+                        existing.name = name
                         existing.is_active = wh_data.get("is_active", True)
                         updated += 1
                     else:
                         # Create new location
                         new_loc = InventoryLocation(
                             code=code,
-                            name=wh_data.get("warehouse_name", code),
+                            name=name,
                             is_active=wh_data.get("is_active", True),
                         )
                         self.db.add(new_loc)
                         created += 1
 
                 except Exception as e:
-                    errors.append(f"Error processing warehouse {wh_data.get('warehouse_id')}: {e}")
+                    warehouse_ref = wh_data.get("code") or wh_data.get("warehouse_code") or wh_data.get("warehouse_id")
+                    errors.append(f"Error processing warehouse {warehouse_ref}: {e}")
 
             self.db.commit()
 

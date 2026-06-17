@@ -209,7 +209,12 @@ def _validate_serial_numbers_in_erp(db: Session, mr: MaterialRequest, source_loc
     from app.services.dotmac_erp import DotMacERPError
     from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
 
-    warehouse_code = (source_location.code or str(source_location.id)).strip()
+    warehouse_code = (source_location.code or "").strip()
+    if not warehouse_code:
+        raise HTTPException(
+            status_code=400,
+            detail="Source warehouse is missing an ERP warehouse code. Sync warehouses from ERP before selecting serials.",
+        )
     try:
         sync_service = dotmac_erp_material_request_sync(db)
     except ValueError:

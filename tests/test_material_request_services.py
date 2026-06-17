@@ -419,6 +419,44 @@ class TestMaterialRequestStatusTransitions:
             search="ONT-999",
         )
 
+    def test_approve_rejects_missing_source_warehouse_erp_code(
+        self,
+        db_session,
+        person,
+        ticket,
+        inventory_item,
+        inventory_location,
+        monkeypatch,
+    ):
+        inventory_location.code = None
+        db_session.commit()
+
+        mr = _make_mr(
+            db_session,
+            person,
+            ticket,
+            items=[MaterialRequestItemCreate(item_id=inventory_item.id, quantity=1)],
+        )
+        mock_sync_service = MagicMock()
+        mock_sync_service.client.get_inventory_items.return_value = [{"item_code": inventory_item.sku}]
+
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_request_sync.dotmac_erp_material_request_sync",
+            lambda session: mock_sync_service,
+        )
+
+        with pytest.raises(HTTPException) as exc:
+            material_requests.approve(
+                db_session,
+                str(mr.id),
+                str(person.id),
+                source_location_id=str(inventory_location.id),
+            )
+
+        assert exc.value.status_code == 400
+        assert "ERP warehouse code" in str(exc.value.detail)
+        mock_sync_service.client.list_available_serials.assert_not_called()
+
     def test_approve_marks_sync_failed_when_enqueue_fails(self, db_session, person, ticket, inventory_location):
         mr = _make_mr(db_session, person, ticket)
         with patch(

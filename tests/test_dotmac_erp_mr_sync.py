@@ -156,6 +156,19 @@ class TestMapMaterialRequest:
 
 
 class TestSyncMaterialRequest:
+    def test_missing_source_warehouse_code_is_validation_error(self, mr_sync, mock_client, full_mr, db_session):
+        full_mr.source_location.code = None
+        db_session.commit()
+        db_session.refresh(full_mr)
+
+        result = mr_sync.sync_material_request(full_mr)
+
+        assert result.success is False
+        assert result.error_type == "ValidationError"
+        assert result.status_code == 422
+        assert "ERP warehouse code" in (result.error or "")
+        mock_client.push_material_request.assert_not_called()
+
     def test_success(self, mr_sync, mock_client, full_mr):
         mock_client.push_material_request.return_value = {
             "request_id": "MAT-REQ-2026-00001",
