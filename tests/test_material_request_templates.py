@@ -92,9 +92,10 @@ def test_material_request_list_marks_pending_erp_issue():
         )
     )
 
-    assert "Awaiting ERP issue" in html
+    assert "Issued" in html
+    assert "Awaiting ERP issue" not in html
     assert "ERP: Pending issue" in html
-    assert "Pending ERP issue" in html
+    assert "All ERP statuses" not in html
 
 
 def test_material_request_detail_warns_when_erp_has_not_confirmed_issue():
