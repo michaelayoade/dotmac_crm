@@ -22,6 +22,21 @@ templates = Jinja2Templates(directory="templates")
 logger = get_logger(__name__)
 
 
+def _assignment_update_headers(*, contact_id: str | None, conversation_id: str | None) -> dict[str, str]:
+    if not contact_id or not conversation_id:
+        return {}
+    return {
+        "HX-Trigger": json.dumps(
+            {
+                "crmContactAssignmentUpdated": {
+                    "contactId": contact_id,
+                    "conversationId": conversation_id,
+                }
+            }
+        )
+    }
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -221,7 +236,7 @@ def inbox_conversation_assignment(
                 assignment_options = _load_crm_agent_team_options(db)
                 from app.logic import private_note_logic
 
-                return templates.TemplateResponse(
+                response = templates.TemplateResponse(
                     "admin/crm/_contact_details.html",
                     {
                         "request": request,
@@ -234,6 +249,13 @@ def inbox_conversation_assignment(
                         "assignment_error_detail": conversation_result.error_detail or "Assignment failed",
                     },
                 )
+                response.headers.update(
+                    _assignment_update_headers(
+                        contact_id=str(contact.id),
+                        conversation_id=str(conversation.id) if conversation else conversation_id,
+                    )
+                )
+                return response
             return HTMLResponse(
                 "<div class='p-6 text-center text-slate-500'>Contact not found</div>",
                 status_code=200,
@@ -260,7 +282,7 @@ def inbox_conversation_assignment(
     if request.headers.get("HX-Request"):
         from app.logic import private_note_logic
 
-        return templates.TemplateResponse(
+        response = templates.TemplateResponse(
             "admin/crm/_contact_details.html",
             {
                 "request": request,
@@ -272,6 +294,10 @@ def inbox_conversation_assignment(
                 "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
             },
         )
+        response.headers.update(
+            _assignment_update_headers(contact_id=str(contact.id), conversation_id=str(conversation.id))
+        )
+        return response
     return RedirectResponse(
         url=f"/admin/crm/inbox?conversation_id={conversation_id}",
         status_code=303,

@@ -145,7 +145,8 @@
      x-init="init()"
      x-effect="updateNewConversationTarget()"
      x-on:toggle-contact-panel.window="toggleContactPanel()"
-     x-on:show-contact-panel.window="showContactPanel = true"
+     x-on:show-contact-panel.window="showSelectedContactPanel($event.detail && $event.detail.contactId)"
+     data-inbox-root
      class="relative h-full min-h-0 w-full">
 
     {% if reply_error %}
@@ -870,9 +871,10 @@
     </main>
 
     <!-- Right Sidebar - Contact Details -->
-    <aside class="hidden lg:block w-80 flex-shrink-0 border-l border-slate-200/60 bg-slate-50/50 overflow-y-auto inbox-scroll dark:border-slate-700/60 dark:bg-slate-900/40"
+    <aside class="fixed inset-y-0 right-0 z-50 w-80 max-w-[92vw] flex-shrink-0 overflow-y-auto border-l border-slate-200/60 bg-slate-50 shadow-2xl inbox-scroll dark:border-slate-700/60 dark:bg-slate-900 lg:relative lg:inset-auto lg:z-auto lg:max-w-none lg:bg-slate-50/50 lg:shadow-none lg:dark:bg-slate-900/40"
            x-cloak
            x-show="showContactPanel"
+           data-contact-panel
            x-transition:enter="transition ease-out duration-200"
            x-transition:enter-start="opacity-0 translate-x-4"
            x-transition:enter-end="opacity-100 translate-x-0"
@@ -1254,6 +1256,100 @@
 </div>
 
 <script>
+window.openInboxContactPanel = function(contactId, conversationId) {
+    const resolvedContactId = String(contactId || '').trim();
+    if (!resolvedContactId) {
+        return;
+    }
+    const root = document.querySelector('[data-inbox-root]');
+    const controller = root && window.Alpine && typeof window.Alpine.$data === 'function'
+        ? window.Alpine.$data(root)
+        : null;
+    const resolvedConversationId = conversationId || (controller && controller.selectedConversation) || '';
+    if (controller) {
+        controller.selectedContactId = resolvedContactId;
+        if (resolvedConversationId) {
+            controller.selectedConversation = resolvedConversationId;
+        }
+        controller.showContactPanel = true;
+    }
+    const panel = document.querySelector('[data-contact-panel]');
+    if (panel) {
+        panel.removeAttribute('x-cloak');
+        panel.style.display = '';
+    }
+    const target = document.querySelector('#contact-details');
+    const url = `/admin/crm/inbox/contact/${resolvedContactId}?conversation_id=${resolvedConversationId || ''}`;
+    if (window.htmx) {
+        window.htmx.ajax(
+            'GET',
+            url,
+            { target: '#contact-details', swap: 'innerHTML transition:false' }
+        );
+    } else if (target) {
+        fetch(url, { headers: { 'HX-Request': 'true' } })
+            .then((response) => response.text())
+            .then((html) => {
+                target.innerHTML = html;
+            });
+    }
+};
+
+document.addEventListener('click', function(event) {
+    const trigger = event.target.closest('[data-inbox-contact-trigger]');
+    if (!trigger) {
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    window.openInboxContactPanel(trigger.dataset.contactId, trigger.dataset.conversationId);
+});
+
+document.addEventListener('keydown', function(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+    }
+    const trigger = event.target.closest('[data-inbox-contact-trigger]');
+    if (!trigger) {
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    window.openInboxContactPanel(trigger.dataset.contactId, trigger.dataset.conversationId);
+});
+
+document.body.addEventListener('crmContactAssignmentUpdated', function(event) {
+    const detail = event.detail || {};
+    const contactId = String(detail.contactId || '').trim();
+    const conversationId = String(detail.conversationId || '').trim();
+    if (!contactId || !conversationId) {
+        return;
+    }
+    if (window.openInboxContactPanel) {
+        window.openInboxContactPanel(contactId, conversationId);
+    }
+    if (window.htmx) {
+        window.htmx.ajax(
+            'GET',
+            `/admin/crm/inbox/conversation/${conversationId}`,
+            { target: '#message-thread', swap: 'innerHTML transition:false' }
+        );
+        const root = document.querySelector('[data-inbox-root]');
+        const controller = root && window.Alpine && typeof window.Alpine.$data === 'function'
+            ? window.Alpine.$data(root)
+            : null;
+        if (controller && typeof controller.refreshConversations === 'function') {
+            controller.refreshConversations(true);
+        } else {
+            window.htmx.ajax(
+                'GET',
+                '/admin/crm/inbox/conversations',
+                { target: '#conversation-list', swap: 'innerHTML transition:false' }
+            );
+        }
+    }
+});
+
 function inboxController() {
     return {
         searchQuery: {{ (search or "") | tojson }},
@@ -4267,6 +4363,19 @@ function inboxController() {
                     swap: 'innerHTML transition:false'
                 });
             }
+        },
+
+        showSelectedContactPanel(contactId = null) {
+            const resolvedContactId = contactId || this.selectedContactId;
+            if (!resolvedContactId) {
+                return;
+            }
+            this.selectedContactId = resolvedContactId;
+            this.showContactPanel = true;
+            htmx.ajax('GET', `/admin/crm/inbox/contact/${resolvedContactId}?conversation_id=${this.selectedConversation || ''}`, {
+                target: '#contact-details',
+                swap: 'innerHTML transition:false'
+            });
         },
 
         openContactPanel(contactId) {
