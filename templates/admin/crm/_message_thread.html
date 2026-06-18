@@ -1,4 +1,5 @@
 {% from "components/ui/macros.html" import submit_button %}
+{% set conversation_contact_id = conversation.contact_id or conversation.contact.id %}
 <!-- Conversation Header -->
 <div class="relative z-30 flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50/80 backdrop-blur-sm dark:border-slate-800/60 dark:bg-slate-900/30">
     <div class="flex items-center gap-4">
@@ -78,7 +79,6 @@
                 hx-vals='{"agent_id":"{{ current_agent_id }}"}'
                 hx-target="#contact-details"
                 hx-swap="innerHTML"
-                hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'}); htmx.ajax('GET', '/admin/crm/inbox/conversation/{{ conversation.id }}', {target:'#message-thread', swap:'innerHTML'});"
                 {% if conversation.assigned_agent_id and conversation.assigned_agent_id != current_agent_id %}
                 hx-confirm="This conversation is already assigned to {{ conversation.assigned_agent_name|default('another agent') }}. Assign to you anyway?"
                 {% endif %}
@@ -340,7 +340,12 @@
             Create ticket
         </button>
 
-        <button @click="toggleContactPanel()"
+        <button type="button"
+                data-inbox-contact-trigger
+                data-contact-id="{{ conversation_contact_id }}"
+                data-conversation-id="{{ conversation.id }}"
+                data-contact-url="/admin/crm/inbox/contact/{{ conversation_contact_id }}?conversation_id={{ conversation.id }}"
+                onclick="event.preventDefault(); event.stopPropagation(); const root = document.querySelector('[data-inbox-root]') || document.querySelector('[x-data^=&quot;inboxController&quot;]'); if (window.Alpine && root) { const state = Alpine.$data(root); if (state) { state.selectedContactId = this.dataset.contactId; state.selectedConversation = this.dataset.conversationId; state.showContactPanel = true; } } const panel = document.querySelector('[data-contact-panel]'); if (panel) { panel.removeAttribute('x-cloak'); panel.style.display = ''; } const target = document.querySelector('#contact-details'); if (window.htmx) { htmx.ajax('GET', this.dataset.contactUrl, { target: '#contact-details', swap: 'innerHTML' }); } else if (target) { fetch(this.dataset.contactUrl, { credentials: 'same-origin' }).then(response => response.text()).then(html => { target.innerHTML = html; }); }"
                 :class="showContactPanel ? 'bg-primary-500/20 text-primary-600 dark:text-primary-400' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800/60'"
                 class="p-2 rounded-lg transition-colors">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -361,7 +366,12 @@
                  x-transition
                  class="absolute right-0 mt-2 w-44 rounded-xl border border-slate-200 bg-slate-50 py-1 shadow-xl z-50 dark:border-slate-700 dark:bg-slate-800">
                 <button type="button"
-                        @click="$dispatch('show-contact-panel'); open = false"
+                        data-inbox-contact-trigger
+                        data-contact-id="{{ conversation_contact_id }}"
+                        data-conversation-id="{{ conversation.id }}"
+                        data-contact-url="/admin/crm/inbox/contact/{{ conversation_contact_id }}?conversation_id={{ conversation.id }}"
+                        onclick="event.preventDefault(); event.stopPropagation(); const root = document.querySelector('[data-inbox-root]') || document.querySelector('[x-data^=&quot;inboxController&quot;]'); if (window.Alpine && root) { const state = Alpine.$data(root); if (state) { state.selectedContactId = this.dataset.contactId; state.selectedConversation = this.dataset.conversationId; state.showContactPanel = true; } } const panel = document.querySelector('[data-contact-panel]'); if (panel) { panel.removeAttribute('x-cloak'); panel.style.display = ''; } const target = document.querySelector('#contact-details'); if (window.htmx) { htmx.ajax('GET', this.dataset.contactUrl, { target: '#contact-details', swap: 'innerHTML' }); } else if (target) { fetch(this.dataset.contactUrl, { credentials: 'same-origin' }).then(response => response.text()).then(html => { target.innerHTML = html; }); }"
+                        @click="open = false"
                         class="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700/60">
                     View contact
                 </button>
