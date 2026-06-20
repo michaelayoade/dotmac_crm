@@ -80,9 +80,83 @@
         </form>
     </div>
 
-    {# ── Rules Table ── #}
+    {# ── Assignment Rules ── #}
     {% set pad = 'px-6 py-3' %}
     <div class="animate-fade-in-up" style="animation-delay: 350ms">
+    {% call table_shell(table_id="assignment-rules-table", title="Assignment Rules", color="sky", count=assignment_rules | length) %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Rule</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Target</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Assignee</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Applies To</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Filters</th>
+                    <th scope="col" class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Priority</th>
+                    <th scope="col" class="{{ pad }} text-right"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                {% if assignment_rules %}
+                {% for rule in assignment_rules %}
+                {% call table_row(color="sky") %}
+                    <td class="{{ pad }} whitespace-nowrap">
+                        <div class="flex items-center gap-3">
+                            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/10 dark:bg-sky-500/20">
+                                <svg class="h-4 w-4 text-sky-600 dark:text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h8m-8 5h5m-9 8h14a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                            </div>
+                            <div>
+                                <a href="{{ rule.url }}" class="text-sm font-semibold text-slate-900 transition-colors hover:text-sky-600 dark:text-white dark:hover:text-sky-400">{{ rule.name }}</a>
+                                {% if rule.is_active %}
+                                {{ status_badge("Active", "active", size="sm") }}
+                                {% else %}
+                                {{ status_badge("Inactive", "inactive", size="sm") }}
+                                {% endif %}
+                            </div>
+                        </div>
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap text-sm font-medium text-slate-700 dark:text-slate-300">{{ rule.target }}</td>
+                    <td class="{{ pad }} whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">{{ rule.assignee }}</td>
+                    <td class="{{ pad }} whitespace-nowrap">
+                        <div class="flex flex-wrap gap-1.5">
+                            {% for entity_type in rule.entity_types %}
+                            <span class="rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{{ entity_type | title }}</span>
+                            {% else %}
+                            <span class="text-sm text-slate-400 dark:text-slate-500">All</span>
+                            {% endfor %}
+                        </div>
+                    </td>
+                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
+                        {% set filter_parts = [] %}
+                        {% if rule.project_types %}
+                            {% set _ = filter_parts.append((rule.project_types | length) ~ " project type" ~ ("s" if (rule.project_types | length) != 1 else "")) %}
+                        {% endif %}
+                        {% if rule.ticket_types %}
+                            {% set _ = filter_parts.append((rule.ticket_types | length) ~ " ticket type" ~ ("s" if (rule.ticket_types | length) != 1 else "")) %}
+                        {% endif %}
+                        {{ filter_parts | join(", ") if filter_parts else "No filters" }}
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap">
+                        <span class="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{{ rule.priority }}</span>
+                    </td>
+                    <td class="{{ pad }} whitespace-nowrap text-right">
+                        <a href="{{ rule.edit_url }}"
+                           class="inline-flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 transition-colors hover:bg-sky-100 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-300">
+                            Edit
+                        </a>
+                    </td>
+                {% endcall %}
+                {% endfor %}
+                {% else %}
+                {{ empty_state("No assignment rules", "Create assignment rules to auto-assign tickets and projects.", action_label="New Assignment Rule", action_href="/admin/system/automations/assignment-rules/new", colspan=7) }}
+                {% endif %}
+            </tbody>
+        </table>
+    {% endcall %}
+    </div>
+
+    {# ── Rules Table ── #}
+    <div class="animate-fade-in-up" style="animation-delay: 400ms">
     {% call table_shell(table_id="automations-table", title="Automation Rules", color="indigo", count=rules | length) %}
         <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
             <thead>

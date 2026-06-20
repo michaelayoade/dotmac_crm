@@ -380,6 +380,7 @@
             </div>{# close the outer card #}
             {% set section_icons = {
                 "Splynx": '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 5H4m0 0l4 4m-4-4l4-4"/></svg>',
+                "Selfcare": '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18M5 7v10a2 2 0 002 2h10a2 2 0 002-2V7M9 11h6M9 15h3"/></svg>',
                 "DotMac ERP": '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>',
                 "Chatwoot": '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>',
                 "AI & Intelligence": '<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>',
@@ -389,6 +390,7 @@
             } %}
             {% set section_colors = {
                 "Splynx": {"from": "from-cyan-500/10", "to": "to-blue-500/10", "dark_from": "dark:from-cyan-500/20", "dark_to": "dark:to-blue-500/20", "text": "text-cyan-600", "dark_text": "dark:text-cyan-400"},
+                "Selfcare": {"from": "from-emerald-500/10", "to": "to-cyan-500/10", "dark_from": "dark:from-emerald-500/20", "dark_to": "dark:to-cyan-500/20", "text": "text-emerald-600", "dark_text": "dark:text-emerald-400"},
                 "DotMac ERP": {"from": "from-teal-500/10", "to": "to-emerald-500/10", "dark_from": "dark:from-teal-500/20", "dark_to": "dark:to-emerald-500/20", "text": "text-teal-600", "dark_text": "dark:text-teal-400"},
                 "Chatwoot": {"from": "from-amber-500/10", "to": "to-orange-500/10", "dark_from": "dark:from-amber-500/20", "dark_to": "dark:to-orange-500/20", "text": "text-amber-600", "dark_text": "dark:text-amber-400"},
                 "AI & Intelligence": {"from": "from-violet-500/10", "to": "to-purple-500/10", "dark_from": "dark:from-violet-500/20", "dark_to": "dark:to-purple-500/20", "text": "text-violet-600", "dark_text": "dark:text-violet-400"},
@@ -398,6 +400,7 @@
             } %}
             {% set section_descriptions = {
                 "Splynx": "Customer and subscriber data synchronisation with Splynx ISP platform.",
+                "Selfcare": "Create selfcare customer records when CRM quotes are accepted.",
                 "DotMac ERP": "Sync technicians, agents, contacts, teams, shifts, and inventory with DotMac ERP.",
                 "Chatwoot": "Import CRM conversations from Chatwoot omni-channel platform.",
                 "AI & Intelligence": "AI-powered insights, coaching, and reply suggestions powered by LLM.",
