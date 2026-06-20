@@ -186,7 +186,6 @@
                 <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Amounts are calculated automatically on save.</p>
             </div>
 
-            {% if not quote.id %}
             <div>
                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Tax Rate</label>
                 <select name="tax_rate_id" data-quote-tax-rate
@@ -202,25 +201,24 @@
                     {% endfor %}
                 </select>
             </div>
-            {% endif %}
 
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Subtotal</label>
                     <input type="number" step="0.01" name="subtotal" value="{{ quote.subtotal }}"
-                           {% if not quote.id %}readonly data-quote-subtotal{% endif %}
+                           readonly data-quote-subtotal
                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Tax Total</label>
                     <input type="number" step="0.01" name="tax_total" value="{{ quote.tax_total }}"
-                           {% if not quote.id %}readonly data-quote-tax-total{% endif %}
+                           data-quote-tax-total
                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Total</label>
                     <input type="number" step="0.01" name="total" value="{{ quote.total }}"
-                           {% if not quote.id %}readonly data-quote-total{% endif %}
+                           readonly data-quote-total
                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                 </div>
             </div>
@@ -352,11 +350,12 @@
     });
     subtotalInput.value = subtotal.toFixed(2);
     if (taxInput) {
-      const rateValue = taxRateSelect?.selectedOptions?.[0]?.dataset?.rate || "0";
+      const selectedRate = taxRateSelect?.selectedOptions?.[0];
+      const rateValue = selectedRate?.dataset?.rate || "";
       const rate = parseFloat(rateValue);
-      if (Number.isFinite(rate)) {
+      if (selectedRate?.value && Number.isFinite(rate)) {
         taxInput.value = (subtotal * rate).toFixed(2);
-      } else {
+      } else if (!taxInput.value) {
         taxInput.value = "0.00";
       }
     }
@@ -423,6 +422,7 @@
   body.querySelectorAll("[data-line-item-row]").forEach((row) => bindRow(row));
 
   taxRateSelect?.addEventListener("change", recalcTotals);
+  taxInput?.addEventListener("input", recalcTotals);
   recalcTotals();
 
   const syncContactFromLead = (force = false) => {
