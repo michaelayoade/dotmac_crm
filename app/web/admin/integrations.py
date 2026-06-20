@@ -74,6 +74,39 @@ def _parse_json(value: str | None, field: str) -> dict | None:
     return parsed
 
 
+def _format_setting_value(raw_value, value_type: SettingValueType) -> str:
+    if value_type == SettingValueType.boolean:
+        return "true" if bool(raw_value) else "false"
+    if value_type == SettingValueType.integer:
+        return str(int(raw_value))
+    return str(raw_value) if raw_value is not None else ""
+
+
+def _upsert_integration_setting(db: Session, key: str, value, value_type: SettingValueType) -> None:
+    setting = (
+        db.query(DomainSetting)
+        .filter(DomainSetting.domain == SettingDomain.integration)
+        .filter(DomainSetting.key == key)
+        .first()
+    )
+    value_text = _format_setting_value(value, value_type)
+    if setting:
+        setting.value_text = value_text
+        setting.value_json = None
+        setting.is_active = True
+        return
+
+    db.add(
+        DomainSetting(
+            domain=SettingDomain.integration,
+            key=key,
+            value_type=value_type,
+            is_active=True,
+            value_text=value_text,
+        )
+    )
+
+
 def _connector_form_context(
     request: Request,
     db: Session,
@@ -1775,6 +1808,205 @@ def erpnext_run_import_htmx(
 # ==================== DotMac ERP Sync ====================
 
 
+@router.get("/sync", response_class=HTMLResponse)
+def sync_index(request: Request, db: Session = Depends(get_db)):
+    """Unified sync dashboard."""
+    from app.models.domain_settings import SettingDomain
+    from app.services import settings_spec
+    from app.services.dotmac_erp import get_last_sync
+    from app.services.selfcare import get_last_customer_sync
+
+    erp_enabled = bool(settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_sync_enabled"))
+    selfcare_enabled = bool(
+        settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_customer_sync_enabled")
+    )
+    context = _base_context(request, db, active_page="sync", active_menu="system")
+    context.update(
+        {
+            "erp_enabled": erp_enabled,
+            "selfcare_enabled": selfcare_enabled,
+            "erp_last_sync": get_last_sync(),
+            "selfcare_last_sync": get_last_customer_sync(),
+            "humanize_time_ago": _humanize_time_ago,
+        }
+    )
+    return templates.TemplateResponse("admin/integrations/sync.html", context)
+
+
+@router.get("/selfcare", response_class=HTMLResponse)
+def selfcare_sync_index(
+    request: Request,
+    saved: str | None = Query(None),
+    error: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Selfcare customer sync dashboard."""
+    from app.models.domain_settings import SettingDomain
+    from app.services import settings_spec
+    from app.services.selfcare import get_customer_daily_stats, get_customer_sync_history, get_last_customer_sync
+
+    _rv = settings_spec.resolve_value
+    last_sync = get_last_customer_sync()
+    context = _base_context(request, db, active_page="selfcare-sync", active_menu="system")
+    context.update(
+        {
+            "enabled": bool(_rv(db, SettingDomain.integration, "selfcare_customer_sync_enabled")),
+            "base_url": _rv(db, SettingDomain.integration, "selfcare_base_url") or "",
+            "webhook_path": _rv(db, SettingDomain.integration, "selfcare_customer_webhook_path")
+            or "/api/v1/webhooks/crm/customers",
+            "has_secret": bool(_rv(db, SettingDomain.integration, "selfcare_customer_webhook_secret")),
+            "timeout": _rv(db, SettingDomain.integration, "selfcare_timeout_seconds") or 30,
+            "last_sync": last_sync,
+            "last_sync_ago": _humanize_time_ago(last_sync.get("timestamp") if last_sync else None),
+            "daily_stats": get_customer_daily_stats(),
+            "history": get_customer_sync_history(limit=15),
+            "settings_saved": bool(saved),
+            "settings_error": error,
+            "humanize_time_ago": _humanize_time_ago,
+        }
+    )
+    return templates.TemplateResponse("admin/integrations/selfcare.html", context)
+
+
+@router.post("/selfcare/settings")
+def selfcare_sync_save_settings(
+    request: Request,
+    enabled: str | None = Form(None),
+    base_url: str | None = Form(None),
+    webhook_path: str | None = Form(None),
+    webhook_secret: str | None = Form(None),
+    timeout: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Save Selfcare sync settings."""
+    errors: list[str] = []
+
+    try:
+        timeout_val = int(timeout or 30)
+        if timeout_val < 5:
+            errors.append("Timeout must be at least 5 seconds")
+        if timeout_val > 120:
+            errors.append("Timeout must be at most 120 seconds")
+    except ValueError:
+        timeout_val = 30
+        errors.append("Timeout must be a number")
+
+    base_url_value = (base_url or "").strip()
+    webhook_path_value = (webhook_path or "").strip() or "/api/v1/webhooks/crm/customers"
+    if bool(enabled) and not base_url_value:
+        errors.append("Base URL is required when Selfcare sync is enabled")
+
+    if errors:
+        return RedirectResponse(url=f"/admin/integrations/selfcare?error={errors[0]}", status_code=303)
+
+    _upsert_integration_setting(db, "selfcare_customer_sync_enabled", bool(enabled), SettingValueType.boolean)
+    if base_url_value:
+        _upsert_integration_setting(db, "selfcare_base_url", base_url_value, SettingValueType.string)
+    _upsert_integration_setting(db, "selfcare_customer_webhook_path", webhook_path_value, SettingValueType.string)
+    if webhook_secret and webhook_secret.strip():
+        _upsert_integration_setting(
+            db,
+            "selfcare_customer_webhook_secret",
+            webhook_secret.strip(),
+            SettingValueType.string,
+        )
+    _upsert_integration_setting(db, "selfcare_timeout_seconds", timeout_val, SettingValueType.integer)
+    db.commit()
+
+    return RedirectResponse(url="/admin/integrations/selfcare?saved=1", status_code=303)
+
+
+@router.post("/selfcare/test", response_class=HTMLResponse)
+def selfcare_sync_test(request: Request, db: Session = Depends(get_db)):
+    """Validate Selfcare sync configuration (HTMX)."""
+    from app.models.domain_settings import SettingDomain
+    from app.services import settings_spec
+
+    enabled = bool(settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_customer_sync_enabled"))
+    base_url = str(settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_base_url") or "").strip()
+    secret = str(
+        settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_customer_webhook_secret") or ""
+    ).strip()
+    if enabled and base_url and secret:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400">'
+            "Selfcare customer sync is enabled and has the required connection settings."
+            "</div>",
+            status_code=200,
+        )
+    return HTMLResponse(
+        '<div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-400">'
+        "Selfcare sync is incomplete. Enable it and set the base URL plus webhook secret."
+        "</div>",
+        status_code=200,
+    )
+
+
+@router.post("/selfcare/sync-customer", response_class=HTMLResponse)
+def selfcare_sync_customer_now(
+    request: Request,
+    person_query: str = Form(...),
+    project_id: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Manually sync a CRM person to Selfcare (HTMX)."""
+    from app.models.person import Person
+    from app.services.events.handlers.selfcare_customer import sync_person_to_selfcare
+
+    query = person_query.strip()
+    if not query:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            "Enter a customer email, phone, name, or person ID."
+            "</div>",
+            status_code=400,
+        )
+
+    person = None
+    try:
+        person = db.get(Person, UUID(query))
+    except ValueError:
+        person = (
+            db.query(Person)
+            .filter(
+                (Person.email.ilike(query)) | (Person.phone.ilike(query)) | (Person.display_name.ilike(f"%{query}%"))
+            )
+            .order_by(Person.updated_at.desc())
+            .first()
+        )
+
+    if not person:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            "No CRM person matched that value."
+            "</div>",
+            status_code=404,
+        )
+
+    normalized_project_id = (project_id or "").strip() or None
+    selfcare_id = sync_person_to_selfcare(
+        db,
+        person,
+        project_id=normalized_project_id,
+        mode="manual",
+    )
+    if not selfcare_id:
+        return HTMLResponse(
+            '<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">'
+            "Selfcare sync failed. Check the configuration and recent history."
+            "</div>",
+            status_code=200,
+        )
+
+    return HTMLResponse(
+        '<div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400">'
+        f"Customer synced to Selfcare. Subscriber ID: {html_escape(str(selfcare_id))}"
+        '<br><span class="text-xs">Refresh the page to see the updated history.</span>'
+        "</div>",
+        status_code=200,
+    )
+
+
 def _humanize_time_ago(dt_str: str | None) -> str:
     """Convert ISO datetime string to human-readable time ago."""
     if not dt_str:
@@ -1883,7 +2115,7 @@ def dotmac_erp_index(
     # Calculate total today
     total_today = daily_stats.get("projects", 0) + daily_stats.get("tickets", 0) + daily_stats.get("work_orders", 0)
 
-    context = _base_context(request, db, active_page="dotmac-erp")
+    context = _base_context(request, db, active_page="dotmac-erp", active_menu="system")
     context.update(
         {
             # Connection config
