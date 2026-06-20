@@ -161,6 +161,46 @@ def test_projects_list_saves_date_filters_in_preferences(monkeypatch, db_session
     }
 
 
+def test_projects_list_shows_clear_action_for_search_only_filter(monkeypatch, db_session, person):
+    _stub_auth_helpers(monkeypatch, person)
+    monkeypatch.setattr(admin_projects, "_load_project_region_options", lambda _db: [])
+
+    response = admin_projects.projects_list(
+        request=_make_request("/admin/projects?search=Mediterranean"),
+        search="Mediterranean",
+        clear_filters=False,
+        page=1,
+        per_page=25,
+        db=db_session,
+    )
+
+    body = response.body.decode()
+    assert 'href="/admin/projects?clear_filters=1"' in body
+    assert 'data-clear-filters="projects"' in body
+
+
+def test_projects_list_clear_filters_deletes_saved_search_preference(monkeypatch, db_session, person):
+    _stub_auth_helpers(monkeypatch, person)
+    preferences.save_preference(
+        db_session,
+        person.id,
+        preferences.PROJECTS_PAGE.key,
+        {"search": "Mediterranean Recreational Center"},
+    )
+
+    response = admin_projects.projects_list(
+        request=_make_request("/admin/projects?clear_filters=1"),
+        clear_filters=True,
+        page=1,
+        per_page=25,
+        db=db_session,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/admin/projects"
+    assert preferences.get_preference(db_session, person.id, preferences.PROJECTS_PAGE.key) is None
+
+
 def test_projects_export_csv_respects_filters_and_columns(monkeypatch, db_session, person):
     older_project = projects_service.projects.create(
         db_session,
