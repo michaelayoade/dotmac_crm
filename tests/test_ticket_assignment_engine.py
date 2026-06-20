@@ -10,10 +10,11 @@ from app.models.crm.presence import AgentPresence
 from app.models.crm.team import CrmAgent
 from app.models.domain_settings import SettingDomain
 from app.models.person import Person
+from app.models.projects import Project, ProjectTask, ProjectTaskAssignee, ProjectType
 from app.models.service_team import ServiceTeam, ServiceTeamMember, ServiceTeamType
-from app.models.tickets import Ticket, TicketStatus
+from app.models.tickets import Ticket, TicketAssignee, TicketStatus
 from app.models.workflow import TicketAssignmentRule, TicketAssignmentStrategy
-from app.services.ticket_assignment.engine import auto_assign_ticket
+from app.services.ticket_assignment.engine import auto_assign_project, auto_assign_ticket, auto_assign_ticket_all
 
 
 def _person(db_session, first_name: str) -> Person:
@@ -262,3 +263,266 @@ def test_ticket_auto_assign_applies_queue_fallback_team_when_no_candidates(db_se
     assert result.fallback_service_team_id == str(rule_team.id)
     assert ticket.service_team_id == rule_team.id
     assert ticket.assigned_to_person_id is None
+
+
+def test_ticket_auto_assign_direct_technician_from_rule_config(db_session):
+    person = _person(db_session, "Awwal")
+    rule = TicketAssignmentRule(
+        name="Air fiber ticket types",
+        priority=100,
+        is_active=True,
+        match_config={
+            "entity_types": ["ticket"],
+            "ticket_types": ["Router Configuration"],
+            "assignment_target": "technician",
+            "assignee_person_id": str(person.id),
+        },
+    )
+    db_session.add(rule)
+    ticket = Ticket(title="Router setup", ticket_type="Router Configuration")
+    db_session.add(ticket)
+    db_session.commit()
+
+    result = auto_assign_ticket(db_session, str(ticket.id))
+    db_session.refresh(ticket)
+
+    assert result.assigned is True
+    assert result.strategy == "direct"
+    assert result.assignment_target == "technician"
+    assert ticket.assigned_to_person_id == person.id
+
+
+def test_ticket_auto_assign_direct_technical_supervisor_from_rule_config(db_session):
+    supervisor = _person(db_session, "Supervisor")
+    rule = TicketAssignmentRule(
+        name="Every ticket supervisor",
+        priority=100,
+        is_active=True,
+        match_config={
+            "entity_types": ["ticket"],
+            "assignment_target": "technical_supervisor",
+            "assignee_person_id": str(supervisor.id),
+        },
+    )
+    db_session.add(rule)
+    ticket = Ticket(title="Needs supervisor")
+    db_session.add(ticket)
+    db_session.commit()
+
+    result = auto_assign_ticket(db_session, str(ticket.id))
+    db_session.refresh(ticket)
+
+    assert result.assigned is True
+    assert result.assignment_target == "technical_supervisor"
+    assert ticket.ticket_manager_person_id == supervisor.id
+
+
+def test_ticket_auto_assign_applies_direct_technician_and_supervisor_rules(db_session):
+    technician = _person(db_session, "Awwal")
+    supervisor = _person(db_session, "Supervisor")
+    db_session.add_all(
+        [
+            TicketAssignmentRule(
+                name="Ticket technician",
+                priority=200,
+                is_active=True,
+                match_config={
+                    "entity_types": ["ticket"],
+                    "ticket_types": ["Router Configuration"],
+                    "assignment_target": "technician",
+                    "assignee_person_id": str(technician.id),
+                },
+            ),
+            TicketAssignmentRule(
+                name="Ticket supervisor",
+                priority=100,
+                is_active=True,
+                match_config={
+                    "entity_types": ["ticket"],
+                    "assignment_target": "technical_supervisor",
+                    "assignee_person_id": str(supervisor.id),
+                },
+            ),
+        ]
+    )
+    ticket = Ticket(title="Router setup", ticket_type="Router Configuration")
+    db_session.add(ticket)
+    db_session.commit()
+
+    results = auto_assign_ticket_all(db_session, str(ticket.id))
+    db_session.refresh(ticket)
+
+    assert [result.assignment_target for result in results if result.assigned] == [
+        "technician",
+        "technical_supervisor",
+    ]
+    assert ticket.assigned_to_person_id == technician.id
+    assert ticket.ticket_manager_person_id == supervisor.id
+
+
+def test_ticket_auto_assign_applies_multiple_direct_technician_rules(db_session):
+    first = _person(db_session, "FirstTech")
+    second = _person(db_session, "SecondTech")
+    db_session.add_all(
+        [
+            TicketAssignmentRule(
+                name="Specific technician",
+                priority=200,
+                is_active=True,
+                match_config={
+                    "entity_types": ["ticket"],
+                    "ticket_types": ["Router Configuration"],
+                    "assignment_target": "technician",
+                    "assignee_person_id": str(first.id),
+                },
+            ),
+            TicketAssignmentRule(
+                name="Default technician",
+                priority=100,
+                is_active=True,
+                match_config={
+                    "entity_types": ["ticket"],
+                    "assignment_target": "technician",
+                    "assignee_person_id": str(second.id),
+                },
+            ),
+        ]
+    )
+    ticket = Ticket(title="Router setup", ticket_type="Router Configuration")
+    db_session.add(ticket)
+    db_session.commit()
+
+    results = auto_assign_ticket_all(db_session, str(ticket.id))
+    db_session.refresh(ticket)
+    assignee_ids = {
+        item[0]
+        for item in db_session.query(TicketAssignee.person_id).filter(TicketAssignee.ticket_id == ticket.id).all()
+    }
+
+    assert [result.assignee_person_id for result in results if result.assigned] == [str(first.id), str(second.id)]
+    assert ticket.assigned_to_person_id == first.id
+    assert assignee_ids == {first.id, second.id}
+
+
+def test_project_auto_assign_direct_technician_assigns_unassigned_tasks(db_session):
+    technician = _person(db_session, "ProjectTech")
+    rule = TicketAssignmentRule(
+        name="Air fiber project technician",
+        priority=100,
+        is_active=True,
+        match_config={
+            "entity_types": ["project"],
+            "project_types": ["air_fiber_installation"],
+            "assignment_target": "technician",
+            "assignee_person_id": str(technician.id),
+        },
+    )
+    db_session.add(rule)
+    project = Project(name="Air fiber install", project_type=ProjectType.air_fiber_installation)
+    db_session.add(project)
+    db_session.flush()
+    task = ProjectTask(project_id=project.id, title="Install radio")
+    db_session.add(task)
+    db_session.commit()
+
+    results = auto_assign_project(db_session, str(project.id))
+    db_session.refresh(task)
+
+    assert results[0].assigned is True
+    assert results[0].assignment_target == "technician"
+    assert task.assigned_to_person_id == technician.id
+
+
+def test_project_auto_assign_applies_direct_technician_and_supervisor_rules(db_session):
+    technician = _person(db_session, "ProjectTech")
+    supervisor = _person(db_session, "ProjectSupervisor")
+    db_session.add_all(
+        [
+            TicketAssignmentRule(
+                name="Air fiber project technician",
+                priority=200,
+                is_active=True,
+                match_config={
+                    "entity_types": ["project"],
+                    "project_types": ["air_fiber_installation"],
+                    "assignment_target": "technician",
+                    "assignee_person_id": str(technician.id),
+                },
+            ),
+            TicketAssignmentRule(
+                name="Every project supervisor",
+                priority=100,
+                is_active=True,
+                match_config={
+                    "entity_types": ["project"],
+                    "assignment_target": "technical_supervisor",
+                    "assignee_person_id": str(supervisor.id),
+                },
+            ),
+        ]
+    )
+    project = Project(name="Air fiber install", project_type=ProjectType.air_fiber_installation)
+    db_session.add(project)
+    db_session.flush()
+    task = ProjectTask(project_id=project.id, title="Install radio")
+    db_session.add(task)
+    db_session.commit()
+
+    results = auto_assign_project(db_session, str(project.id))
+    db_session.refresh(project)
+    db_session.refresh(task)
+
+    assert [result.assignment_target for result in results if result.assigned] == [
+        "technician",
+        "technical_supervisor",
+    ]
+    assert task.assigned_to_person_id == technician.id
+    assert project.manager_person_id == supervisor.id
+    assert project.project_manager_person_id == supervisor.id
+
+
+def test_project_auto_assign_applies_multiple_direct_technician_rules(db_session):
+    first = _person(db_session, "ProjectFirstTech")
+    second = _person(db_session, "ProjectSecondTech")
+    db_session.add_all(
+        [
+            TicketAssignmentRule(
+                name="Air fiber project technician",
+                priority=200,
+                is_active=True,
+                match_config={
+                    "entity_types": ["project"],
+                    "project_types": ["air_fiber_installation"],
+                    "assignment_target": "technician",
+                    "assignee_person_id": str(first.id),
+                },
+            ),
+            TicketAssignmentRule(
+                name="Every project technician",
+                priority=100,
+                is_active=True,
+                match_config={
+                    "entity_types": ["project"],
+                    "assignment_target": "technician",
+                    "assignee_person_id": str(second.id),
+                },
+            ),
+        ]
+    )
+    project = Project(name="Air fiber install", project_type=ProjectType.air_fiber_installation)
+    db_session.add(project)
+    db_session.flush()
+    task = ProjectTask(project_id=project.id, title="Install radio")
+    db_session.add(task)
+    db_session.commit()
+
+    results = auto_assign_project(db_session, str(project.id))
+    db_session.refresh(task)
+    assignee_ids = {
+        item[0]
+        for item in db_session.query(ProjectTaskAssignee.person_id).filter(ProjectTaskAssignee.task_id == task.id).all()
+    }
+
+    assert [result.assignee_person_id for result in results if result.assigned] == [str(first.id), str(second.id)]
+    assert task.assigned_to_person_id == first.id
+    assert assignee_ids == {first.id, second.id}

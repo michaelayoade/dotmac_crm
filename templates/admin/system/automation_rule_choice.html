@@ -1,0 +1,37 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header %}
+
+{% block title %}New Rule - Automations{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {% call page_header("New Rule", "Choose the rule type to create", color="indigo", color2="violet", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>', breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "/admin/system/automations", "label": "Automations"}, {"href": "", "label": "New"}]) %}
+    {% endcall %}
+
+    <div class="grid gap-4 md:grid-cols-2">
+        <a href="/admin/system/automations/assignment-rules/new" class="block rounded-xl border border-sky-200 bg-white p-6 shadow-sm transition hover:border-sky-300 hover:bg-sky-50 dark:border-sky-800/50 dark:bg-slate-800 dark:hover:bg-sky-900/20">
+            <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-sky-500/10 dark:bg-sky-500/20">
+                    <svg class="h-5 w-5 text-sky-600 dark:text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h8m-8 5h5m-9 8h14a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                </div>
+                <div>
+                    <h2 class="text-base font-semibold text-slate-900 dark:text-white">Assignment Rule</h2>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Assign tickets and projects to technicians from reusable rules.</p>
+                </div>
+            </div>
+        </a>
+
+        <a href="/admin/system/automations/automation-rules/new" class="block rounded-xl border border-indigo-200 bg-white p-6 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 dark:border-indigo-800/50 dark:bg-slate-800 dark:hover:bg-indigo-900/20">
+            <div class="flex items-center gap-3">
+                <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-500/10 dark:bg-indigo-500/20">
+                    <svg class="h-5 w-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <div>
+                    <h2 class="text-base font-semibold text-slate-900 dark:text-white">Automation Rule</h2>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Run event-driven actions when configured conditions match.</p>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+{% endblock %}

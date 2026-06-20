@@ -6,6 +6,7 @@
     'crm-live-map': 'operations',
     'network-map': 'operations', 'network-devices': 'operations', 'core-devices': 'operations', 'olts': 'operations', 'onts': 'operations', 'devices': 'operations',
     'automations': 'system', 'pop-sites': 'system', 'configuration': 'system', 'workflow': 'system',
+    'sync': 'system', 'dotmac-erp': 'system', 'selfcare-sync': 'system',
     'fiber-plant': 'operations', 'fiber-map': 'operations', 'fiber-change-requests': 'operations', 'fdh-cabinets': 'operations', 'splitters': 'operations', 'fiber-strands': 'operations', 'splice-closures': 'operations', 'fiber-reports': 'operations',
     'sales-orders': 'operations', 'installations': 'operations', 'technicians': 'operations',
     'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations', 'vendor-quotes': 'operations', 'vendor-as-built': 'operations', 'vendor-purchase-invoices': 'operations',
@@ -608,7 +609,7 @@
             <a href="/admin/system/legal" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'legal' else '' }}">Legal Documents</a>
             {% endif %}
             {% if can_system_configuration %}
-            <a href="/admin/integrations/dotmac-erp" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'dotmac-erp' else '' }}">ERP Sync</a>
+            <a href="/admin/integrations/sync" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page in ['sync', 'dotmac-erp', 'selfcare-sync'] else '' }}">Sync</a>
             {% endif %}
         </div>
     </div>
