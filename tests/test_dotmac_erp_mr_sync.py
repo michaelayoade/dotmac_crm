@@ -156,19 +156,6 @@ class TestMapMaterialRequest:
 
 
 class TestSyncMaterialRequest:
-    def test_missing_source_warehouse_code_is_validation_error(self, mr_sync, mock_client, full_mr, db_session):
-        full_mr.source_location.code = None
-        db_session.commit()
-        db_session.refresh(full_mr)
-
-        result = mr_sync.sync_material_request(full_mr)
-
-        assert result.success is False
-        assert result.error_type == "ValidationError"
-        assert result.status_code == 422
-        assert "ERP warehouse code" in (result.error or "")
-        mock_client.push_material_request.assert_not_called()
-
     def test_success(self, mr_sync, mock_client, full_mr):
         mock_client.push_material_request.return_value = {
             "request_id": "MAT-REQ-2026-00001",
@@ -337,42 +324,6 @@ class TestFactory:
             pytest.raises(ValueError, match="not configured"),
         ):
             dotmac_erp_material_request_sync(db_session)
-
-
-class TestAvailableSerialsClient:
-    def test_list_available_serials_sends_search_pagination_params(self, monkeypatch):
-        from app.services.dotmac_erp.client import DotMacERPClient
-
-        client = DotMacERPClient(base_url="https://erp.example.test", token="token")
-        captured: dict[str, object] = {}
-
-        def fake_request(method, path, params=None, **kwargs):
-            captured["method"] = method
-            captured["path"] = path
-            captured["params"] = params
-            captured["kwargs"] = kwargs
-            return {"track_serial_numbers": True, "serials": [], "has_more": False}
-
-        monkeypatch.setattr(client, "_request", fake_request)
-
-        result = client.list_available_serials(
-            item_code="ONT-001",
-            warehouse_code="Stores - DT",
-            limit=50,
-            offset=100,
-            search="SN-123",
-        )
-
-        assert result["track_serial_numbers"] is True
-        assert captured["method"] == "GET"
-        assert captured["path"] == "/api/v1/sync/crm/inventory/serials/available"
-        assert captured["params"] == {
-            "item_code": "ONT-001",
-            "warehouse_code": "Stores - DT",
-            "limit": 50,
-            "offset": 100,
-            "search": "SN-123",
-        }
 
 
 class TestMaterialRequestSyncTask:

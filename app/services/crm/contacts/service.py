@@ -464,13 +464,14 @@ class Contacts(ListResponseMixin):
         limit: int = 20,
         offset: int = 0,
     ) -> builtins.list[dict[str, Any]]:
+        phone_contact_ids = (
+            db.query(PersonChannel.person_id).filter(PersonChannel.channel_type.in_(PHONE_CHANNEL_TYPES)).distinct()
+        )
         query = (
             db.query(Person)
-            .join(PersonChannel, PersonChannel.person_id == Person.id)
-            .filter(PersonChannel.channel_type.in_(PHONE_CHANNEL_TYPES))
+            .filter(Person.id.in_(phone_contact_ids))
             .filter(Person.is_active.is_(True))
             .options(selectinload(Person.channels))
-            .distinct()
         )
         if search:
             like = f"%{search.strip()}%"
@@ -570,6 +571,10 @@ class Contacts(ListResponseMixin):
             raise HTTPException(status_code=404, detail="Contact not found")
         person.is_active = False
         db.commit()
+
+        from app.services.auth_flow import revoke_sessions_for_person
+
+        revoke_sessions_for_person(db, person.id)
 
 
 class ContactChannels(ListResponseMixin):

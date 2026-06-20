@@ -171,10 +171,13 @@ def list_leads_page_data(
     lead_stats: dict[str, Any] = {"total": len(all_leads_unfiltered)}
     status_counts: dict[str, int] = {}
     total_value = 0.0
+    # Pipeline value = open/active opportunities only. Won and lost leads must not
+    # inflate the figure (BUG-030); this matches the dashboard's computation.
+    _closed_statuses = {LeadStatus.won.value, LeadStatus.lost.value}
     for lead_item in all_leads_unfiltered:
         key = lead_item.status.value if lead_item.status else LeadStatus.new.value
         status_counts[key] = status_counts.get(key, 0) + 1
-        if lead_item.estimated_value:
+        if lead_item.estimated_value and key not in _closed_statuses:
             total_value += float(lead_item.estimated_value)
     lead_stats["by_status"] = status_counts
     lead_stats["total_value"] = total_value

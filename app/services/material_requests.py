@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import builtins
 import logging
+from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime, time, timedelta
 
 from fastapi import HTTPException
@@ -158,7 +158,7 @@ def _validate_items_exist_in_erp(db: Session, mr: MaterialRequest) -> None:
         )
 
 
-def normalize_serial_numbers(value: list[str] | str | None) -> list[str]:
+def normalize_serial_numbers(value: Sequence[str] | str | None) -> list[str]:
     """Normalize user-entered serial numbers from form/API input."""
     if value is None:
         return []
@@ -185,7 +185,7 @@ def normalize_serial_numbers(value: list[str] | str | None) -> list[str]:
 
 def _apply_serial_numbers(
     mr: MaterialRequest,
-    serial_numbers_by_item: dict[str, list[str] | str] | None,
+    serial_numbers_by_item: Mapping[str, Sequence[str] | str] | None,
 ) -> None:
     if not serial_numbers_by_item:
         return
@@ -209,12 +209,7 @@ def _validate_serial_numbers_in_erp(db: Session, mr: MaterialRequest, source_loc
     from app.services.dotmac_erp import DotMacERPError
     from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
 
-    warehouse_code = (source_location.code or "").strip()
-    if not warehouse_code:
-        raise HTTPException(
-            status_code=400,
-            detail="Source warehouse is missing an ERP warehouse code. Sync warehouses from ERP before selecting serials.",
-        )
+    warehouse_code = (source_location.code or str(source_location.id)).strip()
     try:
         sync_service = dotmac_erp_material_request_sync(db)
     except ValueError:
@@ -254,27 +249,6 @@ def _validate_serial_numbers_in_erp(db: Session, mr: MaterialRequest, source_loc
                         status_code=400,
                         detail=f"Serial number(s) not available in ERP: {', '.join(missing)}",
                     )
-            else:
-                unresolved_serials: list[str] = []
-                for serial in selected:
-                    serial_data = sync_service.client.list_available_serials(
-                        item_code=item_code,
-                        warehouse_code=warehouse_code,
-                        limit=20,
-                        search=serial,
-                    )
-                    available_serials = {
-                        str(entry.get("serial_number") or "").strip().lower()
-                        for entry in serial_data.get("serials", [])
-                        if isinstance(entry, dict)
-                    }
-                    if serial.lower() not in available_serials:
-                        unresolved_serials.append(serial)
-                if unresolved_serials:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Serial number(s) not available in ERP: {', '.join(unresolved_serials)}",
-                    )
     except DotMacERPError as exc:
         raise HTTPException(
             status_code=502,
@@ -289,8 +263,11 @@ class MaterialRequests(ListResponseMixin):
     def create(db: Session, payload: MaterialRequestCreate) -> MaterialRequest:
         get_or_404(db, Person, str(payload.requested_by_person_id), detail="Person not found")
 
-        if not payload.ticket_id and not payload.project_id:
-            raise HTTPException(status_code=400, detail="Select either a linked ticket or a linked project")
+        if not (payload.ticket_id or payload.project_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Material request must be linked to a ticket or project",
+            )
 
         if payload.source_location_id:
             get_or_404(db, InventoryLocation, str(payload.source_location_id), detail="Source warehouse not found")
@@ -442,7 +419,7 @@ class MaterialRequests(ListResponseMixin):
         source_location_id: str | None = None,
         destination_location_id: str | None = None,
         collected_by_person_id: str | None = None,
-        serial_numbers_by_item: dict[str, builtins.list[str] | str] | None = None,
+        serial_numbers_by_item: Mapping[str, Sequence[str] | str] | None = None,
     ) -> MaterialRequest:
         mr = get_or_404(
             db,
@@ -508,6 +485,20 @@ class MaterialRequests(ListResponseMixin):
         mr.rejected_at = datetime.now(UTC)
         if reason:
             mr.notes = (mr.notes or "") + f"\nRejection reason: {reason}"
+        db.commit()
+        db.refresh(mr)
+        return mr
+
+    @staticmethod
+    def fulfill(db: Session, mr_id: str) -> MaterialRequest:
+        """Mark an issued request fulfilled (materials consumed in the field)."""
+        mr = get_or_404(db, MaterialRequest, mr_id, options=[selectinload(MaterialRequest.items)])
+        if mr.status == MaterialRequestStatus.fulfilled:
+            return mr
+        if mr.status != MaterialRequestStatus.issued:
+            raise HTTPException(status_code=400, detail="Only issued requests can be fulfilled")
+        mr.status = MaterialRequestStatus.fulfilled
+        mr.fulfilled_at = datetime.now(UTC)
         db.commit()
         db.refresh(mr)
         return mr

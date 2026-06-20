@@ -388,7 +388,6 @@ class DotMacERPClient:
         warehouse_code: str,
         limit: int = 100,
         offset: int = 0,
-        search: str | None = None,
     ) -> dict:
         """List available ERP serials for one item in one warehouse."""
         params = {
@@ -397,8 +396,6 @@ class DotMacERPClient:
             "limit": limit,
             "offset": offset,
         }
-        if search:
-            params["search"] = search
         result = self._request(
             "GET",
             "/api/v1/sync/crm/inventory/serials/available",

@@ -530,8 +530,55 @@
                     </select>
                 </div>
             </div>
+            <div class="grid gap-3 sm:grid-cols-3">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1" for="assignment_target">Assignment Target</label>
+                    <select id="assignment_target" name="assignment_target" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="technician">Technician</option>
+                        <option value="technical_supervisor">Technical Supervisor</option>
+                    </select>
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1" for="assignment_assignee">Direct Assignee</label>
+                    <select id="assignment_assignee" name="assignee_person_id" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="">Use team strategy</option>
+                        {% for person in assignment_people %}
+                        <option value="{{ person.id }}">{{ person.display_name or ((person.first_name or '') ~ ' ' ~ (person.last_name or '') | trim) or person.email }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-3">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">Applies To</label>
+                    <select name="entity_types" multiple size="2" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        <option value="ticket">Tickets</option>
+                        <option value="project">Projects</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">Project Types</label>
+                    <select name="project_types" multiple size="5" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        {% for project_type in assignment_project_types %}
+                        <option value="{{ project_type }}">{{ project_type | replace('_', ' ') | title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">Ticket Types</label>
+                    <select name="ticket_types" multiple size="5" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        {% for ticket_type in assignment_ticket_types %}
+                        <option value="{{ ticket_type }}">{{ ticket_type }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
             <div>
-                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1" for="assignment_match_config">Match Config (JSON)</label>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1" for="assignment_ticket_types_extra">Additional Ticket Types</label>
+                <textarea id="assignment_ticket_types_extra" name="ticket_types_extra" rows="2" placeholder="One ticket type per line" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1" for="assignment_match_config">Advanced Match Config (JSON)</label>
                 <textarea id="assignment_match_config" name="match_config" rows="4" placeholder='{"regions":["north"],"priorities":["high"]}' class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm transition-all focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
             </div>
             <div class="grid gap-3 sm:grid-cols-3">
@@ -606,7 +653,39 @@
                                             <option value="{{ team.id }}" {% if rule.team_id and rule.team_id == team.id %}selected{% endif %}>{{ team.name }}</option>
                                             {% endfor %}
                                         </select>
-                                        <textarea name="match_config" rows="3" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white">{{ rule.match_config | tojson if rule.match_config else '' }}</textarea>
+                                        {% set rule_config = rule.match_config if rule.match_config else {} %}
+                                        {% set rule_entity_types = rule_config.entity_types if rule_config.entity_types is defined else [] %}
+                                        {% set rule_project_types = rule_config.project_types if rule_config.project_types is defined else [] %}
+                                        {% set rule_ticket_types = rule_config.ticket_types if rule_config.ticket_types is defined else [] %}
+                                        <select name="assignment_target" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                                            <option value="technician" {% if rule_config.assignment_target|default('technician') == 'technician' %}selected{% endif %}>Technician</option>
+                                            <option value="technical_supervisor" {% if rule_config.assignment_target|default('technician') == 'technical_supervisor' %}selected{% endif %}>Technical Supervisor</option>
+                                        </select>
+                                        <select name="assignee_person_id" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                                            <option value="">Use team strategy</option>
+                                            {% for person in assignment_people %}
+                                            <option value="{{ person.id }}" {% if rule_config.assignee_person_id|default('') == person.id|string %}selected{% endif %}>{{ person.display_name or ((person.first_name or '') ~ ' ' ~ (person.last_name or '') | trim) or person.email }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <label class="block text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Applies To</label>
+                                        <select name="entity_types" multiple size="2" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                                            <option value="ticket" {% if 'ticket' in rule_entity_types %}selected{% endif %}>Tickets</option>
+                                            <option value="project" {% if 'project' in rule_entity_types %}selected{% endif %}>Projects</option>
+                                        </select>
+                                        <label class="block text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Project Types</label>
+                                        <select name="project_types" multiple size="4" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                                            {% for project_type in assignment_project_types %}
+                                            <option value="{{ project_type }}" {% if project_type in rule_project_types %}selected{% endif %}>{{ project_type | replace('_', ' ') | title }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <label class="block text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Ticket Types</label>
+                                        <select name="ticket_types" multiple size="4" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                                            {% for ticket_type in assignment_ticket_types %}
+                                            <option value="{{ ticket_type }}" {% if ticket_type in rule_ticket_types %}selected{% endif %}>{{ ticket_type }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <textarea name="ticket_types_extra" rows="2" placeholder="Additional ticket types, one per line" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white"></textarea>
+                                        <textarea name="match_config" rows="3" placeholder="Advanced JSON" class="block w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-white"></textarea>
                                         <div class="grid grid-cols-3 gap-2 text-xs text-slate-600 dark:text-slate-400">
                                             <label class="inline-flex items-center gap-1">
                                                 <input type="checkbox" name="is_active" value="true" {% if rule.is_active %}checked{% endif %} class="h-3 w-3 rounded border-slate-300 text-teal-600 focus:ring-teal-500 dark:border-slate-600 dark:bg-slate-700" />

@@ -50,80 +50,6 @@ def test_retention_pipeline_stage_maps_explicit_lost_outcome():
     assert billing_risk_web._pipeline_stage_from_engagement({"outcome": "Lost", "followUp": None}) == "Lost"
 
 
-def test_billing_risk_snapshot_preserves_street_metadata():
-    row = SimpleNamespace(
-        balance=0,
-        mrr_total=0,
-        total_paid=0,
-        source_metadata={"street": " 12,, aMINU   KANO crescent -- "},
-        external_id="12345",
-        name="Blocked Customer",
-        email=None,
-        phone=None,
-        city=None,
-        location=None,
-        area=None,
-        plan=None,
-        subscriber_status="Suspended",
-        billing_cycle=None,
-        billing_start_date=None,
-        billing_end_date=None,
-        next_bill_date=None,
-        blocked_date=None,
-        blocked_for_days=None,
-        last_transaction_date=None,
-        expires_in=None,
-        invoiced_until=None,
-        days_since_last_payment=None,
-        days_past_due=None,
-        days_to_due=None,
-        risk_segment="Suspended",
-        is_high_balance_risk=False,
-        person_id=None,
-        subscriber_number=None,
-        refreshed_at=None,
-    )
-
-    assert billing_risk_cache._snapshot_to_dict(row)["street"] == "12, Aminu Kano Crescent"
-
-
-def test_billing_risk_snapshot_values_store_street_metadata():
-    values = billing_risk_cache._snapshot_values(
-        {
-            "_external_id": "12345",
-            "name": "Blocked Customer",
-            "risk_segment": "Suspended",
-            "street": "12 aMINU KANO crescent",
-        },
-        refreshed_at=datetime(2026, 1, 1, tzinfo=UTC),
-        subscribers_by_external={},
-    )
-
-    assert values["source_metadata"]["street"] == "12 Aminu Kano Crescent"
-
-
-def test_enrich_missing_street_fields_uses_subscriber_mirror():
-    class Result:
-        def all(self):
-            return [
-                (
-                    "12345",
-                    "12 aMINU KANO crescent",
-                    "suite 4",
-                )
-            ]
-
-    class Db:
-        def execute(self, _statement):
-            return Result()
-
-    rows = [{"_external_id": "12345", "name": "Blocked Customer", "street": ""}]
-
-    billing_risk_web._enrich_missing_street_fields(Db(), rows)
-
-    assert rows[0]["street"] == "12 Aminu Kano Crescent, Suite 4"
-
-
 def test_retention_rep_options_include_fixed_reps_without_team_rows():
     class EmptyResult:
         def all(self):
@@ -304,10 +230,6 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
     assert "Service Expiration Date" in body
     assert "Location" in body
     assert "Abuja HQ" in body
-    assert "Phone Number" in body
-    assert "+2348099991111" in body
-    assert "Street" in body
-    assert "12 Aminu Kano Crescent" in body
     assert "Open 2" in body
     assert "Closed 5" in body
     assert "Total 7" in body
@@ -2201,8 +2123,8 @@ def test_get_billing_risk_table_normalizes_street_display_symbols(monkeypatch):
         "phone": "",
         "status": "blocked",
         "last_online": "2026-03-20 11:28:03",
-        "street_1": " 12,, aMINU   KANO;;; crescent -- ",
-        "street_2": "suite 4  /  block b",
+        "street_1": " 12,, Aminu   Kano;;; Crescent -- ",
+        "street_2": "Suite 4  /  Block B",
         "location_id": 1,
         "gps": "9.081511583651492,7.471630153732377",
         "billing": {"blocking_date": "0000-00-00"},

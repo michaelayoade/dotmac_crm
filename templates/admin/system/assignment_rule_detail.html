@@ -1,0 +1,36 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, status_badge %}
+
+{% set config = rule.match_config if rule and rule.match_config else {} %}
+
+{% block title %}{{ rule.name }} - Assignment Rule{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {% call page_header(rule.name, "Assignment rule", color="sky", color2="cyan", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h8m-8 5h5m-9 8h14a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>', breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "/admin/system/automations", "label": "Automations"}, {"href": "", "label": rule.name}]) %}
+        <a href="/admin/system/automations/assignment-rules/{{ rule.id }}/edit" class="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 transition-colors hover:bg-sky-100 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-300">Edit</a>
+    {% endcall %}
+
+    <div class="grid gap-4 md:grid-cols-2">
+        <div class="rounded-xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Rule</h2>
+            <dl class="mt-4 space-y-3 text-sm">
+                <div class="flex justify-between gap-4"><dt class="text-slate-500 dark:text-slate-400">Status</dt><dd>{% if rule.is_active %}{{ status_badge("Active", "active", size="sm") }}{% else %}{{ status_badge("Inactive", "inactive", size="sm") }}{% endif %}</dd></div>
+                <div class="flex justify-between gap-4"><dt class="text-slate-500 dark:text-slate-400">Priority</dt><dd class="font-medium text-slate-900 dark:text-white">{{ rule.priority }}</dd></div>
+                <div class="flex justify-between gap-4"><dt class="text-slate-500 dark:text-slate-400">Strategy</dt><dd class="font-medium text-slate-900 dark:text-white">{{ rule.strategy.value | replace('_', ' ') | title if rule.strategy else '—' }}</dd></div>
+                <div class="flex justify-between gap-4"><dt class="text-slate-500 dark:text-slate-400">Target</dt><dd class="font-medium text-slate-900 dark:text-white">Technician</dd></div>
+                <div class="flex justify-between gap-4"><dt class="text-slate-500 dark:text-slate-400">Assignee</dt><dd class="font-medium text-slate-900 dark:text-white">{{ row.assignee if row else config.assignee_person_id|default('Team strategy') }}</dd></div>
+            </dl>
+        </div>
+
+        <div class="rounded-xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Filters</h2>
+            <dl class="mt-4 space-y-3 text-sm">
+                <div><dt class="text-slate-500 dark:text-slate-400">Applies To</dt><dd class="mt-1 text-slate-900 dark:text-white">{{ (config.entity_types | join(', ') | title) if config.entity_types is defined else 'All' }}</dd></div>
+                <div><dt class="text-slate-500 dark:text-slate-400">Project Types</dt><dd class="mt-1 text-slate-900 dark:text-white">{{ (config.project_types | join(', ') | replace('_', ' ') | title) if config.project_types is defined else 'Any' }}</dd></div>
+                <div><dt class="text-slate-500 dark:text-slate-400">Ticket Types</dt><dd class="mt-1 text-slate-900 dark:text-white">{{ (config.ticket_types | join(', ')) if config.ticket_types is defined else 'Any' }}</dd></div>
+            </dl>
+        </div>
+    </div>
+</div>
+{% endblock %}

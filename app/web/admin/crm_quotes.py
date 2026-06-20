@@ -302,8 +302,16 @@ def crm_quote_create(
 @router.get("/quotes/{quote_id}/edit", response_class=HTMLResponse)
 def crm_quote_edit(request: Request, quote_id: str, db: Session = Depends(get_db)):
     options = _load_crm_sales_options(db)
+    tax_rates = billing_service.tax_rates.list(
+        db=db,
+        is_active=True,
+        order_by="name",
+        order_dir="asc",
+        limit=200,
+        offset=0,
+    )
     context = _crm_base_context(request, db, "quotes")
-    context.update(edit_quote_form_data(db, quote_id=quote_id, contacts=options["contacts"]))
+    context.update(edit_quote_form_data(db, quote_id=quote_id, contacts=options["contacts"], tax_rates=tax_rates))
     context.update(
         {"form_title": "Edit Quote", "submit_label": "Save Quote", "action_url": f"/admin/crm/quotes/{quote_id}/edit"}
     )
@@ -316,6 +324,7 @@ def crm_quote_update(
     quote_id: str,
     lead_id: str | None = Form(None),
     contact_id: str | None = Form(None),
+    tax_rate_id: str | None = Form(None),
     status: str | None = Form(None),
     project_type: str | None = Form(None),
     currency: str | None = Form(None),
@@ -334,6 +343,7 @@ def crm_quote_update(
     form_input = QuoteUpsertInput(
         lead_id=lead_id,
         contact_id=contact_id,
+        tax_rate_id=tax_rate_id,
         status=status,
         project_type=project_type,
         currency=currency,
@@ -349,7 +359,12 @@ def crm_quote_update(
         item_inventory_item_id=item_inventory_item_id,
     )
     try:
-        before, updated = update_quote(db, quote_id=quote_id, form=form_input)
+        before, updated = update_quote(
+            db,
+            quote_id=quote_id,
+            form=form_input,
+            tax_rate_get=billing_service.tax_rates.get,
+        )
         metadata_payload = build_changes_metadata(before, updated)
         from app.web.admin._auth_helpers import get_current_user
 

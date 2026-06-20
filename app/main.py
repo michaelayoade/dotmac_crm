@@ -46,6 +46,8 @@ from app.api.deps import require_role, require_user_auth
 from app.api.dispatch import router as dispatch_router
 from app.api.external import router as external_router
 from app.api.fiber_plant import router as fiber_plant_router
+from app.api.field import router as field_router
+from app.api.field.config import router as field_config_router
 from app.api.geocoding import router as geocoding_router
 from app.api.gis import router as gis_router
 from app.api.integrations import router as integrations_router
@@ -69,6 +71,7 @@ from app.api.tickets import router as tickets_router
 from app.api.timecost import router as timecost_router
 from app.api.validation import router as validation_router
 from app.api.vendor import router as vendor_portal_router
+from app.api.vendor_auth import router as vendor_auth_router
 from app.api.vendors import router as vendors_router
 from app.api.webhooks import router as webhooks_router
 from app.api.wireless_masts import router as wireless_masts_router
@@ -459,6 +462,10 @@ _include_api_router(sales_orders_router, dependencies=[Depends(require_user_auth
 _include_api_router(auth_router, dependencies=[Depends(require_role("admin"))])
 # Only include auth_flow at /api/v1 to avoid conflict with web /auth/login
 app.include_router(auth_flow_router, prefix="/api/v1")
+# Vendor bearer-token auth for the mobile field app (public endpoints, /api/v1 only).
+app.include_router(vendor_auth_router, prefix="/api/v1")
+# Mobile app config (public: serves the force-upgrade gate before auth).
+app.include_router(field_config_router, prefix="/api/v1")
 _include_api_router(rbac_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(people_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(customers_router, dependencies=[Depends(require_user_auth)])
@@ -480,6 +487,7 @@ _include_api_router(timecost_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(comms_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(analytics_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(fiber_plant_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(field_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(crm_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(sales_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(service_teams_router, dependencies=[Depends(require_user_auth)])
@@ -557,6 +565,13 @@ async def static_cache_middleware(request: Request, call_next):
             response.headers["Cache-Control"] = "public, max-age=86400"
 
     return response
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    # Browsers auto-request /favicon.ico; redirect to the shipped SVG to avoid
+    # app-wide 404 noise (NOTE-042).
+    return RedirectResponse(url="/static/favicon.svg", status_code=308)
 
 
 @app.get("/health")

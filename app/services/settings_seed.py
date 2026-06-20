@@ -793,7 +793,10 @@ def seed_workflow_settings(db: Session) -> None:
         db,
         key="ticket_auto_assign_max_open_tickets",
         value_type=SettingValueType.integer,
-        value_text=os.getenv("TICKET_AUTO_ASSIGN_MAX_OPEN_TICKETS", "25"),
+        # Empty string (not None) keeps "no limit" semantics while satisfying the
+        # non-json value_text requirement; passing None crashed startup on a fresh
+        # DB (BUG-002).
+        value_text=os.getenv("TICKET_AUTO_ASSIGN_MAX_OPEN_TICKETS", ""),
     )
 
 
@@ -1137,6 +1140,38 @@ def seed_integration_settings(db: Session) -> None:
         value_type=SettingValueType.boolean,
         value_text=os.getenv("SPLYNX_CUSTOMER_SYNC_ENABLED", "false"),
         value_json=os.getenv("SPLYNX_CUSTOMER_SYNC_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="selfcare_customer_sync_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=os.getenv("SELFCARE_CUSTOMER_SYNC_ENABLED", "false"),
+        value_json=os.getenv("SELFCARE_CUSTOMER_SYNC_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="selfcare_base_url",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SELFCARE_BASE_URL", "https://selfcare.dotmac.io"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="selfcare_customer_webhook_path",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SELFCARE_CUSTOMER_WEBHOOK_PATH", "/api/v1/webhooks/crm/customers"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="selfcare_customer_webhook_secret",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SELFCARE_CUSTOMER_WEBHOOK_SECRET", ""),
+        is_secret=True,
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="selfcare_timeout_seconds",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("SELFCARE_TIMEOUT_SECONDS", "30"),
     )
     integration_settings.ensure_by_key(
         db,

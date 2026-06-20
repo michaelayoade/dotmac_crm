@@ -279,6 +279,29 @@ def new_quote_form_data(db: Session, *, lead_id: str | None, contacts: list, tax
     }
 
 
+def _tax_rate_fraction(rate: Any) -> Decimal:
+    if rate is None:
+        raise ValueError("Invalid tax rate")
+    rate_value = Decimal(str(getattr(rate, "rate", 0) or 0))
+    if rate_value > 1:
+        return rate_value / Decimal("100")
+    return rate_value
+
+
+def _infer_tax_rate_id(*, subtotal: Decimal | None, tax_total: Decimal | None, tax_rates: list | None) -> str:
+    subtotal_value = Decimal(subtotal or 0)
+    tax_value = Decimal(tax_total or 0)
+    if subtotal_value <= 0 or tax_value < 0 or not tax_rates:
+        return ""
+
+    effective_rate = tax_value / subtotal_value
+    for rate in tax_rates:
+        rate_fraction = _tax_rate_fraction(rate)
+        if abs(effective_rate - rate_fraction) <= Decimal("0.0001"):
+            return str(rate.id)
+    return ""
+
+
 def update_quote_status(db: Session, *, quote_id: str, status_value: str) -> None:
     crm_service.quotes.get(db=db, quote_id=quote_id)
     payload = QuoteUpdate.model_validate({"status": status_value})
@@ -378,7 +401,9 @@ def create_quote(db: Session, *, form: QuoteUpsertInput, tax_rate_get, owner_per
         crm_service.quote_line_items.create(db=db, payload=item_payload)
 
 
-def edit_quote_form_data(db: Session, *, quote_id: str, contacts: list) -> dict[str, Any]:
+def edit_quote_form_data(
+    db: Session, *, quote_id: str, contacts: list, tax_rates: list | None = None
+) -> dict[str, Any]:
     quote_obj = crm_service.quotes.get(db=db, quote_id=quote_id)
     items = crm_service.quote_line_items.list(
         db=db,
@@ -402,6 +427,11 @@ def edit_quote_form_data(db: Session, *, quote_id: str, contacts: list) -> dict[
         "id": str(quote_obj.id),
         "lead_id": str(quote_obj.lead_id) if quote_obj.lead_id else "",
         "contact_id": str(quote_obj.contact_id) if quote_obj.contact_id else "",
+        "tax_rate_id": _infer_tax_rate_id(
+            subtotal=quote_obj.subtotal,
+            tax_total=quote_obj.tax_total,
+            tax_rates=tax_rates,
+        ),
         "status": quote_obj.status.value if quote_obj.status else "",
         "project_type": metadata.get("project_type", "") if metadata else "",
         "currency": quote_obj.currency or "",
@@ -428,6 +458,7 @@ def edit_quote_form_data(db: Session, *, quote_id: str, contacts: list) -> dict[
     return {
         "quote": quote,
         "quote_items": quote_items,
+        "tax_rates": tax_rates or [],
         "quote_statuses": quote_status_values(),
         "project_types": [item.value for item in ProjectType],
         "leads": leads,
@@ -684,13 +715,14 @@ def quote_preview_response(request: Request, *, quote_id: str) -> HTMLResponse:
     return HTMLResponse(content=html)
 
 
-def update_quote(db: Session, *, quote_id: str, form: QuoteUpsertInput) -> tuple[Any, Any]:
+def update_quote(db: Session, *, quote_id: str, form: QuoteUpsertInput, tax_rate_get=None) -> tuple[Any, Any]:
     quote = _normalized_form(form, quote_id=quote_id)
     quote_items = _as_quote_items(form)
     parsed_items = _parse_quote_line_items(quote_items)
 
     lead_id_value = quote["lead_id"] if isinstance(quote["lead_id"], str) else ""
     contact_id_value = quote["contact_id"] if isinstance(quote["contact_id"], str) else ""
+    tax_rate_id_value = quote["tax_rate_id"] if isinstance(quote["tax_rate_id"], str) else ""
     status_value = quote["status"] if isinstance(quote["status"], str) else ""
     project_type_value = quote["project_type"] if isinstance(quote["project_type"], str) else ""
     currency_value = quote["currency"] if isinstance(quote["currency"], str) else ""
@@ -700,6 +732,14 @@ def update_quote(db: Session, *, quote_id: str, form: QuoteUpsertInput) -> tuple
 
     subtotal_from_items = sum((item["quantity"] * item["unit_price"] for item in parsed_items), Decimal("0.00"))
     tax_value = _parse_decimal(tax_total_value, "tax_total") or Decimal("0.00")
+    if tax_rate_id_value:
+        if tax_rate_get is None:
+            raise ValueError("Tax rate lookup is unavailable")
+        try:
+            rate = tax_rate_get(db, tax_rate_id_value)
+            tax_value = subtotal_from_items * _tax_rate_fraction(rate)
+        except Exception as exc:
+            raise ValueError("Invalid tax rate") from exc
     total_from_items = subtotal_from_items + tax_value
 
     quote_obj = crm_service.quotes.get(db=db, quote_id=quote_id)

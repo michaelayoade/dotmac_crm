@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
@@ -34,6 +35,8 @@ from app.schemas.dispatch import (
 )
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_person(db: Session, person_id: str):
@@ -719,6 +722,21 @@ def auto_assign_work_order(db: Session, work_order_id: str):
     # 7. Assign to best match
     best_technician = scored_candidates[0][0]
     best_score = scored_candidates[0][1]
+
+    # 7b. Break score ties by live proximity (task #47). No-op unless several
+    # candidates tie on score AND at least one has a fresh, on-shift, sharing
+    # location — so behaviour is unchanged where no live location exists.
+    tied = [t for (t, s) in scored_candidates if abs(s - best_score) < 1e-9]
+    if len(tied) > 1:
+        try:
+            from app.services.field.routing import suggest_nearest_tech
+
+            nearest = suggest_nearest_tech(db, work_order_id, candidate_person_ids=[str(t.person_id) for t in tied])
+            if nearest:
+                by_person = {str(t.person_id): t for t in tied}
+                best_technician = by_person.get(nearest["person_id"], best_technician)
+        except Exception:
+            logger.debug("Live proximity tie-break failed for work order assignment.", exc_info=True)
 
     work_order.assigned_to_person_id = best_technician.person_id
 

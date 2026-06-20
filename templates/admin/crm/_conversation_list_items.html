@@ -48,12 +48,13 @@
         </div>
     </a>
     {% else %}
+    {% set conv_contact_id = conv.contact_id or conv.contact.id %}
     <a href="/admin/crm/inbox?conversation_id={{ conv.id }}"
        data-conversation-id="{{ conv.id }}"
-       data-contact-id="{{ conv.contact.id }}"
+       data-contact-id="{{ conv_contact_id }}"
        class="conversation-item channel-{{ conv.channel }} {% if conv.unread_count > 0 %}unread{% endif %} {% if selected_conversation and selected_conversation.id == conv.id %}active{% endif %} conv-stagger block"
-       @click.prevent="selectConversation('{{ conv.id }}', '{{ conv.contact.id }}')"
-       @keydown.enter.prevent="selectConversation('{{ conv.id }}', '{{ conv.contact.id }}')">
+       @click.prevent="selectConversation('{{ conv.id }}', '{{ conv_contact_id }}')"
+       @keydown.enter.prevent="selectConversation('{{ conv.id }}', '{{ conv_contact_id }}')">
         <div class="px-4 py-3.5 cursor-pointer">
             <div class="flex items-start gap-3">
                 <input type="checkbox"
@@ -65,8 +66,11 @@
                 <!-- Avatar with channel indicator -->
                 <button type="button"
                         class="relative flex-shrink-0"
-                        @click.stop.prevent="openContactPanel('{{ conv.contact.id }}')"
-                        @keydown.enter.stop.prevent="openContactPanel('{{ conv.contact.id }}')"
+                        data-inbox-contact-trigger
+                        data-contact-id="{{ conv_contact_id }}"
+                        data-conversation-id="{{ conv.id }}"
+                        data-contact-url="/admin/crm/inbox/contact/{{ conv_contact_id }}?conversation_id={{ conv.id }}"
+                        onclick="event.preventDefault(); event.stopPropagation(); const root = document.querySelector('[data-inbox-root]') || document.querySelector('[x-data^=&quot;inboxController&quot;]'); if (window.Alpine && root) { const state = Alpine.$data(root); if (state) { state.selectedContactId = this.dataset.contactId; state.selectedConversation = this.dataset.conversationId; state.showContactPanel = true; } } const panel = document.querySelector('[data-contact-panel]'); if (panel) { panel.removeAttribute('x-cloak'); panel.style.display = ''; } const target = document.querySelector('#contact-details'); if (window.htmx) { htmx.ajax('GET', this.dataset.contactUrl, { target: '#contact-details', swap: 'innerHTML' }); } else if (target) { fetch(this.dataset.contactUrl, { credentials: 'same-origin' }).then(response => response.text()).then(html => { target.innerHTML = html; }); }"
                         aria-label="View contact details">
                     <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-sm font-semibold text-white border border-slate-600/30">
                         {{ conv.contact.avatar_initials }}

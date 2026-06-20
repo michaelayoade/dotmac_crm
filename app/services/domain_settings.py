@@ -141,6 +141,10 @@ class DomainSettings(ListResponseMixin):
             return existing
         if value_type != SettingValueType.json:
             value_json = None
+            # Non-json settings require a non-None value_text; coerce None to ""
+            # so a missing env default cannot crash startup seeding (BUG-002).
+            if value_text is None:
+                value_text = ""
         payload = DomainSettingCreate(
             domain=self.domain,
             key=key,

@@ -910,6 +910,42 @@ def _notify_project_task_assigned(
         logger.error("project_task_assigned_notify_failed task_id=%s error=%s", task.id, exc)
 
 
+def _maybe_auto_assign_project(db: Session, project: Project):
+    """Apply workflow rule-based project assignments when enabled."""
+    enabled = str(
+        settings_spec.resolve_value(db, SettingDomain.workflow, "ticket_auto_assignment_enabled") or ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return None
+
+    from app.services.audit_helpers import log_audit_event
+    from app.services.ticket_assignment import auto_assign_project
+
+    actor_id = str(project.created_by_person_id) if project.created_by_person_id else None
+    results = auto_assign_project(db, str(project.id), trigger="create", actor_person_id=actor_id)
+    for result in results:
+        action = "project_auto_assigned" if result.assigned else "project_auto_assign_noop"
+        log_audit_event(
+            db,
+            None,
+            action=action,
+            entity_type="project",
+            entity_id=str(project.id),
+            actor_id=actor_id,
+            metadata={
+                "assigned": bool(result.assigned),
+                "rule_id": result.rule_id,
+                "rule_name": result.rule_name,
+                "strategy": result.strategy,
+                "assignment_target": result.assignment_target,
+                "candidate_count": result.candidate_count,
+                "assignee_person_id": result.assignee_person_id,
+                "reason": result.reason,
+            },
+        )
+    return results
+
+
 class Projects(ListResponseMixin):
     PROJECT_TYPE_DURATIONS: ClassVar[dict[ProjectType, int]] = {
         ProjectType.air_fiber_installation: 3,
@@ -1050,6 +1086,9 @@ class Projects(ListResponseMixin):
             ProjectTemplateTasks.replace_project_tasks(
                 db=db, project_id=str(project.id), template_id=str(payload.project_template_id)
             )
+            _maybe_auto_assign_project(db, project)
+        else:
+            _maybe_auto_assign_project(db, project)
 
         # Emit project created event after core project setup so failed handlers
         # cannot prevent template task creation or other intrinsic project data.
@@ -1113,8 +1152,17 @@ class Projects(ListResponseMixin):
         search: str | None = None,
         filters_payload: list[Any] | None = None,
         region: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ):
-        query = db.query(Project)
+        query = db.query(Project).options(
+            selectinload(Project.subscriber).selectinload(Subscriber.person),
+            selectinload(Project.subscriber).selectinload(Subscriber.organization),
+            selectinload(Project.owner),
+            selectinload(Project.manager),
+            selectinload(Project.project_manager),
+            selectinload(Project.assistant_manager),
+        )
         if subscriber_id:
             query = query.filter(Project.subscriber_id == coerce_uuid(subscriber_id))
         if status:
@@ -1133,6 +1181,10 @@ class Projects(ListResponseMixin):
             query = query.filter(Project.assistant_manager_person_id == coerce_uuid(assistant_manager_person_id))
         if region and region.strip():
             query = query.filter(Project.region == region.strip())
+        if date_from:
+            query = query.filter(Project.created_at >= datetime.combine(date_from, time.min, tzinfo=UTC))
+        if date_to:
+            query = query.filter(Project.created_at <= datetime.combine(date_to, time.max, tzinfo=UTC))
         if search and search.strip():
             like_term = f"%{search.strip()}%"
             query = query.filter(

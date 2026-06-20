@@ -1,0 +1,190 @@
+{% extends "layouts/admin.html" %}
+
+{% from "components/ui/macros.html" import submit_button %}
+{% block title %}Selfcare Sync - Admin{% endblock %}
+
+{% macro sync_status(success) %}
+{% if success %}
+<span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
+    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+    Success
+</span>
+{% else %}
+<span class="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
+    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    Error
+</span>
+{% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex items-start gap-3">
+            <a href="/admin/integrations/sync" class="mt-1 rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+            </a>
+            <div>
+                <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Selfcare Sync</h1>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Create Selfcare customers from accepted quote projects and run manual customer syncs.</p>
+            </div>
+        </div>
+        <button
+            hx-post="/admin/integrations/selfcare/test"
+            hx-target="#action-result"
+            hx-swap="innerHTML"
+            class="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+        >
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Check Setup
+        </button>
+    </div>
+
+    <div id="action-result"></div>
+
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Customer Sync</p>
+            <div class="mt-2 flex items-center gap-2">
+                {% if enabled %}
+                <span class="h-3 w-3 rounded-full bg-green-500"></span>
+                <span class="text-lg font-bold text-slate-900 dark:text-white">Enabled</span>
+                {% else %}
+                <span class="h-3 w-3 rounded-full bg-slate-400"></span>
+                <span class="text-lg font-bold text-slate-900 dark:text-white">Disabled</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Sync</p>
+            <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{{ last_sync_ago }}</p>
+            {% if last_sync %}
+            <p class="text-xs text-slate-500 dark:text-slate-400">{{ last_sync.action | replace('_', ' ') | title }}</p>
+            {% endif %}
+        </div>
+        <div class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Success Today</p>
+            <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{{ daily_stats.successes }}</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">{{ daily_stats.sync_count }} total attempts</p>
+        </div>
+        <div class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Errors Today</p>
+            <p class="mt-2 text-2xl font-bold {% if daily_stats.errors > 0 %}text-red-600 dark:text-red-400{% else %}text-slate-900 dark:text-white{% endif %}">{{ daily_stats.errors }}</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Recent failures are listed below</p>
+        </div>
+    </div>
+
+    <div class="grid gap-6 xl:grid-cols-3">
+        <div class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 xl:col-span-2">
+            <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Configuration</h2>
+
+            {% if settings_saved %}
+            <div class="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400">
+                Settings saved successfully.
+            </div>
+            {% endif %}
+            {% if settings_error %}
+            <div class="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">
+                {{ settings_error }}
+            </div>
+            {% endif %}
+
+            <form method="POST" action="/admin/integrations/selfcare/settings" class="mt-5 space-y-5">
+                {% include "components/forms/csrf_input.html" %}
+                <label class="flex cursor-pointer items-center gap-3">
+                    <input type="checkbox" name="enabled" value="true" {% if enabled %}checked{% endif %}
+                           class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700">
+                    <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">Enable Selfcare customer sync</span>
+                </label>
+
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Base URL</label>
+                        <input type="url" name="base_url" value="{{ base_url }}" placeholder="https://selfcare.dotmac.io"
+                               class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Webhook Path</label>
+                        <input type="text" name="webhook_path" value="{{ webhook_path }}"
+                               class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Webhook Secret</label>
+                        <input type="password" name="webhook_secret" placeholder="{% if has_secret %}Leave blank to keep existing secret{% else %}Shared webhook secret{% endif %}"
+                               class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Timeout</label>
+                        <div class="mt-1 flex items-center gap-2">
+                            <input type="number" name="timeout" value="{{ timeout }}" min="5" max="120"
+                                   class="block w-28 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <span class="text-sm text-slate-500 dark:text-slate-400">seconds</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex justify-end">
+                    {{ submit_button("Save Settings", loading_label="Saving...") }}
+                </div>
+            </form>
+        </div>
+
+        <div class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Manual Trigger</h2>
+            <form hx-post="/admin/integrations/selfcare/sync-customer" hx-target="#action-result" hx-swap="innerHTML" class="mt-5 space-y-4">
+                {% include "components/forms/csrf_input.html" %}
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Customer</label>
+                    <input type="text" name="person_query" required placeholder="Email, phone, name, or person ID"
+                           class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Project ID</label>
+                    <input type="text" name="project_id" placeholder="Optional"
+                           class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                </div>
+                <button type="submit" class="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-700">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v6h6M20 20v-6h-6M20 9A8 8 0 006.35 5.35L4 8m0 7a8 8 0 0013.65 3.65L20 16"/></svg>
+                    Sync Customer
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+            <h2 class="font-semibold text-slate-900 dark:text-white">Customer Sync History</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-900/40">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Time</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Mode</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Action</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Person</th>
+                        <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Selfcare ID</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 bg-white dark:divide-slate-700 dark:bg-slate-800">
+                    {% for entry in history %}
+                    <tr>
+                        <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ humanize_time_ago(entry.timestamp) }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ entry.mode | title }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-sm">{{ sync_status(entry.success) }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ entry.action | replace('_', ' ') | title }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-xs font-mono text-slate-500 dark:text-slate-400">{{ entry.person_id }}</td>
+                        <td class="whitespace-nowrap px-6 py-4 text-sm text-slate-600 dark:text-slate-300">{{ entry.selfcare_subscriber_id or entry.error or '-' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No Selfcare customer syncs have been recorded yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

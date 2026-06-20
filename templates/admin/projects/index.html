@@ -11,6 +11,14 @@
             <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Coordinate builds, expansions, and cross-functional initiatives</p>
         </div>
         <div class="flex items-center gap-3">
+            <button type="button"
+                    id="projects-export-button"
+                    class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16V4m0 12l-4-4m4 4l4-4M4 20h16"/>
+                </svg>
+                Export CSV
+            </button>
             <a href="/admin/projects/tasks" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 View Tasks
             </a>
@@ -32,6 +40,8 @@
     {% if search %}{% set _ = query_params.append('search=' ~ (search|urlencode)) %}{% endif %}
     {% if project_type %}{% set _ = query_params.append('project_type=' ~ (project_type|urlencode)) %}{% endif %}
     {% if region %}{% set _ = query_params.append('region=' ~ (region|urlencode)) %}{% endif %}
+    {% if date_from %}{% set _ = query_params.append('date_from=' ~ (date_from|urlencode)) %}{% endif %}
+    {% if date_to %}{% set _ = query_params.append('date_to=' ~ (date_to|urlencode)) %}{% endif %}
     {% if per_page %}{% set _ = query_params.append('per_page=' ~ per_page) %}{% endif %}
     {% set base_query = query_params | join('&') %}
 
@@ -111,7 +121,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h18l-7 8v6l-4 2v-8L3 4z"/>
                     </svg>
                     Filters
-                    {% if status or project_type or region or filters %}
+                    {% if search or status or project_type or region or date_from or date_to or filters %}
                     <span class="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-semibold text-primary-700 dark:bg-primary-500/20 dark:text-primary-300">Active</span>
                     {% endif %}
                     <svg class="h-4 w-4 transition-transform" data-filter-chevron fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -146,6 +156,14 @@
                         {% endfor %}
                         {{ filter_select("region", region_filter_options, region or '', "Region", "primary") }}
                     </div>
+                    <div class="w-full">
+                        <label for="date_from" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+                        <input id="date_from" name="date_from" type="date" value="{{ date_from or '' }}" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200" />
+                    </div>
+                    <div class="w-full">
+                        <label for="date_to" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+                        <input id="date_to" name="date_to" type="date" value="{{ date_to or '' }}" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200" />
+                    </div>
                 </div>
                 <div class="mt-4 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/20">
                     <div class="mb-2 flex items-center justify-between">
@@ -157,8 +175,8 @@
                     <button type="submit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                         Apply Filters
                     </button>
-                    {% if status or project_type or region or filters %}
-                    <a href="/admin/projects?clear_filters=1" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    {% if search or status or project_type or region or date_from or date_to or filters %}
+                    <a href="/admin/projects?clear_filters=1" data-clear-filters="projects" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                         Clear
                     </a>
                     {% endif %}
@@ -309,6 +327,8 @@
     {% if status %}{% set _ = _sort_params.append('status=' ~ status|urlencode) %}{% endif %}
     {% if project_type %}{% set _ = _sort_params.append('project_type=' ~ project_type|urlencode) %}{% endif %}
     {% if region %}{% set _ = _sort_params.append('region=' ~ region|urlencode) %}{% endif %}
+    {% if date_from %}{% set _ = _sort_params.append('date_from=' ~ date_from|urlencode) %}{% endif %}
+    {% if date_to %}{% set _ = _sort_params.append('date_to=' ~ date_to|urlencode) %}{% endif %}
     {% if filters %}{% set _ = _sort_params.append('filters=' ~ filters|urlencode) %}{% endif %}
     {% if per_page %}{% set _ = _sort_params.append('per_page=' ~ per_page) %}{% endif %}
     {% set sort_extra = _sort_params | join('&') %}
@@ -351,7 +371,7 @@
                 {% call table_row(color="primary") %}
                     <td data-project-column="project" class="{{ pad }}">
                         <p class="text-sm font-medium text-slate-900 dark:text-white">{{ project.name }}</p>
-                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ project.code | default(project.number or (project.id|string|truncate(8, True, ''))) }}</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ project.code | default(project.number or (project.id|string|truncate(8, True, '')), true) }}</p>
                     </td>
                     <td data-project-column="code" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
                         {{ project.code or project.number or '—' }}
@@ -442,6 +462,8 @@
         {% set status_param = '&status=' ~ status if status else '' %}
         {% set project_type_param = '&project_type=' ~ project_type if project_type else '' %}
         {% set region_param = '&region=' ~ region|urlencode if region else '' %}
+        {% set date_from_param = '&date_from=' ~ date_from|urlencode if date_from else '' %}
+        {% set date_to_param = '&date_to=' ~ date_to|urlencode if date_to else '' %}
         {% set filters_param = '&filters=' ~ filters|urlencode if filters else '' %}
         {% set order_by_param = '&order_by=' ~ order_by if order_by and order_by != 'created_at' else '' %}
         {% set order_dir_param = '&order_dir=' ~ order_dir if order_dir and order_dir != 'desc' else '' %}
@@ -456,6 +478,8 @@
                         <input type="hidden" name="status" value="{{ status or '' }}">
                         <input type="hidden" name="project_type" value="{{ project_type or '' }}">
                         <input type="hidden" name="region" value="{{ region or '' }}">
+                        <input type="hidden" name="date_from" value="{{ date_from or '' }}">
+                        <input type="hidden" name="date_to" value="{{ date_to or '' }}">
                         <input type="hidden" name="filters" value="{{ filters or '' }}">
                         <input type="hidden" name="page" value="1">
                         <select name="per_page"
@@ -470,10 +494,10 @@
             </div>
             <div class="flex items-center gap-2">
                 {% if page > 1 %}
-                <a href="/admin/projects?page={{ page - 1 }}&per_page={{ per_page }}{{ search_param }}{{ status_param }}{{ project_type_param }}{{ region_param }}{{ filters_param }}{{ order_by_param }}{{ order_dir_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
+                <a href="/admin/projects?page={{ page - 1 }}&per_page={{ per_page }}{{ search_param }}{{ status_param }}{{ project_type_param }}{{ region_param }}{{ date_from_param }}{{ date_to_param }}{{ filters_param }}{{ order_by_param }}{{ order_dir_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Previous</a>
                 {% endif %}
                 {% if page < total_pages %}
-                <a href="/admin/projects?page={{ page + 1 }}&per_page={{ per_page }}{{ search_param }}{{ status_param }}{{ project_type_param }}{{ region_param }}{{ filters_param }}{{ order_by_param }}{{ order_dir_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
+                <a href="/admin/projects?page={{ page + 1 }}&per_page={{ per_page }}{{ search_param }}{{ status_param }}{{ project_type_param }}{{ region_param }}{{ date_from_param }}{{ date_to_param }}{{ filters_param }}{{ order_by_param }}{{ order_dir_param }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">Next</a>
                 {% endif %}
             </div>
         </div>
@@ -604,6 +628,7 @@ document.addEventListener("DOMContentLoaded", () => {
 <script>
 document.addEventListener("DOMContentLoaded", () => {
     const userId = "{{ (current_user.get('person_id') if current_user and current_user.get('person_id') else 'anon') }}";
+    const projectColumnStorageKey = `admin:projects:columns:${userId}`;
     const filterToggle = document.getElementById("projects-filter-toggle");
     const filterPanel = document.getElementById("projects-filter-panel");
     const filterChevron = filterToggle ? filterToggle.querySelector("[data-filter-chevron]") : null;
@@ -662,32 +687,60 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (!window.DotmacUiFilterState || !window.DotmacUiFilterState.init) return;
     const columnDefinitions = [
-        "project",
-        "customer",
-        "status",
-        "priority",
-        "created",
-        "code",
-        "type",
-        "region",
-        "owner",
-        "manager",
-        "project_manager",
-        "assistant_manager",
-        "start_at",
-        "due_at"
+        { key: "project", defaultVisible: true },
+        { key: "customer", defaultVisible: true },
+        { key: "status", defaultVisible: true },
+        { key: "priority", defaultVisible: true },
+        { key: "created", defaultVisible: true },
+        { key: "code", defaultVisible: false },
+        { key: "type", defaultVisible: false },
+        { key: "region", defaultVisible: false },
+        { key: "owner", defaultVisible: false },
+        { key: "manager", defaultVisible: false },
+        { key: "project_manager", defaultVisible: false },
+        { key: "assistant_manager", defaultVisible: false },
+        { key: "start_at", defaultVisible: false },
+        { key: "due_at", defaultVisible: false }
     ];
+    const exportButton = document.getElementById("projects-export-button");
+    if (exportButton) {
+        exportButton.addEventListener("click", () => {
+            const filterForm = document.getElementById("projects-filter-form");
+            const params = filterForm ? new URLSearchParams(new FormData(filterForm)) : new URLSearchParams(window.location.search || "");
+            let selectedColumns = [];
+            try {
+                const saved = JSON.parse(window.localStorage.getItem(projectColumnStorageKey) || "[]");
+                if (Array.isArray(saved)) {
+                    selectedColumns = saved.filter((value) => typeof value === "string");
+                }
+            } catch (_error) {
+                selectedColumns = [];
+            }
+
+            const validKeys = new Set(columnDefinitions.map((column) => column.key));
+            const defaultVisible = columnDefinitions.filter((column) => column.defaultVisible).map((column) => column.key);
+            const requiredKeys = ["project", "created"];
+            const cleaned = selectedColumns.filter((key) => key !== "actions" && validKeys.has(key));
+            const normalized = Array.from(new Set((cleaned.length ? cleaned : defaultVisible).concat(requiredKeys)));
+            params.set("columns", normalized.join(","));
+            window.location.href = `/admin/projects/export.csv?${params.toString()}`;
+        });
+    }
     window.DotmacUiFilterState.init({
         formId: "projects-filter-form",
-        fields: ["search", "status", "project_type", "region", "order_by", "order_dir", "filters"],
+        fields: ["search", "status", "project_type", "region", "date_from", "date_to", "order_by", "order_dir", "filters"],
         urlSyncFields: ["order_by", "order_dir"],
         filterStorageKey: `admin:projects:filters:${userId}`,
+        clearButtonSelector: "[data-clear-filters='projects']",
+        restoreOnEmptyQuery: false,
         columns: {
             optionSelector: "[data-project-column-option]",
-            storageKey: `admin:projects:columns:${userId}`,
+            storageKey: projectColumnStorageKey,
             cellAttr: "data-project-column",
-            validKeys: columnDefinitions,
-            defaultVisible: ["project", "customer", "status", "priority", "created"],
+            validKeys: columnDefinitions.map((column) => column.key),
+            defaultVisible: columnDefinitions
+                .filter((column) => column.defaultVisible)
+                .map((column) => column.key),
         },
     });
 });

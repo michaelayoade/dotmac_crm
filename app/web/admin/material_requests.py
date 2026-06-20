@@ -2,10 +2,13 @@
 
 import csv
 import io
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, selectinload
 
 from app.csrf import get_csrf_token
@@ -14,7 +17,6 @@ from app.models.auth import UserCredential
 from app.models.inventory import InventoryLocation
 from app.models.material_request import (
     MaterialRequest,
-    MaterialRequestERPSyncStatus,
     MaterialRequestItem,
     MaterialRequestPriority,
     MaterialRequestStatus,
@@ -39,6 +41,15 @@ from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/operations/material-requests", tags=["web-admin-material-requests"])
+MATERIAL_REQUEST_STATUS_CHOICES = [
+    ("draft", "Draft"),
+    ("submitted", "Submitted"),
+    ("issued", "Issued"),
+    ("approved", "Approved"),
+    ("fulfilled", "Fulfilled"),
+    ("rejected", "Rejected"),
+    ("canceled", "Cancelled"),
+]
 
 
 def get_db():
@@ -72,6 +83,46 @@ def _resolve_date(value: str | None) -> date | None:
         return None
 
 
+def _selected_status(value: str | None) -> str | None:
+    selected_status = (value or "").strip().lower() or None
+    if selected_status == "all":
+        return None
+    if selected_status == "cancelled":
+        return "canceled"
+    return selected_status
+
+
+def _selected_date_range(date_from: str | None, date_to: str | None) -> tuple[date | None, date | None]:
+    selected_date_from = _resolve_date(date_from)
+    selected_date_to = _resolve_date(date_to)
+    if not (selected_date_from and selected_date_to):
+        return None, None
+    if selected_date_from > selected_date_to:
+        raise HTTPException(status_code=400, detail="From date must be before or equal to To date")
+    return selected_date_from, selected_date_to
+
+
+def _export_query_string(
+    status: str | None,
+    date_from: str | None,
+    date_to: str | None,
+    ticket_id: str | None,
+    project_id: str | None,
+) -> str:
+    params = {}
+    if status:
+        params["status"] = status
+    if date_from:
+        params["date_from"] = date_from
+    if date_to:
+        params["date_to"] = date_to
+    if ticket_id:
+        params["ticket_id"] = ticket_id
+    if project_id:
+        params["project_id"] = project_id
+    return urlencode(params)
+
+
 def _warehouse_choices(db: Session) -> list[InventoryLocation]:
     return (
         db.query(InventoryLocation)
@@ -100,14 +151,109 @@ def _collector_choices(db: Session) -> list[Person]:
     )
 
 
-def _parse_serial_number_form(form) -> dict[str, list[str] | str]:
-    serials_by_item: dict[str, list[str] | str] = {}
+def _parse_serial_number_form(form) -> dict[str, list[str]]:
+    serials_by_item: dict[str, list[str]] = {}
     for key in form:
         if not key.startswith("serial_numbers_"):
             continue
         item_id = key.removeprefix("serial_numbers_")
         serials_by_item[item_id] = [str(value) for value in form.getlist(key)]
     return serials_by_item
+
+
+def _load_available_serials_from_erp_db(
+    db: Session,
+    *,
+    item_code: str,
+    warehouse_code: str,
+    limit: int,
+    offset: int,
+) -> dict:
+    """Temporary ERP DB fallback while the ERP serial API is not exposed."""
+    bind = db.get_bind()
+    source_url = bind.url if isinstance(bind, Engine) else bind.engine.url
+    erp_url = source_url.set(database="son_erp")
+    engine = create_engine(erp_url, pool_pre_ping=True)
+
+    item_query = text(
+        """
+        select item_id, item_code, item_name, track_serial_numbers
+        from inv.item
+        where item_code = :item_code or item_name = :item_code
+        order by case when item_code = :item_code then 0 else 1 end, item_name
+        limit 1
+        """
+    )
+    warehouse_query = text(
+        """
+        select warehouse_id, warehouse_code, warehouse_name
+        from inv.warehouse
+        where warehouse_code = :warehouse_code or warehouse_name = :warehouse_code
+        order by case when warehouse_code = :warehouse_code then 0 else 1 end, warehouse_name
+        limit 1
+        """
+    )
+    serial_query = text(
+        """
+        select serial_number, status, updated_at
+        from inv.inventory_serial
+        where item_id = :item_id
+          and warehouse_id = :warehouse_id
+          and is_active is true
+          and upper(status) = 'AVAILABLE'
+        order by serial_number
+        limit :limit_plus_one offset :offset
+        """
+    )
+
+    try:
+        with engine.connect() as conn:
+            item = conn.execute(item_query, {"item_code": item_code}).mappings().first()
+            warehouse = conn.execute(warehouse_query, {"warehouse_code": warehouse_code}).mappings().first()
+            if item is None or warehouse is None:
+                return {
+                    "item_code": item_code,
+                    "warehouse_code": warehouse_code,
+                    "track_serial_numbers": bool(item["track_serial_numbers"]) if item else False,
+                    "serials": [],
+                    "limit": limit,
+                    "offset": offset,
+                    "has_more": False,
+                }
+
+            rows = (
+                conn.execute(
+                    serial_query,
+                    {
+                        "item_id": item["item_id"],
+                        "warehouse_id": warehouse["warehouse_id"],
+                        "limit_plus_one": limit + 1,
+                        "offset": offset,
+                    },
+                )
+                .mappings()
+                .all()
+            )
+    finally:
+        engine.dispose()
+
+    visible_rows = rows[:limit]
+    return {
+        "item_code": item["item_code"],
+        "warehouse_code": warehouse["warehouse_code"],
+        "track_serial_numbers": bool(item["track_serial_numbers"]),
+        "serials": [
+            {
+                "serial_number": row["serial_number"],
+                "status": row["status"],
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            }
+            for row in visible_rows
+        ],
+        "limit": limit,
+        "offset": offset,
+        "has_more": len(rows) > limit,
+    }
 
 
 def _csv_response(data: list[dict[str, str]], filename: str) -> Response:
@@ -126,98 +272,138 @@ def _csv_response(data: list[dict[str, str]], filename: str) -> Response:
     )
 
 
-def _export_value(value: object | None) -> str:
+def _format_dt(value: datetime | None) -> str:
+    if not value:
+        return ""
+    return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _enum_label(value: object | None) -> str:
     if value is None:
         return ""
-    if isinstance(value, datetime):
-        return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
-    if isinstance(value, list):
-        return ", ".join(str(item) for item in value)
-    return str(value).strip()
+    raw = str(value.value if hasattr(value, "value") else value)
+    if raw == "canceled":
+        return "Cancelled"
+    return raw.replace("_", " ").title()
 
 
 def _person_name(person: Person | None) -> str:
-    if person is None:
+    if not person:
         return ""
-    name = " ".join(part for part in [person.first_name, person.last_name] if part).strip()
-    return name or person.email or str(person.id)
+    return person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip() or person.email or ""
 
 
-def _normalize_material_request_status(value: str | None) -> str | None:
-    normalized = (value or "").strip().lower().replace("cancelled", "canceled")
-    if not normalized or normalized == "all":
-        return None
-    return normalized
-
-
-def _material_request_status_label(status: MaterialRequestStatus | None) -> str:
-    if status is None:
+def _warehouse_label(location: InventoryLocation | None) -> str:
+    if not location:
         return ""
-    if status == MaterialRequestStatus.canceled:
-        return "Cancelled"
-    return status.value.title()
+    return f"{location.name} ({location.code})" if location.code else location.name
+
+
+def _ticket_label(mr: MaterialRequest) -> str:
+    if not mr.ticket:
+        return ""
+    return str(mr.ticket.number or mr.ticket.title or mr.ticket_id or "")
+
+
+def _project_label(mr: MaterialRequest) -> str:
+    if not mr.project:
+        return ""
+    return str(mr.project.number or mr.project.code or mr.project.name or mr.project_id or "")
+
+
+def _filtered_export_requests(
+    db: Session,
+    status: str | None,
+    date_from: str | None,
+    date_to: str | None,
+    ticket_id: str | None,
+    project_id: str | None,
+) -> list[MaterialRequest]:
+    selected_status = _selected_status(status)
+    selected_date_from, selected_date_to = _selected_date_range(date_from, date_to)
+    query = (
+        db.query(MaterialRequest)
+        .options(
+            selectinload(MaterialRequest.items).selectinload(MaterialRequestItem.item),
+            selectinload(MaterialRequest.requested_by),
+            selectinload(MaterialRequest.approved_by),
+            selectinload(MaterialRequest.collected_by),
+            selectinload(MaterialRequest.ticket),
+            selectinload(MaterialRequest.project),
+            selectinload(MaterialRequest.source_location),
+            selectinload(MaterialRequest.destination_location),
+        )
+        .filter(MaterialRequest.is_active.is_(True))
+    )
+    if selected_status:
+        try:
+            validated_status = MaterialRequestStatus(selected_status)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid material request status") from exc
+        query = query.filter(MaterialRequest.status == validated_status)
+    if selected_date_from and selected_date_to:
+        range_start = datetime.combine(selected_date_from, time.min, tzinfo=UTC)
+        range_end = datetime.combine(selected_date_to + timedelta(days=1), time.min, tzinfo=UTC)
+        query = query.filter(MaterialRequest.created_at >= range_start)
+        query = query.filter(MaterialRequest.created_at < range_end)
+    if ticket_id:
+        query = query.filter(MaterialRequest.ticket_id == coerce_uuid(ticket_id))
+    if project_id:
+        query = query.filter(MaterialRequest.project_id == coerce_uuid(project_id))
+    return query.order_by(MaterialRequest.created_at.desc()).all()
 
 
 def _material_request_export_rows(requests: list[MaterialRequest]) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
+    rows = []
     for mr in requests:
-        base_row = {
-            "Request ID": _export_value(mr.id),
-            "Request Number": _export_value(mr.number),
-            "Status": _export_value(_material_request_status_label(mr.status)),
-            "Priority": _export_value(mr.priority.value.title() if mr.priority else ""),
+        request_fields = {
+            "Request ID": str(mr.number or mr.id),
+            "Request UUID": str(mr.id),
+            "Status": _enum_label(mr.status),
+            "Priority": _enum_label(mr.priority),
             "Requested By": _person_name(mr.requested_by),
-            "Requested By ID": _export_value(mr.requested_by_person_id),
-            "Approved By": _person_name(mr.approved_by),
+            "Approved/Issued By": _person_name(mr.approved_by),
             "Collected By": _person_name(mr.collected_by),
-            "Number of Items": _export_value(len(mr.items or [])),
-            "Created Date": _export_value(mr.created_at),
-            "Submitted Date": _export_value(mr.submitted_at),
-            "Approved Date": _export_value(mr.approved_at),
-            "Rejected Date": _export_value(mr.rejected_at),
-            "Fulfilled Date": _export_value(mr.fulfilled_at),
-            "Ticket ID": _export_value(mr.ticket_id),
-            "Ticket Number": _export_value(mr.ticket.number if mr.ticket else ""),
-            "Ticket Title": _export_value(mr.ticket.title if mr.ticket else ""),
-            "Project ID": _export_value(mr.project_id),
-            "Project Number": _export_value(mr.project.number if mr.project else ""),
-            "Project Name": _export_value(mr.project.name if mr.project else ""),
-            "Work Order ID": _export_value(mr.work_order_id),
-            "Work Order Title": _export_value(mr.work_order.title if mr.work_order else ""),
-            "Source Warehouse": _export_value(mr.source_location.name if mr.source_location else ""),
-            "Destination Warehouse": _export_value(mr.destination_location.name if mr.destination_location else ""),
-            "Notes": _export_value(mr.notes),
+            "Number of Items": str(len(mr.items or [])),
+            "Ticket": _ticket_label(mr),
+            "Project": _project_label(mr),
+            "Source Warehouse": _warehouse_label(mr.source_location),
+            "Destination Warehouse": _warehouse_label(mr.destination_location),
+            "ERP Material Request ID": mr.erp_material_request_id or "",
+            "Request Notes": mr.notes or "",
+            "Created Date": _format_dt(mr.created_at),
+            "Submitted Date": _format_dt(mr.submitted_at),
+            "Approved/Issued Date": _format_dt(mr.approved_at),
+            "Rejected Date": _format_dt(mr.rejected_at),
+            "Fulfilled Date": _format_dt(mr.fulfilled_at),
+            "Updated Date": _format_dt(mr.updated_at),
         }
-        if not mr.items:
+        if mr.items:
+            for index, request_item in enumerate(mr.items, start=1):
+                item = request_item.item
+                rows.append(
+                    {
+                        **request_fields,
+                        "Line Number": str(index),
+                        "Item Name": item.name if item else "",
+                        "Item SKU": item.sku if item else "",
+                        "Item Description": item.description if item else "",
+                        "Item Unit": item.unit if item else "",
+                        "Quantity": str(request_item.quantity),
+                        "Item Notes": request_item.notes or "",
+                    }
+                )
+        else:
             rows.append(
                 {
-                    **base_row,
-                    "Line Item ID": "",
-                    "Item ID": "",
-                    "Item SKU": "",
+                    **request_fields,
+                    "Line Number": "",
                     "Item Name": "",
+                    "Item SKU": "",
                     "Item Description": "",
-                    "Unit": "",
+                    "Item Unit": "",
                     "Quantity": "",
-                    "Line Notes": "",
-                    "Serial Numbers": "",
-                }
-            )
-            continue
-        for line in mr.items:
-            item = line.item
-            rows.append(
-                {
-                    **base_row,
-                    "Line Item ID": _export_value(line.id),
-                    "Item ID": _export_value(line.item_id),
-                    "Item SKU": _export_value(item.sku if item else ""),
-                    "Item Name": _export_value(item.name if item else ""),
-                    "Item Description": _export_value(item.description if item else ""),
-                    "Unit": _export_value(item.unit if item else ""),
-                    "Quantity": _export_value(line.quantity),
-                    "Line Notes": _export_value(line.notes),
-                    "Serial Numbers": _export_value(line.serial_numbers),
+                    "Item Notes": "",
                 }
             )
     return rows
@@ -234,18 +420,11 @@ def material_request_list(
     project_id: str | None = None,
     db: Session = Depends(get_db),
 ):
-    selected_status = (status or "").strip().lower() or None
-    if selected_status == "all":
-        selected_status = None
+    selected_status = _selected_status(status)
     selected_erp_status = (erp_status or "").strip().lower().replace("-", "_").replace(" ", "_") or None
     if selected_erp_status == "all":
         selected_erp_status = None
-
-    selected_date_from = _resolve_date(date_from)
-    selected_date_to = _resolve_date(date_to)
-    if not (selected_date_from and selected_date_to):
-        selected_date_from = None
-        selected_date_to = None
+    selected_date_from, selected_date_to = _selected_date_range(date_from, date_to)
 
     items = material_requests.list(
         db,
@@ -269,6 +448,8 @@ def material_request_list(
         filter_erp_status=selected_erp_status or "",
         filter_date_from=date_from or "",
         filter_date_to=date_to or "",
+        status_choices=MATERIAL_REQUEST_STATUS_CHOICES,
+        export_query=_export_query_string(selected_status, date_from, date_to, ticket_id, project_id),
     )
     return templates.TemplateResponse("admin/material_requests/index.html", context)
 
@@ -276,62 +457,15 @@ def material_request_list(
 @router.get("/export.csv")
 def material_request_export_csv(
     status: str | None = None,
-    erp_status: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     ticket_id: str | None = None,
     project_id: str | None = None,
     db: Session = Depends(get_db),
 ):
-    selected_status = _normalize_material_request_status(status)
-    selected_erp_status = (erp_status or "").strip().lower().replace("-", "_").replace(" ", "_") or None
-    if selected_erp_status == "all":
-        selected_erp_status = None
-
-    selected_date_from = _resolve_date(date_from)
-    selected_date_to = _resolve_date(date_to)
-    if not (selected_date_from and selected_date_to):
-        selected_date_from = None
-        selected_date_to = None
-
-    query = db.query(MaterialRequest).options(
-        selectinload(MaterialRequest.items).selectinload(MaterialRequestItem.item),
-        selectinload(MaterialRequest.requested_by),
-        selectinload(MaterialRequest.approved_by),
-        selectinload(MaterialRequest.collected_by),
-        selectinload(MaterialRequest.ticket),
-        selectinload(MaterialRequest.project),
-        selectinload(MaterialRequest.work_order),
-        selectinload(MaterialRequest.source_location),
-        selectinload(MaterialRequest.destination_location),
-    )
-    query = query.filter(MaterialRequest.is_active.is_(True))
-    if selected_status:
-        try:
-            query = query.filter(MaterialRequest.status == MaterialRequestStatus(selected_status))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid material request status") from exc
-    if selected_erp_status:
-        if selected_erp_status in {item.value for item in MaterialRequestERPSyncStatus}:
-            query = query.filter(MaterialRequest.erp_sync_status == MaterialRequestERPSyncStatus(selected_erp_status))
-        else:
-            query = query.filter(MaterialRequest.erp_material_status == selected_erp_status)
-    if ticket_id:
-        query = query.filter(MaterialRequest.ticket_id == coerce_uuid(ticket_id))
-    if project_id:
-        query = query.filter(MaterialRequest.project_id == coerce_uuid(project_id))
-    if selected_date_from and selected_date_to:
-        if selected_date_from > selected_date_to:
-            raise HTTPException(status_code=400, detail="From date must be before or equal to To date")
-        start_dt = datetime.combine(selected_date_from, datetime.min.time(), tzinfo=UTC)
-        end_dt = datetime.combine(selected_date_to, datetime.max.time(), tzinfo=UTC)
-        query = query.filter(MaterialRequest.created_at >= start_dt)
-        query = query.filter(MaterialRequest.created_at <= end_dt)
-
-    requests = query.order_by(MaterialRequest.created_at.desc()).all()
+    requests = _filtered_export_requests(db, status, date_from, date_to, ticket_id, project_id)
     rows = _material_request_export_rows(requests)
-    status_part = selected_status or "all_statuses"
-    filename = f"material_requests_{status_part}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"material_requests_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
     return _csv_response(rows, filename)
 
 
@@ -411,6 +545,19 @@ def material_request_create(
         )
         return templates.TemplateResponse("admin/material_requests/form.html", context)
 
+    if not (resolved_ticket_id or resolved_project_id):
+        context = _base_ctx(
+            request,
+            db,
+            mr=None,
+            ticket_id=ticket_id,
+            project_id=project_id,
+            priorities=[p.value for p in MaterialRequestPriority],
+            warehouses=_warehouse_choices(db),
+            error="Link a ticket or project before creating a material request.",
+        )
+        return templates.TemplateResponse("admin/material_requests/form.html", context, status_code=400)
+
     payload = MaterialRequestCreate(
         ticket_id=resolved_ticket_id,
         project_id=resolved_project_id,
@@ -459,10 +606,9 @@ def material_request_available_serials(
     warehouse_code: str = Query(..., min_length=1),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    search: str | None = Query(None, max_length=120),
     db: Session = Depends(get_db),
 ):
-    from app.services.dotmac_erp import DotMacERPError
+    from app.services.dotmac_erp import DotMacERPError, DotMacERPNotFoundError
     from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
 
     try:
@@ -476,7 +622,15 @@ def material_request_available_serials(
             warehouse_code=warehouse_code,
             limit=limit,
             offset=offset,
-            search=(search or "").strip() or None,
+        )
+        return JSONResponse(data)
+    except DotMacERPNotFoundError:
+        data = _load_available_serials_from_erp_db(
+            db,
+            item_code=item_code,
+            warehouse_code=warehouse_code,
+            limit=limit,
+            offset=offset,
         )
         return JSONResponse(data)
     except DotMacERPError as exc:
@@ -546,13 +700,19 @@ def material_request_update(
 
 @router.get("/{mr_id}", response_class=HTMLResponse)
 def material_request_detail(request: Request, mr_id: str, db: Session = Depends(get_db)):
+    from app.models.inventory import InventoryItem
+
     mr = material_requests.get(db, mr_id)
+    inventory_items = (
+        db.query(InventoryItem).filter(InventoryItem.is_active.is_(True)).order_by(InventoryItem.name).all()
+    )
     context = _base_ctx(
         request,
         db,
         mr=mr,
         warehouses=_warehouse_choices(db),
         collectors=_collector_choices(db),
+        inventory_items=inventory_items,
     )
     return templates.TemplateResponse("admin/material_requests/detail.html", context)
 

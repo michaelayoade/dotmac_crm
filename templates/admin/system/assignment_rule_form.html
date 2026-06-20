@@ -1,0 +1,112 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, submit_button %}
+
+{% set config = rule.match_config if rule and rule.match_config else {} %}
+{% set entity_types = config.entity_types if config.entity_types is defined else [] %}
+{% set project_types = config.project_types if config.project_types is defined else [] %}
+{% set ticket_types = config.ticket_types if config.ticket_types is defined else [] %}
+
+{% block title %}{{ "Edit Assignment Rule" if rule else "New Assignment Rule" }} - Automations{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {% call page_header(("Edit Assignment Rule" if rule else "New Assignment Rule"), "Configure reusable ticket and project assignment", color="sky", color2="cyan", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h8m-8 5h5m-9 8h14a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>', breadcrumbs=[{"href": "/admin/system", "label": "System"}, {"href": "/admin/system/automations", "label": "Automations"}, {"href": "", "label": ("Edit Assignment Rule" if rule else "New Assignment Rule")}]) %}
+    {% endcall %}
+
+    {% if errors %}
+    <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-300">
+        {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="{{ '/admin/system/automations/assignment-rules/' ~ rule.id if rule else '/admin/system/automations/assignment-rules' }}" class="space-y-6 rounded-xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        {% include "components/forms/csrf_input.html" %}
+
+        <div class="grid gap-4 md:grid-cols-3">
+            <div class="md:col-span-2">
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="name">Name</label>
+                <input id="name" name="name" required value="{{ rule.name if rule else '' }}" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="priority">Priority</label>
+                <input id="priority" name="priority" type="number" value="{{ rule.priority if rule else 0 }}" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white" />
+            </div>
+        </div>
+
+        <div class="grid gap-4 md:grid-cols-3">
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="strategy">Strategy</label>
+                <select id="strategy" name="strategy" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    {% for strategy in assignment_strategies %}
+                    <option value="{{ strategy }}" {% if rule and rule.strategy and rule.strategy.value == strategy %}selected{% endif %}>{{ strategy | replace('_', ' ') | title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="team_id">Team</label>
+                <select id="team_id" name="team_id" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">No team</option>
+                    {% for team in assignment_teams %}
+                    <option value="{{ team.id }}" {% if rule and rule.team_id and rule.team_id == team.id %}selected{% endif %}>{{ team.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="assignee_person_id">Direct Assignee</label>
+                <select id="assignee_person_id" name="assignee_person_id" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">Use team strategy</option>
+                    {% for person in assignment_people %}
+                    <option value="{{ person.id }}" {% if config.assignee_person_id|default('') == person.id|string %}selected{% endif %}>{{ person.display_name or ((person.first_name or '') ~ ' ' ~ (person.last_name or '') | trim) or person.email }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="grid gap-4 md:grid-cols-3">
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Applies To</label>
+                <select name="entity_types" multiple size="2" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="ticket" {% if 'ticket' in entity_types %}selected{% endif %}>Tickets</option>
+                    <option value="project" {% if 'project' in entity_types %}selected{% endif %}>Projects</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Project Types</label>
+                <select name="project_types" multiple size="5" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    {% for project_type in assignment_project_types %}
+                    <option value="{{ project_type }}" {% if project_type in project_types %}selected{% endif %}>{{ project_type | replace('_', ' ') | title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Ticket Types</label>
+                <select name="ticket_types" multiple size="5" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    {% for ticket_type in assignment_ticket_types %}
+                    <option value="{{ ticket_type }}" {% if ticket_type in ticket_types %}selected{% endif %}>{{ ticket_type }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="ticket_types_extra">Additional Ticket Types</label>
+            <textarea id="ticket_types_extra" name="ticket_types_extra" rows="2" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
+        </div>
+
+        <div>
+            <label class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500" for="match_config">Advanced Match Config</label>
+            <textarea id="match_config" name="match_config" rows="4" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"></textarea>
+        </div>
+
+        <label class="inline-flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <input type="checkbox" name="is_active" value="true" {% if not rule or rule.is_active %}checked{% endif %} class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 dark:border-slate-600 dark:bg-slate-700" />
+            Active
+        </label>
+
+        <div class="flex items-center gap-3">
+            {{ submit_button(("Save Rule" if rule else "Create Rule"), color="sky", loading_label="Saving...") }}
+            <a href="/admin/system/automations" class="text-sm font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

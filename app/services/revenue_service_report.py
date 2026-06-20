@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import time
 from calendar import monthrange
@@ -16,6 +17,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.services import splynx
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_PAGE_LIMIT = 5000
 DEFAULT_TRANSACTION_START_OFFSET = 210000
@@ -725,7 +728,11 @@ def _fallback_service_price(db: Session, customer_id: str, service_id: Any) -> D
     service_key = str(service_id or "").strip()
     if not service_key:
         return Decimal("0")
-    services = splynx.fetch_customer_internet_services(db, customer_id)
+    try:
+        services = splynx.fetch_customer_internet_services(db, customer_id)
+    except Exception:
+        logger.warning("revenue_service_report_splynx_price_lookup_failed customer_id=%s", customer_id)
+        return Decimal("0")
     match = next((service for service in services if str(service.get("id") or "") == service_key), None)
     return _money((match or {}).get("unit_price"))
 
@@ -993,7 +1000,11 @@ def build_summary(db: Session, *, year: int | None = None, month: int | None = N
     )
 
 
-def build_report(db: Session, *, year: int | None = None, month: int | None = None) -> dict[str, Any]:
+REPORT_CACHE_TTL_SECONDS = 300
+_REPORT_CACHE: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
+
+
+def _build_report_uncached(db: Session, *, year: int | None = None, month: int | None = None) -> dict[str, Any]:
     transactions = _fetch_recent_transactions(db)
     summary_rows = _build_rows_from_transactions(db, transactions, year=year, month=month)
     max_rows = _env_int("DOWNTIME_LOG_MAX_ROWS", DEFAULT_LOG_MAX_ROWS)
@@ -1001,6 +1012,20 @@ def build_report(db: Session, *, year: int | None = None, month: int | None = No
         "summary": build_summary_from_rows(summary_rows),
         "downtime_log": summary_rows[:max_rows],
     }
+
+
+def build_report(db: Session, *, year: int | None = None, month: int | None = None) -> dict[str, Any]:
+    # Cache successful reports briefly. The report performs many external Splynx
+    # calls per request; without this it is rebuilt on every page load, which is
+    # slow and risks idle-in-transaction timeouts (BUG-131).
+    key = (year, month)
+    now = time.monotonic()
+    cached = _REPORT_CACHE.get(key)
+    if cached and cached[0] > now:
+        return cached[1]
+    result = _build_report_uncached(db, year=year, month=month)
+    _REPORT_CACHE[key] = (now + REPORT_CACHE_TTL_SECONDS, result)
+    return result
 
 
 def _payment_customer_groups(payments: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

@@ -99,3 +99,52 @@ def test_project_preferences_ignore_stale_pm_spc_keys():
         "project_type": "installation",
         "region": "Garki",
     }
+
+
+def test_project_preferences_ignore_default_sort_and_page_size(db_session, person):
+    query = {
+        "order_by": "created_at",
+        "order_dir": "desc",
+        "per_page": "25",
+    }
+
+    state = preferences.extract_managed_state(query, preferences.PROJECTS_PAGE)
+    assert state == {}
+
+    preferences.save_preference(db_session, person.id, preferences.PROJECTS_PAGE.key, state)
+
+    assert preferences.get_preference(db_session, person.id, preferences.PROJECTS_PAGE.key) is None
+
+
+def test_project_preferences_keep_non_default_sort_and_page_size(db_session, person):
+    query = {
+        "order_by": "name",
+        "order_dir": "asc",
+        "per_page": "50",
+    }
+
+    state = preferences.extract_managed_state(query, preferences.PROJECTS_PAGE)
+    assert state == {
+        "order_by": "name",
+        "order_dir": "asc",
+        "per_page": "50",
+    }
+
+    preferences.save_preference(db_session, person.id, preferences.PROJECTS_PAGE.key, state)
+
+    assert preferences.get_preference(db_session, person.id, preferences.PROJECTS_PAGE.key) == state
+
+
+def test_project_preferences_do_not_merge_stale_default_values():
+    merged = preferences.merge_query_with_state(
+        {},
+        preferences.PROJECTS_PAGE,
+        {
+            "order_by": "created_at",
+            "order_dir": "desc",
+            "per_page": "25",
+            "status": "active",
+        },
+    )
+
+    assert merged == {"status": "active"}

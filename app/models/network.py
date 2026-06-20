@@ -261,12 +261,21 @@ class OntAssignment(Base):
             "ont_unit_id",
             unique=True,
             postgresql_where=text("active"),
+            # Mirror the partial predicate on SQLite so tests enforce the same
+            # "one active assignment per unit" invariant as production Postgres.
+            sqlite_where=text("active"),
         ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     ont_unit_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("ont_units.id"), nullable=False)
-    pon_port_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("pon_ports.id"), nullable=False)
+    # Nullable: field installs record the physical unit first; the NOC links
+    # the PON port during provisioning.
+    pon_port_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("pon_ports.id"))
+    subscriber_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("subscribers.id"), index=True
+    )
+    work_order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("work_orders.id"))
     person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -279,6 +288,8 @@ class OntAssignment(Base):
 
     ont_unit = relationship("OntUnit", back_populates="assignments")
     pon_port = relationship("PonPort", back_populates="ont_assignments")
+    subscriber = relationship("Subscriber")
+    work_order = relationship("WorkOrder")
     person = relationship("Person")
 
 

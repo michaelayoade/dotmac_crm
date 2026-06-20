@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
+
 from app.schemas.projects import ProjectCreate, ProjectTaskCreate
 from app.schemas.tickets import TicketCreate
 from app.services import projects as projects_service
@@ -94,6 +96,42 @@ def test_projects_service_list_filters_by_region(db_session):
         search=None,
         region="Garki",
     )
+    assert {row.id for row in rows} == {matching.id}
+
+
+def test_projects_service_list_filters_by_created_date_range(db_session):
+    older = projects_service.projects.create(
+        db_session,
+        ProjectCreate(name="Older Project", status="active"),
+    )
+    matching = projects_service.projects.create(
+        db_session,
+        ProjectCreate(name="Matching Project", status="active"),
+    )
+    older.created_at = datetime(2026, 4, 10, 12, 0, tzinfo=UTC)
+    matching.created_at = datetime(2026, 4, 20, 12, 0, tzinfo=UTC)
+    db_session.commit()
+
+    rows = projects_service.projects.list(
+        db=db_session,
+        subscriber_id=None,
+        status=None,
+        project_type=None,
+        priority=None,
+        owner_person_id=None,
+        manager_person_id=None,
+        project_manager_person_id=None,
+        assistant_manager_person_id=None,
+        is_active=True,
+        order_by="created_at",
+        order_dir="desc",
+        limit=50,
+        offset=0,
+        search=None,
+        date_from=date(2026, 4, 15),
+        date_to=date(2026, 4, 25),
+    )
+
     assert {row.id for row in rows} == {matching.id}
 
 
