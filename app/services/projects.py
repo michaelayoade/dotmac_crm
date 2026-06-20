@@ -910,6 +910,42 @@ def _notify_project_task_assigned(
         logger.error("project_task_assigned_notify_failed task_id=%s error=%s", task.id, exc)
 
 
+def _maybe_auto_assign_project(db: Session, project: Project):
+    """Apply workflow rule-based project assignments when enabled."""
+    enabled = str(
+        settings_spec.resolve_value(db, SettingDomain.workflow, "ticket_auto_assignment_enabled") or ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return None
+
+    from app.services.audit_helpers import log_audit_event
+    from app.services.ticket_assignment import auto_assign_project
+
+    actor_id = str(project.created_by_person_id) if project.created_by_person_id else None
+    results = auto_assign_project(db, str(project.id), trigger="create", actor_person_id=actor_id)
+    for result in results:
+        action = "project_auto_assigned" if result.assigned else "project_auto_assign_noop"
+        log_audit_event(
+            db,
+            None,
+            action=action,
+            entity_type="project",
+            entity_id=str(project.id),
+            actor_id=actor_id,
+            metadata={
+                "assigned": bool(result.assigned),
+                "rule_id": result.rule_id,
+                "rule_name": result.rule_name,
+                "strategy": result.strategy,
+                "assignment_target": result.assignment_target,
+                "candidate_count": result.candidate_count,
+                "assignee_person_id": result.assignee_person_id,
+                "reason": result.reason,
+            },
+        )
+    return results
+
+
 class Projects(ListResponseMixin):
     PROJECT_TYPE_DURATIONS: ClassVar[dict[ProjectType, int]] = {
         ProjectType.air_fiber_installation: 3,
@@ -1050,6 +1086,9 @@ class Projects(ListResponseMixin):
             ProjectTemplateTasks.replace_project_tasks(
                 db=db, project_id=str(project.id), template_id=str(payload.project_template_id)
             )
+            _maybe_auto_assign_project(db, project)
+        else:
+            _maybe_auto_assign_project(db, project)
 
         # Emit project created event after core project setup so failed handlers
         # cannot prevent template task creation or other intrinsic project data.

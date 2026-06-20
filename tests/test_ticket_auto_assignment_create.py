@@ -38,16 +38,18 @@ def test_ticket_create_calls_auto_assignment_when_enabled(db_session, monkeypatc
     monkeypatch.setattr(ticket_service.settings_spec, "resolve_value", _resolve_value)
 
     mock_assign = Mock(
-        return_value=AssignmentResult(
-            assigned=True,
-            ticket_id="unused",
-            rule_id="rule-1",
-            assignee_person_id="person-1",
-            reason="assigned",
-        )
+        return_value=[
+            AssignmentResult(
+                assigned=True,
+                ticket_id="unused",
+                rule_id="rule-1",
+                assignee_person_id="person-1",
+                reason="assigned",
+            )
+        ]
     )
     mock_audit = Mock()
-    monkeypatch.setattr("app.services.ticket_assignment.auto_assign_ticket", mock_assign)
+    monkeypatch.setattr("app.services.ticket_assignment.auto_assign_ticket_all", mock_assign)
     monkeypatch.setattr("app.services.audit_helpers.log_audit_event", mock_audit)
 
     payload = TicketCreate(title="Needs auto-assignment")
@@ -78,7 +80,7 @@ def test_ticket_create_does_not_call_auto_assignment_when_disabled(db_session, m
     mock_assign.assert_not_called()
 
 
-def test_ticket_create_does_not_call_auto_assignment_when_already_assigned(db_session, monkeypatch):
+def test_ticket_create_runs_auto_assignment_when_already_assigned(db_session, monkeypatch):
     monkeypatch.setattr(ticket_service, "generate_number", lambda **_: None)
     monkeypatch.setattr(ticket_service, "emit_event", lambda *_, **__: None)
     monkeypatch.setattr(ticket_service, "_notify_ticket_role_assignment_in_app", lambda *_, **__: set())
@@ -86,8 +88,17 @@ def test_ticket_create_does_not_call_auto_assignment_when_already_assigned(db_se
     monkeypatch.setattr(ticket_service.settings_spec, "resolve_value", lambda *_: True)
 
     assignee = _person(db_session)
-    mock_assign = Mock()
-    monkeypatch.setattr("app.services.ticket_assignment.auto_assign_ticket", mock_assign)
+    mock_assign = Mock(
+        return_value=[
+            AssignmentResult(
+                assigned=False,
+                ticket_id="unused",
+                assignee_person_id=str(assignee.id),
+                reason="already_assigned",
+            )
+        ]
+    )
+    monkeypatch.setattr("app.services.ticket_assignment.auto_assign_ticket_all", mock_assign)
 
     payload = TicketCreate(
         title="Already assigned",
@@ -97,7 +108,7 @@ def test_ticket_create_does_not_call_auto_assignment_when_already_assigned(db_se
 
     assert ticket is not None
     assert ticket.assigned_to_person_id == assignee.id
-    mock_assign.assert_not_called()
+    mock_assign.assert_called_once()
 
 
 def test_ticket_create_audits_auto_assignment_noop_when_no_candidate(db_session, monkeypatch):
@@ -114,20 +125,22 @@ def test_ticket_create_audits_auto_assignment_noop_when_no_candidate(db_session,
     monkeypatch.setattr(ticket_service.settings_spec, "resolve_value", _resolve_value)
 
     mock_assign = Mock(
-        return_value=AssignmentResult(
-            assigned=False,
-            ticket_id="unused",
-            rule_id="rule-2",
-            rule_name="North Rule",
-            strategy="least_loaded",
-            candidate_count=0,
-            assignee_person_id=None,
-            fallback_service_team_id="team-1",
-            reason="queue_fallback_team_assigned",
-        )
+        return_value=[
+            AssignmentResult(
+                assigned=False,
+                ticket_id="unused",
+                rule_id="rule-2",
+                rule_name="North Rule",
+                strategy="least_loaded",
+                candidate_count=0,
+                assignee_person_id=None,
+                fallback_service_team_id="team-1",
+                reason="queue_fallback_team_assigned",
+            )
+        ]
     )
     mock_audit = Mock()
-    monkeypatch.setattr("app.services.ticket_assignment.auto_assign_ticket", mock_assign)
+    monkeypatch.setattr("app.services.ticket_assignment.auto_assign_ticket_all", mock_assign)
     monkeypatch.setattr("app.services.audit_helpers.log_audit_event", mock_audit)
 
     payload = TicketCreate(title="Needs queue fallback")
@@ -161,14 +174,16 @@ def test_ticket_manual_auto_assign_calls_engine_with_manual_trigger(db_session, 
     assert ticket is not None
 
     mock_assign = Mock(
-        return_value=AssignmentResult(
-            assigned=False,
-            ticket_id=str(ticket.id),
-            reason="no_matching_rule_or_candidate",
-        )
+        return_value=[
+            AssignmentResult(
+                assigned=False,
+                ticket_id=str(ticket.id),
+                reason="no_matching_rule_or_candidate",
+            )
+        ]
     )
     mock_audit = Mock()
-    monkeypatch.setattr("app.services.ticket_assignment.auto_assign_ticket", mock_assign)
+    monkeypatch.setattr("app.services.ticket_assignment.auto_assign_ticket_all", mock_assign)
     monkeypatch.setattr("app.services.audit_helpers.log_audit_event", mock_audit)
 
     updated = ticket_service.Tickets.auto_assign_manual(db_session, str(ticket.id), actor_id="person-42")

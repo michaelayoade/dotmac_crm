@@ -839,8 +839,6 @@ def _get_region_ticket_assignments(db: Session, region: str | None) -> tuple[str
 
 def _maybe_auto_assign_ticket(db: Session, ticket: Ticket):
     """Apply rule-based ticket auto-assignment when enabled."""
-    if ticket.assigned_to_person_id:
-        return None
     enabled = _is_truthy(
         settings_spec.resolve_value(db, SettingDomain.workflow, "ticket_auto_assignment_enabled"),
         False,
@@ -849,16 +847,16 @@ def _maybe_auto_assign_ticket(db: Session, ticket: Ticket):
         return None
 
     from app.services.audit_helpers import log_audit_event
-    from app.services.ticket_assignment import auto_assign_ticket
+    from app.services.ticket_assignment import auto_assign_ticket_all
 
     actor_id = str(ticket.created_by_person_id) if ticket.created_by_person_id else None
-    result = auto_assign_ticket(
+    results = auto_assign_ticket_all(
         db,
         str(ticket.id),
         trigger="create",
         actor_person_id=actor_id,
     )
-    if result:
+    for result in results:
         action = "ticket_auto_assigned" if result.assigned else "ticket_auto_assign_noop"
         db.refresh(ticket)
         log_audit_event(
@@ -868,20 +866,27 @@ def _maybe_auto_assign_ticket(db: Session, ticket: Ticket):
             entity_type="ticket",
             entity_id=str(ticket.id),
             actor_id=actor_id,
-            metadata={
-                "assigned": bool(result.assigned),
-                "rule_id": result.rule_id,
-                "rule_name": result.rule_name,
-                "strategy": result.strategy,
-                "candidate_count": result.candidate_count,
-                "assignee_person_id": result.assignee_person_id,
-                "fallback_service_team_id": result.fallback_service_team_id,
-                "reason": result.reason,
-            },
+            metadata=_ticket_assignment_audit_metadata(result),
             status_code=200,
             is_success=True,
         )
-    return result
+    return results[0] if results else None
+
+
+def _ticket_assignment_audit_metadata(result) -> dict[str, object | None]:
+    metadata = {
+        "assigned": bool(result.assigned),
+        "rule_id": result.rule_id,
+        "rule_name": result.rule_name,
+        "strategy": result.strategy,
+        "candidate_count": result.candidate_count,
+        "assignee_person_id": result.assignee_person_id,
+        "fallback_service_team_id": result.fallback_service_team_id,
+        "reason": result.reason,
+    }
+    if result.assignment_target:
+        metadata["assignment_target"] = result.assignment_target
+    return metadata
 
 
 def _ticket_sla_policy(db: Session) -> SlaPolicy | None:
@@ -1237,35 +1242,27 @@ class Tickets(ListResponseMixin):
             raise HTTPException(status_code=404, detail="Ticket not found")
 
         from app.services.audit_helpers import log_audit_event
-        from app.services.ticket_assignment import auto_assign_ticket
+        from app.services.ticket_assignment import auto_assign_ticket_all
 
-        result = auto_assign_ticket(
+        results = auto_assign_ticket_all(
             db,
             str(ticket.id),
             trigger="manual",
             actor_person_id=actor_id,
         )
         db.refresh(ticket)
-        log_audit_event(
-            db,
-            None,
-            action="ticket_auto_assign_manual",
-            entity_type="ticket",
-            entity_id=str(ticket.id),
-            actor_id=actor_id,
-            metadata={
-                "assigned": bool(result.assigned),
-                "rule_id": result.rule_id,
-                "rule_name": result.rule_name,
-                "strategy": result.strategy,
-                "candidate_count": result.candidate_count,
-                "assignee_person_id": result.assignee_person_id,
-                "fallback_service_team_id": result.fallback_service_team_id,
-                "reason": result.reason,
-            },
-            status_code=200,
-            is_success=True,
-        )
+        for result in results:
+            log_audit_event(
+                db,
+                None,
+                action="ticket_auto_assign_manual",
+                entity_type="ticket",
+                entity_id=str(ticket.id),
+                actor_id=actor_id,
+                metadata=_ticket_assignment_audit_metadata(result),
+                status_code=200,
+                is_success=True,
+            )
         return ticket
 
     @staticmethod

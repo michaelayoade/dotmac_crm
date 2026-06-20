@@ -26,7 +26,7 @@ from app.models.crm.sales import Lead, Quote
 from app.models.crm.team import CrmAgent
 from app.models.domain_settings import SettingDomain
 from app.models.person import Person
-from app.models.projects import Project, ProjectComment, ProjectTask, ProjectTaskComment, TaskStatus
+from app.models.projects import Project, ProjectComment, ProjectTask, ProjectTaskComment, ProjectType, TaskStatus
 from app.models.rbac import Permission, PersonRole, Role, RolePermission
 from app.models.service_team import ServiceTeam
 from app.models.tickets import Ticket, TicketComment, TicketStatus
@@ -1110,6 +1110,21 @@ def _workflow_context(request: Request, db: Session, error: str | None = None):
     assignment_teams = (
         db.query(ServiceTeam).filter(ServiceTeam.is_active.is_(True)).order_by(ServiceTeam.name.asc()).all()
     )
+    assignment_people = (
+        db.query(Person)
+        .filter(Person.is_active.is_(True))
+        .order_by(Person.display_name.asc().nulls_last(), Person.first_name.asc(), Person.last_name.asc())
+        .limit(500)
+        .all()
+    )
+    raw_ticket_types = settings_spec.resolve_value(db, SettingDomain.comms, "ticket_types")
+    assignment_ticket_types: list[str] = []
+    if isinstance(raw_ticket_types, list):
+        for item in raw_ticket_types:
+            if isinstance(item, dict) and item.get("is_active", True) and item.get("name"):
+                assignment_ticket_types.append(str(item["name"]))
+            elif isinstance(item, str) and item.strip():
+                assignment_ticket_types.append(item.strip())
     auto_assignment_enabled = _form_bool(
         settings_spec.resolve_value(db, SettingDomain.workflow, "ticket_auto_assignment_enabled")
     )
@@ -1156,7 +1171,10 @@ def _workflow_context(request: Request, db: Session, error: str | None = None):
         "project_task_transitions": project_task_transitions,
         "ticket_assignment_rules": ticket_assignment_rules,
         "assignment_teams": assignment_teams,
+        "assignment_people": assignment_people,
         "assignment_strategies": [item.value for item in TicketAssignmentStrategy],
+        "assignment_project_types": [item.value for item in ProjectType],
+        "assignment_ticket_types": assignment_ticket_types,
         "ticket_auto_assignment_enabled": auto_assignment_enabled,
         "ticket_auto_assign_require_presence": auto_assignment_require_presence,
         "ticket_auto_assign_max_open_tickets": auto_assignment_max_open_tickets,
@@ -3733,6 +3751,50 @@ async def workflow_ticket_assignment_settings_update(request: Request, db: Sessi
         return templates.TemplateResponse("admin/system/workflow.html", context, status_code=400)
 
 
+def _assignment_rule_match_config_from_form(form) -> dict | None:
+    match_config: dict[str, Any] = {}
+    match_config_raw = _form_str_opt(form.get("match_config"))
+    if match_config_raw:
+        try:
+            parsed = json.loads(match_config_raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Match config must be valid JSON.") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("Match config must be a JSON object.")
+        match_config.update(parsed)
+
+    def _values(name: str) -> list[str]:
+        raw_values = form.getlist(name) if hasattr(form, "getlist") else []
+        return [str(value).strip() for value in raw_values if str(value).strip()]
+
+    entity_types = _values("entity_types")
+    project_types = _values("project_types")
+    ticket_types = _values("ticket_types")
+    ticket_types_extra = _form_str_opt(form.get("ticket_types_extra"))
+    if ticket_types_extra:
+        for item in ticket_types_extra.replace("\r", "\n").split("\n"):
+            value = item.strip()
+            if value:
+                ticket_types.append(value)
+
+    assignment_target = _form_str(form.get("assignment_target")).strip()
+    assignee_person_id = _form_str(form.get("assignee_person_id")).strip()
+
+    if entity_types:
+        match_config["entity_types"] = entity_types
+    if project_types:
+        match_config["project_types"] = project_types
+    if ticket_types:
+        deduped_ticket_types = list(dict.fromkeys(ticket_types))
+        match_config["ticket_types"] = deduped_ticket_types
+    if assignment_target:
+        match_config["assignment_target"] = assignment_target
+    if assignee_person_id:
+        match_config["assignee_person_id"] = assignee_person_id
+
+    return match_config or None
+
+
 @router.post(
     "/workflow/ticket-assignment-rules",
     response_class=HTMLResponse,
@@ -3741,16 +3803,7 @@ async def workflow_ticket_assignment_settings_update(request: Request, db: Sessi
 async def workflow_ticket_assignment_rule_create(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     try:
-        match_config_raw = _form_str_opt(form.get("match_config"))
-        match_config = None
-        if match_config_raw:
-            try:
-                parsed = json.loads(match_config_raw)
-            except json.JSONDecodeError as exc:
-                raise ValueError("Match config must be valid JSON.") from exc
-            if not isinstance(parsed, dict):
-                raise ValueError("Match config must be a JSON object.")
-            match_config = parsed
+        match_config = _assignment_rule_match_config_from_form(form)
 
         priority_raw = _form_str(form.get("priority")).strip()
         priority = int(priority_raw) if priority_raw else 0
@@ -3782,18 +3835,9 @@ async def workflow_ticket_assignment_rule_update(rule_id: str, request: Request,
     form = await request.form()
     try:
         existing = workflow_service.ticket_assignment_rules.get(db=db, rule_id=rule_id)
-        match_config_raw = _form_str_opt(form.get("match_config"))
-        match_config = existing.match_config
-        if match_config_raw:
-            try:
-                parsed = json.loads(match_config_raw)
-            except json.JSONDecodeError as exc:
-                raise ValueError("Match config must be valid JSON.") from exc
-            if not isinstance(parsed, dict):
-                raise ValueError("Match config must be a JSON object.")
-            match_config = parsed
-        if match_config_raw == "":
-            match_config = None
+        match_config = _assignment_rule_match_config_from_form(form)
+        if match_config is None and "match_config" not in form:
+            match_config = existing.match_config
         priority_raw = _form_str(form.get("priority")).strip()
         team_id_raw = _form_str_opt(form.get("team_id"))
         strategy_raw = _form_str_opt(form.get("strategy"))

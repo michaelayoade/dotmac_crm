@@ -670,12 +670,13 @@ def projects_list(
             current_person_uuid = None
 
     query_params_map = {key: value for key, value in request.query_params.items()}
-    if clear_filters and current_person_uuid:
-        filter_preferences_service.clear_preference(
-            db,
-            current_person_uuid,
-            filter_preferences_service.PROJECTS_PAGE.key,
-        )
+    if clear_filters:
+        if current_person_uuid:
+            filter_preferences_service.clear_preference(
+                db,
+                current_person_uuid,
+                filter_preferences_service.PROJECTS_PAGE.key,
+            )
         return RedirectResponse(url="/admin/projects", status_code=302)
 
     canonical_query_params = filter_preferences_service.remove_default_query_values(
