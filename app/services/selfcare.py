@@ -7,6 +7,7 @@ import hmac
 import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -28,6 +29,18 @@ if TYPE_CHECKING:
     from redis import Redis
 
 _redis_client: Redis | None = None
+
+
+@dataclass(frozen=True)
+class SelfcareCustomerIdentity:
+    """Identity values returned by selfcare for a created customer."""
+
+    selfcare_id: str | None
+    subscriber_number: str
+
+    @property
+    def external_id(self) -> str:
+        return self.selfcare_id or self.subscriber_number
 
 
 def _get_redis() -> Redis | None:
@@ -159,7 +172,7 @@ def create_customer(
     project_id: str | None = None,
     quote_id: str | None = None,
     sales_order_id: str | None = None,
-) -> str | None:
+) -> SelfcareCustomerIdentity | None:
     """Create or reuse a subscriber/customer in selfcare and return its ID."""
     config = _get_config(db)
     if not config:
@@ -193,11 +206,21 @@ def create_customer(
         logger.error("selfcare_create_customer_failed error=%s", str(exc))
         return None
 
-    subscriber_id = data.get("subscriber_id") or data.get("id")
-    if not subscriber_id:
+    identity = _parse_customer_identity(data)
+    if not identity:
         logger.error("selfcare_create_customer_no_id response=%s", data)
         return None
-    return str(subscriber_id)
+    return identity
+
+
+def _parse_customer_identity(data: dict[str, Any]) -> SelfcareCustomerIdentity | None:
+    selfcare_id = str(data.get("id") or "").strip() or None
+    subscriber_number = str(data.get("subscriber_id") or data.get("subscriber_number") or "").strip()
+    if not subscriber_number and selfcare_id:
+        subscriber_number = selfcare_id
+    if not subscriber_number:
+        return None
+    return SelfcareCustomerIdentity(selfcare_id=selfcare_id, subscriber_number=subscriber_number)
 
 
 def record_customer_sync_result(
@@ -206,6 +229,7 @@ def record_customer_sync_result(
     mode: str,
     person_id: str,
     selfcare_subscriber_id: str | None = None,
+    selfcare_id: str | None = None,
     project_id: str | None = None,
     quote_id: str | None = None,
     sales_order_id: str | None = None,
@@ -223,6 +247,7 @@ def record_customer_sync_result(
             "timestamp": now_iso,
             "mode": mode,
             "person_id": person_id,
+            "selfcare_id": selfcare_id,
             "selfcare_subscriber_id": selfcare_subscriber_id,
             "project_id": project_id,
             "quote_id": quote_id,
@@ -287,12 +312,21 @@ def get_customer_daily_stats() -> dict[str, int]:
         return {"successes": 0, "errors": 0, "sync_count": 0}
 
 
-def ensure_person_customer(db: Session, person: Person, selfcare_subscriber_id: str | None) -> None:
+def ensure_person_customer(
+    db: Session,
+    person: Person,
+    identity: SelfcareCustomerIdentity | str | None,
+) -> None:
     """Persist selfcare subscriber ID and mark the party as a customer."""
-    if selfcare_subscriber_id:
+    if identity:
         if person.metadata_ is None or not isinstance(person.metadata_, dict):
             person.metadata_ = {}
-        person.metadata_["selfcare_subscriber_id"] = str(selfcare_subscriber_id)
+        if isinstance(identity, SelfcareCustomerIdentity):
+            if identity.selfcare_id:
+                person.metadata_["selfcare_id"] = identity.selfcare_id
+            person.metadata_["selfcare_subscriber_id"] = identity.subscriber_number
+        else:
+            person.metadata_["selfcare_subscriber_id"] = str(identity)
 
     if person.party_status in {PartyStatus.lead, PartyStatus.contact}:
         person.party_status = PartyStatus.customer
