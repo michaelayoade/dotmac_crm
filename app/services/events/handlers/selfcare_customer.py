@@ -11,7 +11,12 @@ from app.models.person import Person
 from app.models.projects import Project
 from app.services.common import coerce_uuid
 from app.services.events.types import Event, EventType
-from app.services.selfcare import create_customer, ensure_person_customer, record_customer_sync_result
+from app.services.selfcare import (
+    SelfcareCustomerIdentity,
+    create_customer,
+    ensure_person_customer,
+    record_customer_sync_result,
+)
 from app.services.subscriber import subscriber as subscriber_service
 
 logger = logging.getLogger(__name__)
@@ -65,10 +70,15 @@ def _resolve_person_for_project(db: Session, project: Project) -> Person | None:
     return None
 
 
-def _selfcare_subscriber_id(person: Person) -> str | None:
+def _selfcare_identity(person: Person) -> SelfcareCustomerIdentity | None:
     metadata = person.metadata_ if isinstance(person.metadata_, dict) else {}
-    value = str(metadata.get("selfcare_subscriber_id") or "").strip()
-    return value or None
+    selfcare_id = str(metadata.get("selfcare_id") or "").strip() or None
+    subscriber_number = str(metadata.get("selfcare_subscriber_id") or "").strip()
+    if not subscriber_number and selfcare_id:
+        subscriber_number = selfcare_id
+    if not subscriber_number:
+        return None
+    return SelfcareCustomerIdentity(selfcare_id=selfcare_id, subscriber_number=subscriber_number)
 
 
 def sync_person_to_selfcare(
@@ -81,15 +91,16 @@ def sync_person_to_selfcare(
     mode: str = "manual",
 ) -> str | None:
     """Create/reuse a selfcare customer for a CRM person and record sync history."""
-    existing_selfcare_id = _selfcare_subscriber_id(person)
-    if existing_selfcare_id:
-        ensure_person_customer(db, person, existing_selfcare_id)
-        _ensure_subscriber(db, person, existing_selfcare_id, sales_order_id=sales_order_id)
+    existing_identity = _selfcare_identity(person)
+    if existing_identity:
+        ensure_person_customer(db, person, existing_identity)
+        _ensure_subscriber(db, person, existing_identity, sales_order_id=sales_order_id)
         record_customer_sync_result(
             success=True,
             mode=mode,
             person_id=str(person.id),
-            selfcare_subscriber_id=existing_selfcare_id,
+            selfcare_id=existing_identity.selfcare_id,
+            selfcare_subscriber_id=existing_identity.subscriber_number,
             project_id=project_id,
             quote_id=quote_id,
             sales_order_id=sales_order_id,
@@ -98,18 +109,18 @@ def sync_person_to_selfcare(
         logger.info(
             "selfcare_skip_existing person_id=%s selfcare_subscriber_id=%s",
             person.id,
-            existing_selfcare_id,
+            existing_identity.subscriber_number,
         )
-        return existing_selfcare_id
+        return existing_identity.subscriber_number
 
-    selfcare_id = create_customer(
+    identity = create_customer(
         db,
         person,
         project_id=project_id,
         quote_id=quote_id,
         sales_order_id=sales_order_id,
     )
-    if not selfcare_id:
+    if not identity:
         record_customer_sync_result(
             success=False,
             mode=mode,
@@ -122,13 +133,14 @@ def sync_person_to_selfcare(
         )
         return None
 
-    ensure_person_customer(db, person, selfcare_id)
-    _ensure_subscriber(db, person, selfcare_id, sales_order_id=sales_order_id)
+    ensure_person_customer(db, person, identity)
+    _ensure_subscriber(db, person, identity, sales_order_id=sales_order_id)
     record_customer_sync_result(
         success=True,
         mode=mode,
         person_id=str(person.id),
-        selfcare_subscriber_id=selfcare_id,
+        selfcare_id=identity.selfcare_id,
+        selfcare_subscriber_id=identity.subscriber_number,
         project_id=project_id,
         quote_id=quote_id,
         sales_order_id=sales_order_id,
@@ -137,15 +149,15 @@ def sync_person_to_selfcare(
     logger.info(
         "selfcare_customer_created person_id=%s selfcare_subscriber_id=%s",
         person.id,
-        selfcare_id,
+        identity.subscriber_number,
     )
-    return selfcare_id
+    return identity.subscriber_number
 
 
 def _ensure_subscriber(
     db: Session,
     person: Person,
-    selfcare_subscriber_id: str,
+    identity: SelfcareCustomerIdentity,
     *,
     sales_order_id: str | None = None,
 ) -> None:
@@ -153,7 +165,11 @@ def _ensure_subscriber(
         "person_id": person.id,
         "organization_id": person.organization_id,
         "status": "pending",
-        "subscriber_number": selfcare_subscriber_id,
+        "subscriber_number": identity.subscriber_number,
+        "sync_metadata": {
+            "selfcare_uuid": identity.selfcare_id,
+            "selfcare_subscriber_number": identity.subscriber_number,
+        },
     }
     if sales_order_id:
         try:
@@ -161,4 +177,4 @@ def _ensure_subscriber(
         except Exception:
             logger.warning("selfcare_invalid_sales_order_id value=%s - skipping", sales_order_id)
 
-    subscriber_service.sync_from_external(db, "selfcare", selfcare_subscriber_id, data)
+    subscriber_service.sync_from_external(db, "selfcare", identity.external_id, data)
