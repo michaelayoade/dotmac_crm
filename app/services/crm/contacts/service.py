@@ -56,12 +56,41 @@ def _normalize_phone(address: str | None) -> str | None:
     return f"+{digits}"
 
 
+def _normalize_whatsapp_address(address: str | None) -> str | None:
+    normalized = _normalize_phone(address)
+    if not normalized:
+        return None
+    digits = "".join(ch for ch in normalized if ch.isdigit())
+    if digits.startswith("0") and len(digits) == 11:
+        digits = f"234{digits[1:]}"
+    if len(digits) < 8 or len(digits) > 15:
+        return None
+    return f"+{digits}"
+
+
 def _normalize_channel_address(channel_type: CrmChannelType, address: str) -> str:
     if channel_type == CrmChannelType.email:
         return _normalize_email(address) or address.strip()
     if channel_type == CrmChannelType.whatsapp:
-        return _normalize_phone(address) or address.strip()
+        return _normalize_whatsapp_address(address) or address.strip()
     return address.strip()
+
+
+def _demote_other_primary_channels(
+    db: Session,
+    *,
+    person_id,
+    channel_type: PersonChannelType,
+    except_channel_id=None,
+) -> None:
+    query = db.query(PersonChannel).filter(
+        PersonChannel.person_id == person_id,
+        PersonChannel.channel_type == channel_type,
+        PersonChannel.is_primary.is_(True),
+    )
+    if except_channel_id is not None:
+        query = query.filter(PersonChannel.id != except_channel_id)
+    query.update({"is_primary": False}, synchronize_session=False)
 
 
 PHONE_CHANNEL_TYPES = {
@@ -145,17 +174,19 @@ def _ensure_person_channel(
         .first()
     )
     if existing:
+        if is_primary and not existing.is_primary:
+            _demote_other_primary_channels(
+                db,
+                person_id=person.id,
+                channel_type=channel_type,
+                except_channel_id=existing.id,
+            )
+            existing.is_primary = True
+            db.commit()
+            db.refresh(existing)
         return existing
     if is_primary:
-        has_primary = (
-            db.query(PersonChannel)
-            .filter(PersonChannel.person_id == person.id)
-            .filter(PersonChannel.channel_type == channel_type)
-            .filter(PersonChannel.is_primary.is_(True))
-            .first()
-        )
-        if has_primary:
-            is_primary = False
+        _demote_other_primary_channels(db, person_id=person.id, channel_type=channel_type)
     channel = PersonChannel(
         person_id=person.id,
         channel_type=channel_type,
@@ -249,7 +280,12 @@ def update_contact_channels(
     phone_values = [p for p in phone_values if p]
     phone_values = _dedupe_preserve_order(phone_values)
 
-    whatsapp_values = [(_normalize_phone(p) or p.strip()) for p in (whatsapp_phones or [])]
+    whatsapp_values = []
+    for raw_phone in whatsapp_phones or []:
+        normalized = _normalize_whatsapp_address(raw_phone)
+        if not normalized:
+            raise ValueError("WhatsApp phone number is invalid")
+        whatsapp_values.append(normalized)
     whatsapp_values = [p for p in whatsapp_values if p]
     whatsapp_values = _dedupe_preserve_order(whatsapp_values)
     if phone_values:
@@ -607,6 +643,8 @@ class ContactChannels(ListResponseMixin):
                     detail="Email address already belongs to another contact",
                 )
         elif channel_type in PHONE_CHANNEL_TYPES:
+            if channel_type == PersonChannelType.whatsapp and not _normalize_whatsapp_address(payload.address):
+                raise HTTPException(status_code=400, detail="WhatsApp phone number is invalid")
             existing = (
                 db.query(PersonChannel)
                 .filter(PersonChannel.channel_type.in_(PHONE_CHANNEL_TYPES))
@@ -659,10 +697,7 @@ class ContactChannels(ListResponseMixin):
             metadata_=payload.metadata_,
         )
         if channel.is_primary:
-            db.query(PersonChannel).filter(
-                PersonChannel.person_id == payload.person_id,
-                PersonChannel.channel_type == channel_type,
-            ).update({"is_primary": False})
+            _demote_other_primary_channels(db, person_id=payload.person_id, channel_type=channel_type)
         db.add(channel)
         db.commit()
         db.refresh(channel)
@@ -698,13 +733,17 @@ class ContactChannels(ListResponseMixin):
         if not channel:
             raise HTTPException(status_code=404, detail="Contact channel not found")
         data = payload.model_dump(exclude_unset=True)
+        effective_channel_type = channel.channel_type
+        if data.get("channel_type"):
+            effective_channel_type = PersonChannelType(data["channel_type"].value)
+            data["channel_type"] = effective_channel_type
         if data.get("address"):
             normalized_address = _normalize_channel_address(
-                CrmChannelType(channel.channel_type.value),
+                CrmChannelType(effective_channel_type.value),
                 data["address"],
             )
             raw_address = data["address"].strip()
-            if channel.channel_type == PersonChannelType.email:
+            if effective_channel_type == PersonChannelType.email:
                 existing = (
                     db.query(PersonChannel)
                     .filter(PersonChannel.channel_type == PersonChannelType.email)
@@ -722,7 +761,11 @@ class ContactChannels(ListResponseMixin):
                         status_code=409,
                         detail="Email address already belongs to another contact",
                     )
-            elif channel.channel_type in PHONE_CHANNEL_TYPES:
+            elif effective_channel_type in PHONE_CHANNEL_TYPES:
+                if effective_channel_type == PersonChannelType.whatsapp and not _normalize_whatsapp_address(
+                    data["address"]
+                ):
+                    raise HTTPException(status_code=400, detail="WhatsApp phone number is invalid")
                 existing = (
                     db.query(PersonChannel)
                     .filter(PersonChannel.channel_type.in_(PHONE_CHANNEL_TYPES))
@@ -757,7 +800,7 @@ class ContactChannels(ListResponseMixin):
             else:
                 existing = (
                     db.query(PersonChannel)
-                    .filter(PersonChannel.channel_type == channel.channel_type)
+                    .filter(PersonChannel.channel_type == effective_channel_type)
                     .filter(PersonChannel.address == normalized_address)
                     .first()
                 )
@@ -768,10 +811,12 @@ class ContactChannels(ListResponseMixin):
                     )
             data["address"] = normalized_address
         if data.get("is_primary"):
-            db.query(PersonChannel).filter(
-                PersonChannel.person_id == channel.person_id,
-                PersonChannel.channel_type == channel.channel_type,
-            ).update({"is_primary": False})
+            _demote_other_primary_channels(
+                db,
+                person_id=channel.person_id,
+                channel_type=effective_channel_type,
+                except_channel_id=channel.id,
+            )
         for key, value in data.items():
             setattr(channel, key, value)
         db.commit()
