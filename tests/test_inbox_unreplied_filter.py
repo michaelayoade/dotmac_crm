@@ -242,7 +242,7 @@ def test_assignment_counts_include_needs_attention_and_unreplied(db_session):
     assert counts["needs_attention"] >= 1
 
 
-def test_unassigned_filter_excludes_pre_2026_activity(db_session):
+def test_unassigned_filter_includes_pre_2026_activity(db_session):
     contact = _create_person(db_session, name="Imported")
 
     imported_legacy = _create_conversation(db_session, contact, subject="Imported 2025")
@@ -268,7 +268,41 @@ def test_unassigned_filter_excludes_pre_2026_activity(db_session):
     ids = _result_ids(results)
 
     assert current_2026.id in ids
-    assert imported_legacy.id not in ids
+    assert imported_legacy.id in ids
+
+    counts = get_assignment_counts(db_session, assigned_person_id=None)
+    assert counts["unassigned"] == 2
+
+
+def test_unassigned_filter_excludes_resolved_conversations(db_session):
+    contact = _create_person(db_session, name="Resolved")
+    old_resolved = _create_conversation(db_session, contact, subject="Old resolved")
+    newer_open = _create_conversation(db_session, contact, subject="New open")
+    old_resolved.status = ConversationStatus.resolved
+
+    _add_message(
+        db_session,
+        old_resolved,
+        direction=MessageDirection.inbound,
+        body="Old resolved conversation",
+        timestamp=datetime(2026, 1, 2, 8, 0, tzinfo=UTC),
+    )
+    _add_message(
+        db_session,
+        newer_open,
+        direction=MessageDirection.inbound,
+        body="New open conversation",
+        timestamp=datetime(2026, 1, 3, 8, 0, tzinfo=UTC),
+    )
+    old_resolved.updated_at = datetime(2026, 1, 2, 8, 0, tzinfo=UTC)
+    newer_open.updated_at = datetime(2026, 1, 3, 8, 0, tzinfo=UTC)
+    db_session.flush()
+
+    results = list_inbox_conversations(db_session, assignment="unassigned")
+    ids = _result_ids(results)
+
+    assert old_resolved.id not in ids
+    assert newer_open.id in ids
 
     counts = get_assignment_counts(db_session, assigned_person_id=None)
     assert counts["unassigned"] == 1
