@@ -1,4 +1,4 @@
-"""Customer uptime polling and reporting backed by Splynx online status."""
+"""Customer uptime polling and reporting backed by Selfcare online status."""
 
 from __future__ import annotations
 
@@ -17,11 +17,12 @@ from app.db import SessionLocal
 from app.logging import get_logger
 from app.models.customer_uptime import CustomerUptimePeriod, CustomerUptimeSnapshot
 from app.models.subscriber import Subscriber, SubscriberStatus
-from app.services import splynx
+from app.services import selfcare
+from app.services.external_systems import EXTERNAL_SUBSCRIBER_SYSTEMS
 
 logger = get_logger(__name__)
 
-SOURCE_POLLING = "splynx_polling"
+SOURCE_POLLING = "selfcare_polling"
 CONFIDENCE_OBSERVED = "observed"
 STATUS_ONLINE = "online"
 STATUS_OFFLINE = "offline"
@@ -47,7 +48,7 @@ def _env_int(name: str, default: int) -> int:
     return default
 
 
-def _parse_splynx_datetime(value: Any) -> datetime | None:
+def _parse_selfcare_datetime(value: Any) -> datetime | None:
     text = str(value or "").strip()
     if not text or text.startswith("0000"):
         return None
@@ -97,7 +98,7 @@ def _active_service_pairs(
     stmt = (
         select(Subscriber)
         .where(
-            Subscriber.external_system == "splynx",
+            Subscriber.external_system.in_(EXTERNAL_SUBSCRIBER_SYSTEMS),
             Subscriber.external_id.is_not(None),
             Subscriber.is_active.is_(True),
             Subscriber.status == SubscriberStatus.active,
@@ -158,8 +159,8 @@ def _record_snapshot(
             login=str(pair.get("login") or raw_payload.get("login") or "") or None,
             is_online=is_online,
             observed_at=observed_at,
-            start_session=_parse_splynx_datetime(raw_payload.get("start_session")),
-            last_change=_parse_splynx_datetime(raw_payload.get("last_change")),
+            start_session=_parse_selfcare_datetime(raw_payload.get("start_session")),
+            last_change=_parse_selfcare_datetime(raw_payload.get("last_change")),
             time_on=_int_or_none(raw_payload.get("time_on")),
             in_bytes=_int_or_none(raw_payload.get("in_bytes")),
             out_bytes=_int_or_none(raw_payload.get("out_bytes")),
@@ -218,7 +219,7 @@ def _upsert_period(
 
 def poll_splynx_uptime_once(db: Session, *, observed_at: datetime | None = None) -> dict[str, int]:
     observed_at = observed_at or datetime.now(UTC)
-    online_rows = splynx.fetch_online_customers(db)
+    online_rows = selfcare.fetch_online_customers(db)
     online = _online_map(online_rows)
     active_pairs = _active_service_pairs(db, online)
 
@@ -332,7 +333,7 @@ def _latest_snapshot_prices(db: Session, customer_ids: set[str]) -> dict[str, De
 
     missing = {customer_id for customer_id, price in prices.items() if price <= 0}
     if missing:
-        for customer in splynx.fetch_customers(db):
+        for customer in selfcare.fetch_customers(db):
             customer_id = str(customer.get("id") or "")
             if customer_id not in missing:
                 continue

@@ -8,6 +8,7 @@ from app.celery_app import celery_app
 from app.db import SessionLocal
 from app.logging import get_logger
 from app.metrics import observe_job
+from app.services.external_systems import SPLYNX_EXTERNAL_SYSTEM
 from app.services.subscriber import subscriber as subscriber_service
 
 logger = get_logger(__name__)
@@ -97,6 +98,79 @@ def sync_subscribers_from_splynx() -> dict[str, Any]:
     return results
 
 
+@celery_app.task(name="app.tasks.subscribers.sync_subscribers_from_selfcare")
+def sync_subscribers_from_selfcare() -> dict[str, Any]:
+    """Reconciliation sync: pull all subscribers from Selfcare and upsert local Subscriber records."""
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("SELFCARE_SYNC_START")
+    results: dict[str, Any] = {"created": 0, "updated": 0, "errors": []}
+
+    try:
+        from app.models.person import Person
+        from app.services.selfcare import fetch_customers, map_customer_to_subscriber_data, ping
+
+        ping(session)
+        customers_data = fetch_customers(session, include="services,billing")
+        if not customers_data:
+            logger.info("selfcare_sync_no_data")
+            return results
+
+        person_by_email: dict[str, Any] = {}
+        all_emails = [str(c.get("email") or "").lower().strip() for c in customers_data if c.get("email")]
+        if all_emails:
+            persons = session.query(Person).filter(Person.email.in_(all_emails)).all()
+            person_by_email = {p.email.lower(): p for p in persons if p.email}
+
+        for customer in customers_data:
+            external_id = str(customer.get("id") or customer.get("uuid") or customer.get("subscriber_id") or "").strip()
+            try:
+                if not external_id:
+                    raise ValueError("missing selfcare subscriber id")
+                existing = subscriber_service.get_by_external_id(session, "selfcare", external_id)
+                data = map_customer_to_subscriber_data(
+                    session,
+                    customer,
+                    include_remote_details=False,
+                    existing_sync_metadata=dict(existing.sync_metadata or {}) if existing else None,
+                )
+
+                email = str(customer.get("email") or "").lower().strip()
+                if email and email in person_by_email:
+                    person = person_by_email[email]
+                    data["person_id"] = person.id
+                    data["organization_id"] = person.organization_id
+
+                subscriber_service.sync_from_external(session, "selfcare", external_id, data)
+                if existing:
+                    results["updated"] += 1
+                else:
+                    results["created"] += 1
+            except Exception as exc:
+                session.rollback()
+                results["errors"].append({"external_id": external_id or customer.get("id"), "error": str(exc)})
+                logger.error("selfcare_sync_subscriber_error id=%s error=%s", external_id or customer.get("id"), exc)
+
+        logger.info(
+            "SELFCARE_SYNC_COMPLETE created=%d updated=%d errors=%d",
+            results["created"],
+            results["updated"],
+            len(results["errors"]),
+        )
+    except Exception:
+        status = "error"
+        session.rollback()
+        logger.exception("SELFCARE_SYNC_ERROR")
+        raise
+    finally:
+        session.close()
+        observe_job("selfcare_subscriber_sync", status, time.monotonic() - start)
+
+    return results
+
+
 @celery_app.task(name="app.tasks.subscribers.refresh_billing_risk_cache")
 def refresh_billing_risk_cache() -> dict[str, Any]:
     """Refresh cached subscriber billing-risk report rows from live provider data."""
@@ -127,7 +201,7 @@ def refresh_billing_risk_cache() -> dict[str, Any]:
 
 @celery_app.task(name="app.tasks.subscribers.reconcile_subscriber_identity")
 def reconcile_subscriber_identity(
-    external_system: str = "splynx",
+    external_system: str = SPLYNX_EXTERNAL_SYSTEM,
     clear_duplicate_metadata: bool = True,
 ) -> dict[str, Any]:
     """

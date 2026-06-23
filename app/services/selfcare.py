@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingDomain
 from app.models.person import PartyStatus, Person
+from app.models.subscriber import Subscriber, SubscriberStatus
 from app.services import settings_spec
+from app.services.common import coerce_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +46,13 @@ class SelfcareCustomerIdentity:
     @property
     def external_id(self) -> str:
         return self.selfcare_id or self.subscriber_number
+
+
+class SelfcareProviderError(RuntimeError):
+    """Raised when the Selfcare CRM API cannot serve a requested operation."""
+
+
+RETENTION_DEACTIVATED_STATUS = "disabled"
 
 
 def _get_redis() -> Redis | None:
@@ -96,6 +108,485 @@ def _get_config(db: Session) -> dict[str, Any] | None:
         "webhook_secret": str(webhook_secret),
         "timeout_seconds": timeout_seconds,
     }
+
+
+def _get_api_config(db: Session) -> dict[str, Any]:
+    enabled = settings_spec.resolve_value(
+        db, SettingDomain.integration, "selfcare_customer_sync_enabled", use_cache=False
+    )
+    if not enabled:
+        raise SelfcareProviderError("Selfcare sync is disabled.")
+
+    base_url = settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_base_url", use_cache=False)
+    api_token = settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_api_token", use_cache=False)
+    timeout_value = (
+        settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_timeout_seconds", use_cache=False) or 30
+    )
+    if not base_url:
+        raise SelfcareProviderError("Selfcare base URL is not configured.")
+    if not api_token:
+        raise SelfcareProviderError("Selfcare API token is not configured.")
+    try:
+        timeout_seconds = int(timeout_value if isinstance(timeout_value, int) else str(timeout_value))
+    except (TypeError, ValueError):
+        timeout_seconds = 30
+    return {
+        "base_url": str(base_url).rstrip("/"),
+        "api_token": str(api_token),
+        "timeout_seconds": timeout_seconds,
+    }
+
+
+def _crm_url(config: dict[str, Any], path: str) -> str:
+    normalized = path if path.startswith("/") else f"/{path}"
+    if normalized.startswith("/api/v1/crm/") or normalized == "/api/v1/crm":
+        return f"{config['base_url']}{normalized}"
+    return f"{config['base_url']}/api/v1/crm{normalized}"
+
+
+def _api_headers(config: dict[str, Any]) -> dict[str, str]:
+    return {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {config['api_token']}",
+    }
+
+
+def _unwrap_data(payload: Any) -> Any:
+    if isinstance(payload, dict) and "data" in payload:
+        return payload.get("data")
+    return payload
+
+
+def _rows(payload: Any) -> list[dict[str, Any]]:
+    data = _unwrap_data(payload)
+    if isinstance(data, list):
+        return [row for row in data if isinstance(row, dict)]
+    if isinstance(data, dict):
+        for key in ("data", "items", "results", "rows"):
+            nested = data.get(key)
+            if isinstance(nested, list):
+                return [row for row in nested if isinstance(row, dict)]
+        return [data]
+    return []
+
+
+def _request_json(
+    db: Session,
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+    json_body: dict[str, Any] | None = None,
+) -> Any:
+    config = _get_api_config(db)
+    import requests
+
+    url = _crm_url(config, path)
+    try:
+        response = requests.request(  # nosec B113 - timeout is config-driven.
+            method.upper(),
+            url,
+            headers=_api_headers(config),
+            params=params or {},
+            json=json_body,
+            timeout=int(config.get("timeout_seconds") or 30),
+        )
+    except requests.RequestException as exc:
+        raise SelfcareProviderError(f"Selfcare request failed for {url}: {exc}") from exc
+    if response.status_code < 200 or response.status_code >= 300:
+        body = response.text[:500]
+        raise SelfcareProviderError(f"Selfcare request failed for {url}: HTTP {response.status_code} {body}")
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise SelfcareProviderError(f"Selfcare returned invalid JSON for {url}") from exc
+
+
+def ping(db: Session) -> bool:
+    _request_json(db, "GET", "/ping")
+    return True
+
+
+def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    page = 1
+    rows: list[dict[str, Any]] = []
+    base_params = dict(params or {})
+    while True:
+        payload = _request_json(db, "GET", path, params={**base_params, "page": page})
+        batch = _rows(payload)
+        rows.extend(batch)
+        meta = payload.get("meta") if isinstance(payload, dict) else {}
+        total = int((meta or {}).get("total") or 0)
+        if not batch:
+            break
+        if total and len(rows) >= total:
+            break
+        if len(batch) == 1 and not total:
+            break
+        page += 1
+    return rows
+
+
+def fetch_customers(db: Session, *, include: str = "services,billing") -> list[dict[str, Any]]:
+    """Fetch all Selfcare subscribers using the CRM API envelope."""
+    return _list_paginated(db, "/subscribers", {"include": include})
+
+
+def fetch_customer(db: Session, subscriber_id: str) -> dict[str, Any] | None:
+    payload = _request_json(db, "GET", f"/subscribers/{subscriber_id}")
+    data = _unwrap_data(payload)
+    return data if isinstance(data, dict) else None
+
+
+def fetch_customer_internet_services(db: Session, subscriber_id: str) -> list[dict[str, Any]]:
+    payload = _request_json(db, "GET", f"/subscribers/{subscriber_id}/services")
+    return _rows(payload)
+
+
+def fetch_customer_billing(db: Session, subscriber_id: str) -> dict[str, Any] | None:
+    payload = _request_json(db, "GET", f"/subscribers/{subscriber_id}/billing")
+    data = _unwrap_data(payload)
+    return data if isinstance(data, dict) else None
+
+
+def fetch_locations(db: Session) -> list[dict[str, Any]]:
+    return _list_paginated(db, "/locations")
+
+
+def fetch_billing_risk_source(db: Session) -> list[dict[str, Any]]:
+    return _list_paginated(db, "/billing-risk-source")
+
+
+def fetch_online_customers(db: Session) -> list[dict[str, Any]]:
+    return _list_paginated(db, "/subscribers/online")
+
+
+def fetch_transactions(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
+    return _rows(_request_json(db, "GET", "/finance/transactions", params={"offset": offset, "limit": limit}))
+
+
+def fetch_payments(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
+    return _rows(_request_json(db, "GET", "/finance/payments", params={"offset": offset, "limit": limit}))
+
+
+def fetch_customer_sessions(db: Session, subscriber_id: str, *, limit: int = 10000) -> list[dict[str, Any]]:
+    return _rows(_request_json(db, "GET", f"/subscribers/{subscriber_id}/sessions", params={"limit": limit}))
+
+
+def search_subscribers(db: Session, query: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    return _rows(_request_json(db, "GET", "/subscribers/search", params={"q": query, "limit": limit}))
+
+
+def patch_subscriber_status(db: Session, subscriber_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    data = _unwrap_data(_request_json(db, "PATCH", f"/subscribers/{subscriber_id}/status", json_body=payload))
+    return data if isinstance(data, dict) else {}
+
+
+def _coalesce_str(*values: object) -> str | None:
+    for value in values:
+        text = str(value or "").strip()
+        if text and text != "0000-00-00":
+            return text
+    return None
+
+
+def _parse_selfcare_datetime(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text or text == "0000-00-00":
+        return None
+    normalized = text.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+        return parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text[:19] if " " in text else text[:10], fmt).replace(tzinfo=UTC)
+        except ValueError:
+            continue
+    return None
+
+
+def _normalize_decimal_str(value: object) -> str | None:
+    if value is None or value == "":
+        return None
+    try:
+        return str(Decimal(str(value)).quantize(Decimal("0.01")))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _map_selfcare_status(status: str | int | None) -> str:
+    normalized = str(status or "").strip().lower()
+    status_map = {
+        "active": SubscriberStatus.active.value,
+        "online": SubscriberStatus.active.value,
+        "blocked": SubscriberStatus.suspended.value,
+        "suspended": SubscriberStatus.suspended.value,
+        "nonpayment_suspended": SubscriberStatus.suspended.value,
+        "disabled": SubscriberStatus.terminated.value,
+        "terminated": SubscriberStatus.terminated.value,
+        "inactive": SubscriberStatus.terminated.value,
+        "new": SubscriberStatus.pending.value,
+        "pending": SubscriberStatus.pending.value,
+    }
+    return status_map.get(normalized, SubscriberStatus.active.value)
+
+
+def _status_rank(status: object) -> int:
+    order = {"active": 0, "new": 1, "pending": 2, "blocked": 3, "suspended": 4, "disabled": 5}
+    return order.get(str(status or "").lower().strip(), 9)
+
+
+def _select_primary_service(services: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not services:
+        return None
+
+    def sort_key(service: dict[str, Any]):
+        start = _parse_selfcare_datetime(service.get("start_date") or service.get("activated_at"))
+        end = _parse_selfcare_datetime(service.get("end_date") or service.get("terminated_at"))
+        service_id = int(service.get("id") or 0) if str(service.get("id") or "").isdigit() else 0
+        return (
+            _status_rank(service.get("status")),
+            -(start.timestamp() if start else 0),
+            -(end.timestamp() if end else 0),
+            -service_id,
+        )
+
+    return sorted(services, key=sort_key)[0]
+
+
+_SPEED_PAIR_RE = re.compile(r"(?P<down>\d+(?:\.\d+)?)\s*[/xX]\s*(?P<up>\d+(?:\.\d+)?)")
+_SINGLE_SPEED_RE = re.compile(r"(?P<speed>\d+(?:\.\d+)?)\s*(?:mbps|mb|m)", re.IGNORECASE)
+
+
+def _extract_speed(source: dict[str, Any], description: str | None) -> str | None:
+    down = _coalesce_str(source.get("speed_download"), source.get("download_speed"), source.get("download_mbps"))
+    up = _coalesce_str(source.get("speed_upload"), source.get("upload_speed"), source.get("upload_mbps"))
+    if down and up:
+        return f"{down}/{up} Mbps"
+    if down:
+        return f"{down} Mbps"
+    text = description or ""
+    pair = _SPEED_PAIR_RE.search(text)
+    if pair:
+        return f"{pair.group('down')}/{pair.group('up')} Mbps"
+    single = _SINGLE_SPEED_RE.search(text)
+    return f"{single.group('speed')} Mbps" if single else None
+
+
+def customer_base_station(customer: dict[str, Any] | None) -> str:
+    if not isinstance(customer, dict):
+        return ""
+    raw_attrs = customer.get("metadata")
+    attrs: dict[str, Any] = raw_attrs if isinstance(raw_attrs, dict) else {}
+    return str(
+        customer.get("base_station")
+        or customer.get("base_station_name")
+        or customer.get("router_name")
+        or customer.get("nas_name")
+        or attrs.get("base_station")
+        or attrs.get("nas_name")
+        or ""
+    ).strip()
+
+
+def map_customer_to_subscriber_data(
+    db: Session,
+    customer: dict[str, Any],
+    *,
+    include_remote_details: bool = True,
+    existing_sync_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Map a Selfcare subscriber payload into local Subscriber sync data."""
+    external_id = str(customer.get("id") or customer.get("uuid") or customer.get("subscriber_id") or "").strip()
+    services = (
+        [row for row in customer.get("services", []) if isinstance(row, dict)]
+        if isinstance(customer.get("services"), list)
+        else []
+    )
+    billing = customer.get("billing") if isinstance(customer.get("billing"), dict) else None
+    if include_remote_details and external_id and (not services or billing is None):
+        if not services:
+            services = fetch_customer_internet_services(db, external_id)
+        if billing is None:
+            billing = fetch_customer_billing(db, external_id)
+
+    primary_service = _select_primary_service(services)
+    description = _coalesce_str(
+        customer.get("service_plan"),
+        customer.get("tariff_name"),
+        customer.get("plan"),
+        primary_service.get("description") if primary_service else None,
+        primary_service.get("name") if primary_service else None,
+    )
+    status_value = _map_selfcare_status(customer.get("status"))
+    balance = _normalize_decimal_str(
+        customer.get("balance")
+        if customer.get("balance") is not None
+        else (billing or {}).get("balance")
+        if billing
+        else None
+    )
+    next_bill_date = _parse_selfcare_datetime(
+        customer.get("next_bill_date")
+        or customer.get("next_billing_date")
+        or (billing or {}).get("next_bill_date")
+        or (billing or {}).get("next_billing_date")
+        or (primary_service or {}).get("end_date")
+    )
+    metadata = dict(existing_sync_metadata or {})
+    selfcare_metadata = {
+        "selfcare_id": external_id or None,
+        "selfcare_subscriber_number": _coalesce_str(
+            customer.get("subscriber_number"), customer.get("login"), customer.get("account_number")
+        ),
+        "invoiced_until": _coalesce_str(customer.get("invoiced_until"), (billing or {}).get("invoiced_until")),
+        "total_paid": _normalize_decimal_str(customer.get("total_paid") or (billing or {}).get("total_paid")),
+        "last_transaction_date": _coalesce_str(
+            customer.get("last_payment_date"),
+            customer.get("last_transaction_date"),
+            (billing or {}).get("last_payment_date"),
+            (billing or {}).get("last_transaction_date"),
+        ),
+        "last_payment_amount": _normalize_decimal_str(
+            customer.get("last_payment_amount") or (billing or {}).get("last_payment_amount")
+        ),
+        "blocked_date": _coalesce_str(customer.get("blocked_date"), (billing or {}).get("blocked_date")),
+        "source": "selfcare",
+    }
+    metadata.update({key: value for key, value in selfcare_metadata.items() if value is not None and value != ""})
+
+    data: dict[str, Any] = {
+        "subscriber_number": _coalesce_str(customer.get("subscriber_number"), customer.get("login")),
+        "account_number": _coalesce_str(customer.get("account_number")),
+        "status": status_value,
+        "service_name": description,
+        "service_plan": description,
+        "service_speed": _extract_speed(primary_service or customer, description),
+        "balance": balance,
+        "currency": _coalesce_str(customer.get("currency"), customer.get("currency_code")) or "NGN",
+        "service_address_line1": _coalesce_str(
+            customer.get("street"), customer.get("street_1"), customer.get("address_line1")
+        ),
+        "service_address_line2": _coalesce_str(customer.get("address_line2")),
+        "service_city": _coalesce_str(customer.get("city"), customer.get("service_city")),
+        "service_region": _coalesce_str(
+            customer.get("state"),
+            customer.get("region"),
+            customer.get("service_region"),
+            customer_base_station(customer),
+        ),
+        "service_postal_code": _coalesce_str(customer.get("zip"), customer.get("postal_code")),
+        "service_country_code": _coalesce_str(customer.get("country_code")),
+        "next_bill_date": next_bill_date,
+        "activated_at": _parse_selfcare_datetime(
+            customer.get("activated_at") or customer.get("created_at") or (primary_service or {}).get("start_date")
+        ),
+        "suspended_at": _parse_selfcare_datetime(
+            customer.get("suspended_at") or customer.get("blocked_date") or (billing or {}).get("blocked_date")
+        ),
+        "terminated_at": _parse_selfcare_datetime(customer.get("terminated_at")),
+        "last_synced_at": datetime.now(UTC),
+        "sync_metadata": metadata,
+    }
+    return {key: value for key, value in data.items() if value is not None and value != ""}
+
+
+def deactivate_customer_if_blocked(
+    db: Session,
+    *,
+    customer_id: str,
+    engagement_id: str,
+    subscriber_id: str | None = None,
+) -> dict[str, Any]:
+    """Disable a Selfcare subscriber after verifying a suspended/blocked status."""
+    selfcare_id = str(customer_id or "").strip()
+    result: dict[str, Any] = {
+        "customer_id": selfcare_id,
+        "subscriber_id": str(subscriber_id or "").strip() or None,
+        "selfcare_id": selfcare_id,
+        "engagement_id": str(engagement_id or "").strip(),
+        "success": False,
+        "skipped": False,
+    }
+    subscriber = None
+    if subscriber_id:
+        with contextlib.suppress(ValueError):
+            subscriber = db.get(Subscriber, coerce_uuid(subscriber_id))
+    if subscriber is None and selfcare_id:
+        subscriber = (
+            db.query(Subscriber)
+            .filter(Subscriber.external_system == "selfcare")
+            .filter(Subscriber.external_id == selfcare_id)
+            .first()
+        )
+    if subscriber is not None:
+        result["subscriber_id"] = str(subscriber.id)
+
+    try:
+        customer = fetch_customer(db, selfcare_id)
+    except SelfcareProviderError as exc:
+        if subscriber is not None:
+            subscriber.sync_error = str(exc)[:500]
+            db.add(subscriber)
+            db.commit()
+        result.update({"error": str(exc)})
+        return result
+
+    if not customer:
+        result.update({"error": "selfcare_subscriber_not_found"})
+        return result
+    previous_status = str(customer.get("status") or "").strip().lower()
+    if previous_status in {"disabled", "terminated"}:
+        result.update(
+            {
+                "success": True,
+                "skipped": True,
+                "reason": "selfcare_already_deactivated",
+                "previous_status": previous_status,
+            }
+        )
+        if subscriber is not None and subscriber.status != SubscriberStatus.terminated:
+            subscriber.status = SubscriberStatus.terminated
+            subscriber.terminated_at = subscriber.terminated_at or datetime.now(UTC)
+            subscriber.sync_error = None
+            db.add(subscriber)
+            db.commit()
+        return result
+    if previous_status not in {"blocked", "suspended", "nonpayment_suspended"}:
+        result.update({"skipped": True, "reason": "selfcare_status_not_suspended", "previous_status": previous_status})
+        return result
+
+    try:
+        patch_subscriber_status(
+            db,
+            selfcare_id,
+            {"status": RETENTION_DEACTIVATED_STATUS, "reason": "retention_lost", "source": "crm"},
+        )
+    except SelfcareProviderError as exc:
+        if subscriber is not None:
+            subscriber.sync_error = str(exc)[:500]
+            db.add(subscriber)
+            db.commit()
+        result.update({"error": str(exc), "previous_status": previous_status})
+        return result
+
+    if subscriber is not None:
+        metadata = dict(subscriber.sync_metadata or {})
+        marker = dict(metadata.get("retention_selfcare_deactivation") or {})
+        marker.update({"engagement_id": str(engagement_id), "selfcare_id": selfcare_id, "status": "success"})
+        metadata["retention_selfcare_deactivation"] = marker
+        subscriber.sync_metadata = metadata
+        subscriber.status = SubscriberStatus.terminated
+        subscriber.terminated_at = subscriber.terminated_at or datetime.now(UTC)
+        subscriber.sync_error = None
+        db.add(subscriber)
+        db.commit()
+    result.update({"success": True, "previous_status": previous_status, "new_status": RETENTION_DEACTIVATED_STATUS})
+    return result
 
 
 def _split_name(person: Person) -> tuple[str, str]:

@@ -21,6 +21,7 @@ from app.models.subscriber import Organization, Subscriber, SubscriberStatus
 from app.services.common import apply_ordering
 from app.services.events import emit_event
 from app.services.events.types import EventType
+from app.services.external_systems import SPLYNX_EXTERNAL_SYSTEM
 
 
 class SubscriberManager:
@@ -304,7 +305,7 @@ class SubscriberManager:
         self,
         db: Session,
         *,
-        external_system: str = "splynx",
+        external_system: str = SPLYNX_EXTERNAL_SYSTEM,
         clear_duplicate_metadata: bool = True,
         dry_run: bool = False,
     ) -> dict[str, int]:
@@ -345,34 +346,35 @@ class SubscriberManager:
         if not external_ids:
             return results
 
-        # Splynx ID is stored in people.metadata.splynx_id today.
+        metadata_key = "selfcare_id" if external_system == "selfcare" else "splynx_id"
+        # External IDs are stored in people.metadata by provider-specific keys.
         bind = db.get_bind()
         if bind is not None and bind.dialect.name == "sqlite":
             people = [
                 person
                 for person in db.query(Person).all()
                 if isinstance(person.metadata_, dict)
-                and str(person.metadata_.get("splynx_id") or "").strip() in external_ids
+                and str(person.metadata_.get(metadata_key) or "").strip() in external_ids
             ]
         else:
             people = (
                 db.query(Person)
-                .filter(func.json_extract_path_text(Person.metadata_, "splynx_id").in_(external_ids))
+                .filter(func.json_extract_path_text(Person.metadata_, metadata_key).in_(external_ids))
                 .all()
             )
 
-        people_by_splynx_id: dict[str, list[Person]] = {}
+        people_by_external_id: dict[str, list[Person]] = {}
         people_by_id = {p.id: p for p in people}
         for person in people:
             if not isinstance(person.metadata_, dict):
                 continue
-            splynx_id = person.metadata_.get("splynx_id")
-            if not splynx_id:
+            external_id_value = person.metadata_.get(metadata_key)
+            if not external_id_value:
                 continue
-            key = str(splynx_id).strip()
+            key = str(external_id_value).strip()
             if not key:
                 continue
-            people_by_splynx_id.setdefault(key, []).append(person)
+            people_by_external_id.setdefault(key, []).append(person)
 
         candidate_ids = [p.id for p in people]
         active_link_counts: dict[uuid.UUID, int] = {}
@@ -394,11 +396,11 @@ class SubscriberManager:
             PartyStatus.customer: 2,
             PartyStatus.subscriber: 3,
         }
-        splynx_ids_by_person: dict[uuid.UUID, set[str]] = {}
+        external_ids_by_person: dict[uuid.UUID, set[str]] = {}
         for s in subscribers:
             if not s.person_id or not s.external_id:
                 continue
-            splynx_ids_by_person.setdefault(s.person_id, set()).add(str(s.external_id).strip())
+            external_ids_by_person.setdefault(s.person_id, set()).add(str(s.external_id).strip())
 
         def choose_best_person(candidates: list[Person], preferred_person_id: uuid.UUID | None) -> Person:
             def score(person: Person) -> tuple[int, int, int, int, datetime]:
@@ -417,7 +419,7 @@ class SubscriberManager:
             if not external_id:
                 continue
 
-            candidates = people_by_splynx_id.get(external_id, [])
+            candidates = people_by_external_id.get(external_id, [])
             preferred_person = people_by_id.get(subscriber.person_id) if subscriber.person_id else None
 
             if len(candidates) > 1:
@@ -442,10 +444,10 @@ class SubscriberManager:
                 results["organization_backfilled"] += 1
 
             selected_meta = dict(selected.metadata_ or {})
-            person_sids = splynx_ids_by_person.get(selected.id, set())
-            # metadata.splynx_id is a single slot; avoid flip-flopping for multi-subscriber people.
-            if len(person_sids) <= 1 and selected_meta.get("splynx_id") != external_id:
-                selected_meta["splynx_id"] = external_id
+            person_sids = external_ids_by_person.get(selected.id, set())
+            # Provider metadata key is a single slot; avoid flip-flopping for multi-subscriber people.
+            if len(person_sids) <= 1 and selected_meta.get(metadata_key) != external_id:
+                selected_meta[metadata_key] = external_id
                 selected.metadata_ = selected_meta
                 results["person_metadata_updated"] += 1
 
@@ -456,8 +458,8 @@ class SubscriberManager:
                     if active_link_counts.get(person.id, 0) > 0:
                         continue
                     person_meta = dict(person.metadata_ or {})
-                    if person_meta.get("splynx_id") == external_id:
-                        person_meta.pop("splynx_id", None)
+                    if person_meta.get(metadata_key) == external_id:
+                        person_meta.pop(metadata_key, None)
                         person.metadata_ = person_meta or None
                         results["duplicate_metadata_cleared"] += 1
 

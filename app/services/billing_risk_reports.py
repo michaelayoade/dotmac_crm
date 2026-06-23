@@ -22,6 +22,7 @@ from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.models.tickets import Ticket, TicketStatus
 from app.services import subscriber_reports as subscriber_reports_service
+from app.services.external_systems import EXTERNAL_SUBSCRIBER_SYSTEMS
 
 _clean_report_name = subscriber_reports_service._clean_report_name
 _coerce_datetime_utc = subscriber_reports_service._coerce_datetime_utc
@@ -227,8 +228,8 @@ def get_billing_risk_table(
     mrr_sort: str | None = None,
     enrich_visible_rows: bool = True,
 ) -> list[dict]:
-    """Billing risk rows sourced from live Splynx data."""
-    from app.services.splynx import (
+    """Billing risk rows sourced from live Selfcare data."""
+    from app.services.selfcare import (
         _select_primary_service,
         fetch_customer_billing,
         fetch_customer_internet_services,
@@ -1478,7 +1479,7 @@ def get_billing_risk_table(
 
 def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Refresh visible-row billing details without rebuilding the full table."""
-    from app.services.splynx import _select_primary_service, fetch_customer_billing, fetch_customer_internet_services
+    from app.services.selfcare import _select_primary_service, fetch_customer_billing, fetch_customer_internet_services
 
     today = datetime.now(UTC).date()
 
@@ -1716,7 +1717,7 @@ def get_live_blocked_dates(
     blocking_only_external_ids: list[str] | set[str] | None = None,
 ) -> dict[str, str]:
     """Fetch live blocked dates for the currently visible rows."""
-    from app.services.splynx import (
+    from app.services.selfcare import (
         _select_primary_service,
         fetch_customer,
         fetch_customer_billing,
@@ -1738,7 +1739,7 @@ def get_live_blocked_dates(
         try:
             retained_rows = retained_db.execute(
                 select(Subscriber.external_id, Subscriber.sync_metadata)
-                .where(Subscriber.external_system == "splynx")
+                .where(Subscriber.external_system.in_(EXTERNAL_SUBSCRIBER_SYSTEMS))
                 .where(Subscriber.external_id.in_(requested_ids))
             ).all()
         except Exception:

@@ -12,6 +12,7 @@ from app.logging import get_logger
 from app.metrics import observe_job
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.services.common import coerce_uuid
+from app.services.external_systems import SPLYNX_EXTERNAL_SYSTEM
 
 logger = get_logger(__name__)
 
@@ -66,6 +67,62 @@ def sync_lost_retention_customer_to_splynx(
         observe_job("retention_splynx_deactivation", status, time.monotonic() - start)
 
 
+@celery_app.task(name="app.tasks.customer_retention.sync_lost_retention_customer_to_selfcare")
+def sync_lost_retention_customer_to_selfcare(
+    customer_id: str,
+    engagement_id: str,
+    subscriber_id: str | None = None,
+) -> dict[str, Any]:
+    """Deactivate a Selfcare subscriber after an explicit Lost retention outcome."""
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    try:
+        from app.services.selfcare import deactivate_customer_if_blocked
+
+        result = deactivate_customer_if_blocked(
+            session,
+            customer_id=customer_id,
+            engagement_id=engagement_id,
+            subscriber_id=subscriber_id,
+        )
+        _mark_deactivation_result(
+            session,
+            customer_id=customer_id,
+            engagement_id=engagement_id,
+            subscriber_id=str(result.get("subscriber_id") or subscriber_id or "") or None,
+            result=result,
+            external_system="selfcare",
+            marker_key="retention_selfcare_deactivation",
+            external_id_key="selfcare_id",
+        )
+        return result
+    except Exception as exc:
+        status = "error"
+        session.rollback()
+        logger.exception(
+            "retention_selfcare_deactivation_task_error customer_id=%s subscriber_id=%s engagement_id=%s error=%s",
+            customer_id,
+            subscriber_id,
+            engagement_id,
+            str(exc),
+        )
+        _mark_deactivation_result(
+            session,
+            customer_id=customer_id,
+            engagement_id=engagement_id,
+            subscriber_id=subscriber_id,
+            result={"success": False, "error": str(exc)},
+            external_system="selfcare",
+            marker_key="retention_selfcare_deactivation",
+            external_id_key="selfcare_id",
+        )
+        return {"success": False, "customer_id": customer_id, "engagement_id": engagement_id, "error": str(exc)}
+    finally:
+        session.close()
+        observe_job("retention_selfcare_deactivation", status, time.monotonic() - start)
+
+
 @celery_app.task(name="app.tasks.customer_retention.reconcile_churning_retention_customers_to_splynx")
 def reconcile_churning_retention_customers_to_splynx(
     limit: int | None = None,
@@ -101,6 +158,9 @@ def _mark_deactivation_result(
     engagement_id: str,
     subscriber_id: str | None,
     result: dict[str, Any],
+    external_system: str = SPLYNX_EXTERNAL_SYSTEM,
+    marker_key: str = "retention_splynx_deactivation",
+    external_id_key: str = "splynx_id",
 ) -> None:
     subscriber = None
     if subscriber_id:
@@ -109,7 +169,7 @@ def _mark_deactivation_result(
     if subscriber is None:
         subscriber = (
             session.query(Subscriber)
-            .filter(Subscriber.external_system == "splynx")
+            .filter(Subscriber.external_system == external_system)
             .filter(Subscriber.external_id == str(customer_id or "").strip())
             .first()
         )
@@ -117,11 +177,11 @@ def _mark_deactivation_result(
         return
 
     metadata = dict(subscriber.sync_metadata or {})
-    marker = dict(metadata.get("retention_splynx_deactivation") or {})
+    marker = dict(metadata.get(marker_key) or {})
     marker.update(
         {
             "engagement_id": str(engagement_id),
-            "splynx_id": str(customer_id or "").strip(),
+            external_id_key: str(customer_id or "").strip(),
             "status": "success" if result.get("success") else "failed",
             "skipped": bool(result.get("skipped")),
             "reason": result.get("reason"),
@@ -134,7 +194,7 @@ def _mark_deactivation_result(
         marker["retained_blocked_last_update"] = result.get("retained_blocked_last_update")
     if result.get("retained_blocked_date") and not marker.get("retained_blocked_date"):
         marker["retained_blocked_date"] = result.get("retained_blocked_date")
-    metadata["retention_splynx_deactivation"] = marker
+    metadata[marker_key] = marker
     subscriber.sync_metadata = metadata
     if result.get("success") and not result.get("skipped"):
         subscriber.status = SubscriberStatus.terminated

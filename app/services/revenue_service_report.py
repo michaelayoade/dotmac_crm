@@ -1,4 +1,4 @@
-"""Revenue and service report helpers backed by live Splynx data."""
+"""Revenue and service report helpers backed by live Selfcare data."""
 
 from __future__ import annotations
 
@@ -12,11 +12,10 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-import requests
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.services import splynx
+from app.services import selfcare
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +32,11 @@ UPTIME_CACHE_TTL_SECONDS = 300
 _UPTIME_CACHE: dict[tuple[Any, ...], tuple[float, Any]] = {}
 
 
-class SplynxReportError(RuntimeError):
-    """Raised when live Splynx report data cannot be loaded."""
+class SelfcareReportError(RuntimeError):
+    """Raised when live Selfcare report data cannot be loaded."""
+
+
+SplynxReportError = SelfcareReportError
 
 
 def _env_int(name: str, default: int) -> int:
@@ -46,17 +48,19 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _config(db: Session) -> dict[str, Any]:
-    config = splynx._get_config(db)
-    if not config:
-        raise SplynxReportError("Splynx settings are incomplete.")
-    return config
+    try:
+        config = selfcare._get_api_config(db)
+        config["_db"] = db
+        return config
+    except selfcare.SelfcareProviderError as exc:
+        raise SelfcareReportError(str(exc)) from exc
 
 
 def _headers(config: dict[str, Any]) -> dict[str, str]:
-    token = str(config.get("basic_token") or "").strip()
+    token = str(config.get("api_token") or "").strip()
     if not token:
-        raise SplynxReportError("Splynx Basic auth token is missing.")
-    return {"Content-Type": "application/json", "Authorization": f"Basic {token}"}
+        raise SelfcareReportError("Selfcare API token is missing.")
+    return {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
 
 
 def _rows(payload: Any) -> list[dict[str, Any]]:
@@ -72,25 +76,15 @@ def _rows(payload: Any) -> list[dict[str, Any]]:
 
 
 def _get_json(config: dict[str, Any], url: str, params: dict[str, Any] | None = None) -> Any:
-    try:
-        response = requests.get(  # nosec B113 - timeout comes from configured Splynx settings.
-            url,
-            headers=_headers(config),
-            params=params or {},
-            timeout=int(config.get("timeout_seconds") or 30),
-        )
-        response.raise_for_status()
-        return response.json()
-    except Exception as exc:
-        raise SplynxReportError(f"Splynx request failed for {url}: {exc}") from exc
+    raise SelfcareReportError("_get_json is not used by the Selfcare-backed report provider.")
 
 
 def _api_base_url(config: dict[str, Any]) -> str:
-    return splynx._resolve_api_base_url(config)
+    return f"{config['base_url'].rstrip('/')}/api/v1/crm"
 
 
 def _customer_url(config: dict[str, Any]) -> str:
-    return splynx._resolve_customer_url(config)
+    return f"{_api_base_url(config)}/subscribers"
 
 
 def _page_limit() -> int:
@@ -226,27 +220,28 @@ def _service_for_transaction(
 
 
 def _fetch_customers_page(config: dict[str, Any], offset: int, limit: int) -> list[dict[str, Any]]:
-    return _rows(_get_json(config, _customer_url(config), {"offset": offset, "limit": limit}))
+    db = config.get("_db")
+    if not isinstance(db, Session):
+        return []
+    return selfcare._rows(
+        selfcare._request_json(
+            db, "GET", "/subscribers", params={"offset": offset, "limit": limit, "include": "services,billing"}
+        )
+    )
 
 
 def _fetch_transactions_page(config: dict[str, Any], offset: int, limit: int) -> list[dict[str, Any]]:
-    return _rows(
-        _get_json(
-            config,
-            f"{_api_base_url(config)}/admin/finance/transactions",
-            {"offset": offset, "limit": limit},
-        )
-    )
+    db = config.get("_db")
+    if not isinstance(db, Session):
+        return []
+    return selfcare.fetch_transactions(db, offset=offset, limit=limit)
 
 
 def _fetch_payments_page(config: dict[str, Any], offset: int, limit: int) -> list[dict[str, Any]]:
-    return _rows(
-        _get_json(
-            config,
-            f"{_api_base_url(config)}/admin/finance/payments",
-            {"offset": offset, "limit": limit},
-        )
-    )
+    db = config.get("_db")
+    if not isinstance(db, Session):
+        return []
+    return selfcare.fetch_payments(db, offset=offset, limit=limit)
 
 
 def _cached(cache_key: tuple[Any, ...], loader):
@@ -278,9 +273,15 @@ def _month_datetime_bounds(month_value: str | None) -> tuple[datetime, datetime,
 
 
 def _parse_session_datetime(row: dict[str, Any], date_key: str, time_key: str) -> datetime | None:
-    text = f"{row.get(date_key) or ''} {row.get(time_key) or ''}".strip()
+    combined_key = "start_at" if date_key.startswith("start") else "end_at"
+    text = str(row.get(combined_key) or row.get(date_key) or "").strip()
+    if row.get(time_key):
+        text = f"{row.get(date_key) or ''} {row.get(time_key) or ''}".strip()
     if not text or text.startswith("0000"):
         return None
+    with contextlib.suppress(ValueError):
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     with contextlib.suppress(ValueError):
         return datetime.strptime(text, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
     return None
@@ -294,20 +295,17 @@ def _fetch_customer_statistics(db: Session, customer_id: str, limit: int = 10000
 def _fetch_customer_statistics_with_config(
     config: dict[str, Any], customer_id: str, limit: int = 10000
 ) -> list[dict[str, Any]]:
+    db = config.get("_db")
+    if not isinstance(db, Session):
+        return []
     return _cached(
         ("customer_statistics", customer_id, limit),
-        lambda: _rows(
-            _get_json(
-                config,
-                f"{_api_base_url(config)}/admin/customers/customer-statistics/{customer_id}",
-                {"limit": limit},
-            )
-        ),
+        lambda: selfcare.fetch_customer_sessions(db, customer_id, limit=limit),
     )
 
 
 def _active_service_payload(db: Session, customer_id: str) -> dict[str, Any]:
-    services = splynx.fetch_customer_internet_services(db, customer_id)
+    services = selfcare.fetch_customer_internet_services(db, customer_id)
     return _select_active_service(services) or {}
 
 
@@ -338,14 +336,10 @@ def search_uptime_customers(db: Session, query: str) -> list[dict[str, Any]]:
     matches = [customer] if customer else []
     words = [word for word in search.lower().split() if word]
     if len(matches) < 8:
-        config = _config(db)
-        for params in ({"search": search}, {"q": search}, {"name": search}):
-            with contextlib.suppress(SplynxReportError):
-                for row in _rows(_get_json(config, _customer_url(config), {**params, "limit": 12})):
-                    if _customer_matches(row, words) and all(
-                        str(row.get("id")) != str(item.get("id")) for item in matches
-                    ):
-                        matches.append(row)
+        with contextlib.suppress(SelfcareReportError, selfcare.SelfcareProviderError):
+            for row in selfcare.search_subscribers(db, search, limit=12):
+                if _customer_matches(row, words) and all(str(row.get("id")) != str(item.get("id")) for item in matches):
+                    matches.append(row)
     return [
         {
             "customer_id": row.get("id"),
@@ -464,7 +458,7 @@ def _daily_breakdown(
 
 
 def build_customer_uptime_profile(db: Session, customer_id: str, month: str | None = None) -> dict[str, Any]:
-    customer = splynx.fetch_customer(db, customer_id) or {"id": customer_id}
+    customer = selfcare.fetch_customer(db, customer_id) or {"id": customer_id}
     service = _active_service_payload(db, customer_id)
     _, sessions, month_start, _month_end, effective_end, selected_month = _session_rows_for_month(
         db, customer_id, month
@@ -504,7 +498,7 @@ def build_customer_uptime_profile(db: Session, customer_id: str, month: str | No
         "first_session_start": _format_dt(sessions[0]["session_start"]) if sessions else "",
         "last_session_end": _format_dt(sessions[-1]["session_end"]) if sessions else "",
         "daily_breakdown": daily,
-        "source": "splynx_customer_statistics",
+        "source": "selfcare_subscriber_sessions",
         "confidence": "imported",
     }
 
@@ -516,7 +510,7 @@ def _monthly_session_uptime(
     month: int,
     cache: dict[tuple[str, int, int], dict[str, Any] | None],
 ) -> dict[str, Any] | None:
-    """Calculate month-to-date uptime from Splynx customer-statistics for downtime rows."""
+    """Calculate month-to-date uptime from Selfcare subscriber sessions for downtime rows."""
     key = (customer_id, year, month)
     if key in cache:
         return cache[key]
@@ -524,7 +518,7 @@ def _monthly_session_uptime(
     month_value = f"{year:04d}-{month:02d}"
     try:
         raw_rows = _fetch_customer_statistics(db, customer_id)
-    except SplynxReportError:
+    except SelfcareReportError:
         cache[key] = None
         return None
 
@@ -547,7 +541,7 @@ def _monthly_session_uptime_from_rows(raw_rows: list[dict[str, Any]], month_valu
         "offline_hours": offline_seconds / 3600,
         "total_service_hours": total_service_seconds / 3600,
         "session_count": len(sessions),
-        "source": "splynx_customer_statistics",
+        "source": "selfcare_subscriber_sessions",
         "confidence": "imported",
     }
     return payload
@@ -570,7 +564,7 @@ def _session_uptime_map_for_customers(
         try:
             raw_rows = _fetch_customer_statistics_with_config(config, customer_id)
             return customer_id, _monthly_session_uptime_from_rows(raw_rows, month_value)
-        except SplynxReportError:
+        except SelfcareReportError:
             return customer_id, None
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -729,9 +723,9 @@ def _fallback_service_price(db: Session, customer_id: str, service_id: Any) -> D
     if not service_key:
         return Decimal("0")
     try:
-        services = splynx.fetch_customer_internet_services(db, customer_id)
+        services = selfcare.fetch_customer_internet_services(db, customer_id)
     except Exception:
-        logger.warning("revenue_service_report_splynx_price_lookup_failed customer_id=%s", customer_id)
+        logger.warning("revenue_service_report_selfcare_price_lookup_failed customer_id=%s", customer_id)
         return Decimal("0")
     match = next((service for service in services if str(service.get("id") or "") == service_key), None)
     return _money((match or {}).get("unit_price"))
@@ -837,24 +831,23 @@ def _customer_matches(row: dict[str, Any], words: list[str]) -> bool:
 
 
 def find_customer(db: Session, query: str) -> dict[str, Any] | None:
-    """Find the customer in live Splynx by name, login, email, phone, or customer ID."""
+    """Find the customer in live Selfcare by name, login, email, phone, or customer ID."""
     search = str(query or "").strip()
     if not search:
         return None
 
     if search.isdigit():
-        customer = splynx.fetch_customer(db, search)
+        customer = selfcare.fetch_customer(db, search)
         if customer and customer.get("id"):
             return customer
 
     config = _config(db)
     words = [word for word in search.lower().split() if word]
-    for params in ({"search": search}, {"q": search}, {"name": search}):
-        with contextlib.suppress(SplynxReportError):
-            matches = _rows(_get_json(config, _customer_url(config), {**params, "limit": 50}))
-            match = next((row for row in matches if _customer_matches(row, words)), None)
-            if match:
-                return match
+    with contextlib.suppress(SelfcareReportError, selfcare.SelfcareProviderError):
+        matches = selfcare.search_subscribers(db, search, limit=50)
+        match = next((row for row in matches if _customer_matches(row, words)), None)
+        if match:
+            return match
 
     max_pages = _env_int("SPLYNX_CUSTOMER_SEARCH_MAX_PAGES", 8)
     limit = _page_limit()
@@ -923,9 +916,9 @@ def lookup_compensation(db: Session, search: str) -> dict[str, Any]:
     if not customer:
         return {"found": False, "message": "Customer not found"}
 
-    profile = splynx.fetch_customer(db, str(customer.get("id"))) or customer
-    services = splynx.fetch_customer_internet_services(db, str(customer.get("id")))
-    billing = splynx.fetch_customer_billing(db, str(customer.get("id")))
+    profile = selfcare.fetch_customer(db, str(customer.get("id"))) or customer
+    services = selfcare.fetch_customer_internet_services(db, str(customer.get("id")))
+    billing = selfcare.fetch_customer_billing(db, str(customer.get("id")))
     latest = _latest_extension_for_customer(db, customer.get("id"))
     if not latest:
         return {
@@ -1015,7 +1008,7 @@ def _build_report_uncached(db: Session, *, year: int | None = None, month: int |
 
 
 def build_report(db: Session, *, year: int | None = None, month: int | None = None) -> dict[str, Any]:
-    # Cache successful reports briefly. The report performs many external Splynx
+    # Cache successful reports briefly. The report performs many external Selfcare
     # calls per request; without this it is rebuilt on every page load, which is
     # slow and risks idle-in-transaction timeouts (BUG-131).
     key = (year, month)
@@ -1062,11 +1055,11 @@ def _active_plan_for_customer(
     if not fetch_remote:
         return str(customer.get("tariff_name") or customer.get("plan") or "Active internet service"), Decimal("0")
 
-    services = splynx.fetch_customer_internet_services(db, customer_id)
+    services = selfcare.fetch_customer_internet_services(db, customer_id)
     service = _select_active_service(services) or {}
     price = _money(service.get("unit_price"))
     if price <= 0:
-        billing = splynx.fetch_customer_billing(db, customer_id)
+        billing = selfcare.fetch_customer_billing(db, customer_id)
         price = _money((billing or {}).get("month_price"))
     return str(service.get("description") or service.get("name") or ""), price
 
@@ -1289,13 +1282,13 @@ def _uptime_first_month(db: Session) -> date | None:
 def build_month_options(db: Session) -> dict[str, Any]:
     """Return report month options from first available report data to the current month."""
     dates: list[date] = []
-    with contextlib.suppress(SplynxReportError):
+    with contextlib.suppress(SelfcareReportError):
         dates.extend(
             parsed
             for row in _fetch_recent_transactions(db)
             if _is_extension_transaction(row) and (parsed := _parse_date(row.get("date")))
         )
-    with contextlib.suppress(SplynxReportError):
+    with contextlib.suppress(SelfcareReportError):
         dates.extend(parsed for row in _fetch_recent_payments(db) if (parsed := _parse_date(row.get("date"))))
     uptime_start = _uptime_first_month(db)
     if uptime_start:
