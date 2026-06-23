@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -183,6 +184,15 @@ def _request_json(
     import requests
 
     url = _crm_url(config, path)
+    timeout_seconds = int(config.get("timeout_seconds") or 30)
+    request_started = time.monotonic()
+    logger.info(
+        "SELFCARE_API_REQUEST_START method=%s path=%s timeout=%s params=%s",
+        method.upper(),
+        path,
+        timeout_seconds,
+        params or {},
+    )
     try:
         response = requests.request(  # nosec B113 - timeout is config-driven.
             method.upper(),
@@ -190,10 +200,26 @@ def _request_json(
             headers=_api_headers(config),
             params=params or {},
             json=json_body,
-            timeout=int(config.get("timeout_seconds") or 30),
+            timeout=timeout_seconds,
         )
     except requests.RequestException as exc:
+        duration = time.monotonic() - request_started
+        logger.exception(
+            "SELFCARE_API_REQUEST_ERROR method=%s path=%s duration=%.3fs error=%s",
+            method.upper(),
+            path,
+            duration,
+            exc,
+        )
         raise SelfcareProviderError(f"Selfcare request failed for {url}: {exc}") from exc
+    duration = time.monotonic() - request_started
+    logger.info(
+        "SELFCARE_API_REQUEST_COMPLETE method=%s path=%s status_code=%s duration=%.3fs",
+        method.upper(),
+        path,
+        response.status_code,
+        duration,
+    )
     if response.status_code < 200 or response.status_code >= 300:
         body = response.text[:500]
         raise SelfcareProviderError(f"Selfcare request failed for {url}: HTTP {response.status_code} {body}")
@@ -212,19 +238,34 @@ def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None
     page = 1
     rows: list[dict[str, Any]] = []
     base_params = dict(params or {})
+    max_pages = 10000
     while True:
+        logger.info("SELFCARE_API_PAGE_START path=%s page=%d params=%s", path, page, base_params)
         payload = _request_json(db, "GET", path, params={**base_params, "page": page})
         batch = _rows(payload)
         rows.extend(batch)
         meta = payload.get("meta") if isinstance(payload, dict) else {}
         total = int((meta or {}).get("total") or 0)
+        meta_page = (meta or {}).get("page") if isinstance(meta, dict) else None
+        logger.info(
+            "SELFCARE_API_PAGE_COMPLETE path=%s requested_page=%d meta_page=%s batch=%d accumulated=%d total=%d",
+            path,
+            page,
+            meta_page,
+            len(batch),
+            len(rows),
+            total,
+        )
         if not batch:
             break
         if total and len(rows) >= total:
             break
         if len(batch) == 1 and not total:
             break
+        if page >= max_pages:
+            raise SelfcareProviderError(f"Selfcare pagination exceeded {max_pages} pages for {path}")
         page += 1
+    logger.info("SELFCARE_API_PAGINATION_COMPLETE path=%s pages=%d rows=%d", path, page, len(rows))
     return rows
 
 
