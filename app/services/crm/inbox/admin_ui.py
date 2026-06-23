@@ -79,6 +79,22 @@ def _resolve_channel_target_id(
     db: Session,
     conversation: Conversation,
 ) -> str | None:
+    last_inbound_target = (
+        db.query(Message.channel_target_id)
+        .filter(Message.conversation_id == conversation.id)
+        .filter(Message.direction == MessageDirection.inbound)
+        .filter(Message.channel_target_id.isnot(None))
+        .order_by(
+            func.coalesce(
+                Message.received_at,
+                Message.created_at,
+            ).desc()
+        )
+        .first()
+    )
+    if last_inbound_target and last_inbound_target[0]:
+        return str(last_inbound_target[0])
+
     channel_target_id = None
     if isinstance(conversation.metadata_, dict):
         channel_target_id = conversation.metadata_.get("preferred_channel_target_id")
