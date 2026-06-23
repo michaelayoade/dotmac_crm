@@ -76,6 +76,7 @@
 
                 <h3 id="confirm-modal-title" class="text-lg font-semibold text-slate-900 dark:text-white" x-text="title"></h3>
                 <p class="mt-2 text-sm text-slate-500 dark:text-slate-400" x-text="message"></p>
+                <div x-show="resultHtml" x-html="resultHtml" class="mt-4 text-left"></div>
             </div>
 
             <!-- Actions -->
@@ -154,6 +155,7 @@ function confirmModal() {
         confirmLabel: '',
         submitting: false,
         csrfToken: '',
+        resultHtml: '',
 
         getCsrfToken() {
             const match = document.cookie.match(/csrf_token=([^;]+)/);
@@ -186,6 +188,7 @@ function confirmModal() {
                 this.confirmLabel = 'Confirm';
             }
             this.submitting = false;
+            this.resultHtml = '';
             this.csrfToken = this.getCsrfToken();
             this.isOpen = true;
         },
@@ -234,6 +237,11 @@ function confirmModal() {
                                 detail: { message: data.message, type: 'success' }
                             }));
                         }
+                        if (data.html) {
+                            this.resultHtml = data.html;
+                            this.submitting = false;
+                            return;
+                        }
                         if (data.redirect) {
                             window.location.href = data.redirect;
                             return;
@@ -250,6 +258,9 @@ function confirmModal() {
                     try {
                         const data = await response.json();
                         errorMessage = data.message || data.detail || errorMessage;
+                        if (data.html) {
+                            this.resultHtml = data.html;
+                        }
                     } catch (e) {
                         // Use default error message
                     }
