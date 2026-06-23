@@ -166,6 +166,20 @@ def sync_subscribers_from_selfcare() -> dict[str, Any]:
                 if not external_id:
                     raise ValueError("missing selfcare subscriber id")
                 existing = subscriber_service.get_by_external_id(session, "selfcare", external_id)
+                subscriber_number = str(customer.get("subscriber_number") or customer.get("login") or "").strip()
+                if existing is None and subscriber_number:
+                    existing = subscriber_service.get_by_subscriber_number(session, subscriber_number)
+                    if existing is not None:
+                        logger.info(
+                            "SELFCARE_SYNC_MATCH_BY_SUBSCRIBER_NUMBER index=%d external_id=%s subscriber_id=%s "
+                            "subscriber_number=%s previous_external_system=%s previous_external_id=%s",
+                            index,
+                            external_id,
+                            existing.id,
+                            subscriber_number,
+                            existing.external_system,
+                            existing.external_id,
+                        )
                 data = map_customer_to_subscriber_data(
                     session,
                     customer,
@@ -179,7 +193,19 @@ def sync_subscribers_from_selfcare() -> dict[str, Any]:
                     data["person_id"] = person.id
                     data["organization_id"] = person.organization_id
 
-                subscriber_service.sync_from_external(session, "selfcare", external_id, data)
+                if existing:
+                    subscriber_service.update(
+                        session,
+                        existing,
+                        {
+                            "external_system": "selfcare",
+                            "external_id": external_id,
+                            "sync_error": None,
+                            **data,
+                        },
+                    )
+                else:
+                    subscriber_service.sync_from_external(session, "selfcare", external_id, data)
                 if existing:
                     results["updated"] += 1
                 else:
