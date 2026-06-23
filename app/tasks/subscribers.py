@@ -165,20 +165,35 @@ def sync_subscribers_from_selfcare() -> dict[str, Any]:
                 )
                 if not external_id:
                     raise ValueError("missing selfcare subscriber id")
-                existing = subscriber_service.get_by_external_id(session, "selfcare", external_id)
                 subscriber_number = str(customer.get("subscriber_number") or customer.get("login") or "").strip()
-                if existing is None and subscriber_number:
-                    existing = subscriber_service.get_by_subscriber_number(session, subscriber_number)
-                    if existing is not None:
+                existing_by_number = (
+                    subscriber_service.get_by_subscriber_number(session, subscriber_number)
+                    if subscriber_number
+                    else None
+                )
+                existing_by_external_id = subscriber_service.get_by_external_id(session, "selfcare", external_id)
+                existing = existing_by_number or existing_by_external_id
+                if existing_by_number is not None:
+                    if existing_by_external_id is not None and existing_by_external_id.id != existing_by_number.id:
+                        logger.warning(
+                            "SELFCARE_SYNC_DUPLICATE_EXTERNAL_MATCH index=%d external_id=%s "
+                            "subscriber_number=%s subscriber_number_match_id=%s external_match_id=%s",
+                            index,
+                            external_id,
+                            subscriber_number,
+                            existing_by_number.id,
+                            existing_by_external_id.id,
+                        )
+                    if existing_by_external_id is None or existing_by_external_id.id != existing_by_number.id:
                         logger.info(
                             "SELFCARE_SYNC_MATCH_BY_SUBSCRIBER_NUMBER index=%d external_id=%s subscriber_id=%s "
                             "subscriber_number=%s previous_external_system=%s previous_external_id=%s",
                             index,
                             external_id,
-                            existing.id,
+                            existing_by_number.id,
                             subscriber_number,
-                            existing.external_system,
-                            existing.external_id,
+                            existing_by_number.external_system,
+                            existing_by_number.external_id,
                         )
                 data = map_customer_to_subscriber_data(
                     session,
