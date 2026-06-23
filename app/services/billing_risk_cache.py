@@ -615,7 +615,7 @@ def _snapshot_values(
     subscriber = subscribers_by_external.get(external_id)
     return {
         "id": uuid.uuid4(),
-        "external_system": "splynx",
+        "external_system": "selfcare",
         "external_id": external_id,
         "subscriber_number": str(row.get("_subscriber_number") or "").strip() or None,
         "person_id": subscriber.person_id if subscriber else None,
@@ -682,7 +682,7 @@ def refresh_cache(
         subscribers_by_external = {
             str(sub.external_id): sub
             for sub in db.query(Subscriber)
-            .filter(Subscriber.external_system == "splynx")
+            .filter(Subscriber.external_system == "selfcare")
             .filter(Subscriber.external_id.in_(external_ids))
             .all()
             if sub.external_id

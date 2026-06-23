@@ -26,6 +26,7 @@ from app.tasks.crm_inbox import (
 )
 from app.tasks.customer_retention import (
     reconcile_churning_retention_customers_to_splynx,
+    sync_lost_retention_customer_to_selfcare,
     sync_lost_retention_customer_to_splynx,
 )
 from app.tasks.gis import sync_gis_sources
@@ -61,6 +62,7 @@ from app.tasks.subscriber_outreach import (
 from app.tasks.subscribers import (
     reconcile_subscriber_identity,
     refresh_billing_risk_cache,
+    sync_subscribers_from_selfcare,
     sync_subscribers_from_splynx,
     sync_subscribers_from_ucrm,
     sync_subscribers_generic,
@@ -127,8 +129,10 @@ __all__ = [
     "sync_dotmac_erp_teams",
     "sync_dotmac_erp_technicians",
     "sync_gis_sources",
+    "sync_lost_retention_customer_to_selfcare",
     "sync_lost_retention_customer_to_splynx",
     "sync_material_request_to_erp",
+    "sync_subscribers_from_selfcare",
     "sync_subscribers_from_splynx",
     "sync_subscribers_from_ucrm",
     "sync_subscribers_generic",

@@ -13,6 +13,7 @@ from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.person import Person
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.services.common import coerce_uuid
+from app.services.external_systems import EXTERNAL_SUBSCRIBER_SYSTEMS, SELFCARE_EXTERNAL_SYSTEM
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,8 @@ def enqueue_existing_churning_deactivations(
         )
         .join(
             Subscriber,
-            (Subscriber.external_system == "splynx") & (Subscriber.external_id == latest_ranked.c.customer_external_id),
+            (Subscriber.external_system.in_(EXTERNAL_SUBSCRIBER_SYSTEMS))
+            & (Subscriber.external_id == latest_ranked.c.customer_external_id),
         )
         .where(latest_ranked.c.rn == 1)
         .where(latest_ranked.c.outcome == "Churning")
@@ -235,9 +237,12 @@ def _enqueue_splynx_deactivation(db: Session, engagement: CustomerRetentionEngag
         )
 
     try:
-        from app.tasks.customer_retention import sync_lost_retention_customer_to_splynx
+        if subscriber is not None and subscriber.external_system == SELFCARE_EXTERNAL_SYSTEM:
+            from app.tasks.customer_retention import sync_lost_retention_customer_to_selfcare as sync_task
+        else:
+            from app.tasks.customer_retention import sync_lost_retention_customer_to_splynx as sync_task
 
-        sync_lost_retention_customer_to_splynx.delay(
+        sync_task.delay(
             splynx_id,
             str(engagement.id),
             subscriber_id=subscriber_id,
@@ -277,8 +282,9 @@ def _subscriber_for_splynx_id(db: Session, splynx_id: str) -> Subscriber | None:
         return None
     return (
         db.query(Subscriber)
-        .filter(Subscriber.external_system == "splynx")
+        .filter(Subscriber.external_system.in_(EXTERNAL_SUBSCRIBER_SYSTEMS))
         .filter(Subscriber.external_id == splynx_id)
+        .order_by((Subscriber.external_system == SELFCARE_EXTERNAL_SYSTEM).desc())
         .first()
     )
 

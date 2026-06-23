@@ -1169,9 +1169,29 @@ def seed_integration_settings(db: Session) -> None:
     )
     integration_settings.ensure_by_key(
         db,
+        key="selfcare_api_token",
+        value_type=SettingValueType.string,
+        value_text=os.getenv("SELFCARE_API_TOKEN", ""),
+        is_secret=True,
+    )
+    integration_settings.ensure_by_key(
+        db,
         key="selfcare_timeout_seconds",
         value_type=SettingValueType.integer,
         value_text=os.getenv("SELFCARE_TIMEOUT_SECONDS", "30"),
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="selfcare_subscriber_sync_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=os.getenv("SELFCARE_SUBSCRIBER_SYNC_ENABLED", "false"),
+        value_json=os.getenv("SELFCARE_SUBSCRIBER_SYNC_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
+    )
+    integration_settings.ensure_by_key(
+        db,
+        key="selfcare_subscriber_sync_interval_hours",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("SELFCARE_SUBSCRIBER_SYNC_INTERVAL_HOURS", "24"),
     )
     integration_settings.ensure_by_key(
         db,

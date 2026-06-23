@@ -876,6 +876,27 @@ def build_beat_schedule() -> dict:
             interval_seconds=splynx_sync_interval_seconds,
         )
 
+        # Selfcare subscriber reconciliation sync
+        selfcare_sync_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "selfcare_subscriber_sync_enabled",
+            "SELFCARE_SUBSCRIBER_SYNC_ENABLED",
+            False,
+        )
+        selfcare_sync_interval_hours = _coerce_int(
+            resolve_value(session, SettingDomain.integration, "selfcare_subscriber_sync_interval_hours"),
+            24,
+        )
+        selfcare_sync_interval_seconds = max(selfcare_sync_interval_hours * 3600, 3600)
+        _sync_scheduled_task(
+            session,
+            name="selfcare_subscriber_sync",
+            task_name="app.tasks.subscribers.sync_subscribers_from_selfcare",
+            enabled=selfcare_sync_enabled,
+            interval_seconds=selfcare_sync_interval_seconds,
+        )
+
         # Performance scoring and review jobs
         performance_scoring_enabled = _effective_bool(
             session,

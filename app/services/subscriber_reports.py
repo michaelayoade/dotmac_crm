@@ -1,5 +1,6 @@
 """Subscriber report service functions for reports 1-4."""
 
+import logging
 import re
 from collections import defaultdict
 from collections.abc import Mapping
@@ -24,6 +25,8 @@ from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus, SalesOrd
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.models.tickets import Ticket, TicketSlaEvent, TicketStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
+
+logger = logging.getLogger(__name__)
 
 # =====================================================================
 # Report 1: Subscriber Overview
@@ -134,13 +137,19 @@ def online_customers_last_24h_rows(
     activity_segment: str | None = None,
     limit: int | None = 200,
 ) -> list[dict]:
-    """Return active Splynx customers by recent/offline activity segment."""
+    """Return active Selfcare customers by recent/offline activity segment."""
     now = datetime.now(UTC)
     start = now - timedelta(hours=24)
     selected_activity_segment = (activity_segment or "active_last24_not_online").strip().lower()
 
-    # Source of truth for this report: live Splynx customer LAST ONLINE minus customer-online.
-    from app.services.splynx import customer_base_station, fetch_customers, fetch_online_customers
+    # Selfcare's online endpoint is inferred from open RADIUS accounting sessions,
+    # so "currently_online" is a session-state signal rather than authoritative polling.
+    from app.services.selfcare import (
+        SelfcareProviderError,
+        customer_base_station,
+        fetch_customers,
+        fetch_online_customers,
+    )
 
     def _parse_online_dt(value: object) -> datetime | None:
         text = str(value or "").strip()
@@ -363,11 +372,14 @@ def online_customers_last_24h_rows(
 
     _serialize_rows(rows)
 
-    customers = fetch_customers(db)
+    try:
+        customers = fetch_customers(db)
+        online_customers = fetch_online_customers(db)
+    except SelfcareProviderError as exc:
+        logger.warning("online_last_24h_selfcare_unavailable error=%s", exc)
+        return []
     if not isinstance(customers, list) or not customers:
         return []
-
-    online_customers = fetch_online_customers(db)
     online_customer_ids = {
         str(row.get("customer_id") or "").strip()
         for row in online_customers
