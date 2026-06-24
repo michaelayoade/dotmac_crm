@@ -6,14 +6,29 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('pingInterval cadence', () {
     test('no pinging off shift or on break', () {
-      expect(pingInterval(shift: ShiftState.offShift, hasActiveJob: true, moving: true), isNull);
-      expect(pingInterval(shift: ShiftState.onBreak, hasActiveJob: true, moving: true), isNull);
+      expect(
+        pingInterval(shift: ShiftState.offShift, hasActiveJob: true, moving: true),
+        isNull,
+      );
+      expect(
+        pingInterval(shift: ShiftState.onBreak, hasActiveJob: true, moving: true),
+        isNull,
+      );
     });
 
     test('tight cadence for active job or movement, relaxed when idle', () {
-      expect(pingInterval(shift: ShiftState.onShift, hasActiveJob: true, moving: false), activePingInterval);
-      expect(pingInterval(shift: ShiftState.onShift, hasActiveJob: false, moving: true), activePingInterval);
-      expect(pingInterval(shift: ShiftState.onShift, hasActiveJob: false, moving: false), idlePingInterval);
+      expect(
+        pingInterval(shift: ShiftState.onShift, hasActiveJob: true, moving: false),
+        activePingInterval,
+      );
+      expect(
+        pingInterval(shift: ShiftState.onShift, hasActiveJob: false, moving: true),
+        activePingInterval,
+      );
+      expect(
+        pingInterval(shift: ShiftState.onShift, hasActiveJob: false, moving: false),
+        idlePingInterval,
+      );
     });
   });
 
@@ -39,7 +54,10 @@ void main() {
     });
 
     test('a null fix is skipped without error', () async {
-      final svc = LocationPingService(location: FakeLocation(null), poster: (_) async => true)
+      final svc = LocationPingService(
+        location: FakeLocation(null),
+        poster: (_) async => true,
+      )
         ..setShift(ShiftState.onShift);
       await svc.captureOnce();
       expect(svc.bufferedCount, 0);
@@ -55,6 +73,36 @@ void main() {
         await svc.captureOnce();
       }
       expect(svc.bufferedCount, 3);
+    });
+  });
+
+  group('LocationPingService sharing', () {
+    test('updateShift calls sharing updater and updates local shift', () async {
+      final calls = <({bool enabled, ShiftState shift})>[];
+      final svc = LocationPingService(
+        location: FakeLocation(null),
+        poster: (_) async => true,
+        sharingUpdater: ({required enabled, required shift}) async {
+          calls.add((enabled: enabled, shift: shift));
+          return true;
+        },
+      );
+
+      expect(await svc.updateShift(ShiftState.onShift), isTrue);
+      expect(svc.shift, ShiftState.onShift);
+      expect(calls.single.enabled, isTrue);
+      expect(calls.single.shift, ShiftState.onShift);
+    });
+
+    test('updateShift keeps prior shift on sharing failure', () async {
+      final svc = LocationPingService(
+        location: FakeLocation(null),
+        poster: (_) async => true,
+        sharingUpdater: ({required enabled, required shift}) async => false,
+      )..setShift(ShiftState.offShift);
+
+      expect(await svc.updateShift(ShiftState.onShift), isFalse);
+      expect(svc.shift, ShiftState.offShift);
     });
   });
 
@@ -86,7 +134,10 @@ void main() {
     });
 
     test('flush with empty buffer is a no-op success', () async {
-      final svc = LocationPingService(location: FakeLocation(null), poster: (_) async => false);
+      final svc = LocationPingService(
+        location: FakeLocation(null),
+        poster: (_) async => false,
+      );
       expect(await svc.flush(), isTrue);
     });
   });

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../jobs/jobs_providers.dart';
 import '../jobs/widgets/job_card.dart';
+import '../location/location_tracking_controller.dart';
 import '../profile/profile_screen.dart';
 
 const _filters = <(String?, String)>[
@@ -60,6 +61,8 @@ class TodayScreen extends ConsumerWidget {
                       ),
                       const SizedBox(height: 12),
                       const SyncStatusBar(),
+                      const SizedBox(height: 12),
+                      const LocationSharingControls(),
                       if (jobs.value?.fromCache ?? false) const _OfflineBanner(),
                       const SizedBox(height: 16),
                       SingleChildScrollView(

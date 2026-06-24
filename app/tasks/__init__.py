@@ -28,6 +28,7 @@ from app.tasks.customer_retention import (
     reconcile_churning_retention_customers_to_selfcare,
     sync_lost_retention_customer_to_selfcare,
 )
+from app.tasks.field import prune_field_location_pings
 from app.tasks.gis import sync_gis_sources
 from app.tasks.integrations import (
     refresh_material_request_erp_status,
@@ -98,6 +99,7 @@ __all__ = [
     "process_scheduled_campaigns",
     "process_survey_triggers",
     "process_whatsapp_webhook",
+    "prune_field_location_pings",
     "prune_snoozes",
     "reconcile_churning_retention_customers_to_selfcare",
     "reconcile_subscriber_identity",
