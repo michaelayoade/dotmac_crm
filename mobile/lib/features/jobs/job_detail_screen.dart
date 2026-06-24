@@ -7,6 +7,7 @@ import '../execution/completion_wizard.dart';
 import '../execution/execution_controller.dart';
 import 'job_models.dart';
 import 'jobs_providers.dart';
+import 'location_pin_screen.dart';
 
 /// Launcher abstraction so widget tests assert the URI without opening apps.
 typedef UriLauncher = Future<bool> Function(Uri uri);
@@ -24,7 +25,8 @@ class JobDetailScreen extends ConsumerWidget {
 
     return detail.when(
       data: (data) => _JobDetailView(detail: data),
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (error, _) => Scaffold(
         appBar: AppBar(),
         body: const Center(child: Text('Could not load this job')),
@@ -51,11 +53,13 @@ class _JobDetailView extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Center(
-              child: Row(children: [
-                Icon(Icons.circle, size: 10, color: statusColor),
-                const SizedBox(width: 6),
-                Text(job.status.replaceAll('_', ' ')),
-              ]),
+              child: Row(
+                children: [
+                  Icon(Icons.circle, size: 10, color: statusColor),
+                  const SizedBox(width: 6),
+                  Text(job.status.replaceAll('_', ' ')),
+                ],
+              ),
             ),
           ),
         ],
@@ -63,14 +67,22 @@ class _JobDetailView extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text(job.title, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            job.title,
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
           if (detail.ticketRef != null)
             Padding(
               padding: const EdgeInsets.only(top: 4),
-              child: Text('Ticket ${detail.ticketRef}', style: Theme.of(context).textTheme.bodySmall),
+              child: Text(
+                'Ticket ${detail.ticketRef}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ),
           const SizedBox(height: 16),
-          _LocationCard(location: detail.location),
+          _LocationCard(jobId: job.id, location: detail.location),
           if (detail.customer != null) ...[
             const SizedBox(height: 12),
             _CustomerCard(customer: detail.customer!),
@@ -83,7 +95,10 @@ class _JobDetailView extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Scope of work', style: Theme.of(context).textTheme.titleSmall),
+                    Text(
+                      'Scope of work',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
                     const SizedBox(height: 8),
                     Text(job.description!),
                   ],
@@ -99,14 +114,21 @@ class _JobDetailView extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Materials', style: Theme.of(context).textTheme.titleSmall),
+                    Text(
+                      'Materials',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
                     const SizedBox(height: 8),
                     for (final material in detail.materials)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Row(
                           children: [
-                            Expanded(child: Text(material['item_name'] as String? ?? 'Item')),
+                            Expanded(
+                              child: Text(
+                                material['item_name'] as String? ?? 'Item',
+                              ),
+                            ),
                             Text('×${material['quantity']}'),
                           ],
                         ),
@@ -124,7 +146,10 @@ class _JobDetailView extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Notes', style: Theme.of(context).textTheme.titleSmall),
+                    Text(
+                      'Notes',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
                     const SizedBox(height: 8),
                     for (final note in detail.notes)
                       Padding(
@@ -149,10 +174,14 @@ class _JobDetailView extends ConsumerWidget {
                   onPressed: () async {
                     if (action == 'complete') {
                       await Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => CompletionWizard(jobId: job.id)),
+                        MaterialPageRoute(
+                          builder: (_) => CompletionWizard(jobId: job.id),
+                        ),
                       );
                     } else {
-                      await ref.read(executionControllerProvider.notifier).transition(job.id, action);
+                      await ref
+                          .read(executionControllerProvider.notifier)
+                          .transition(job.id, action);
                     }
                     ref.invalidate(jobDetailProvider(job.id));
                   },
@@ -165,8 +194,9 @@ class _JobDetailView extends ConsumerWidget {
 }
 
 class _LocationCard extends ConsumerWidget {
-  const _LocationCard({required this.location});
+  const _LocationCard({required this.jobId, required this.location});
 
+  final String jobId;
   final JobLocation location;
 
   @override
@@ -182,18 +212,45 @@ class _LocationCard extends ConsumerWidget {
               children: [
                 const Icon(Icons.place_outlined, size: 20),
                 const SizedBox(width: 8),
-                Expanded(child: Text(location.addressText ?? 'No address on file')),
+                Expanded(
+                  child: Text(location.addressText ?? 'No address on file'),
+                ),
               ],
             ),
-            if (uri != null) ...[
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                key: const Key('navigate-button'),
-                onPressed: () => ref.read(uriLauncherProvider)(uri),
-                icon: const Icon(Icons.navigation_outlined),
-                label: const Text('Navigate'),
-              ),
-            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                if (uri != null)
+                  OutlinedButton.icon(
+                    key: const Key('navigate-button'),
+                    onPressed: () => ref.read(uriLauncherProvider)(uri),
+                    icon: const Icon(Icons.navigation_outlined),
+                    label: const Text('Navigate'),
+                  ),
+                OutlinedButton.icon(
+                  key: const Key('edit-location-button'),
+                  onPressed: () async {
+                    final changed = await Navigator.of(context).push<bool>(
+                      MaterialPageRoute(
+                        builder: (_) => LocationPinScreen(
+                          jobId: jobId,
+                          initialLocation: location,
+                        ),
+                      ),
+                    );
+                    if (changed == true) {
+                      ref.invalidate(jobDetailProvider(jobId));
+                    }
+                  },
+                  icon: const Icon(Icons.push_pin_outlined),
+                  label: Text(
+                    location.hasCoordinates ? 'Edit pin' : 'Pin location',
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -213,23 +270,34 @@ class _CustomerCard extends ConsumerWidget {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            CircleAvatar(child: Text((customer.name ?? '?').substring(0, 1).toUpperCase())),
+            CircleAvatar(
+              child: Text((customer.name ?? '?').substring(0, 1).toUpperCase()),
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(customer.name ?? 'Customer',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+                  Text(
+                    customer.name ?? 'Customer',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   if (customer.servicePlan != null)
-                    Text(customer.servicePlan!, style: Theme.of(context).textTheme.bodySmall),
+                    Text(
+                      customer.servicePlan!,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                 ],
               ),
             ),
             if (customer.phone != null)
               IconButton(
                 key: const Key('call-button'),
-                onPressed: () => ref.read(uriLauncherProvider)(Uri.parse('tel:${customer.phone}')),
+                onPressed: () => ref.read(uriLauncherProvider)(
+                  Uri.parse('tel:${customer.phone}'),
+                ),
                 icon: const Icon(Icons.call_outlined),
                 tooltip: 'Call customer',
               ),

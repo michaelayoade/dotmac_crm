@@ -28,22 +28,28 @@ class JobSummary {
   final DateTime? completedAt;
 
   factory JobSummary.fromJson(Map<String, dynamic> json) => JobSummary(
-        id: json['id'] as String,
-        title: json['title'] as String,
-        status: json['status'] as String,
-        workType: json['work_type'] as String,
-        priority: json['priority'] as String,
-        description: json['description'] as String?,
-        scheduledStart: _date(json['scheduled_start']),
-        scheduledEnd: _date(json['scheduled_end']),
-        estimatedDurationMinutes: json['estimated_duration_minutes'] as int?,
-        startedAt: _date(json['started_at']),
-        completedAt: _date(json['completed_at']),
-      );
+    id: json['id'] as String,
+    title: json['title'] as String,
+    status: json['status'] as String,
+    workType: json['work_type'] as String,
+    priority: json['priority'] as String,
+    description: json['description'] as String?,
+    scheduledStart: _date(json['scheduled_start']),
+    scheduledEnd: _date(json['scheduled_end']),
+    estimatedDurationMinutes: json['estimated_duration_minutes'] as int?,
+    startedAt: _date(json['started_at']),
+    completedAt: _date(json['completed_at']),
+  );
 }
 
 class JobCustomer {
-  const JobCustomer({this.name, this.phone, this.addressText, this.servicePlan, this.accountNumber});
+  const JobCustomer({
+    this.name,
+    this.phone,
+    this.addressText,
+    this.servicePlan,
+    this.accountNumber,
+  });
 
   final String? name;
   final String? phone;
@@ -52,16 +58,21 @@ class JobCustomer {
   final String? accountNumber;
 
   factory JobCustomer.fromJson(Map<String, dynamic> json) => JobCustomer(
-        name: json['name'] as String?,
-        phone: json['phone'] as String?,
-        addressText: json['address_text'] as String?,
-        servicePlan: json['service_plan'] as String?,
-        accountNumber: json['account_number'] as String?,
-      );
+    name: json['name'] as String?,
+    phone: json['phone'] as String?,
+    addressText: json['address_text'] as String?,
+    servicePlan: json['service_plan'] as String?,
+    accountNumber: json['account_number'] as String?,
+  );
 }
 
 class JobLocation {
-  const JobLocation({this.latitude, this.longitude, this.addressText, required this.source});
+  const JobLocation({
+    this.latitude,
+    this.longitude,
+    this.addressText,
+    required this.source,
+  });
 
   final double? latitude;
   final double? longitude;
@@ -69,11 +80,18 @@ class JobLocation {
   final String source;
 
   factory JobLocation.fromJson(Map<String, dynamic> json) => JobLocation(
-        latitude: (json['latitude'] as num?)?.toDouble(),
-        longitude: (json['longitude'] as num?)?.toDouble(),
-        addressText: json['address_text'] as String?,
-        source: json['source'] as String? ?? 'none',
-      );
+    latitude: (json['latitude'] as num?)?.toDouble(),
+    longitude: (json['longitude'] as num?)?.toDouble(),
+    addressText: json['address_text'] as String?,
+    source: json['source'] as String? ?? 'none',
+  );
+
+  Map<String, dynamic> toJson() => {
+    'latitude': latitude,
+    'longitude': longitude,
+    'address_text': addressText,
+    'source': source,
+  };
 
   bool get hasCoordinates => latitude != null && longitude != null;
 
@@ -107,31 +125,41 @@ class JobDetail {
   final List<Map<String, dynamic>> materials;
 
   factory JobDetail.fromJson(Map<String, dynamic> json) => JobDetail(
-        job: JobSummary.fromJson((json['job'] as Map).cast<String, dynamic>()),
-        location: JobLocation.fromJson((json['location'] as Map).cast<String, dynamic>()),
-        customer: json['customer'] != null
-            ? JobCustomer.fromJson((json['customer'] as Map).cast<String, dynamic>())
-            : null,
-        ticketRef: json['ticket_ref'] as String?,
-        notes: ((json['notes'] as List?) ?? []).cast<Map>().map((n) => n.cast<String, dynamic>()).toList(),
-        materials:
-            ((json['materials'] as List?) ?? []).cast<Map>().map((m) => m.cast<String, dynamic>()).toList(),
-      );
+    job: JobSummary.fromJson((json['job'] as Map).cast<String, dynamic>()),
+    location: JobLocation.fromJson(
+      (json['location'] as Map).cast<String, dynamic>(),
+    ),
+    customer: json['customer'] != null
+        ? JobCustomer.fromJson(
+            (json['customer'] as Map).cast<String, dynamic>(),
+          )
+        : null,
+    ticketRef: json['ticket_ref'] as String?,
+    notes: ((json['notes'] as List?) ?? [])
+        .cast<Map>()
+        .map((n) => n.cast<String, dynamic>())
+        .toList(),
+    materials: ((json['materials'] as List?) ?? [])
+        .cast<Map>()
+        .map((m) => m.cast<String, dynamic>())
+        .toList(),
+  );
 }
 
 /// The single next action per status — the ActionBar shows exactly one.
 String? primaryActionFor(String status) => switch (status) {
-      'scheduled' => 'accept',
-      'dispatched' => 'start',
-      'in_progress' => 'complete',
-      _ => null,
-    };
+  'scheduled' => 'accept',
+  'dispatched' => 'start',
+  'in_progress' => 'complete',
+  _ => null,
+};
 
 String actionLabel(String action) => switch (action) {
-      'accept' => 'Accept job',
-      'start' => 'Start job',
-      'complete' => 'Complete job',
-      _ => action,
-    };
+  'accept' => 'Accept job',
+  'start' => 'Start job',
+  'complete' => 'Complete job',
+  _ => action,
+};
 
-DateTime? _date(Object? value) => value is String ? DateTime.tryParse(value) : null;
+DateTime? _date(Object? value) =>
+    value is String ? DateTime.tryParse(value) : null;
