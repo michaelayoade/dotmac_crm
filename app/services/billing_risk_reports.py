@@ -136,7 +136,7 @@ def _normalize_customer_name_for_exclusion(name: object) -> str:
 def _retained_blocked_last_update_from_metadata(sync_metadata: object) -> str:
     if not isinstance(sync_metadata, Mapping):
         return ""
-    marker = sync_metadata.get("retention_splynx_deactivation")
+    marker = sync_metadata.get("retention_selfcare_deactivation") or sync_metadata.get("retention_splynx_deactivation")
     if not isinstance(marker, Mapping):
         return ""
     for key in ("retained_blocked_last_update", "retained_blocked_date"):

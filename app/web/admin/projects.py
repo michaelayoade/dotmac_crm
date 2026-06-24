@@ -143,7 +143,6 @@ def _normalize_project_export_columns(columns: str | None) -> list[str]:
         "owner",
         "manager",
         "project_manager",
-        "assistant_manager",
         "start_at",
         "due_at",
     }
@@ -174,7 +173,6 @@ def _project_export_column_map() -> dict[str, tuple[str, Callable[[Project], str
         "owner": ("Owner", lambda project: _person_name(project.owner)),
         "manager": ("Manager", lambda project: _person_name(project.manager)),
         "project_manager": ("Project Manager", lambda project: _person_name(project.project_manager)),
-        "assistant_manager": ("Site Coordinator", lambda project: _person_name(project.assistant_manager)),
         "start_at": ("Start Date", lambda project: _fmt_csv_dt(project.start_at)),
         "due_at": ("Due Date", lambda project: _fmt_csv_dt(project.due_at)),
     }
@@ -459,19 +457,12 @@ def _load_region_assignment_map(db: Session) -> dict[str, dict[str, str | None]]
         if not isinstance(region, str):
             continue
         manager_id: str | None = None
-        spc_id: str | None = None
         if isinstance(entry, dict):
             manager_id = entry.get("manager_person_id") or entry.get("project_manager_person_id")
-            spc_id = (
-                entry.get("spc_person_id")
-                or entry.get("assistant_person_id")
-                or entry.get("assistant_manager_person_id")
-            )
         elif isinstance(entry, str):
             manager_id = entry
 
         clean_manager_id: str | None = None
-        clean_spc_id: str | None = None
         if manager_id:
             try:
                 with_uuid = coerce_uuid(manager_id)
@@ -479,18 +470,10 @@ def _load_region_assignment_map(db: Session) -> dict[str, dict[str, str | None]]
                 person_ids.add(clean_manager_id)
             except Exception:
                 clean_manager_id = None
-        if spc_id:
-            try:
-                with_uuid = coerce_uuid(spc_id)
-                clean_spc_id = str(with_uuid)
-                person_ids.add(clean_spc_id)
-            except Exception:
-                clean_spc_id = None
 
         normalized[region] = {
             "manager_person_id": clean_manager_id,
             "project_manager_person_id": clean_manager_id,
-            "assistant_manager_person_id": clean_spc_id,
         }
 
     if not person_ids:
@@ -501,10 +484,8 @@ def _load_region_assignment_map(db: Session) -> dict[str, dict[str, str | None]]
 
     for _region, entry in normalized.items():
         manager_id = entry.get("manager_person_id")
-        spc_id = entry.get("assistant_manager_person_id")
         entry["manager_label"] = labels.get(manager_id, "") if manager_id else ""
         entry["project_manager_label"] = labels.get(manager_id, "") if manager_id else ""
-        entry["assistant_manager_label"] = labels.get(spc_id, "") if spc_id else ""
 
     return normalized
 

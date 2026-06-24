@@ -1245,19 +1245,6 @@ def seed_integration_settings(db: Session) -> None:
     )
     integration_settings.ensure_by_key(
         db,
-        key="splynx_subscriber_sync_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=os.getenv("SPLYNX_SUBSCRIBER_SYNC_ENABLED", "false"),
-        value_json=os.getenv("SPLYNX_SUBSCRIBER_SYNC_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_subscriber_sync_interval_hours",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("SPLYNX_SUBSCRIBER_SYNC_INTERVAL_HOURS", "24"),
-    )
-    integration_settings.ensure_by_key(
-        db,
         key="vllm_label",
         value_type=SettingValueType.string,
         value_text=os.getenv("VLLM_LABEL", "primary"),
