@@ -23,6 +23,19 @@ from app.schemas.crm.inbox import (
 from app.services.crm import inbox as inbox_service
 from app.services.crm.inbox.outbound import _build_reply_subject
 
+
+@pytest.fixture(autouse=True)
+def _disable_websocket_broadcasts(monkeypatch):
+    """Keep inbox service tests focused on persistence/send logic."""
+
+    from app.websocket import broadcaster
+
+    monkeypatch.setattr(broadcaster, "broadcast_conversation_summary", lambda *args, **kwargs: None)
+    monkeypatch.setattr(broadcaster, "broadcast_message_status", lambda *args, **kwargs: None)
+    monkeypatch.setattr(broadcaster, "broadcast_new_message", lambda *args, **kwargs: None)
+    monkeypatch.setattr(broadcaster, "broadcast_to_widget_visitor", lambda *args, **kwargs: None)
+
+
 # =============================================================================
 # Helper Functions Tests
 # =============================================================================
@@ -1071,6 +1084,104 @@ def test_send_whatsapp_message_missing_token(db_session, crm_contact):
         inbox_service.send_message(db_session, payload)
     assert exc_info.value.status_code == 400
     assert "WhatsApp access token missing" in exc_info.value.detail
+
+
+def test_resolve_whatsapp_channel_prefers_last_inbound_valid_channel(db_session, crm_contact):
+    from app.models.crm.conversation import Message
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
+    from app.schemas.crm.conversation import ConversationCreate
+    from app.services.crm import conversation as conversation_service
+    from app.services.crm.inbox.outbound import _resolve_person_channel_for_message
+
+    valid_channel = PersonChannel(
+        person_id=crm_contact.id,
+        channel_type=PersonChannelType.whatsapp,
+        address="+2348118729150",
+        is_primary=True,
+    )
+    db_session.add(valid_channel)
+    db_session.commit()
+    db_session.refresh(valid_channel)
+
+    malformed_newer_channel = PersonChannel(
+        person_id=crm_contact.id,
+        channel_type=PersonChannelType.whatsapp,
+        address="+234",
+        is_primary=True,
+    )
+    db_session.add(malformed_newer_channel)
+    db_session.commit()
+
+    conversation = conversation_service.Conversations.create(
+        db_session,
+        ConversationCreate(person_id=crm_contact.id),
+    )
+    inbound = Message(
+        conversation_id=conversation.id,
+        person_channel_id=valid_channel.id,
+        channel_type=ChannelType.whatsapp,
+        direction=MessageDirection.inbound,
+        status=MessageStatus.received,
+        body="Hello",
+    )
+    db_session.add(inbound)
+    db_session.commit()
+    db_session.refresh(inbound)
+
+    resolved = _resolve_person_channel_for_message(db_session, crm_contact, ChannelType.whatsapp, inbound)
+
+    assert resolved is not None
+    assert resolved.id == valid_channel.id
+
+
+def test_resolve_whatsapp_channel_skips_malformed_primary_channel(db_session, crm_contact):
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
+    from app.services.crm.inbox.outbound import _resolve_person_channel_for_message
+
+    valid_channel = PersonChannel(
+        person_id=crm_contact.id,
+        channel_type=PersonChannelType.whatsapp,
+        address="+2348118729150",
+        is_primary=True,
+    )
+    db_session.add(valid_channel)
+    db_session.commit()
+    db_session.refresh(valid_channel)
+
+    malformed_newer_channel = PersonChannel(
+        person_id=crm_contact.id,
+        channel_type=PersonChannelType.whatsapp,
+        address="+234",
+        is_primary=True,
+    )
+    db_session.add(malformed_newer_channel)
+    db_session.commit()
+
+    resolved = _resolve_person_channel_for_message(db_session, crm_contact, ChannelType.whatsapp)
+
+    assert resolved is not None
+    assert resolved.id == valid_channel.id
+
+
+def test_create_contact_channel_rejects_malformed_whatsapp(db_session, crm_contact):
+    from app.schemas.crm.contact import ContactChannelCreate
+    from app.schemas.person import ChannelTypeEnum
+    from app.services.crm.contacts import contact_channels
+
+    payload = ContactChannelCreate(
+        person_id=crm_contact.id,
+        channel_type=ChannelTypeEnum.whatsapp,
+        address="+234",
+        is_primary=True,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        contact_channels.create(db_session, payload)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "WhatsApp phone number is invalid"
 
 
 def test_send_whatsapp_message_missing_phone_number_id(db_session, crm_contact):

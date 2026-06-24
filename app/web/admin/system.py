@@ -1885,27 +1885,62 @@ def user_disable_mfa(request: Request, user_id: str, db: Session = Depends(get_d
 )
 def user_reset_password(request: Request, user_id: str, db: Session = Depends(get_db)):
     person = person_service.people.get(db, user_id)
-    temp_password = secrets.token_urlsafe(16)
-    db.query(UserCredential).filter(
-        UserCredential.person_id == person.id,
-        UserCredential.is_active.is_(True),
-    ).update(
-        {
-            "password_hash": hash_password(temp_password),
-            "must_change_password": True,  # nosec B105
-            "password_updated_at": datetime.now(UTC),
+
+    def result_html(message: str, variant: str) -> str:
+        variants = {
+            "success": "border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/30 dark:text-green-400",
+            "error": "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400",
         }
+        classes = variants.get(variant, variants["error"])
+        return f'<div class="rounded-lg border px-4 py-3 text-sm {classes}">{html.escape(message)}</div>'
+
+    if not person.email:
+        message = "User has no email address configured."
+        html_body = result_html(message, "error")
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return JSONResponse({"message": message, "html": html_body}, status_code=400)
+        return HTMLResponse(html_body, status_code=400)
+
+    reset_payload = auth_flow_service.request_password_reset(db, person.email)
+    if not reset_payload or not reset_payload.get("token"):
+        message = "Failed to generate password reset link."
+        html_body = result_html(message, "error")
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return JSONResponse({"message": message, "html": html_body}, status_code=500)
+        return HTMLResponse(html_body, status_code=500)
+
+    sent = email_service.send_password_reset_email(
+        db,
+        to_email=person.email,
+        reset_token=reset_payload["token"],
+        person_name=reset_payload.get("person_name"),
     )
-    db.commit()
+    if not sent:
+        message = "Failed to send password reset email. Check SMTP settings."
+        html_body = result_html(message, "error")
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return JSONResponse({"message": message, "html": html_body}, status_code=500)
+        return HTMLResponse(html_body, status_code=500)
+
+    message = f"Password reset email sent to {person.email}."
     trigger = {
         "showToast": {
             "type": "success",
             "title": "Password reset",
-            "message": f"Temporary password: {temp_password}",
-            "duration": 12000,
+            "message": message,
+            "duration": 8000,
         }
     }
-    return Response(status_code=204, headers={"HX-Trigger": json.dumps(trigger)})
+    html_body = result_html(message, "success")
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return JSONResponse(
+            {
+                "message": message,
+                "html": html_body,
+            },
+            headers={"HX-Trigger": json.dumps(trigger)},
+        )
+    return HTMLResponse(html_body, headers={"HX-Trigger": json.dumps(trigger)})
 
 
 @router.post("/users", response_class=HTMLResponse, dependencies=[Depends(require_permission("rbac:assign"))])

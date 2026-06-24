@@ -446,6 +446,7 @@ def _resolve_person_channel_for_message(
     db: Session,
     person: Person,
     channel_type: ChannelType,
+    last_inbound: Message | None = None,
 ) -> PersonChannel | None:
     """Resolve the recipient channel for outbound messaging."""
     try:
@@ -453,13 +454,33 @@ def _resolve_person_channel_for_message(
     except Exception:
         return None
 
-    return (
+    if (
+        channel_type == ChannelType.whatsapp
+        and last_inbound
+        and last_inbound.channel_type == ChannelType.whatsapp
+        and last_inbound.person_channel_id
+    ):
+        inbound_channel = db.get(PersonChannel, last_inbound.person_channel_id)
+        if (
+            inbound_channel
+            and inbound_channel.person_id == person.id
+            and inbound_channel.channel_type == person_channel_type
+            and _normalize_whatsapp_recipient_address(inbound_channel.address)
+        ):
+            return inbound_channel
+
+    channels = (
         db.query(PersonChannel)
         .filter(PersonChannel.person_id == person.id)
         .filter(PersonChannel.channel_type == person_channel_type)
         .order_by(PersonChannel.is_primary.desc(), PersonChannel.created_at.desc())
-        .first()
+        .all()
     )
+
+    if channel_type == ChannelType.whatsapp:
+        return next((channel for channel in channels if _normalize_whatsapp_recipient_address(channel.address)), None)
+
+    return channels[0] if channels else None
 
 
 def _resolve_reply_author(db: Session, conversation: Conversation, message: Message) -> str:
@@ -1486,7 +1507,7 @@ def send_message(
                     )
                 resolved_channel_target_id = last_inbound.channel_target_id
 
-        person_channel = _resolve_person_channel_for_message(db, person, payload.channel_type)
+        person_channel = _resolve_person_channel_for_message(db, person, payload.channel_type, last_inbound)
         if not person_channel:
             raise InboxValidationError("contact_channel_missing", "Contact channel not found")
 

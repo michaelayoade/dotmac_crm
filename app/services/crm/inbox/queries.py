@@ -28,7 +28,6 @@ from app.models.person import Person, PersonChannel
 from app.services.common import coerce_uuid
 from app.services.crm.inbox import outbox as outbox_service
 
-UNASSIGNED_ACTIVITY_START_UTC = datetime(2026, 1, 1, tzinfo=UTC)
 RESOLVED_LIST_STATUSES = {ConversationStatus.resolved, ConversationStatus.resolved_to_ticket}
 
 
@@ -155,20 +154,31 @@ def list_inbox_conversations(
         ]
         if not agent_ids:
             return []
-        query = query.filter(ConversationSummary.active_assignment_agent_id.in_(agent_ids))
+        assigned_conversation_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.agent_id.in_(agent_ids))
+            .distinct()
+        )
+        query = query.filter(Conversation.id.in_(assigned_conversation_subq))
     elif assignment_filter == "unassigned":
-        query = (
-            query.filter(ConversationSummary.active_assignment_agent_id.is_(None))
-            .filter(ConversationSummary.active_assignment_team_id.is_(None))
-            .filter(
-                func.coalesce(ConversationSummary.latest_message_at, Conversation.updated_at)
-                >= UNASSIGNED_ACTIVITY_START_UTC
-            )
+        assigned_conversation_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .distinct()
+        )
+        query = query.filter(Conversation.status.in_([ConversationStatus.open, ConversationStatus.pending])).filter(
+            ~Conversation.id.in_(assigned_conversation_subq)
         )
     elif assignment_filter == "team_assigned":
-        query = query.filter(ConversationSummary.active_assignment_team_id.isnot(None)).filter(
-            ConversationSummary.active_assignment_agent_id.is_(None)
+        team_assigned_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.team_id.isnot(None))
+            .filter(ConversationAssignment.agent_id.is_(None))
+            .distinct()
         )
+        query = query.filter(Conversation.id.in_(team_assigned_subq))
     elif assignment_filter == "unreplied":
         query = query.filter(ConversationSummary.unreplied.is_(True))
     elif assignment_filter == "needs_attention":
@@ -214,7 +224,13 @@ def list_inbox_conversations(
                 agent_subq = agent_subq.filter(ConversationAssignment.assigned_at <= assigned_to)
             query = query.filter(Conversation.id.in_(agent_subq.distinct()))
         else:
-            query = query.filter(ConversationSummary.active_assignment_agent_id == agent_uuid)
+            agent_subq = (
+                db.query(ConversationAssignment.conversation_id)
+                .filter(ConversationAssignment.is_active.is_(True))
+                .filter(ConversationAssignment.agent_id == agent_uuid)
+                .distinct()
+            )
+            query = query.filter(Conversation.id.in_(agent_subq))
 
     if search:
         raw_search = search.strip()
@@ -288,7 +304,11 @@ def list_inbox_conversations(
             tagged_ids = db.query(ConversationTag.conversation_id).distinct().subquery()
             query = query.filter(~Conversation.id.in_(db.query(tagged_ids.c.conversation_id)))
 
-    if exclude_superseded_resolved and (not status or status not in RESOLVED_LIST_STATUSES):
+    if (
+        exclude_superseded_resolved
+        and assignment_filter != "unassigned"
+        and (not status or status not in RESOLVED_LIST_STATUSES)
+    ):
         other = aliased(Conversation)
         newer_open = (
             db.query(other.id)
@@ -626,13 +646,22 @@ def _count_active_conversations_for_filter(
         ]
         if not agent_ids:
             return 0
-        query = query.filter(ConversationSummary.active_assignment_agent_id.in_(agent_ids))
-    elif filter_key == "unassigned":
-        query = (
-            query.filter(ConversationSummary.active_assignment_agent_id.is_(None))
-            .filter(ConversationSummary.active_assignment_team_id.is_(None))
-            .filter(ConversationSummary.latest_message_at >= UNASSIGNED_ACTIVITY_START_UTC)
+        assigned_conversation_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.agent_id.in_(agent_ids))
+            .distinct()
         )
+        query = query.filter(ConversationSummary.conversation_id.in_(assigned_conversation_subq))
+    elif filter_key == "unassigned":
+        assigned_conversation_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .distinct()
+        )
+        query = query.filter(
+            ConversationSummary.status.in_([ConversationStatus.open, ConversationStatus.pending])
+        ).filter(~ConversationSummary.conversation_id.in_(assigned_conversation_subq))
     elif filter_key == "unreplied":
         query = query.filter(ConversationSummary.unreplied.is_(True))
     elif filter_key == "needs_attention":
@@ -666,13 +695,15 @@ def _count_active_conversations_for_filter(
 def _get_base_assignment_counts(db: Session) -> dict[str, int]:
     _ensure_summary_rows(db)
     base = select(func.count(ConversationSummary.conversation_id)).where(ConversationSummary.is_active.is_(True))
+    assigned_conversation_subq = (
+        select(ConversationAssignment.conversation_id).where(ConversationAssignment.is_active.is_(True)).distinct()
+    )
     row = db.execute(
         select(
             base.scalar_subquery().label("all_count"),
             base.where(
-                ConversationSummary.active_assignment_agent_id.is_(None),
-                ConversationSummary.active_assignment_team_id.is_(None),
-                ConversationSummary.latest_message_at >= UNASSIGNED_ACTIVITY_START_UTC,
+                ConversationSummary.status.in_([ConversationStatus.open, ConversationStatus.pending]),
+                ~ConversationSummary.conversation_id.in_(assigned_conversation_subq),
             )
             .scalar_subquery()
             .label("unassigned_count"),

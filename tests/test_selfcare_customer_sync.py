@@ -7,7 +7,7 @@ from app.models.sales_order import SalesOrder
 from app.models.subscriber import Subscriber
 from app.services.events.handlers.selfcare_customer import SelfcareCustomerHandler
 from app.services.events.types import Event, EventType
-from app.services.selfcare import build_customer_payload
+from app.services.selfcare import SelfcareCustomerIdentity, build_customer_payload
 from app.services.subscriber import subscriber as subscriber_service
 
 
@@ -84,17 +84,29 @@ def test_handler_creates_selfcare_customer_and_local_subscriber(mock_create, moc
         owner_person_id=person.id,
         metadata_={"sales_order_id": str(sales_order.id), "quote_id": str(uuid.uuid4())},
     )
-    mock_create.return_value = "sc-123"
+    mock_create.return_value = SelfcareCustomerIdentity(
+        selfcare_id="5e939804-84c7-47a9-bae1-77627fc218d2",
+        subscriber_number="SUB-00123",
+    )
 
     event = Event(event_type=EventType.project_created, payload={}, project_id=project.id)
 
     SelfcareCustomerHandler().handle(db_session, event)
 
     mock_create.assert_called_once()
-    mock_ensure.assert_called_once_with(db_session, person, "sc-123")
-    subscriber = subscriber_service.get_by_external_id(db_session, "selfcare", "sc-123")
+    identity = mock_ensure.call_args.args[2]
+    assert identity.selfcare_id == "5e939804-84c7-47a9-bae1-77627fc218d2"
+    assert identity.subscriber_number == "SUB-00123"
+    subscriber = subscriber_service.get_by_external_id(
+        db_session,
+        "selfcare",
+        "5e939804-84c7-47a9-bae1-77627fc218d2",
+    )
     assert subscriber is not None
     assert subscriber.person_id == person.id
+    assert subscriber.subscriber_number == "SUB-00123"
+    assert subscriber.sync_metadata["selfcare_uuid"] == "5e939804-84c7-47a9-bae1-77627fc218d2"
+    assert subscriber.sync_metadata["selfcare_subscriber_number"] == "SUB-00123"
     assert str(subscriber.sales_order_id) == str(sales_order.id)
 
 
@@ -110,8 +122,36 @@ def test_handler_reuses_existing_selfcare_id(mock_create, db_session):
     mock_create.assert_not_called()
     subscriber = subscriber_service.get_by_external_id(db_session, "selfcare", "sc-existing")
     assert subscriber is not None
+    assert subscriber.subscriber_number == "sc-existing"
     db_session.refresh(person)
     assert person.party_status == PartyStatus.customer
+
+
+@patch("app.services.events.handlers.selfcare_customer.create_customer")
+def test_handler_reuses_existing_selfcare_uuid_and_subscriber_number(mock_create, db_session):
+    person = _make_person(
+        db_session,
+        metadata_={
+            "selfcare_id": "61a8f696-b180-4517-aa6e-e9efa853f3b9",
+            "selfcare_subscriber_id": "SUB-EXISTING",
+        },
+    )
+    project = _make_project(db_session, owner_person_id=person.id)
+
+    event = Event(event_type=EventType.project_created, payload={}, project_id=project.id)
+
+    SelfcareCustomerHandler().handle(db_session, event)
+
+    mock_create.assert_not_called()
+    subscriber = subscriber_service.get_by_external_id(
+        db_session,
+        "selfcare",
+        "61a8f696-b180-4517-aa6e-e9efa853f3b9",
+    )
+    assert subscriber is not None
+    assert subscriber.subscriber_number == "SUB-EXISTING"
+    assert subscriber.sync_metadata["selfcare_uuid"] == "61a8f696-b180-4517-aa6e-e9efa853f3b9"
+    assert subscriber.sync_metadata["selfcare_subscriber_number"] == "SUB-EXISTING"
 
 
 def test_handler_ignores_non_project_event(db_session):

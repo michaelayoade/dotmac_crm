@@ -257,7 +257,7 @@
                 </div>
                 <div class="p-6 space-y-3">
                     <div class="w-full">
-                        {{ warning_button("Reset Password", "Confirm Send", "Send password reset email to this user?", "/admin/system/users/" ~ user.id ~ "/reset-password", size="sm") }}
+                        {{ warning_button("Reset Password", "Confirm Password Reset", "Send a password reset email to this user?", "/admin/system/users/" ~ user.id ~ "/reset-password", size="sm") }}
                     </div>
 
                     {% if credential and credential.must_change_password %}

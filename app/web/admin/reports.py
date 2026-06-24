@@ -33,7 +33,7 @@ from app.services.auth_dependencies import require_any_permission
 from app.services.crm import reports as crm_reports_service
 from app.services.crm import team as crm_team_service
 from app.services.quarterly_reports import build_quarterly_report
-from app.tasks.subscribers import sync_subscribers_from_splynx
+from app.tasks.subscribers import sync_subscribers_from_selfcare
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.templates import Jinja2Templates
 
@@ -2867,10 +2867,10 @@ def subscriber_billing_risk_refresh(
         next_url = "/admin/reports/subscribers/billing-risk"
 
     try:
-        sync_subscribers_from_splynx.delay()
+        sync_subscribers_from_selfcare.delay()
         return RedirectResponse(url=_append_query_flag(next_url, "refresh_started", "1"), status_code=303)
     except Exception:
-        logger.exception("Failed to enqueue Splynx subscriber sync")
+        logger.exception("Failed to enqueue Selfcare subscriber sync")
         return RedirectResponse(url=_append_query_flag(next_url, "refresh_error", "queue_unavailable"), status_code=303)
 
 
@@ -3136,7 +3136,7 @@ def revenue_service_report(
         report = revenue_service_report_service.build_report(db)
         summary = report["summary"]
         downtime_log = report["downtime_log"]
-    except revenue_service_report_service.SplynxReportError as exc:
+    except revenue_service_report_service.SelfcareReportError as exc:
         report_error = str(exc)
     except Exception:
         logger.exception("revenue_service_report_build_failed")
@@ -3175,7 +3175,7 @@ def revenue_service_summary(
 
     try:
         return JSONResponse(revenue_service_report_service.build_summary(db, year=year, month=month))
-    except revenue_service_report_service.SplynxReportError as exc:
+    except revenue_service_report_service.SelfcareReportError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
 
@@ -3193,7 +3193,7 @@ def revenue_service_log(
 
     try:
         return JSONResponse(revenue_service_report_service.build_downtime_log(db, year=year, month=month))
-    except revenue_service_report_service.SplynxReportError as exc:
+    except revenue_service_report_service.SelfcareReportError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
 
@@ -3225,7 +3225,7 @@ def revenue_service_compensation(
 
     try:
         return JSONResponse(revenue_service_report_service.lookup_compensation(db, search))
-    except revenue_service_report_service.SplynxReportError as exc:
+    except revenue_service_report_service.SelfcareReportError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
 
@@ -3253,7 +3253,7 @@ def revenue_service_payment_classification(
                 month=month,
             )
         )
-    except revenue_service_report_service.SplynxReportError as exc:
+    except revenue_service_report_service.SelfcareReportError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
 
@@ -3270,7 +3270,7 @@ def revenue_service_uptime_search(
 
     try:
         return JSONResponse({"rows": revenue_service_report_service.search_uptime_customers(db, q)})
-    except revenue_service_report_service.SplynxReportError as exc:
+    except revenue_service_report_service.SelfcareReportError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
 
@@ -3288,7 +3288,7 @@ def revenue_service_uptime_profile(
 
     try:
         return JSONResponse(revenue_service_report_service.build_customer_uptime_profile(db, customer_id, month))
-    except revenue_service_report_service.SplynxReportError as exc:
+    except revenue_service_report_service.SelfcareReportError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
 
@@ -3306,7 +3306,7 @@ def revenue_service_uptime_sessions(
 
     try:
         return JSONResponse(revenue_service_report_service.build_customer_uptime_sessions(db, customer_id, month))
-    except revenue_service_report_service.SplynxReportError as exc:
+    except revenue_service_report_service.SelfcareReportError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
 
@@ -3323,7 +3323,7 @@ def revenue_service_uptime_trend(
 
     try:
         return JSONResponse(revenue_service_report_service.build_customer_uptime_trend(db, customer_id))
-    except revenue_service_report_service.SplynxReportError as exc:
+    except revenue_service_report_service.SelfcareReportError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
 
@@ -3341,7 +3341,7 @@ def revenue_service_uptime_compensation(
 
     try:
         return JSONResponse(revenue_service_report_service.build_customer_uptime_compensation(db, customer_id, month))
-    except revenue_service_report_service.SplynxReportError as exc:
+    except revenue_service_report_service.SelfcareReportError as exc:
         return JSONResponse({"error": str(exc)}, status_code=502)
 
 

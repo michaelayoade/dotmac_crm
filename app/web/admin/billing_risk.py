@@ -22,12 +22,13 @@ from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.person import Person
 from app.models.service_team import ServiceTeam, ServiceTeamMember
 from app.models.subscriber import Subscriber, SubscriberBillingRiskSnapshot
-from app.services import billing_risk_cache, splynx
+from app.services import billing_risk_cache, selfcare
 from app.services import billing_risk_reports as billing_risk_service
 from app.services.common import coerce_uuid
 from app.services.crm.web_campaigns import create_billing_risk_outreach_campaign, outreach_channel_target_options
 from app.services.customer_retention import create_retention_engagement_and_sync
-from app.tasks.subscribers import sync_subscribers_from_splynx
+from app.services.external_systems import EXTERNAL_SUBSCRIBER_SYSTEMS
+from app.tasks.subscribers import sync_subscribers_from_selfcare
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.auth.rbac import require_web_role
 from app.web.templates import Jinja2Templates
@@ -178,7 +179,7 @@ def _service_plan_text(services_payload: object) -> str:
     if not isinstance(services_payload, list):
         return ""
     services = [service for service in services_payload if isinstance(service, dict)]
-    primary_service = splynx._select_primary_service(services)
+    primary_service = selfcare._select_primary_service(services)
     if not isinstance(primary_service, dict):
         return ""
     for key in ("description", "tariff_name", "plan_name", "package", "name"):
@@ -196,7 +197,7 @@ def _enrich_missing_plan_fields(db: Session, rows: list[dict]) -> None:
         if not customer_id:
             continue
         try:
-            services_payload = splynx.fetch_customer_internet_services(db, customer_id)
+            services_payload = selfcare.fetch_customer_internet_services(db, customer_id)
         except Exception:
             services_payload = []
         plan = _service_plan_text(services_payload)
@@ -219,7 +220,7 @@ def _enrich_account_balance_deposit(db: Session, rows: list[dict]) -> None:
         if not customer_id:
             continue
         try:
-            billing_payload = splynx.fetch_customer_billing(db, customer_id)
+            billing_payload = selfcare.fetch_customer_billing(db, customer_id)
         except Exception:
             billing_payload = None
         if isinstance(billing_payload, dict):
@@ -1689,7 +1690,7 @@ def _retention_saved_only_rows(
     if missing_ids:
         subscriber_rows = db.scalars(
             select(Subscriber).where(
-                Subscriber.external_system == "splynx",
+                Subscriber.external_system.in_(EXTERNAL_SUBSCRIBER_SYSTEMS),
                 Subscriber.external_id.in_(missing_ids),
             )
         ).all()
@@ -2493,10 +2494,10 @@ def subscriber_billing_risk_refresh(
         next_url = "/admin/reports/subscribers/billing-risk"
 
     try:
-        sync_subscribers_from_splynx.delay()
+        sync_subscribers_from_selfcare.delay()
         return RedirectResponse(url=_append_query_flag(next_url, "refresh_started", "1"), status_code=303)
     except Exception:
-        logger.exception("Failed to enqueue Splynx subscriber sync")
+        logger.exception("Failed to enqueue Selfcare subscriber sync")
         return RedirectResponse(url=_append_query_flag(next_url, "refresh_error", "queue_unavailable"), status_code=303)
 
 

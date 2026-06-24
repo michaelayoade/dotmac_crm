@@ -8,6 +8,7 @@ from app.celery_app import celery_app
 from app.db import SessionLocal
 from app.logging import get_logger
 from app.metrics import observe_job
+from app.services.external_systems import SPLYNX_EXTERNAL_SYSTEM
 from app.services.subscriber import subscriber as subscriber_service
 
 logger = get_logger(__name__)
@@ -97,6 +98,200 @@ def sync_subscribers_from_splynx() -> dict[str, Any]:
     return results
 
 
+@celery_app.task(name="app.tasks.subscribers.sync_subscribers_from_selfcare")
+def sync_subscribers_from_selfcare() -> dict[str, Any]:
+    """Reconciliation sync: pull all subscribers from Selfcare and upsert local Subscriber records."""
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("SELFCARE_SYNC_START")
+    results: dict[str, Any] = {"created": 0, "updated": 0, "errors": []}
+    current_step = "start"
+
+    try:
+        current_step = "import_dependencies"
+        logger.info("SELFCARE_SYNC_STEP step=%s", current_step)
+        from app.models.person import Person
+        from app.services.selfcare import fetch_customers, map_customer_to_subscriber_data, ping
+
+        current_step = "ping_selfcare"
+        logger.info("SELFCARE_SYNC_STEP step=%s", current_step)
+        ping(session)
+        logger.info("SELFCARE_SYNC_STEP_COMPLETE step=%s", current_step)
+
+        current_step = "fetch_subscribers"
+        logger.info("SELFCARE_SYNC_STEP step=%s include=services,billing", current_step)
+        customers_data = fetch_customers(session, include="services,billing")
+        if not isinstance(customers_data, list):
+            raise TypeError(f"Selfcare subscribers response must be a list, got {type(customers_data).__name__}")
+        logger.info("SELFCARE_SYNC_STEP_COMPLETE step=%s count=%d", current_step, len(customers_data))
+        if not customers_data:
+            logger.info("selfcare_sync_no_data")
+            return results
+
+        current_step = "build_person_email_index"
+        logger.info("SELFCARE_SYNC_STEP step=%s", current_step)
+        person_by_email: dict[str, Any] = {}
+        all_emails = [
+            str(c.get("email") or "").lower().strip() for c in customers_data if isinstance(c, dict) and c.get("email")
+        ]
+        if all_emails:
+            persons = session.query(Person).filter(Person.email.in_(all_emails)).all()
+            person_by_email = {p.email.lower(): p for p in persons if p.email}
+        logger.info(
+            "SELFCARE_SYNC_STEP_COMPLETE step=%s emails=%d matched_people=%d",
+            current_step,
+            len(all_emails),
+            len(person_by_email),
+        )
+
+        current_step = "upsert_subscribers"
+        logger.info("SELFCARE_SYNC_STEP step=%s count=%d", current_step, len(customers_data))
+        for index, customer in enumerate(customers_data, start=1):
+            external_id = ""
+            try:
+                if not isinstance(customer, dict):
+                    raise TypeError(f"Selfcare subscriber row must be a dict, got {type(customer).__name__}")
+                external_id = str(
+                    customer.get("id") or customer.get("uuid") or customer.get("subscriber_id") or ""
+                ).strip()
+                logger.info(
+                    "SELFCARE_SYNC_ITEM_START index=%d count=%d external_id=%s subscriber_number=%s",
+                    index,
+                    len(customers_data),
+                    external_id or "<missing>",
+                    customer.get("subscriber_number") or customer.get("login") or "",
+                )
+                if not external_id:
+                    raise ValueError("missing selfcare subscriber id")
+                subscriber_number = str(customer.get("subscriber_number") or customer.get("login") or "").strip()
+                existing_by_number = (
+                    subscriber_service.get_by_subscriber_number(session, subscriber_number)
+                    if subscriber_number
+                    else None
+                )
+                existing_by_external_id = subscriber_service.get_by_external_id(session, "selfcare", external_id)
+                existing = existing_by_number or existing_by_external_id
+                if existing_by_number is not None:
+                    if existing_by_external_id is not None and existing_by_external_id.id != existing_by_number.id:
+                        logger.warning(
+                            "SELFCARE_SYNC_DUPLICATE_EXTERNAL_MATCH index=%d external_id=%s "
+                            "subscriber_number=%s subscriber_number_match_id=%s external_match_id=%s",
+                            index,
+                            external_id,
+                            subscriber_number,
+                            existing_by_number.id,
+                            existing_by_external_id.id,
+                        )
+                    if existing_by_external_id is None or existing_by_external_id.id != existing_by_number.id:
+                        logger.info(
+                            "SELFCARE_SYNC_MATCH_BY_SUBSCRIBER_NUMBER index=%d external_id=%s subscriber_id=%s "
+                            "subscriber_number=%s previous_external_system=%s previous_external_id=%s",
+                            index,
+                            external_id,
+                            existing_by_number.id,
+                            subscriber_number,
+                            existing_by_number.external_system,
+                            existing_by_number.external_id,
+                        )
+                data = map_customer_to_subscriber_data(
+                    session,
+                    customer,
+                    include_remote_details=False,
+                    existing_sync_metadata=dict(existing.sync_metadata or {}) if existing else None,
+                )
+
+                email = str(customer.get("email") or "").lower().strip()
+                if email and email in person_by_email:
+                    person = person_by_email[email]
+                    data["person_id"] = person.id
+                    data["organization_id"] = person.organization_id
+
+                if existing:
+                    subscriber_service.update(
+                        session,
+                        existing,
+                        {
+                            "external_system": "selfcare",
+                            "external_id": external_id,
+                            "sync_error": None,
+                            **data,
+                        },
+                    )
+                else:
+                    subscriber_service.sync_from_external(session, "selfcare", external_id, data)
+                if existing:
+                    results["updated"] += 1
+                else:
+                    results["created"] += 1
+                logger.info(
+                    "SELFCARE_SYNC_ITEM_COMPLETE index=%d external_id=%s action=%s created=%d updated=%d errors=%d",
+                    index,
+                    external_id,
+                    "updated" if existing else "created",
+                    results["created"],
+                    results["updated"],
+                    len(results["errors"]),
+                )
+            except Exception as exc:
+                session.rollback()
+                raw_customer_id = customer.get("id") if isinstance(customer, dict) else ""
+                results["errors"].append({"external_id": external_id or raw_customer_id, "error": str(exc)})
+                logger.exception(
+                    "SELFCARE_SYNC_ITEM_ERROR index=%d external_id=%s error=%s",
+                    index,
+                    external_id or raw_customer_id,
+                    exc,
+                )
+            except BaseException:
+                status = "error"
+                logger.critical(
+                    "SELFCARE_SYNC_ITEM_FATAL index=%d external_id=%s step=%s",
+                    index,
+                    external_id,
+                    current_step,
+                    exc_info=True,
+                )
+                raise
+
+        current_step = "complete"
+        logger.info(
+            "SELFCARE_SYNC_COMPLETE created=%d updated=%d errors=%d",
+            results["created"],
+            results["updated"],
+            len(results["errors"]),
+        )
+    except Exception as exc:
+        status = "error"
+        try:
+            session.rollback()
+            logger.info("SELFCARE_SYNC_ROLLBACK_COMPLETE step=%s", current_step)
+        except Exception:
+            logger.exception("SELFCARE_SYNC_ROLLBACK_FAILED step=%s", current_step)
+        logger.exception("SELFCARE_SYNC_ERROR step=%s error=%s", current_step, exc)
+        raise
+    except BaseException:
+        status = "error"
+        try:
+            session.rollback()
+            logger.info("SELFCARE_SYNC_FATAL_ROLLBACK_COMPLETE step=%s", current_step)
+        except Exception:
+            logger.exception("SELFCARE_SYNC_FATAL_ROLLBACK_FAILED step=%s", current_step)
+        logger.critical("SELFCARE_SYNC_FATAL step=%s", current_step, exc_info=True)
+        raise
+    finally:
+        duration = time.monotonic() - start
+        logger.info("SELFCARE_SYNC_FINALLY status=%s step=%s duration=%.3fs", status, current_step, duration)
+        try:
+            session.close()
+        except Exception:
+            logger.exception("SELFCARE_SYNC_SESSION_CLOSE_FAILED step=%s", current_step)
+        observe_job("selfcare_subscriber_sync", status, duration)
+
+    return results
+
+
 @celery_app.task(name="app.tasks.subscribers.refresh_billing_risk_cache")
 def refresh_billing_risk_cache() -> dict[str, Any]:
     """Refresh cached subscriber billing-risk report rows from live provider data."""
@@ -127,7 +322,7 @@ def refresh_billing_risk_cache() -> dict[str, Any]:
 
 @celery_app.task(name="app.tasks.subscribers.reconcile_subscriber_identity")
 def reconcile_subscriber_identity(
-    external_system: str = "splynx",
+    external_system: str = SPLYNX_EXTERNAL_SYSTEM,
     clear_duplicate_metadata: bool = True,
 ) -> dict[str, Any]:
     """

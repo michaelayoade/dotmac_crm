@@ -17,7 +17,8 @@ from app.schemas.subscriber import (
     SubscriberStats,
     SubscriberUpdate,
 )
-from app.services.splynx import map_customer_to_subscriber_data
+from app.services.selfcare import map_customer_to_subscriber_data as map_selfcare_customer_to_subscriber_data
+from app.services.splynx import map_customer_to_subscriber_data as map_splynx_customer_to_subscriber_data
 from app.services.subscriber import subscriber as subscriber_service
 
 router = APIRouter(prefix="/subscribers", tags=["subscribers"])
@@ -244,6 +245,8 @@ def sync_webhook(
     # Parse based on external system
     if external_system == "splynx":
         return _handle_splynx_webhook(db, payload)
+    elif external_system == "selfcare":
+        return _handle_selfcare_webhook(db, payload)
     elif external_system == "ucrm":
         return _handle_ucrm_webhook(db, payload)
     else:
@@ -254,11 +257,33 @@ def sync_webhook(
 def _handle_splynx_webhook(db: Session, payload: dict) -> dict:
     """Handle Splynx webhook payload."""
     external_id = str(payload.get("id"))
-    data = map_customer_to_subscriber_data(db, payload, include_remote_details=True)
+    data = map_splynx_customer_to_subscriber_data(db, payload, include_remote_details=True)
 
     sub = subscriber_service.sync_from_external(db, "splynx", external_id, data)
     logger.info(
         "subscriber_sync_webhook_completed external_system=splynx external_id=%s subscriber_id=%s",
+        external_id,
+        sub.id,
+    )
+    return {"status": "ok", "subscriber_id": str(sub.id)}
+
+
+def _handle_selfcare_webhook(db: Session, payload: dict) -> dict:
+    """Handle Selfcare webhook payload."""
+    external_id = str(payload.get("id") or payload.get("uuid") or payload.get("subscriber_id") or "")
+    if not external_id:
+        raise HTTPException(status_code=400, detail="Selfcare subscriber id is required")
+    existing = subscriber_service.get_by_external_id(db, "selfcare", external_id)
+    data = map_selfcare_customer_to_subscriber_data(
+        db,
+        payload,
+        include_remote_details=False,
+        existing_sync_metadata=dict(existing.sync_metadata or {}) if existing else None,
+    )
+
+    sub = subscriber_service.sync_from_external(db, "selfcare", external_id, data)
+    logger.info(
+        "subscriber_sync_webhook_completed external_system=selfcare external_id=%s subscriber_id=%s",
         external_id,
         sub.id,
     )
