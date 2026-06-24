@@ -7,7 +7,11 @@ import '../execution/execution_controller.dart';
 import 'job_models.dart';
 
 class MeSummary {
-  const MeSummary({required this.name, required this.openJobs, required this.completedToday});
+  const MeSummary({
+    required this.name,
+    required this.openJobs,
+    required this.completedToday,
+  });
 
   final String name;
   final int openJobs;
@@ -23,13 +27,13 @@ class JobList {
 }
 
 JobSummary _summaryFromCache(CachedJob row) => JobSummary(
-      id: row.id,
-      title: row.title,
-      status: row.status,
-      workType: row.workType,
-      priority: row.priority,
-      scheduledStart: row.scheduledStart,
-    );
+  id: row.id,
+  title: row.title,
+  status: row.status,
+  workType: row.workType,
+  priority: row.priority,
+  scheduledStart: row.scheduledStart,
+);
 
 class JobsRepository {
   JobsRepository(this._read);
@@ -37,7 +41,10 @@ class JobsRepository {
   final Ref _read;
 
   Future<MeSummary> fetchMe() async {
-    final response = await _read.read(apiClientProvider).dio.get('/api/v1/field/me');
+    final response = await _read
+        .read(apiClientProvider)
+        .dio
+        .get('/api/v1/field/me');
     final data = (response.data as Map).cast<String, dynamic>();
     return MeSummary(
       name: data['name'] as String? ?? '',
@@ -49,13 +56,20 @@ class JobsRepository {
   Future<JobList> fetchJobs({String? status}) async {
     final sync = _read.read(syncServiceProvider);
     try {
-      final response = await _read.read(apiClientProvider).dio.get(
-        '/api/v1/field/jobs',
-        queryParameters: {'status': ?status, 'limit': 200},
-      );
+      final response = await _read
+          .read(apiClientProvider)
+          .dio
+          .get(
+            '/api/v1/field/jobs',
+            queryParameters: {'status': ?status, 'limit': 200},
+          );
       final items = (response.data['items'] as List).cast<Map>();
       await sync.cacheJobs(items); // keep the offline cache warm
-      return JobList(items.map((item) => JobSummary.fromJson(item.cast<String, dynamic>())).toList());
+      return JobList(
+        items
+            .map((item) => JobSummary.fromJson(item.cast<String, dynamic>()))
+            .toList(),
+      );
     } on DioException {
       // Offline / server unreachable: serve the cache so the tech still works.
       final cached = await sync.readCachedJobs(status: status);
@@ -67,7 +81,10 @@ class JobsRepository {
   Future<JobDetail> fetchDetail(String jobId) async {
     final sync = _read.read(syncServiceProvider);
     try {
-      final response = await _read.read(apiClientProvider).dio.get('/api/v1/field/jobs/$jobId');
+      final response = await _read
+          .read(apiClientProvider)
+          .dio
+          .get('/api/v1/field/jobs/$jobId');
       final data = (response.data as Map).cast<String, dynamic>();
       await sync.cacheJobDetail(jobId, data);
       return JobDetail.fromJson(data);
@@ -77,11 +94,39 @@ class JobsRepository {
       return JobDetail.fromJson(cached);
     }
   }
+
+  Future<JobLocation> updateLocation({
+    required String jobId,
+    required double latitude,
+    required double longitude,
+  }) async {
+    final sync = _read.read(syncServiceProvider);
+    final response = await _read
+        .read(apiClientProvider)
+        .dio
+        .patch(
+          '/api/v1/field/jobs/$jobId/location',
+          data: {'latitude': latitude, 'longitude': longitude},
+        );
+    final data = (response.data as Map).cast<String, dynamic>();
+    final locationData = ((data['location'] as Map?) ?? data)
+        .cast<String, dynamic>();
+    final location = JobLocation.fromJson(locationData);
+
+    final cached = await sync.readCachedDetail(jobId);
+    if (cached != null) {
+      cached['location'] = location.toJson();
+      await sync.cacheJobDetail(jobId, cached);
+    }
+    return location;
+  }
 }
 
 final jobsRepositoryProvider = Provider<JobsRepository>(JobsRepository.new);
 
-final meProvider = FutureProvider<MeSummary>((ref) => ref.watch(jobsRepositoryProvider).fetchMe());
+final meProvider = FutureProvider<MeSummary>(
+  (ref) => ref.watch(jobsRepositoryProvider).fetchMe(),
+);
 
 final jobsFilterProvider = StateProvider<String?>((ref) => null);
 

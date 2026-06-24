@@ -4,8 +4,11 @@ import uuid
 
 from app.models.person import Person
 from app.models.subscriber import Subscriber
+from app.schemas.workforce import WorkOrderUpdate
 from app.services.field import location as location_module
-from app.services.field.location import resolve_job_location
+from app.services.field.jobs import field_jobs
+from app.services.field.location import resolve_job_location, update_job_location
+from app.services.workforce import work_orders
 
 
 def _attach_subscriber(db_session, work_order, person, **address):
@@ -105,3 +108,37 @@ def test_person_address_fallback(db_session, work_order, monkeypatch):
     result = resolve_job_location(db_session, work_order)
     assert result["source"] == "geocoded"
     assert "Marina" in result["address_text"]
+
+
+def test_manual_pin_overrides_geocoded_cache(db_session, work_order, person, monkeypatch):
+    _attach_subscriber(db_session, work_order, person)
+    monkeypatch.setattr(
+        location_module.geocoding_service,
+        "geocode_address",
+        lambda db, data: {**data, "latitude": 6.45, "longitude": 3.39},
+    )
+    assert resolve_job_location(db_session, work_order)["source"] == "geocoded"
+
+    result = update_job_location(db_session, work_order, latitude=6.601, longitude=3.501)
+
+    assert result["source"] == "manual"
+    assert result["latitude"] == 6.601
+    db_session.refresh(work_order)
+    assert work_order.metadata_["resolved_location"]["source"] == "manual"
+    assert resolve_job_location(db_session, work_order)["source"] == "manual"
+    assert resolve_job_location(db_session, work_order)["latitude"] == 6.601
+
+
+def test_field_job_update_location_scopes_to_assigned_technician(db_session, work_order, person):
+    assigned = work_orders.update(db_session, str(work_order.id), WorkOrderUpdate(assigned_to_person_id=person.id))
+
+    result = field_jobs.update_location(
+        db_session,
+        str(person.id),
+        str(assigned.id),
+        latitude=6.7,
+        longitude=3.8,
+    )
+
+    assert result["source"] == "manual"
+    assert result["longitude"] == 3.8
