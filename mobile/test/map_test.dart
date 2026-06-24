@@ -116,4 +116,19 @@ void main() {
     expect(find.text('Edit pinned job'), findsOneWidget);
     expect(find.text('Job a'), findsOneWidget);
   });
+
+  testWidgets('edit pins button stays visible with no pins', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [mapPinsProvider.overrideWith((ref) async => [])],
+        child: const MaterialApp(home: MapScreen(showTiles: false)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('edit-pins-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No pinned jobs yet'), findsOneWidget);
+  });
 }

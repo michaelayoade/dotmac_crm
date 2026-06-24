@@ -34,15 +34,18 @@ class MapScreen extends ConsumerWidget {
         title: const Text('Job map'),
         actions: [
           pins.maybeWhen(
-            data: (items) => items.isEmpty
-                ? const SizedBox.shrink()
-                : TextButton.icon(
-                    key: const Key('edit-pins-button'),
-                    onPressed: () => _showPinListSheet(context, ref, items),
-                    icon: const Icon(Icons.push_pin_outlined),
-                    label: const Text('Edit'),
-                  ),
-            orElse: () => const SizedBox.shrink(),
+            data: (items) => TextButton.icon(
+              key: const Key('edit-pins-button'),
+              onPressed: () => _showPinListSheet(context, ref, items),
+              icon: const Icon(Icons.push_pin_outlined),
+              label: const Text('Edit'),
+            ),
+            orElse: () => TextButton.icon(
+              key: const Key('edit-pins-button'),
+              onPressed: null,
+              icon: const Icon(Icons.push_pin_outlined),
+              label: const Text('Edit'),
+            ),
           ),
         ],
       ),
@@ -162,6 +165,11 @@ class MapScreen extends ConsumerWidget {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ),
+            if (pins.isEmpty)
+              const ListTile(
+                leading: Icon(Icons.info_outline),
+                title: Text('No pinned jobs yet'),
+              ),
             for (final pin in pins)
               ListTile(
                 leading: Icon(
