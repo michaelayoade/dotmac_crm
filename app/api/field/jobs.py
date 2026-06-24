@@ -10,6 +10,7 @@ from app.schemas.field import (
     FieldCustomer,
     FieldJobDetail,
     FieldJobLocation,
+    FieldJobLocationUpdate,
     FieldJobSummary,
     FieldMaterialRead,
     FieldMeResponse,
@@ -64,3 +65,20 @@ def get_field_job(work_order_id: str, auth=Depends(require_user_auth), db: Sessi
         materials=[FieldMaterialRead.from_material(m) for m in bundle["materials"]],
         worklogs=[FieldWorkLogRead.model_validate(w) for w in bundle["worklogs"]],
     )
+
+
+@router.patch("/jobs/{work_order_id}/location", response_model=FieldJobLocation)
+def update_field_job_location(
+    work_order_id: str,
+    payload: FieldJobLocationUpdate,
+    auth=Depends(require_user_auth),
+    db: Session = Depends(get_db),
+):
+    location = field_jobs.update_location(
+        db,
+        auth["person_id"],
+        work_order_id,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+    )
+    return FieldJobLocation(**location)
