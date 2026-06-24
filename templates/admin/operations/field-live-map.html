@@ -29,6 +29,53 @@
   </div>
 
   <div id="live-map-list" class="grid gap-2 sm:grid-cols-2"></div>
+
+  <section class="space-y-3">
+    <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Tracking Status</h2>
+        <p class="text-sm text-slate-600 dark:text-slate-300">
+          Active technicians, sharing state, freshness, and current assigned work.
+        </p>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-center text-xs">
+        <div class="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+          <div id="tracking-total" class="text-base font-semibold text-slate-900 dark:text-white">0</div>
+          <div class="text-slate-500 dark:text-slate-400">Techs</div>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+          <div id="tracking-sharing" class="text-base font-semibold text-slate-900 dark:text-white">0</div>
+          <div class="text-slate-500 dark:text-slate-400">Sharing</div>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+          <div id="tracking-live" class="text-base font-semibold text-slate-900 dark:text-white">0</div>
+          <div class="text-slate-500 dark:text-slate-400">Live</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+          <thead class="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800/70 dark:text-slate-400">
+            <tr>
+              <th class="px-4 py-3">Technician</th>
+              <th class="px-4 py-3">Tracking</th>
+              <th class="px-4 py-3">Shift</th>
+              <th class="px-4 py-3">Last Location</th>
+              <th class="px-4 py-3">Last Seen</th>
+              <th class="px-4 py-3">Assigned Work</th>
+            </tr>
+          </thead>
+          <tbody id="tracking-state-rows" class="divide-y divide-slate-100 dark:divide-slate-800">
+            <tr>
+              <td colspan="6" class="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">Loading tracking status...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 </div>
 {% endblock %}
 
@@ -56,6 +103,10 @@
   const mapNoticeEl = document.getElementById("live-map-mapnotice");
   const emptyEl = document.getElementById("live-map-empty");
   const listEl = document.getElementById("live-map-list");
+  const trackingRowsEl = document.getElementById("tracking-state-rows");
+  const trackingTotalEl = document.getElementById("tracking-total");
+  const trackingSharingEl = document.getElementById("tracking-sharing");
+  const trackingLiveEl = document.getElementById("tracking-live");
 
   const showMapNotice = () => {
     if (mapNoticeShown) return;
@@ -102,6 +153,27 @@
     return `${Math.floor(sec / 60)}m ago`;
   };
 
+  const fmtCoord = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num.toFixed(6) : "";
+  };
+
+  const escapeHtml = (value) => String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+
+  const statusPill = (label, tone) => {
+    const tones = {
+      green: "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/30",
+      amber: "bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/30",
+      slate: "bg-slate-100 text-slate-700 ring-slate-600/10 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-500/30"
+    };
+    return `<span class="inline-flex rounded-lg px-2 py-1 text-xs font-semibold ring-1 ring-inset ${tones[tone] || tones.slate}">${escapeHtml(label)}</span>`;
+  };
+
   // Field-tech status colours (operations domain: emerald on shift).
   const colorFor = (status) => {
     if (status === "on_shift") return "#10b981";
@@ -138,6 +210,42 @@
     `;
   };
 
+  const renderTrackingStates = (payload) => {
+    const items = Array.isArray(payload && payload.items) ? payload.items : [];
+    if (trackingTotalEl) trackingTotalEl.textContent = String(payload?.count ?? items.length);
+    if (trackingSharingEl) trackingSharingEl.textContent = String(payload?.sharing_count ?? 0);
+    if (trackingLiveEl) trackingLiveEl.textContent = String(payload?.live_count ?? 0);
+    if (!trackingRowsEl) return;
+    if (items.length === 0) {
+      trackingRowsEl.innerHTML = `<tr><td colspan="6" class="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No active technicians found.</td></tr>`;
+      return;
+    }
+    trackingRowsEl.innerHTML = items.map((row) => {
+      const tracking = row.is_live
+        ? statusPill("Live", "green")
+        : row.location_sharing_enabled
+          ? statusPill("Stale", "amber")
+          : statusPill("Not sharing", "slate");
+      const location = row.last_location_at
+        ? `${fmtAgo(row.last_location_at)}<div class="text-xs text-slate-500 dark:text-slate-400">${fmtCoord(row.last_latitude)}, ${fmtCoord(row.last_longitude)}</div>`
+        : `<span class="text-slate-500 dark:text-slate-400">No location yet</span>`;
+      const work = row.active_work_order
+        ? `<a class="font-medium text-blue-600 hover:underline dark:text-blue-400" href="/admin/operations/work-orders/${escapeHtml(row.active_work_order.id)}">${escapeHtml(row.active_work_order.title)}</a><div class="text-xs text-slate-500 dark:text-slate-400">${escapeHtml(row.active_work_order.status).replace("_", " ")} · ${escapeHtml(row.active_work_order.work_type).replace("_", " ")}</div>`
+        : `<span class="text-slate-500 dark:text-slate-400">None</span>`;
+      return `<tr class="align-top">
+        <td class="px-4 py-3">
+          <div class="font-semibold text-slate-900 dark:text-white">${escapeHtml(row.person_label || "Technician")}</div>
+          <div class="text-xs text-slate-500 dark:text-slate-400">${escapeHtml(row.title || "")}${row.region ? ` · ${escapeHtml(row.region)}` : ""}</div>
+        </td>
+        <td class="px-4 py-3">${tracking}</td>
+        <td class="px-4 py-3 text-slate-700 dark:text-slate-200">${escapeHtml(row.status || "off_shift").replace("_", " ")}</td>
+        <td class="px-4 py-3 text-slate-700 dark:text-slate-200">${location}</td>
+        <td class="px-4 py-3 text-slate-700 dark:text-slate-200">${row.last_seen_at ? fmtAgo(row.last_seen_at) : "Never"}</td>
+        <td class="px-4 py-3">${work}</td>
+      </tr>`;
+    }).join("");
+  };
+
   const focusTech = (personId) => {
     const row = latestById.get(String(personId));
     if (!row) return;
@@ -153,11 +261,16 @@
   };
 
   const refresh = () => {
-    fetch("/admin/operations/field-techs/live-map?stale_after_seconds=120&limit=500", {
-      headers: { "Accept": "application/json" }
-    })
-      .then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
-      .then((data) => {
+    Promise.all([
+      fetch("/admin/operations/field-techs/live-map?stale_after_seconds=120&limit=500", {
+        headers: { "Accept": "application/json" }
+      }).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
+      fetch("/admin/operations/field-techs/tracking-states?stale_after_seconds=120&limit=500", {
+        headers: { "Accept": "application/json" }
+      }).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+    ])
+      .then(([data, states]) => {
+        renderTrackingStates(states);
         const items = Array.isArray(data && data.items) ? data.items : [];
         latestById.clear();
         items.forEach((i) => latestById.set(String(i.person_id), i));
