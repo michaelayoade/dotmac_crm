@@ -31,6 +31,17 @@ class MapScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Job map')),
+      floatingActionButton: pins.maybeWhen(
+        data: (items) => items.isEmpty
+            ? null
+            : FloatingActionButton.extended(
+                key: const Key('edit-pins-button'),
+                onPressed: () => _showPinListSheet(context, ref, items),
+                icon: const Icon(Icons.push_pin_outlined),
+                label: const Text('Edit pins'),
+              ),
+        orElse: () => null,
+      ),
       body: pins.when(
         data: (items) {
           final center = items.isNotEmpty
@@ -123,6 +134,55 @@ class MapScreen extends ConsumerWidget {
                 if (changed == true) ref.invalidate(mapPinsProvider);
               },
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showPinListSheet(
+    BuildContext context,
+    WidgetRef ref,
+    List<JobPin> pins,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'Edit pinned job',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            for (final pin in pins)
+              ListTile(
+                leading: Icon(
+                  Icons.location_pin,
+                  color: AppColors.status(pin.status),
+                ),
+                title: Text(pin.title),
+                subtitle: Text(pin.status.replaceAll('_', ' ')),
+                onTap: () async {
+                  Navigator.pop(sheetContext);
+                  final changed = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(
+                      builder: (_) => LocationPinScreen(
+                        jobId: pin.id,
+                        initialLocation: JobLocation(
+                          latitude: pin.latitude,
+                          longitude: pin.longitude,
+                          source: 'cached',
+                        ),
+                      ),
+                    ),
+                  );
+                  if (changed == true) ref.invalidate(mapPinsProvider);
+                },
+              ),
           ],
         ),
       ),
