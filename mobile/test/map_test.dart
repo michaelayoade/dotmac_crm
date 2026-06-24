@@ -39,6 +39,17 @@ void main() {
     expect(pins.single.latitude, 6.5);
   });
 
+  test('buildJobPins skips out-of-range cached coordinates', () {
+    final pins = buildJobPins(
+      [_job('a'), _job('b')],
+      {
+        'a': _detailWith(lat: 91, lng: 3.4),
+        'b': _detailWith(lat: 6.5, lng: 181),
+      },
+    );
+    expect(pins, isEmpty);
+  });
+
   testWidgets('map renders a marker per pinned job', (tester) async {
     final pins = [
       const JobPin(
@@ -174,5 +185,45 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('OLT Alpha'), findsOneWidget);
     expect(find.text('Edit asset location'), findsOneWidget);
+  });
+
+  testWidgets('map ignores invalid job and crm asset coordinates', (
+    tester,
+  ) async {
+    final pins = [
+      const JobPin(
+        id: 'bad-job',
+        title: 'Bad job',
+        status: 'dispatched',
+        latitude: double.nan,
+        longitude: 3.4,
+      ),
+    ];
+    final assets = [
+      const MapAsset(
+        id: 'bad-asset',
+        type: 'olt',
+        title: 'Bad asset',
+        latitude: 9.1,
+        longitude: double.infinity,
+      ),
+    ];
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          mapPinsProvider.overrideWith((ref) async => pins),
+          mapAssetsProvider.overrideWith((ref) async => assets),
+        ],
+        child: const MaterialApp(home: MapScreen(showTiles: false)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('pin-bad-job')), findsNothing);
+    expect(find.byKey(const Key('asset-olt-bad-asset')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('edit-pins-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('No pins loaded yet'), findsOneWidget);
   });
 }

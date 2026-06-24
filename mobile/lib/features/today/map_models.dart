@@ -16,6 +16,8 @@ class JobPin {
   final String status;
   final double latitude;
   final double longitude;
+
+  bool get hasValidCoordinates => isValidMapCoordinate(latitude, longitude);
 }
 
 class MapAsset {
@@ -37,6 +39,8 @@ class MapAsset {
   final double longitude;
   final String? status;
 
+  bool get hasValidCoordinates => isValidMapCoordinate(latitude, longitude);
+
   factory MapAsset.fromJson(Map<String, dynamic> json) => MapAsset(
     id: json['id'] as String,
     type: json['type'] as String,
@@ -46,6 +50,15 @@ class MapAsset {
     longitude: (json['longitude'] as num).toDouble(),
     status: json['status'] as String?,
   );
+}
+
+bool isValidMapCoordinate(double latitude, double longitude) {
+  return latitude.isFinite &&
+      longitude.isFinite &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      longitude >= -180 &&
+      longitude <= 180;
 }
 
 const mapAssetTypeLabels = {
@@ -75,6 +88,7 @@ List<JobPin> buildJobPins(
     final lat = (location?['latitude'] as num?)?.toDouble();
     final lng = (location?['longitude'] as num?)?.toDouble();
     if (lat == null || lng == null) continue;
+    if (!isValidMapCoordinate(lat, lng)) continue;
     pins.add(
       JobPin(
         id: job.id,

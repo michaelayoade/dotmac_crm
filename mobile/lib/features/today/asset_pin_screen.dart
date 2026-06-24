@@ -17,13 +17,17 @@ class AssetPinScreen extends ConsumerStatefulWidget {
 }
 
 class _AssetPinScreenState extends ConsumerState<AssetPinScreen> {
+  static const _fallbackCenter = LatLng(6.5244, 3.3792);
+
   late LatLng _selected;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    _selected = LatLng(widget.asset.latitude, widget.asset.longitude);
+    _selected = widget.asset.hasValidCoordinates
+        ? LatLng(widget.asset.latitude, widget.asset.longitude)
+        : _fallbackCenter;
   }
 
   Future<void> _save() async {

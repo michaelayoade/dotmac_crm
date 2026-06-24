@@ -43,8 +43,10 @@ class MapScreen extends ConsumerWidget {
               onPressed: () => _showPinListSheet(
                 context,
                 ref,
-                items,
-                assets.valueOrNull ?? const [],
+                items.where((pin) => pin.hasValidCoordinates).toList(),
+                (assets.valueOrNull ?? const <MapAsset>[])
+                    .where((asset) => asset.hasValidCoordinates)
+                    .toList(),
               ),
               icon: const Icon(Icons.push_pin_outlined),
               label: const Text('Edit'),
@@ -60,9 +62,14 @@ class MapScreen extends ConsumerWidget {
       ),
       body: pins.when(
         data: (items) {
-          final assetItems = assets.valueOrNull ?? const <MapAsset>[];
-          final center = items.isNotEmpty
-              ? LatLng(items.first.latitude, items.first.longitude)
+          final validPins = items
+              .where((pin) => pin.hasValidCoordinates)
+              .toList();
+          final assetItems = (assets.valueOrNull ?? const <MapAsset>[])
+              .where((asset) => asset.hasValidCoordinates)
+              .toList();
+          final center = validPins.isNotEmpty
+              ? LatLng(validPins.first.latitude, validPins.first.longitude)
               : assetItems.isNotEmpty
               ? LatLng(assetItems.first.latitude, assetItems.first.longitude)
               : const LatLng(6.5244, 3.3792); // Lagos default
@@ -94,7 +101,7 @@ class MapScreen extends ConsumerWidget {
                             ),
                           ),
                         ),
-                      for (final pin in items)
+                      for (final pin in validPins)
                         Marker(
                           point: LatLng(pin.latitude, pin.longitude),
                           width: 44,
