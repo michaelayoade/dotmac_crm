@@ -963,7 +963,10 @@ class Projects(ListResponseMixin):
 
     @staticmethod
     def _get_region_pm_assignments(db: Session, region: str | None) -> tuple[str | None, str | None]:
-        """Look up PM + SPC person_id for the given region from settings."""
+        """Look up the PM person_id for the given region from settings.
+
+        Project SPC assignment is intentionally disabled in the project flow.
+        """
         if not region:
             return None, None
         region_pm_map = settings_spec.resolve_value(db, SettingDomain.projects, "region_pm_assignments")
@@ -971,14 +974,8 @@ class Projects(ListResponseMixin):
             return None, None
         entry = region_pm_map.get(region)
         pm_id: str | None = None
-        spc_id: str | None = None
         if isinstance(entry, dict):
             pm_id = entry.get("manager_person_id") or entry.get("project_manager_person_id")
-            spc_id = (
-                entry.get("spc_person_id")
-                or entry.get("assistant_person_id")
-                or entry.get("assistant_manager_person_id")
-            )
         elif isinstance(entry, str):
             pm_id = entry
         if pm_id:
@@ -987,13 +984,7 @@ class Projects(ListResponseMixin):
                 pm_id = None
             else:
                 pm_id = str(person.id)
-        if spc_id:
-            person = db.get(Person, coerce_uuid(spc_id))
-            if not person:
-                spc_id = None
-            else:
-                spc_id = str(person.id)
-        return pm_id, spc_id
+        return pm_id, None
 
     @staticmethod
     def _get_pm_for_region(db: Session, region: str | None) -> str | None:

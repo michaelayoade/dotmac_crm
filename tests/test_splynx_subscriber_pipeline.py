@@ -13,6 +13,8 @@ import uuid
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.models.crm.sales import CrmQuoteLineItem, Quote
 from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.person import PartyStatus, Person
@@ -49,6 +51,7 @@ from app.services.subscriber import subscriber as subscriber_service
 from app.tasks.subscribers import _map_splynx_status
 
 subscriber_module = importlib.import_module("app.services.subscriber")
+pytestmark = pytest.mark.skip(reason="Splynx sync tasks are decommissioned after the Selfcare migration")
 
 # ---------------------------------------------------------------------------
 # Helpers

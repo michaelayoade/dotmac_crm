@@ -447,12 +447,25 @@ def _resolve_person_channel_for_message(
     person: Person,
     channel_type: ChannelType,
     last_inbound: Message | None = None,
+    person_channel_id: Any | None = None,
 ) -> PersonChannel | None:
     """Resolve the recipient channel for outbound messaging."""
     try:
         person_channel_type = PersonChannelType(channel_type.value)
     except Exception:
         return None
+
+    if person_channel_id:
+        explicit_channel = db.get(PersonChannel, person_channel_id)
+        if (
+            explicit_channel
+            and explicit_channel.person_id == person.id
+            and explicit_channel.channel_type == person_channel_type
+            and (
+                channel_type != ChannelType.whatsapp or _normalize_whatsapp_recipient_address(explicit_channel.address)
+            )
+        ):
+            return explicit_channel
 
     if (
         channel_type == ChannelType.whatsapp
@@ -1507,7 +1520,13 @@ def send_message(
                     )
                 resolved_channel_target_id = last_inbound.channel_target_id
 
-        person_channel = _resolve_person_channel_for_message(db, person, payload.channel_type, last_inbound)
+        person_channel = _resolve_person_channel_for_message(
+            db,
+            person,
+            payload.channel_type,
+            last_inbound,
+            payload.person_channel_id,
+        )
         if not person_channel:
             raise InboxValidationError("contact_channel_missing", "Contact channel not found")
 

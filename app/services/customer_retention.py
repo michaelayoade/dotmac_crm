@@ -13,11 +13,11 @@ from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.person import Person
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.services.common import coerce_uuid
-from app.services.external_systems import EXTERNAL_SUBSCRIBER_SYSTEMS, SELFCARE_EXTERNAL_SYSTEM
+from app.services.external_systems import SELFCARE_EXTERNAL_SYSTEM
 
 logger = logging.getLogger(__name__)
 
-RETENTION_SPLYNX_DEACTIVATION_OUTCOMES = frozenset({"Lost", "Churning"})
+RETENTION_SELFCARE_DEACTIVATION_OUTCOMES = frozenset({"Lost", "Churning"})
 
 
 def parse_follow_up_date(value: object) -> date | None:
@@ -44,10 +44,10 @@ def create_retention_engagement_and_sync(
     enqueue_sync: bool = True,
 ) -> CustomerRetentionEngagement:
     """
-    Create a retention engagement and enqueue Splynx deactivation after commit.
+    Create a retention engagement and enqueue Selfcare deactivation after commit.
 
     Explicit Lost outcomes and Churning outcomes that map to the Lost pipeline
-    stage trigger the Splynx flow. Do Not Reach Out remains excluded because it
+    stage trigger the Selfcare flow. Do Not Reach Out remains excluded because it
     is a contact preference, not necessarily a disconnect decision.
     """
     normalized_customer_id = str(customer_id or "").strip()
@@ -85,14 +85,14 @@ def create_retention_engagement_and_sync(
     db.commit()
     db.refresh(engagement)
 
-    if enqueue_sync and should_enqueue_splynx_deactivation(normalized_outcome):
-        _enqueue_splynx_deactivation(db, engagement)
+    if enqueue_sync and should_enqueue_selfcare_deactivation(normalized_outcome):
+        _enqueue_selfcare_deactivation(db, engagement)
     return engagement
 
 
-def should_enqueue_splynx_deactivation(outcome: str) -> bool:
-    """Return true when a retention outcome should enter the Splynx disable flow."""
-    return str(outcome or "").strip() in RETENTION_SPLYNX_DEACTIVATION_OUTCOMES
+def should_enqueue_selfcare_deactivation(outcome: str) -> bool:
+    """Return true when a retention outcome should enter the Selfcare disable flow."""
+    return str(outcome or "").strip() in RETENTION_SELFCARE_DEACTIVATION_OUTCOMES
 
 
 def enqueue_existing_churning_deactivations(
@@ -102,11 +102,10 @@ def enqueue_existing_churning_deactivations(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """
-    Reconcile existing latest-Churning customers into the Splynx disable flow.
+    Reconcile existing latest-Churning customers into the Selfcare disable flow.
 
-    This is the backfill counterpart to the create-time gate. It only considers
-    the latest active engagement per customer, and it leaves the final Splynx
-    safety check to ``deactivate_customer_if_blocked``.
+    This is the backfill counterpart to the create-time gate. It only considers latest active
+    Selfcare subscribers; legacy Splynx rows are read-only and are not queued.
     """
     latest_ranked = (
         select(
@@ -133,7 +132,7 @@ def enqueue_existing_churning_deactivations(
         )
         .join(
             Subscriber,
-            (Subscriber.external_system.in_(EXTERNAL_SUBSCRIBER_SYSTEMS))
+            (Subscriber.external_system == SELFCARE_EXTERNAL_SYSTEM)
             & (Subscriber.external_id == latest_ranked.c.customer_external_id),
         )
         .where(latest_ranked.c.rn == 1)
@@ -154,7 +153,7 @@ def enqueue_existing_churning_deactivations(
     }
     for row in rows:
         sync_metadata = row["sync_metadata"] if isinstance(row["sync_metadata"], dict) else {}
-        marker_value = sync_metadata.get("retention_splynx_deactivation")
+        marker_value = sync_metadata.get("retention_selfcare_deactivation")
         marker = marker_value if isinstance(marker_value, dict) else {}
         marker_status = str(marker.get("status") or "").strip()
         item = {
@@ -182,32 +181,41 @@ def enqueue_existing_churning_deactivations(
         if not dry_run:
             engagement = db.get(CustomerRetentionEngagement, row["engagement_id"])
             if engagement is not None:
-                _enqueue_splynx_deactivation(db, engagement)
+                _enqueue_selfcare_deactivation(db, engagement)
                 item["status"] = "enqueued"
                 result["enqueued"] += 1
         result["items"].append(item)
     return result
 
 
-def _enqueue_splynx_deactivation(db: Session, engagement: CustomerRetentionEngagement) -> None:
-    splynx_id = str(engagement.customer_external_id or "").strip()
-    subscriber = _subscriber_for_splynx_id(db, splynx_id)
+def _enqueue_selfcare_deactivation(db: Session, engagement: CustomerRetentionEngagement) -> None:
+    selfcare_id = str(engagement.customer_external_id or "").strip()
+    subscriber = _subscriber_for_selfcare_id(db, selfcare_id)
     subscriber_id = str(subscriber.id) if subscriber is not None else None
     audit_context = {
-        "customer_id": splynx_id,
+        "customer_id": selfcare_id,
         "subscriber_id": subscriber_id,
-        "splynx_id": splynx_id,
+        "selfcare_id": selfcare_id,
         "engagement_id": str(engagement.id),
     }
+
+    if subscriber is None:
+        logger.info(
+            "retention_selfcare_deactivation_enqueue_skip customer_id=%s engagement_id=%s "
+            "reason=selfcare_subscriber_not_found_or_legacy_read_only",
+            audit_context["customer_id"],
+            audit_context["engagement_id"],
+        )
+        return
 
     if subscriber is not None:
         if subscriber.status == SubscriberStatus.terminated:
             logger.info(
-                "retention_splynx_deactivation_enqueue_skip customer_id=%s subscriber_id=%s splynx_id=%s "
+                "retention_selfcare_deactivation_enqueue_skip customer_id=%s subscriber_id=%s selfcare_id=%s "
                 "engagement_id=%s reason=subscriber_already_terminated",
                 audit_context["customer_id"],
                 audit_context["subscriber_id"],
-                audit_context["splynx_id"],
+                audit_context["selfcare_id"],
                 audit_context["engagement_id"],
             )
             return
@@ -215,11 +223,11 @@ def _enqueue_splynx_deactivation(db: Session, engagement: CustomerRetentionEngag
         marker_status = str(marker.get("status") or "").strip()
         if marker_status:
             logger.info(
-                "retention_splynx_deactivation_enqueue_skip customer_id=%s subscriber_id=%s splynx_id=%s "
+                "retention_selfcare_deactivation_enqueue_skip customer_id=%s subscriber_id=%s selfcare_id=%s "
                 "engagement_id=%s reason=deactivation_already_%s existing_engagement_id=%s",
                 audit_context["customer_id"],
                 audit_context["subscriber_id"],
-                audit_context["splynx_id"],
+                audit_context["selfcare_id"],
                 audit_context["engagement_id"],
                 marker_status,
                 marker.get("engagement_id"),
@@ -231,27 +239,24 @@ def _enqueue_splynx_deactivation(db: Session, engagement: CustomerRetentionEngag
             {
                 "status": "queued",
                 "engagement_id": str(engagement.id),
-                "splynx_id": splynx_id,
+                "selfcare_id": selfcare_id,
                 "queued_at": datetime.now(UTC).isoformat(),
             },
         )
 
     try:
-        if subscriber is not None and subscriber.external_system == SELFCARE_EXTERNAL_SYSTEM:
-            from app.tasks.customer_retention import sync_lost_retention_customer_to_selfcare as sync_task
-        else:
-            from app.tasks.customer_retention import sync_lost_retention_customer_to_splynx as sync_task
+        from app.tasks.customer_retention import sync_lost_retention_customer_to_selfcare as sync_task
 
         sync_task.delay(
-            splynx_id,
+            selfcare_id,
             str(engagement.id),
             subscriber_id=subscriber_id,
         )
         logger.info(
-            "retention_splynx_deactivation_enqueued customer_id=%s subscriber_id=%s splynx_id=%s engagement_id=%s",
+            "retention_selfcare_deactivation_enqueued customer_id=%s subscriber_id=%s selfcare_id=%s engagement_id=%s",
             audit_context["customer_id"],
             audit_context["subscriber_id"],
-            audit_context["splynx_id"],
+            audit_context["selfcare_id"],
             audit_context["engagement_id"],
         )
     except Exception as exc:
@@ -262,42 +267,41 @@ def _enqueue_splynx_deactivation(db: Session, engagement: CustomerRetentionEngag
                 {
                     "status": "enqueue_failed",
                     "engagement_id": str(engagement.id),
-                    "splynx_id": splynx_id,
+                    "selfcare_id": selfcare_id,
                     "error": str(exc)[:500],
                 },
             )
         logger.exception(
-            "retention_splynx_deactivation_enqueue_failed customer_id=%s subscriber_id=%s splynx_id=%s "
+            "retention_selfcare_deactivation_enqueue_failed customer_id=%s subscriber_id=%s selfcare_id=%s "
             "engagement_id=%s error=%s",
             audit_context["customer_id"],
             audit_context["subscriber_id"],
-            audit_context["splynx_id"],
+            audit_context["selfcare_id"],
             audit_context["engagement_id"],
             str(exc),
         )
 
 
-def _subscriber_for_splynx_id(db: Session, splynx_id: str) -> Subscriber | None:
-    if not splynx_id:
+def _subscriber_for_selfcare_id(db: Session, selfcare_id: str) -> Subscriber | None:
+    if not selfcare_id:
         return None
     return (
         db.query(Subscriber)
-        .filter(Subscriber.external_system.in_(EXTERNAL_SUBSCRIBER_SYSTEMS))
-        .filter(Subscriber.external_id == splynx_id)
-        .order_by((Subscriber.external_system == SELFCARE_EXTERNAL_SYSTEM).desc())
+        .filter(Subscriber.external_system == SELFCARE_EXTERNAL_SYSTEM)
+        .filter(Subscriber.external_id == selfcare_id)
         .first()
     )
 
 
 def _retention_deactivation_marker(subscriber: Subscriber) -> dict[str, Any]:
     metadata = subscriber.sync_metadata if isinstance(subscriber.sync_metadata, dict) else {}
-    marker = metadata.get("retention_splynx_deactivation")
+    marker = metadata.get("retention_selfcare_deactivation")
     return marker if isinstance(marker, dict) else {}
 
 
 def _set_retention_deactivation_marker(db: Session, subscriber: Subscriber, marker: dict[str, Any]) -> None:
     metadata = dict(subscriber.sync_metadata or {})
-    metadata["retention_splynx_deactivation"] = marker
+    metadata["retention_selfcare_deactivation"] = marker
     subscriber.sync_metadata = metadata
     db.add(subscriber)
     db.commit()
