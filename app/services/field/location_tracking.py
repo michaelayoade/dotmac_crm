@@ -14,8 +14,10 @@ from datetime import UTC, datetime, timedelta
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.models.dispatch import TechnicianProfile
 from app.models.field_location import FieldPresenceStatus, FieldTechLocationPing, FieldTechPresence
 from app.models.person import Person
+from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services.common import coerce_uuid, validate_enum
 
 # Default retention for the immutable ping audit. Pings older than this are pruned;
@@ -233,6 +235,99 @@ class FieldLocationTracking:
                     ),
                     "last_location_at": presence.last_location_at,
                     "last_seen_at": presence.last_seen_at,
+                }
+            )
+        return items
+
+    @staticmethod
+    def list_tracking_states(
+        db: Session,
+        *,
+        stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
+        limit: int = 500,
+    ) -> list[dict]:
+        """All active technician tracking states for admin operations management."""
+        safe_limit = max(1, min(int(limit or 500), 500))
+        window = max(int(stale_after_seconds or DEFAULT_STALE_AFTER_SECONDS), 30)
+        cutoff = _now() - timedelta(seconds=window)
+
+        rows = (
+            db.query(TechnicianProfile, Person, FieldTechPresence)
+            .join(Person, Person.id == TechnicianProfile.person_id)
+            .outerjoin(FieldTechPresence, FieldTechPresence.person_id == TechnicianProfile.person_id)
+            .filter(TechnicianProfile.is_active.is_(True))
+            .filter(Person.is_active.is_(True))
+            .order_by(Person.last_name.asc(), Person.first_name.asc(), TechnicianProfile.created_at.desc())
+            .limit(safe_limit)
+            .all()
+        )
+
+        person_ids = [profile.person_id for profile, _person, _presence in rows]
+        active_work_by_person: dict[str, WorkOrder] = {}
+        if person_ids:
+            active_orders = (
+                db.query(WorkOrder)
+                .filter(WorkOrder.is_active.is_(True))
+                .filter(WorkOrder.assigned_to_person_id.in_(person_ids))
+                .filter(
+                    WorkOrder.status.in_(
+                        [WorkOrderStatus.scheduled, WorkOrderStatus.dispatched, WorkOrderStatus.in_progress]
+                    )
+                )
+                .order_by(WorkOrder.updated_at.desc())
+                .all()
+            )
+            for order in active_orders:
+                key = str(order.assigned_to_person_id)
+                active_work_by_person.setdefault(key, order)
+
+        items: list[dict] = []
+        for profile, person, presence in rows:
+            person_id = str(profile.person_id)
+            last_location_at = presence.last_location_at if presence else None
+            comparable_last_location_at = last_location_at
+            if comparable_last_location_at is not None and comparable_last_location_at.tzinfo is None:
+                comparable_last_location_at = comparable_last_location_at.replace(tzinfo=UTC)
+            is_live = bool(
+                presence
+                and presence.location_sharing_enabled
+                and comparable_last_location_at is not None
+                and comparable_last_location_at >= cutoff
+            )
+            current_order: WorkOrder | None = active_work_by_person.get(person_id)
+            items.append(
+                {
+                    "technician_id": str(profile.id),
+                    "person_id": person_id,
+                    "person_label": _person_label(person),
+                    "title": profile.title,
+                    "region": profile.region,
+                    "status": presence.status.value if presence else FieldPresenceStatus.off_shift.value,
+                    "location_sharing_enabled": bool(presence and presence.location_sharing_enabled),
+                    "is_live": is_live,
+                    "last_latitude": float(presence.last_latitude)
+                    if presence and presence.last_latitude is not None
+                    else None,
+                    "last_longitude": (
+                        float(presence.last_longitude) if presence and presence.last_longitude is not None else None
+                    ),
+                    "accuracy_m": (
+                        float(presence.last_location_accuracy_m)
+                        if presence and presence.last_location_accuracy_m is not None
+                        else None
+                    ),
+                    "last_location_at": last_location_at,
+                    "last_seen_at": presence.last_seen_at if presence else None,
+                    "active_work_order": (
+                        {
+                            "id": str(current_order.id),
+                            "title": current_order.title,
+                            "status": current_order.status.value,
+                            "work_type": current_order.work_type.value,
+                        }
+                        if current_order
+                        else None
+                    ),
                 }
             )
         return items
