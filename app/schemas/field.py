@@ -169,7 +169,12 @@ class FieldJobLocation(BaseModel):
     latitude: float | None
     longitude: float | None
     address_text: str | None
-    source: str  # cached | geocoded | address_only | none
+    source: str  # cached | geocoded | manual | address_only | none
+
+
+class FieldJobLocationUpdate(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
 
 
 class FieldJobDetail(BaseModel):

@@ -6,7 +6,9 @@ import 'package:latlong2/latlong.dart';
 
 import '../../app/theme.dart';
 import '../execution/execution_controller.dart';
+import '../jobs/job_models.dart';
 import '../jobs/jobs_providers.dart';
+import '../jobs/location_pin_screen.dart';
 import 'map_models.dart';
 
 final mapPinsProvider = FutureProvider<List<JobPin>>((ref) async {
@@ -51,8 +53,12 @@ class MapScreen extends ConsumerWidget {
                       height: 44,
                       child: GestureDetector(
                         key: Key('pin-${pin.id}'),
-                        onTap: () => _showJobSheet(context, pin),
-                        child: Icon(Icons.location_pin, size: 40, color: AppColors.status(pin.status)),
+                        onTap: () => _showJobSheet(context, ref, pin),
+                        child: Icon(
+                          Icons.location_pin,
+                          size: 40,
+                          color: AppColors.status(pin.status),
+                        ),
                       ),
                     ),
                 ],
@@ -62,7 +68,10 @@ class MapScreen extends ConsumerWidget {
                   alignment: Alignment.bottomLeft,
                   child: Padding(
                     padding: EdgeInsets.all(4),
-                    child: Text('© OpenStreetMap contributors', style: TextStyle(fontSize: 10)),
+                    child: Text(
+                      '© OpenStreetMap contributors',
+                      style: TextStyle(fontSize: 10),
+                    ),
                   ),
                 ),
             ],
@@ -74,19 +83,47 @@ class MapScreen extends ConsumerWidget {
     );
   }
 
-  void _showJobSheet(BuildContext context, JobPin pin) {
+  void _showJobSheet(BuildContext context, WidgetRef ref, JobPin pin) {
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SafeArea(
-        child: ListTile(
-          leading: Icon(Icons.assignment_outlined, color: AppColors.status(pin.status)),
-          title: Text(pin.title),
-          subtitle: Text(pin.status.replaceAll('_', ' ')),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () {
-            Navigator.pop(sheetContext);
-            context.push('/jobs/${pin.id}');
-          },
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(
+                Icons.assignment_outlined,
+                color: AppColors.status(pin.status),
+              ),
+              title: Text(pin.title),
+              subtitle: Text(pin.status.replaceAll('_', ' ')),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                context.push('/jobs/${pin.id}');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.push_pin_outlined),
+              title: const Text('Edit pin location'),
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                final changed = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(
+                    builder: (_) => LocationPinScreen(
+                      jobId: pin.id,
+                      initialLocation: JobLocation(
+                        latitude: pin.latitude,
+                        longitude: pin.longitude,
+                        source: 'cached',
+                      ),
+                    ),
+                  ),
+                );
+                if (changed == true) ref.invalidate(mapPinsProvider);
+              },
+            ),
+          ],
         ),
       ),
     );

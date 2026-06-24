@@ -53,13 +53,13 @@ def _address_parts(work_order: WorkOrder) -> dict:
 def resolve_job_location(db: Session, work_order: WorkOrder) -> dict:
     """Return {latitude, longitude, address_text, source} for a job.
 
-    source is one of: cached | geocoded | address_only | none.
+    source is one of: cached | geocoded | manual | address_only | none.
     Only successful geocodes are cached; failures retry on the next call.
     """
     meta = work_order.metadata_ or {}
     cached = meta.get(_CACHE_KEY)
     if isinstance(cached, dict) and cached.get("latitude") is not None:
-        return {**cached, "source": "cached"}
+        return {**cached, "source": cached.get("source") or "cached"}
 
     address_text = _resolve_site_address(work_order)
     if not address_text:
@@ -82,3 +82,37 @@ def resolve_job_location(db: Session, work_order: WorkOrder) -> dict:
     flag_modified(work_order, "metadata_")
     db.commit()
     return {**result, "source": "geocoded"}
+
+
+def update_job_location(
+    db: Session,
+    work_order: WorkOrder,
+    *,
+    latitude: float,
+    longitude: float,
+) -> dict:
+    """Persist a technician-pinned job location.
+
+    Manual pins use the same metadata slot as geocoded coordinates so routing,
+    geofencing, and the mobile map consume one location source.
+    """
+    address_text = _resolve_site_address(work_order)
+    result = {
+        "latitude": float(latitude),
+        "longitude": float(longitude),
+        "address_text": address_text,
+        "source": "manual",
+    }
+    meta = work_order.metadata_ or {}
+    work_order.metadata_ = {
+        **meta,
+        _CACHE_KEY: {
+            "latitude": result["latitude"],
+            "longitude": result["longitude"],
+            "address_text": address_text,
+            "source": "manual",
+        },
+    }
+    flag_modified(work_order, "metadata_")
+    db.commit()
+    return result

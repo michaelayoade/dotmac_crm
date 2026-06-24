@@ -202,5 +202,19 @@ class FieldJobs(ListResponseMixin):
             "worklogs": worklogs,
         }
 
+    @staticmethod
+    def update_location(
+        db: Session,
+        person_id: str,
+        work_order_id: str,
+        *,
+        latitude: float,
+        longitude: float,
+    ) -> dict:
+        work_order = get_scoped_work_order(db, person_id, work_order_id)
+        from app.services.field.location import update_job_location
+
+        return update_job_location(db, work_order, latitude=latitude, longitude=longitude)
+
 
 field_jobs = FieldJobs()

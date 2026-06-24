@@ -8,16 +8,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 JobSummary _job(String id, {String status = 'dispatched'}) => JobSummary(
-      id: id,
-      title: 'Job $id',
-      status: status,
-      workType: 'install',
-      priority: 'normal',
-    );
+  id: id,
+  title: 'Job $id',
+  status: status,
+  workType: 'install',
+  priority: 'normal',
+);
 
 String _detailWith({double? lat, double? lng}) => jsonEncode({
-      'location': {'latitude': lat, 'longitude': lng, 'address_text': 'x', 'source': 'geocoded'},
-    });
+  'location': {
+    'latitude': lat,
+    'longitude': lng,
+    'address_text': 'x',
+    'source': 'geocoded',
+  },
+});
 
 void main() {
   test('buildJobPins skips jobs without cached coordinates', () {
@@ -35,13 +40,27 @@ void main() {
 
   testWidgets('map renders a marker per pinned job', (tester) async {
     final pins = [
-      const JobPin(id: 'a', title: 'Job a', status: 'dispatched', latitude: 6.5, longitude: 3.4),
-      const JobPin(id: 'b', title: 'Job b', status: 'in_progress', latitude: 6.51, longitude: 3.41),
+      const JobPin(
+        id: 'a',
+        title: 'Job a',
+        status: 'dispatched',
+        latitude: 6.5,
+        longitude: 3.4,
+      ),
+      const JobPin(
+        id: 'b',
+        title: 'Job b',
+        status: 'in_progress',
+        latitude: 6.51,
+        longitude: 3.41,
+      ),
     ];
-    await tester.pumpWidget(ProviderScope(
-      overrides: [mapPinsProvider.overrideWith((ref) async => pins)],
-      child: const MaterialApp(home: MapScreen(showTiles: false)),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [mapPinsProvider.overrideWith((ref) async => pins)],
+        child: const MaterialApp(home: MapScreen(showTiles: false)),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('pin-a')), findsOneWidget);
@@ -50,16 +69,25 @@ void main() {
 
   testWidgets('tapping a pin opens the job sheet', (tester) async {
     final pins = [
-      const JobPin(id: 'a', title: 'Job a', status: 'dispatched', latitude: 6.5, longitude: 3.4),
+      const JobPin(
+        id: 'a',
+        title: 'Job a',
+        status: 'dispatched',
+        latitude: 6.5,
+        longitude: 3.4,
+      ),
     ];
-    await tester.pumpWidget(ProviderScope(
-      overrides: [mapPinsProvider.overrideWith((ref) async => pins)],
-      child: const MaterialApp(home: MapScreen(showTiles: false)),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [mapPinsProvider.overrideWith((ref) async => pins)],
+        child: const MaterialApp(home: MapScreen(showTiles: false)),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('pin-a')));
     await tester.pumpAndSettle();
     expect(find.text('Job a'), findsOneWidget);
+    expect(find.text('Edit pin location'), findsOneWidget);
   });
 }
