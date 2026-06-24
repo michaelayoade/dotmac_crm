@@ -960,6 +960,28 @@ def build_beat_schedule() -> dict:
             interval_seconds=600,
         )
 
+        field_location_retention_enabled = _effective_bool(
+            session,
+            SettingDomain.field,
+            "location_ping_retention_enabled",
+            "FIELD_LOCATION_PING_RETENTION_ENABLED",
+            True,
+        )
+        field_location_retention_interval_seconds = _effective_int(
+            session,
+            SettingDomain.field,
+            "location_ping_retention_interval_seconds",
+            "FIELD_LOCATION_PING_RETENTION_INTERVAL_SECONDS",
+            3600,
+        )
+        _sync_scheduled_task(
+            session,
+            name="field_location_ping_retention",
+            task_name="app.tasks.field.prune_field_location_pings",
+            enabled=field_location_retention_enabled,
+            interval_seconds=max(field_location_retention_interval_seconds, 300),
+        )
+
         # Workqueue: SLA tick + snooze prune. The whole feature is gated behind
         # the ``workflow.workqueue.enabled`` setting (or WORKQUEUE_ENABLED env).
         workqueue_enabled = _effective_bool(

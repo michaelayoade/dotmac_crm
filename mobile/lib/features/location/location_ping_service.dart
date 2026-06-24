@@ -11,6 +11,10 @@ import 'location_cadence.dart';
 /// service is testable without dio, and so the production wiring can route
 /// through the offline-tolerant API client.
 typedef PingPoster = Future<bool> Function(List<Map<String, dynamic>> pings);
+typedef SharingUpdater = Future<bool> Function({
+  required bool enabled,
+  required ShiftState shift,
+});
 
 /// Captures GPS fixes on a shift-scoped adaptive cadence and flushes them to
 /// the backend in batches. Buffers across failures so a dropped network never
@@ -20,12 +24,14 @@ class LocationPingService {
   LocationPingService({
     required this.location,
     required this.poster,
+    this.sharingUpdater,
     DateTime Function()? clock,
     this.maxBuffer = 200,
   }) : _clock = clock ?? (() => DateTime.now().toUtc());
 
   final LocationSource location;
   final PingPoster poster;
+  final SharingUpdater? sharingUpdater;
   final DateTime Function() _clock;
   final int maxBuffer;
 
@@ -38,6 +44,16 @@ class LocationPingService {
   /// Switching off shift / on break stops capture; going on break keeps a final
   /// status so the map can show the tech paused rather than vanish instantly.
   void setShift(ShiftState shift) => _shift = shift;
+
+  Future<bool> updateShift(ShiftState shift) async {
+    final updater = sharingUpdater;
+    if (updater != null) {
+      final ok = await updater(enabled: shift != ShiftState.offShift, shift: shift);
+      if (!ok) return false;
+    }
+    setShift(shift);
+    return true;
+  }
 
   /// Capture a single fix into the buffer. No-op off shift, on break, or when
   /// the device gives no fix — GPS trouble never throws.
@@ -78,6 +94,17 @@ final locationPingServiceProvider = Provider<LocationPingService>((ref) {
   final location = ref.watch(locationSourceProvider);
   return LocationPingService(
     location: location,
+    sharingUpdater: ({required enabled, required shift}) async {
+      try {
+        await api.dio.put(
+          '/api/v1/field/locations/sharing',
+          data: {'enabled': enabled, 'status': shift.apiValue},
+        );
+        return true;
+      } catch (_) {
+        return false;
+      }
+    },
     poster: (pings) async {
       try {
         await api.dio.post('/api/v1/field/locations', data: {'pings': pings});
