@@ -536,6 +536,142 @@ def map_customer_to_subscriber_data(
     return {key: value for key, value in data.items() if value is not None and value != ""}
 
 
+def sync_subscribers_from_selfcare_data(
+    db: Session,
+    *,
+    include_remote_details: bool = False,
+    logger: logging.Logger | None = None,
+) -> dict[str, Any]:
+    """Pull Selfcare subscribers and upsert local Subscriber records."""
+    sync_logger = logger or globals()["logger"]
+    from app.services.subscriber import subscriber as subscriber_service
+
+    sync_logger.info("SELFCARE_SYNC_STEP step=ping_selfcare")
+    ping(db)
+    sync_logger.info("SELFCARE_SYNC_STEP_COMPLETE step=ping_selfcare")
+
+    sync_logger.info("SELFCARE_SYNC_STEP step=fetch_subscribers include=services,billing")
+    customers_data = fetch_customers(db, include="services,billing")
+    if not isinstance(customers_data, list):
+        raise TypeError(f"Selfcare subscribers response must be a list, got {type(customers_data).__name__}")
+    sync_logger.info("SELFCARE_SYNC_STEP_COMPLETE step=fetch_subscribers count=%d", len(customers_data))
+
+    results: dict[str, Any] = {"created": 0, "updated": 0, "errors": []}
+    if not customers_data:
+        sync_logger.info("selfcare_sync_no_data")
+        return results
+
+    person_by_email: dict[str, Person] = {}
+    all_emails = [
+        str(customer.get("email") or "").lower().strip()
+        for customer in customers_data
+        if isinstance(customer, dict) and customer.get("email")
+    ]
+    if all_emails:
+        persons = db.query(Person).filter(Person.email.in_(all_emails)).all()
+        person_by_email = {person.email.lower(): person for person in persons if person.email}
+    sync_logger.info(
+        "SELFCARE_SYNC_STEP_COMPLETE step=build_person_email_index emails=%d matched_people=%d",
+        len(all_emails),
+        len(person_by_email),
+    )
+
+    for index, customer in enumerate(customers_data, start=1):
+        external_id = ""
+        try:
+            if not isinstance(customer, dict):
+                raise TypeError(f"Selfcare subscriber row must be a dict, got {type(customer).__name__}")
+            external_id = str(customer.get("id") or customer.get("uuid") or customer.get("subscriber_id") or "").strip()
+            sync_logger.info(
+                "SELFCARE_SYNC_ITEM_START index=%d count=%d external_id=%s subscriber_number=%s",
+                index,
+                len(customers_data),
+                external_id or "<missing>",
+                customer.get("subscriber_number") or customer.get("login") or "",
+            )
+            if not external_id:
+                raise ValueError("missing selfcare subscriber id")
+
+            subscriber_number = str(customer.get("subscriber_number") or customer.get("login") or "").strip()
+            existing_by_number = (
+                subscriber_service.get_by_subscriber_number(db, subscriber_number) if subscriber_number else None
+            )
+            existing_by_external_id = subscriber_service.get_by_external_id(db, "selfcare", external_id)
+            existing = existing_by_number or existing_by_external_id
+            if existing_by_number is not None:
+                if existing_by_external_id is not None and existing_by_external_id.id != existing_by_number.id:
+                    sync_logger.warning(
+                        "SELFCARE_SYNC_DUPLICATE_EXTERNAL_MATCH index=%d external_id=%s "
+                        "subscriber_number=%s subscriber_number_match_id=%s external_match_id=%s",
+                        index,
+                        external_id,
+                        subscriber_number,
+                        existing_by_number.id,
+                        existing_by_external_id.id,
+                    )
+                if existing_by_external_id is None or existing_by_external_id.id != existing_by_number.id:
+                    sync_logger.info(
+                        "SELFCARE_SYNC_MATCH_BY_SUBSCRIBER_NUMBER index=%d external_id=%s subscriber_id=%s "
+                        "subscriber_number=%s previous_external_system=%s previous_external_id=%s",
+                        index,
+                        external_id,
+                        existing_by_number.id,
+                        subscriber_number,
+                        existing_by_number.external_system,
+                        existing_by_number.external_id,
+                    )
+
+            data = map_customer_to_subscriber_data(
+                db,
+                customer,
+                include_remote_details=include_remote_details,
+                existing_sync_metadata=dict(existing.sync_metadata or {}) if existing else None,
+            )
+
+            email = str(customer.get("email") or "").lower().strip()
+            if email and email in person_by_email:
+                person = person_by_email[email]
+                data["person_id"] = person.id
+                data["organization_id"] = person.organization_id
+
+            if existing:
+                subscriber_service.update(
+                    db,
+                    existing,
+                    {
+                        "external_system": "selfcare",
+                        "external_id": external_id,
+                        "sync_error": None,
+                        **data,
+                    },
+                )
+                results["updated"] += 1
+            else:
+                subscriber_service.sync_from_external(db, "selfcare", external_id, data)
+                results["created"] += 1
+            sync_logger.info(
+                "SELFCARE_SYNC_ITEM_COMPLETE index=%d external_id=%s action=%s created=%d updated=%d errors=%d",
+                index,
+                external_id,
+                "updated" if existing else "created",
+                results["created"],
+                results["updated"],
+                len(results["errors"]),
+            )
+        except Exception as exc:
+            db.rollback()
+            raw_customer_id = customer.get("id") if isinstance(customer, dict) else ""
+            results["errors"].append({"external_id": external_id or raw_customer_id, "error": str(exc)})
+            sync_logger.exception(
+                "SELFCARE_SYNC_ITEM_ERROR index=%d external_id=%s error=%s",
+                index,
+                external_id or raw_customer_id,
+                exc,
+            )
+
+    return results
+
+
 def deactivate_customer_if_blocked(
     db: Session,
     *,
