@@ -30,17 +30,21 @@ class MapScreen extends ConsumerWidget {
     final pins = ref.watch(mapPinsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Job map')),
-      floatingActionButton: pins.maybeWhen(
-        data: (items) => items.isEmpty
-            ? null
-            : FloatingActionButton.extended(
-                key: const Key('edit-pins-button'),
-                onPressed: () => _showPinListSheet(context, ref, items),
-                icon: const Icon(Icons.push_pin_outlined),
-                label: const Text('Edit pins'),
-              ),
-        orElse: () => null,
+      appBar: AppBar(
+        title: const Text('Job map'),
+        actions: [
+          pins.maybeWhen(
+            data: (items) => items.isEmpty
+                ? const SizedBox.shrink()
+                : TextButton.icon(
+                    key: const Key('edit-pins-button'),
+                    onPressed: () => _showPinListSheet(context, ref, items),
+                    icon: const Icon(Icons.push_pin_outlined),
+                    label: const Text('Edit'),
+                  ),
+            orElse: () => const SizedBox.shrink(),
+          ),
+        ],
       ),
       body: pins.when(
         data: (items) {
