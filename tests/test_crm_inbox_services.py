@@ -1165,6 +1165,41 @@ def test_resolve_whatsapp_channel_skips_malformed_primary_channel(db_session, cr
     assert resolved.id == valid_channel.id
 
 
+def test_resolve_whatsapp_channel_prefers_explicit_valid_channel(db_session, crm_contact):
+    from app.models.person import ChannelType as PersonChannelType
+    from app.models.person import PersonChannel
+    from app.services.crm.inbox.outbound import _resolve_person_channel_for_message
+
+    explicit_channel = PersonChannel(
+        person_id=crm_contact.id,
+        channel_type=PersonChannelType.whatsapp,
+        address="+2348118729150",
+        is_primary=False,
+    )
+    db_session.add(explicit_channel)
+    db_session.commit()
+    db_session.refresh(explicit_channel)
+
+    malformed_newer_channel = PersonChannel(
+        person_id=crm_contact.id,
+        channel_type=PersonChannelType.whatsapp,
+        address="+234",
+        is_primary=True,
+    )
+    db_session.add(malformed_newer_channel)
+    db_session.commit()
+
+    resolved = _resolve_person_channel_for_message(
+        db_session,
+        crm_contact,
+        ChannelType.whatsapp,
+        person_channel_id=explicit_channel.id,
+    )
+
+    assert resolved is not None
+    assert resolved.id == explicit_channel.id
+
+
 def test_create_contact_channel_rejects_malformed_whatsapp(db_session, crm_contact):
     from app.schemas.crm.contact import ContactChannelCreate
     from app.schemas.person import ChannelTypeEnum

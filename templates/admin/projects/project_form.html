@@ -160,13 +160,6 @@
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Site Project Coordinator</label>
-                        <div class="mt-1">
-                        {{ typeahead_input("assistant_manager_person_id", "/api/v1/search/people", value=(project.assistant_manager_person_id or ''), display_value=(assistant_manager_label or ''), placeholder="Search people...") }}
-                        </div>
-                    </div>
-
-                    <div>
                         <label for="status" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Status</label>
                         <select name="status" id="status"
                             class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
@@ -256,8 +249,7 @@
         let dueTouched = false;
         const lastAutoAssignment = {
             manager: null,
-            projectManager: null,
-            spc: null
+            projectManager: null
         };
 
         function getTypeaheadField(fieldName) {
@@ -272,7 +264,6 @@
 
         const managerField = getTypeaheadField("manager_person_id");
         const projectManagerField = getTypeaheadField("project_manager_person_id");
-        const spcField = getTypeaheadField("assistant_manager_person_id");
 
         function formatLocalDate(date) {
             const pad = (value) => String(value).padStart(2, "0");
@@ -360,12 +351,6 @@
                 "projectManager",
                 assignment.project_manager_person_id || assignment.manager_person_id || "",
                 assignment.project_manager_label || assignment.manager_label || ""
-            );
-            maybeApplyAssignment(
-                spcField,
-                "spc",
-                assignment.assistant_manager_person_id || "",
-                assignment.assistant_manager_label || ""
             );
         }
 

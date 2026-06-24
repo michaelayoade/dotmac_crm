@@ -9,7 +9,7 @@ from starlette.requests import Request
 from app.models.subscriber import SubscriberBillingRiskSnapshot
 from app.services import billing_risk_cache
 from app.services import billing_risk_reports as billing_risk_service
-from app.services import splynx as splynx_service
+from app.services import selfcare as selfcare_service
 from app.web.admin import billing_risk as billing_risk_web
 from app.web.admin import build_router
 
@@ -273,12 +273,14 @@ def test_billing_risk_live_rows_resolve_and_filter_location(monkeypatch):
     }
 
     billing_risk_service.clear_live_splynx_cache()
-    monkeypatch.setattr(splynx_service, "fetch_customers", lambda _db: [customer_payload])
-    monkeypatch.setattr(splynx_service, "fetch_locations", lambda _db: [{"id": 1, "name": "Abuja"}])
-    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
-    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: customer_payload["billing"])
+    monkeypatch.setattr(selfcare_service, "fetch_customers", lambda _db: [customer_payload])
+    monkeypatch.setattr(selfcare_service, "fetch_locations", lambda _db: [{"id": 1, "name": "Abuja"}])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service, "fetch_customer_billing", lambda _db, _external_id: customer_payload["billing"]
+    )
+    monkeypatch.setattr(
+        selfcare_service,
         "map_customer_to_subscriber_data",
         lambda _db, _customer, include_remote_details=False: {
             "status": "suspended",
@@ -1059,7 +1061,7 @@ def test_billing_risk_enterprise_filter_uses_cached_mrr_fallback(monkeypatch):
         lambda _cache_name, loader, *args, **kwargs: loader(),
     )
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customers",
         lambda *_args, **_kwargs: [
             {
@@ -1073,7 +1075,7 @@ def test_billing_risk_enterprise_filter_uses_cached_mrr_fallback(monkeypatch):
         ],
     )
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "map_customer_to_subscriber_data",
         lambda *_args, **_kwargs: {
             "status": "suspended",
@@ -1082,8 +1084,8 @@ def test_billing_risk_enterprise_filter_uses_cached_mrr_fallback(monkeypatch):
             "sync_metadata": {"invoiced_until": "2026-04-01"},
         },
     )
-    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda *_args, **_kwargs: {"month_price": 80000})
-    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_billing", lambda *_args, **_kwargs: {"month_price": 80000})
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda *_args, **_kwargs: [])
 
     class FakeResult:
         def __init__(self, rows):
@@ -1153,7 +1155,7 @@ def test_billing_risk_enterprise_filter_overrides_stale_cached_mrr(monkeypatch):
         lambda _cache_name, loader, *args, **kwargs: loader(),
     )
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customers",
         lambda *_args, **_kwargs: [
             {
@@ -1167,7 +1169,7 @@ def test_billing_risk_enterprise_filter_overrides_stale_cached_mrr(monkeypatch):
         ],
     )
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "map_customer_to_subscriber_data",
         lambda *_args, **_kwargs: {
             "status": "suspended",
@@ -1176,8 +1178,8 @@ def test_billing_risk_enterprise_filter_overrides_stale_cached_mrr(monkeypatch):
             "sync_metadata": {"invoiced_until": "2026-04-01"},
         },
     )
-    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda *_args, **_kwargs: {"month_price": 80000})
-    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_billing", lambda *_args, **_kwargs: {"month_price": 80000})
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda *_args, **_kwargs: [])
 
     class FakeResult:
         def __init__(self, rows):
@@ -1247,7 +1249,7 @@ def test_all_customers_does_not_apply_enterprise_filter_when_customer_segment_is
         lambda _cache_name, loader, *args, **kwargs: loader(),
     )
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customers",
         lambda *_args, **_kwargs: [
             {
@@ -1261,7 +1263,7 @@ def test_all_customers_does_not_apply_enterprise_filter_when_customer_segment_is
         ],
     )
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "map_customer_to_subscriber_data",
         lambda *_args, **_kwargs: {
             "status": "suspended",
@@ -1270,8 +1272,8 @@ def test_all_customers_does_not_apply_enterprise_filter_when_customer_segment_is
             "sync_metadata": {"invoiced_until": "2026-04-01"},
         },
     )
-    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda *_args, **_kwargs: {"month_price": 80000})
-    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_billing", lambda *_args, **_kwargs: {"month_price": 80000})
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda *_args, **_kwargs: [])
 
     class FakeResult:
         def __init__(self, rows):
@@ -1337,9 +1339,9 @@ def test_billing_risk_visible_enrichment_uses_splynx_billing_start_and_blocking_
 
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
-    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_billing",
         lambda _db, _external_id: {
             "billing_start_date": "2024-01-15",
@@ -1377,9 +1379,9 @@ def test_billing_risk_visible_enrichment_falls_back_to_invoiced_until_without_bl
 
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
-    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_billing",
         lambda _db, _external_id: {
             "billing_start_date": "2024-01-15",
@@ -1416,7 +1418,7 @@ def test_get_live_blocked_dates_prefers_splynx_blocking_date(monkeypatch):
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_billing",
         lambda _db, _external_id: {
             "blocking_date": "2024-01-01",
@@ -1435,7 +1437,7 @@ def test_get_live_blocked_dates_prefers_splynx_blocked_date_alias(monkeypatch):
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_billing",
         lambda _db, _external_id: {
             "blocked_date": "2024-02-02",
@@ -1454,7 +1456,7 @@ def test_get_live_blocked_dates_falls_back_to_splynx_invoiced_until(monkeypatch)
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_billing",
         lambda _db, _external_id: {
             "invoiced_until": "2024-04-18",
@@ -1472,14 +1474,14 @@ def test_get_live_blocked_dates_uses_service_blocking_date_when_billing_missing(
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_billing",
         lambda _db, _external_id: {
             "invoiced_until": "2024-04-18",
         },
     )
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_internet_services",
         lambda _db, _external_id: [{"blocking_date": "2024-03-11"}],
     )
@@ -1495,14 +1497,14 @@ def test_get_live_blocked_dates_blocking_only_ids_skip_invoiced_until_fallback(m
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_billing",
         lambda _db, _external_id: {
             "invoiced_until": "2024-04-18",
         },
     )
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_internet_services",
         lambda _db, _external_id: [{"blocking_date": "2024-03-11"}],
     )
@@ -1520,10 +1522,10 @@ def test_get_live_blocked_dates_uses_customer_last_online_when_billing_and_servi
 
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
-    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
-    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer",
         lambda _db, _external_id: {
             "status": "blocked",
@@ -1541,10 +1543,10 @@ def test_get_live_blocked_dates_uses_prefetched_customers_payload(monkeypatch):
 
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
-    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
-    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customers",
         lambda _db: [
             {"id": "12345", "status": "blocked", "last_online": "2026-03-20 11:28:03"},
@@ -1552,7 +1554,7 @@ def test_get_live_blocked_dates_uses_prefetched_customers_payload(monkeypatch):
         ],
     )
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer",
         lambda _db, _external_id: (_ for _ in ()).throw(AssertionError("should not call fetch_customer")),
     )
@@ -1570,14 +1572,14 @@ def test_get_live_blocked_dates_uses_primary_service_blocking_date_when_billing_
 
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
-    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(selfcare_service, "fetch_customer_billing", lambda _db, _external_id: {})
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_internet_services",
         lambda _db, _external_id: [{"id": "1", "status": "blocked", "blocking_date": "2026-04-01"}],
     )
-    monkeypatch.setattr(splynx_service, "fetch_customers", lambda _db: [])
-    monkeypatch.setattr(splynx_service, "fetch_customer", lambda _db, _external_id: {})
+    monkeypatch.setattr(selfcare_service, "fetch_customers", lambda _db: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer", lambda _db, _external_id: {})
 
     assert billing_risk_service.get_live_blocked_dates(["12345"], force_live=True) == {"12345": "2026-04-01"}
 
@@ -1590,18 +1592,18 @@ def test_get_live_blocked_dates_prefers_billing_blocking_date_over_customer_last
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_billing",
         lambda _db, _external_id: {"blocking_date": "2026-05-16"},
     )
-    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customers",
         lambda _db: [{"id": "25678", "status": "active", "last_online": "2026-02-23 13:03:30"}],
     )
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer",
         lambda _db, _external_id: {"status": "active", "last_online": "2026-02-23 13:03:30"},
     )
@@ -1635,12 +1637,12 @@ def test_get_live_blocked_dates_prefers_retained_deactivation_last_update(monkey
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customers",
         lambda _db: [{"id": "10633", "status": "disabled", "last_update": "2026-05-20 11:17:41"}],
     )
-    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
-    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
 
     assert billing_risk_service.get_live_blocked_dates(["10633"], force_live=True) == {"10633": "2026-05-15"}
 
@@ -1698,7 +1700,7 @@ def test_active_expiration_ignores_stale_live_blocking_date(monkeypatch):
 
 def test_active_expiration_does_not_derive_from_billing_day(monkeypatch):
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_billing",
         lambda _db, _external_id: {
             "billing_date": 7,
@@ -1729,7 +1731,7 @@ def test_active_expiration_does_not_derive_from_billing_day(monkeypatch):
 
 def test_active_expiration_uses_future_billing_blocking_date(monkeypatch):
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_billing",
         lambda _db, _external_id: {
             "billing_date": 7,
@@ -1760,11 +1762,11 @@ def test_active_expiration_uses_future_billing_blocking_date(monkeypatch):
 
 def test_active_expiration_replaces_stale_cached_next_bill_date(monkeypatch):
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_billing",
         lambda _db, _external_id: {
             "billing_date": 7,
-            "blocking_date": "2026-06-23",
+            "blocking_date": "2026-09-23",
             "deposit": 36129.03,
         },
     )
@@ -1785,9 +1787,9 @@ def test_active_expiration_replaces_stale_cached_next_bill_date(monkeypatch):
     billing_risk_web._enrich_expiration_fields(rows)
 
     assert rows[0]["blocked_date"] == ""
-    assert rows[0]["next_bill_date"] == "2026-06-23"
-    assert rows[0]["billing_end_date"] == "2026-06-23"
-    assert rows[0]["service_expiration_date"] == "2026-06-23"
+    assert rows[0]["next_bill_date"] == "2026-09-23"
+    assert rows[0]["billing_end_date"] == "2026-09-23"
+    assert rows[0]["service_expiration_date"] == "2026-09-23"
 
 
 def test_service_expiration_date_is_set_even_without_billing_type():
@@ -1812,7 +1814,7 @@ def test_service_expiration_date_is_set_even_without_billing_type():
 
 def test_active_expiration_clears_stale_cached_next_bill_without_live_date(monkeypatch):
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_billing",
         lambda _db, _external_id: {
             "billing_date": 7,
@@ -1844,7 +1846,7 @@ def test_active_expiration_clears_stale_cached_next_bill_without_live_date(monke
 
 def test_missing_plan_is_enriched_from_live_service_description(monkeypatch):
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "fetch_customer_internet_services",
         lambda _db, _external_id: [
             {
@@ -1954,11 +1956,11 @@ def test_get_billing_risk_table_prefers_live_customer_status_date_over_local_upd
 
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
-    monkeypatch.setattr(splynx_service, "fetch_customers", lambda _db: [customer_payload])
-    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
-    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(selfcare_service, "fetch_customers", lambda _db: [customer_payload])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_billing", lambda _db, _external_id: {})
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "map_customer_to_subscriber_data",
         lambda _db, _customer, include_remote_details=False: {
             "status": "suspended",
@@ -2044,11 +2046,11 @@ def test_get_billing_risk_table_uses_retained_blocked_last_update_for_disabled_c
 
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
-    monkeypatch.setattr(splynx_service, "fetch_customers", lambda _db: [customer_payload])
-    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
-    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(selfcare_service, "fetch_customers", lambda _db: [customer_payload])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_billing", lambda _db, _external_id: {})
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "map_customer_to_subscriber_data",
         lambda _db, _customer, include_remote_details=False: {
             "status": "suspended",
@@ -2132,12 +2134,12 @@ def test_get_billing_risk_table_normalizes_street_display_symbols(monkeypatch):
 
     billing_risk_service.clear_live_splynx_cache()
     monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
-    monkeypatch.setattr(splynx_service, "fetch_customers", lambda _db: [customer_payload])
-    monkeypatch.setattr(splynx_service, "fetch_locations", lambda _db: [{"id": 1, "name": "Abuja"}])
-    monkeypatch.setattr(splynx_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
-    monkeypatch.setattr(splynx_service, "fetch_customer_billing", lambda _db, _external_id: {})
+    monkeypatch.setattr(selfcare_service, "fetch_customers", lambda _db: [customer_payload])
+    monkeypatch.setattr(selfcare_service, "fetch_locations", lambda _db: [{"id": 1, "name": "Abuja"}])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_billing", lambda _db, _external_id: {})
     monkeypatch.setattr(
-        splynx_service,
+        selfcare_service,
         "map_customer_to_subscriber_data",
         lambda _db, _customer, include_remote_details=False: {
             "status": "suspended",

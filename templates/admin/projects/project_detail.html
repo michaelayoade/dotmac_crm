@@ -305,16 +305,6 @@
                         </dd>
                     </div>
                     <div class="flex items-center justify-between">
-                        <dt>Site Project Coordinator</dt>
-                        <dd>
-                            {% if project.assistant_manager %}
-                            {{ project.assistant_manager.first_name }} {{ project.assistant_manager.last_name }}
-                            {% else %}
-                            —
-                            {% endif %}
-                        </dd>
-                    </div>
-                    <div class="flex items-center justify-between">
                         <dt>Status</dt>
                         <dd>
                             {% set proj_status = project.status.value if project.status else 'open' %}

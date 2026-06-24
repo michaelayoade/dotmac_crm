@@ -242,10 +242,6 @@
                             <span>Project Manager</span>
                         </label>
                         <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                            <input type="checkbox" value="assistant_manager" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500">
-                            <span>Site Coordinator</span>
-                        </label>
-                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                             <input type="checkbox" value="start_at" data-project-column-option class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-800 dark:checked:bg-primary-500">
                             <span>Start Date</span>
                         </label>
@@ -347,7 +343,6 @@
                     {'label': 'Owner', 'sortable': false, 'attrs': {'data-project-column': 'owner'}},
                     {'label': 'Manager', 'sortable': false, 'attrs': {'data-project-column': 'manager'}},
                     {'label': 'Project Manager', 'sortable': false, 'attrs': {'data-project-column': 'project_manager'}},
-                    {'label': 'Site Coordinator', 'sortable': false, 'attrs': {'data-project-column': 'assistant_manager'}},
                     {'label': 'Start Date', 'sortable': false, 'attrs': {'data-project-column': 'start_at'}},
                     {'label': 'Due Date', 'sortable': false, 'attrs': {'data-project-column': 'due_at'}},
                     {'label': 'Created', 'key': 'created_at', 'attrs': {'data-project-column': 'created'}},
@@ -367,7 +362,6 @@
                 {% set owner_label = project.owner.display_name or ((project.owner.first_name or '') ~ ' ' ~ (project.owner.last_name or '') | trim) if project.owner else '—' %}
                 {% set manager_label = project.manager.display_name or ((project.manager.first_name or '') ~ ' ' ~ (project.manager.last_name or '') | trim) if project.manager else '—' %}
                 {% set pm_label = project.project_manager.display_name or ((project.project_manager.first_name or '') ~ ' ' ~ (project.project_manager.last_name or '') | trim) if project.project_manager else '—' %}
-                {% set spc_label = project.assistant_manager.display_name or ((project.assistant_manager.first_name or '') ~ ' ' ~ (project.assistant_manager.last_name or '') | trim) if project.assistant_manager else '—' %}
                 {% call table_row(color="primary") %}
                     <td data-project-column="project" class="{{ pad }}">
                         <p class="text-sm font-medium text-slate-900 dark:text-white">{{ project.name }}</p>
@@ -412,9 +406,6 @@
                     </td>
                     <td data-project-column="project_manager" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
                         {{ pm_label or '—' }}
-                    </td>
-                    <td data-project-column="assistant_manager" class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">
-                        {{ spc_label or '—' }}
                     </td>
                     <td data-project-column="start_at" class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">
                         {{ project.start_at.strftime('%b %d, %Y %H:%M') if project.start_at else '—' }}
@@ -698,7 +689,6 @@ document.addEventListener("DOMContentLoaded", () => {
         { key: "owner", defaultVisible: false },
         { key: "manager", defaultVisible: false },
         { key: "project_manager", defaultVisible: false },
-        { key: "assistant_manager", defaultVisible: false },
         { key: "start_at", defaultVisible: false },
         { key: "due_at", defaultVisible: false }
     ];

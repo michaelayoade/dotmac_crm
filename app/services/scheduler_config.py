@@ -855,27 +855,6 @@ def build_beat_schedule() -> dict:
             interval_seconds=chatwoot_sync_interval_seconds,
         )
 
-        # Splynx subscriber reconciliation sync
-        splynx_sync_enabled = _effective_bool(
-            session,
-            SettingDomain.integration,
-            "splynx_subscriber_sync_enabled",
-            "SPLYNX_SUBSCRIBER_SYNC_ENABLED",
-            False,
-        )
-        splynx_sync_interval_hours = _coerce_int(
-            resolve_value(session, SettingDomain.integration, "splynx_subscriber_sync_interval_hours"),
-            24,
-        )
-        splynx_sync_interval_seconds = max(splynx_sync_interval_hours * 3600, 3600)  # Min: 1 hour
-        _sync_scheduled_task(
-            session,
-            name="splynx_subscriber_sync",
-            task_name="app.tasks.subscribers.sync_subscribers_from_splynx",
-            enabled=splynx_sync_enabled,
-            interval_seconds=splynx_sync_interval_seconds,
-        )
-
         # Selfcare subscriber reconciliation sync
         selfcare_sync_enabled = _effective_bool(
             session,

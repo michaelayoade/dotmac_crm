@@ -12,59 +12,9 @@ from app.logging import get_logger
 from app.metrics import observe_job
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.services.common import coerce_uuid
-from app.services.external_systems import SPLYNX_EXTERNAL_SYSTEM
+from app.services.external_systems import SELFCARE_EXTERNAL_SYSTEM
 
 logger = get_logger(__name__)
-
-
-@celery_app.task(name="app.tasks.customer_retention.sync_lost_retention_customer_to_splynx")
-def sync_lost_retention_customer_to_splynx(
-    customer_id: str,
-    engagement_id: str,
-    subscriber_id: str | None = None,
-) -> dict[str, Any]:
-    """Deactivate a Splynx customer after an explicit Lost retention outcome."""
-    start = time.monotonic()
-    status = "success"
-    session = SessionLocal()
-    try:
-        from app.services.splynx import deactivate_customer_if_blocked
-
-        result = deactivate_customer_if_blocked(
-            session,
-            customer_id=customer_id,
-            engagement_id=engagement_id,
-            subscriber_id=subscriber_id,
-        )
-        _mark_deactivation_result(
-            session,
-            customer_id=customer_id,
-            engagement_id=engagement_id,
-            subscriber_id=str(result.get("subscriber_id") or subscriber_id or "") or None,
-            result=result,
-        )
-        return result
-    except Exception as exc:
-        status = "error"
-        session.rollback()
-        logger.exception(
-            "retention_splynx_deactivation_task_error customer_id=%s subscriber_id=%s engagement_id=%s error=%s",
-            customer_id,
-            subscriber_id,
-            engagement_id,
-            str(exc),
-        )
-        _mark_deactivation_result(
-            session,
-            customer_id=customer_id,
-            engagement_id=engagement_id,
-            subscriber_id=subscriber_id,
-            result={"success": False, "error": str(exc)},
-        )
-        return {"success": False, "customer_id": customer_id, "engagement_id": engagement_id, "error": str(exc)}
-    finally:
-        session.close()
-        observe_job("retention_splynx_deactivation", status, time.monotonic() - start)
 
 
 @celery_app.task(name="app.tasks.customer_retention.sync_lost_retention_customer_to_selfcare")
@@ -123,12 +73,12 @@ def sync_lost_retention_customer_to_selfcare(
         observe_job("retention_selfcare_deactivation", status, time.monotonic() - start)
 
 
-@celery_app.task(name="app.tasks.customer_retention.reconcile_churning_retention_customers_to_splynx")
-def reconcile_churning_retention_customers_to_splynx(
+@celery_app.task(name="app.tasks.customer_retention.reconcile_churning_retention_customers_to_selfcare")
+def reconcile_churning_retention_customers_to_selfcare(
     limit: int | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """Queue existing latest-Churning retention customers for the guarded Splynx disable flow."""
+    """Queue existing latest-Churning retention customers for the guarded Selfcare disable flow."""
     start = time.monotonic()
     status = "success"
     session = SessionLocal()
@@ -140,7 +90,7 @@ def reconcile_churning_retention_customers_to_splynx(
         status = "error"
         session.rollback()
         logger.exception(
-            "retention_splynx_churning_reconcile_error limit=%s dry_run=%s error=%s",
+            "retention_selfcare_churning_reconcile_error limit=%s dry_run=%s error=%s",
             limit,
             dry_run,
             str(exc),
@@ -148,7 +98,7 @@ def reconcile_churning_retention_customers_to_splynx(
         return {"success": False, "error": str(exc), "dry_run": dry_run}
     finally:
         session.close()
-        observe_job("retention_splynx_churning_reconcile", status, time.monotonic() - start)
+        observe_job("retention_selfcare_churning_reconcile", status, time.monotonic() - start)
 
 
 def _mark_deactivation_result(
@@ -158,9 +108,9 @@ def _mark_deactivation_result(
     engagement_id: str,
     subscriber_id: str | None,
     result: dict[str, Any],
-    external_system: str = SPLYNX_EXTERNAL_SYSTEM,
-    marker_key: str = "retention_splynx_deactivation",
-    external_id_key: str = "splynx_id",
+    external_system: str = SELFCARE_EXTERNAL_SYSTEM,
+    marker_key: str = "retention_selfcare_deactivation",
+    external_id_key: str = "selfcare_id",
 ) -> None:
     subscriber = None
     if subscriber_id:

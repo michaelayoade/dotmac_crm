@@ -839,12 +839,10 @@ def _extract_region_pm_assignments_from_form(form) -> dict:
     assignments: dict[str, dict[str, str]] = {}
     for region in REGION_OPTIONS:
         manager_key = f"region_pm_manager_{region}"
-        spc_key = f"region_pm_spc_{region}"
         manager = _form_str_opt(form.get(manager_key)) or ""
-        spc = _form_str_opt(form.get(spc_key)) or ""
         assignments[region] = {
             "manager_person_id": manager.strip(),
-            "spc_person_id": spc.strip(),
+            "spc_person_id": "",
         }
     return assignments
 
