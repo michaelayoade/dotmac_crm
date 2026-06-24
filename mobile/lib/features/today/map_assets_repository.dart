@@ -19,6 +19,7 @@ class MapAssetsRepository {
     final items = (response.data['items'] as List).cast<Map>();
     return items
         .map((item) => MapAsset.fromJson(item.cast<String, dynamic>()))
+        .where((asset) => asset.hasValidCoordinates)
         .toList();
   }
 

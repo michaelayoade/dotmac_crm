@@ -93,7 +93,18 @@ class JobLocation {
     'source': source,
   };
 
-  bool get hasCoordinates => latitude != null && longitude != null;
+  bool get hasCoordinates {
+    final lat = latitude;
+    final lng = longitude;
+    return lat != null &&
+        lng != null &&
+        lat.isFinite &&
+        lng.isFinite &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180;
+  }
 
   /// Navigation handoff: precise coordinates when geocoded, otherwise a
   /// text search the maps app can resolve. Null when nothing is known.
