@@ -65,6 +65,6 @@ class PushRegistrar {
   }
 }
 
-final pushRegistrarProvider = Provider<PushRegistrar>((ref) {
-  throw UnimplementedError('constructed at bootstrap with a navigation callback');
-});
+final pushRegistrarProvider = Provider<PushRegistrar>(
+  (ref) => PushRegistrar(ref, onDeepLink: (_) {}),
+);
