@@ -5,7 +5,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi import HTTPException
 
+from app.models.dispatch import TechnicianProfile
 from app.models.field_location import FieldPresenceStatus, FieldTechLocationPing
+from app.models.workforce import WorkOrder, WorkOrderStatus, WorkOrderType
 from app.services.field.location_tracking import field_location_tracking as svc
 
 
@@ -106,6 +108,52 @@ def test_live_feed_excludes_stale(db_session, person):
 
     items = svc.list_live_locations(db_session, stale_after_seconds=120, limit=50)
     assert str(person.id) not in {i["person_id"] for i in items}
+
+
+def test_tracking_states_include_all_active_technicians_and_work_context(db_session, person):
+    technician = TechnicianProfile(person_id=person.id, title="Installer", region="Lekki")
+    order = WorkOrder(
+        title="Install ONT",
+        status=WorkOrderStatus.dispatched,
+        work_type=WorkOrderType.install,
+        assigned_to_person_id=person.id,
+    )
+    db_session.add_all([technician, order])
+    db_session.commit()
+
+    svc.set_sharing(db_session, str(person.id), enabled=True, status="on_shift")
+    _ping(db_session, person, latitude=6.5, longitude=3.3)
+
+    items = svc.list_tracking_states(db_session, stale_after_seconds=120)
+
+    row = next(item for item in items if item["person_id"] == str(person.id))
+    assert row["technician_id"] == str(technician.id)
+    assert row["person_label"]
+    assert row["title"] == "Installer"
+    assert row["region"] == "Lekki"
+    assert row["location_sharing_enabled"] is True
+    assert row["is_live"] is True
+    assert row["last_latitude"] == 6.5
+    assert row["active_work_order"] == {
+        "id": str(order.id),
+        "title": "Install ONT",
+        "status": "dispatched",
+        "work_type": "install",
+    }
+
+
+def test_tracking_states_keep_not_sharing_technicians_visible(db_session, person):
+    technician = TechnicianProfile(person_id=person.id, title="Installer")
+    db_session.add(technician)
+    db_session.commit()
+
+    items = svc.list_tracking_states(db_session, stale_after_seconds=120)
+
+    row = next(item for item in items if item["person_id"] == str(person.id))
+    assert row["location_sharing_enabled"] is False
+    assert row["is_live"] is False
+    assert row["status"] == "off_shift"
+    assert row["last_location_at"] is None
 
 
 def test_prune_pings_removes_only_old(db_session, person):

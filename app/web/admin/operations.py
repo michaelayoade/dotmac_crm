@@ -1159,6 +1159,34 @@ def field_techs_live_map_feed(
     return JSONResponse(jsonable_encoder({"items": items, "count": len(items), "limit": limit, "offset": 0}))
 
 
+@router.get("/field-techs/tracking-states")
+def field_techs_tracking_states_feed(
+    request: Request,
+    stale_after_seconds: int = Query(default=120, ge=30, le=3600),
+    limit: int = Query(default=500, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _auth=Depends(require_permission("operations:work_order:read")),
+):
+    """JSON feed of all active field tech tracking states for operations management."""
+    from app.services.field.location_tracking import field_location_tracking
+
+    items = field_location_tracking.list_tracking_states(db, stale_after_seconds=stale_after_seconds, limit=limit)
+    live_count = sum(1 for item in items if item.get("is_live"))
+    sharing_count = sum(1 for item in items if item.get("location_sharing_enabled"))
+    return JSONResponse(
+        jsonable_encoder(
+            {
+                "items": items,
+                "count": len(items),
+                "live_count": live_count,
+                "sharing_count": sharing_count,
+                "limit": limit,
+                "offset": 0,
+            }
+        )
+    )
+
+
 @router.get("/field-techs/map", response_class=HTMLResponse)
 def field_techs_map(
     request: Request,
@@ -1174,7 +1202,7 @@ def field_techs_map(
             "user": user,
             "current_user": user,
             "sidebar_stats": get_sidebar_stats(db),
-            "active_page": "operations",
+            "active_page": "field-tech-live-map",
         },
     )
 

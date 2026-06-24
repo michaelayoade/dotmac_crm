@@ -8,6 +8,7 @@ from app.web.admin.operations import router as operations_router
 
 EXPECTED = {
     ("GET", "/operations/field-techs/live-map"): "operations:work_order:read",
+    ("GET", "/operations/field-techs/tracking-states"): "operations:work_order:read",
     ("GET", "/operations/field-techs/map"): "operations:work_order:read",
 }
 

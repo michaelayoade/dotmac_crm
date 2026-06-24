@@ -3,7 +3,7 @@
 {% set section_for_page = {
     'inbox': 'customers', 'contacts': 'customers', 'leads': 'customers', 'subscribers': 'customers', 'quotes': 'customers', 'sales': 'customers', 'campaigns': 'customers', 'surveys': 'customers',
     'inventory': 'operations',
-    'crm-live-map': 'operations',
+    'crm-live-map': 'operations', 'field-tech-live-map': 'operations',
     'network-map': 'operations', 'network-devices': 'operations', 'core-devices': 'operations', 'olts': 'operations', 'onts': 'operations', 'devices': 'operations',
     'automations': 'system', 'pop-sites': 'system', 'configuration': 'system', 'workflow': 'system',
     'sync': 'system', 'dotmac-erp': 'system', 'selfcare-sync': 'system',
@@ -82,6 +82,7 @@
 %}
 {% set can_installations = can_work_orders %}
 {% set can_dispatch = can_work_orders %}
+{% set can_field_tech_live_map = can_work_orders %}
 {% set can_technicians = is_admin
     or 'operations:technician:read' in user_permissions
     or 'operations:technician:write' in user_permissions
@@ -125,7 +126,7 @@
     or 'operations:material_request' in user_permissions
     or 'operations' in user_permissions
 %}
-{% set operations_section_visible = can_live_map or can_fiber_map or can_sales_orders or can_work_orders or can_technicians or can_tickets or can_projects or can_inventory or can_material_requests %}
+{% set operations_section_visible = can_live_map or can_field_tech_live_map or can_fiber_map or can_sales_orders or can_work_orders or can_technicians or can_tickets or can_projects or can_inventory or can_material_requests %}
 {% set network_section_visible = can_fiber_map %}
 
 {% set can_reports_network = is_admin or 'reports:network' in user_permissions or 'reports' in user_permissions %}
@@ -361,6 +362,17 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 01.553-.894L9 2m0 18l6-2m-6 2V2m6 16l5.447-2.724A1 1 0 0021 14.382V3.618a1 1 0 00-.553-.894L15 0m0 18V0m0 0L9 2"/>
             </svg>
             <span>Live Map</span>
+        </a>
+        {% endif %}
+
+        {% if can_field_tech_live_map %}
+        <a href="/admin/operations/field-techs/map"
+           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'field-tech-live-map' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
+            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 01.553-.894L9 2m0 18l6-2m-6 2V2m6 16l5.447-2.724A1 1 0 0021 14.382V3.618A1 1 0 0020.447 3L15 0m0 18V0m0 0L9 2"/>
+            </svg>
+            <span>Field Tech Map</span>
         </a>
         {% endif %}
 
