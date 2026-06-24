@@ -7,6 +7,7 @@ import '../features/auth/auth_state.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/mfa_screen.dart';
 import '../features/jobs/job_detail_screen.dart';
+import '../features/location/location_tracking_controller.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/schedule/schedule_screen.dart';
 import '../features/today/map_screen.dart';
@@ -86,7 +87,7 @@ class _AppShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: shell,
+      body: LocationTrackingHost(child: shell),
       bottomNavigationBar: NavigationBar(
         selectedIndex: shell.currentIndex,
         onDestinationSelected: shell.goBranch,

@@ -1,9 +1,12 @@
 import 'package:dotmac_field/app/app.dart';
 import 'package:dotmac_field/core/api/token_store.dart';
-import 'package:dotmac_field/features/auth/auth_state.dart';
+import 'package:dotmac_field/core/location/location_source.dart';
 import 'package:dotmac_field/core/offline/database.dart';
+import 'package:dotmac_field/features/auth/auth_state.dart';
 import 'package:dotmac_field/features/jobs/job_models.dart';
 import 'package:dotmac_field/features/jobs/jobs_providers.dart';
+import 'package:dotmac_field/features/location/location_cadence.dart';
+import 'package:dotmac_field/features/location/location_ping_service.dart';
 import 'package:dotmac_field/features/profile/profile_screen.dart';
 import 'package:dotmac_field/features/schedule/schedule_providers.dart';
 import 'package:flutter/material.dart';
@@ -15,20 +18,32 @@ class _AuthedController extends AuthController {
   AuthState build() => const Authenticated(LoginMode.staff);
 }
 
-Widget _app({bool authenticated = true}) {
+Widget _app({
+  bool authenticated = true,
+  LocationPingService? locationPingService,
+}) {
   return ProviderScope(
     overrides: [
+      if (locationPingService != null)
+        locationPingServiceProvider.overrideWithValue(locationPingService),
       if (authenticated) ...[
         authControllerProvider.overrideWith(_AuthedController.new),
         meProvider.overrideWith(
-          (ref) async => const MeSummary(name: 'Chidi Tech', openJobs: 2, completedToday: 1),
+          (ref) async =>
+              const MeSummary(name: 'Chidi Tech', openJobs: 2, completedToday: 1),
         ),
-        jobsListProvider.overrideWith((ref) async => const JobList(<JobSummary>[])),
+        jobsListProvider.overrideWith(
+          (ref) async => const JobList(<JobSummary>[]),
+        ),
         scheduleProvider.overrideWith((ref) async => <ScheduleEntry>[]),
         // SyncStatusBar reads these; empty streams keep it off-screen without
         // needing a real SyncService.
-        pendingOutboxProvider.overrideWith((ref) => Stream.value(<OutboxEntry>[])),
-        conflictOutboxProvider.overrideWith((ref) => Stream.value(<OutboxEntry>[])),
+        pendingOutboxProvider.overrideWith(
+          (ref) => Stream.value(<OutboxEntry>[]),
+        ),
+        conflictOutboxProvider.overrideWith(
+          (ref) => Stream.value(<OutboxEntry>[]),
+        ),
         pendingPhotosProvider.overrideWith((ref) => Stream.value(0)),
       ],
     ],
@@ -64,5 +79,28 @@ void main() {
     await tester.tap(find.text('Schedule'));
     await tester.pumpAndSettle();
     expect(find.text('Schedule'), findsWidgets);
+  });
+
+  testWidgets('start shift enables mobile location sharing', (tester) async {
+    final calls = <({bool enabled, ShiftState shift})>[];
+    final locationService = LocationPingService(
+      location: FakeLocation(null),
+      poster: (_) async => true,
+      sharingUpdater: ({required enabled, required shift}) async {
+        calls.add((enabled: enabled, shift: shift));
+        return true;
+      },
+    );
+
+    await tester.pumpWidget(_app(locationPingService: locationService));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Location sharing'), findsOneWidget);
+    await tester.tap(find.text('Shift'));
+    await tester.pumpAndSettle();
+
+    expect(locationService.shift, ShiftState.onShift);
+    expect(calls.single.enabled, isTrue);
+    expect(calls.single.shift, ShiftState.onShift);
   });
 }
