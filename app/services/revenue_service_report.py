@@ -25,10 +25,13 @@ DEFAULT_TRANSACTION_END_OFFSET = 240000
 DEFAULT_LOG_MAX_ROWS = 60
 DEFAULT_PAYMENT_START_OFFSET = 85000
 DEFAULT_PAYMENT_END_OFFSET = 100000
-DEFAULT_PAYMENT_CLASSIFICATION_MAX_CUSTOMERS = 1000
+DEFAULT_PAYMENT_CLASSIFICATION_MAX_CUSTOMERS = 100
 PAYMENT_TOLERANCE = Decimal("0.15")
 DEFAULT_VAT_RATE = Decimal("0.075")
 UPTIME_CACHE_TTL_SECONDS = 300
+DEFAULT_SERVICE_EXTENSION_PAGE_LIMIT = 100
+DEFAULT_SERVICE_EXTENSION_MAX_PAGES = 20
+DEFAULT_PAYMENT_LIVE_BILLING_MAX_CUSTOMERS = 100
 _UPTIME_CACHE: dict[tuple[Any, ...], tuple[float, Any]] = {}
 
 
@@ -182,12 +185,58 @@ def _is_extension_transaction(row: dict[str, Any]) -> bool:
     return "extending expiration" in description and (not service_type or service_type == "internet")
 
 
+def _stable_id_sort_value(value: Any) -> tuple[int, Any]:
+    text = str(value or "").strip()
+    with contextlib.suppress(ValueError):
+        return (0, int(text))
+    return (1, text)
+
+
 def _is_transaction_in_month(row: dict[str, Any], year: int | None = None, month: int | None = None) -> bool:
     transaction_date = _parse_date(row.get("date"))
     if not transaction_date:
         return False
     selected_year, selected_month = _selected_month(year, month)
     return transaction_date.year == selected_year and transaction_date.month == selected_month
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text or text.startswith("0000"):
+        return None
+    with contextlib.suppress(ValueError):
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    return None
+
+
+def _service_extension_effective_date(row: dict[str, Any]) -> date | None:
+    parsed = _parse_datetime(row.get("applied_at") or row.get("created_at"))
+    return parsed.date() if parsed else None
+
+
+def _is_service_extension_in_month(row: dict[str, Any], year: int | None = None, month: int | None = None) -> bool:
+    effective_date = _service_extension_effective_date(row)
+    if not effective_date:
+        return False
+    selected_year, selected_month = _selected_month(year, month)
+    return effective_date.year == selected_year and effective_date.month == selected_month
+
+
+def _service_extension_days(extension: dict[str, Any], year: int | None = None, month: int | None = None) -> int:
+    with contextlib.suppress(TypeError, ValueError):
+        days = int(extension.get("days") or 0)
+        if days > 0:
+            return days
+    return _extension_days_in_month(extension.get("window_start"), extension.get("window_end"), year, month)
+
+
+def _entry_customer_id(entry: dict[str, Any]) -> str:
+    return str(entry.get("customer_id") or entry.get("subscriber_number") or entry.get("subscriber_id") or "").strip()
+
+
+def _entry_login(entry: dict[str, Any]) -> str:
+    return str(entry.get("subscriber_number") or entry.get("login") or "").strip()
 
 
 def _select_active_service(services: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -242,6 +291,95 @@ def _fetch_payments_page(config: dict[str, Any], offset: int, limit: int) -> lis
     if not isinstance(db, Session):
         return []
     return selfcare.fetch_payments(db, offset=offset, limit=limit)
+
+
+def _request_json_with_config(
+    config: dict[str, Any],
+    method: str,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+) -> Any:
+    import requests
+
+    url = selfcare._crm_url(config, path)
+    timeout_seconds = int(config.get("timeout_seconds") or 30)
+    response = requests.request(  # nosec B113 - timeout is config-driven.
+        method.upper(),
+        url,
+        headers=selfcare._api_headers(config),
+        params=params or {},
+        timeout=timeout_seconds,
+    )
+    if response.status_code < 200 or response.status_code >= 300:
+        body = response.text[:500]
+        raise SelfcareReportError(f"Selfcare request failed for {url}: HTTP {response.status_code} {body}")
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise SelfcareReportError(f"Selfcare returned invalid JSON for {url}") from exc
+
+
+def _fetch_customer_services_with_config(config: dict[str, Any], customer_id: str) -> list[dict[str, Any]]:
+    return selfcare._rows(_request_json_with_config(config, "GET", f"/subscribers/{customer_id}/services"))
+
+
+def _fetch_customer_billing_with_config(config: dict[str, Any], customer_id: str) -> dict[str, Any]:
+    payload = _request_json_with_config(config, "GET", f"/subscribers/{customer_id}/billing")
+    data = selfcare._unwrap_data(payload)
+    return data if isinstance(data, dict) else {}
+
+
+def _fetch_service_extensions_page(config: dict[str, Any], page: int, per_page: int) -> tuple[list[dict[str, Any]], dict]:
+    db = config.get("_db")
+    if not isinstance(db, Session):
+        return [], {}
+    try:
+        payload = selfcare._request_json(db, "GET", "/service-extensions", params={"page": page, "per_page": per_page})
+    except selfcare.SelfcareProviderError as exc:
+        raise SelfcareReportError(str(exc)) from exc
+    meta: dict[str, Any] = {}
+    if isinstance(payload, dict) and isinstance(payload.get("meta"), dict):
+        meta = dict(payload["meta"])
+    return selfcare._rows(payload), meta
+
+
+def _fetch_service_extension_detail(config: dict[str, Any], extension_id: object) -> dict[str, Any]:
+    db = config.get("_db")
+    if not isinstance(db, Session):
+        return {}
+    try:
+        payload = selfcare._request_json(db, "GET", f"/service-extensions/{extension_id}")
+    except selfcare.SelfcareProviderError as exc:
+        raise SelfcareReportError(str(exc)) from exc
+    data = selfcare._unwrap_data(payload)
+    return data if isinstance(data, dict) else {}
+
+
+def _fetch_service_extensions(db: Session) -> list[dict[str, Any]]:
+    config = _config(db)
+    per_page = max(1, _env_int("SELFCARE_SERVICE_EXTENSION_PAGE_LIMIT", DEFAULT_SERVICE_EXTENSION_PAGE_LIMIT))
+    max_pages = max(1, _env_int("SELFCARE_SERVICE_EXTENSION_MAX_PAGES", DEFAULT_SERVICE_EXTENSION_MAX_PAGES))
+    rows: list[dict[str, Any]] = []
+    for page in range(1, max_pages + 1):
+        batch, meta = _fetch_service_extensions_page(config, page, per_page)
+        rows.extend(batch)
+        total = int(meta.get("total") or 0)
+        if len(batch) < per_page or (total and len(rows) >= total):
+            break
+    return rows
+
+
+def _fetch_service_extension_details(db: Session, *, year: int | None = None, month: int | None = None) -> list[dict]:
+    config = _config(db)
+    details: list[dict] = []
+    for row in _fetch_service_extensions(db):
+        if str(row.get("status") or "").lower() != "applied":
+            continue
+        if not _is_service_extension_in_month(row, year, month):
+            continue
+        details.append(_fetch_service_extension_detail(config, row.get("id")) or row)
+    return details
 
 
 def _cached(cache_key: tuple[Any, ...], loader):
@@ -683,14 +821,14 @@ def _month_extension_transactions(
             and _is_transaction_in_month(row, year, month)
             and _extension_days_in_month(row.get("period_from"), row.get("period_to"), year, month) > 0
         ],
-        key=lambda row: (str(row.get("date") or ""), int(row.get("id") or 0)),
+        key=lambda row: (str(row.get("date") or ""), _stable_id_sort_value(row.get("id"))),
         reverse=True,
     )
 
 
 def _transaction_service_prices(transactions: list[dict[str, Any]]) -> dict[str, Decimal]:
     prices: dict[str, Decimal] = {}
-    for row in sorted(transactions, key=lambda item: (str(item.get("date") or ""), int(item.get("id") or 0))):
+    for row in sorted(transactions, key=lambda item: (str(item.get("date") or ""), _stable_id_sort_value(item.get("id")))):
         service_id = str(row.get("service_id") or "").strip()
         price = _money(row.get("price"))
         if service_id and price > 0 and not _is_extension_transaction(row):
@@ -716,6 +854,117 @@ def _fetch_customer_map(config: dict[str, Any], customer_ids: set[str]) -> dict[
         if customer_ids.issubset(found.keys()):
             break
     return found
+
+
+def _fetch_local_customer_map(db: Session, customer_ids: set[str]) -> dict[str, dict[str, Any]]:
+    if not customer_ids:
+        return {}
+
+    from app.models.person import Person
+    from app.models.subscriber import Subscriber
+
+    rows = (
+        db.query(
+            Subscriber.external_id,
+            Subscriber.subscriber_number,
+            Subscriber.service_name,
+            Subscriber.service_plan,
+            Subscriber.sync_metadata,
+            Person.display_name,
+            Person.first_name,
+            Person.last_name,
+        )
+        .outerjoin(Person, Subscriber.person_id == Person.id)
+        .filter(Subscriber.external_system == "selfcare")
+        .filter(Subscriber.external_id.in_(customer_ids))
+        .all()
+    )
+
+    found: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        external_id = str(row.external_id or "").strip()
+        if not external_id:
+            continue
+        display_name = (
+            str(row.display_name or "").strip()
+            or f"{row.first_name or ''} {row.last_name or ''}".strip()
+            or str(row.subscriber_number or "").strip()
+        )
+        metadata = row.sync_metadata if isinstance(row.sync_metadata, dict) else {}
+        found[external_id] = {
+            "id": external_id,
+            "login": str(row.subscriber_number or metadata.get("selfcare_subscriber_number") or "").strip(),
+            "name": display_name,
+            "tariff_name": row.service_plan or row.service_name or "",
+            "plan": row.service_plan or row.service_name or "",
+        }
+    return found
+
+
+def _live_price_from_payloads(services: list[dict[str, Any]], billing: dict[str, Any]) -> tuple[str, Decimal]:
+    service = _select_active_service(services) or {}
+    plan = str(
+        service.get("description")
+        or service.get("name")
+        or service.get("tariff_name")
+        or service.get("plan")
+        or ""
+    ).strip()
+    price = _money(
+        service.get("unit_price")
+        or service.get("price")
+        or service.get("monthly_price")
+        or service.get("month_price")
+        or billing.get("month_price")
+        or billing.get("monthly_fee")
+        or billing.get("mrr_total")
+    )
+    return plan, price
+
+
+def _fetch_live_payment_billing_map(config: dict[str, Any], customer_ids: list[str]) -> dict[str, dict[str, Any]]:
+    if not customer_ids:
+        return {}
+
+    max_customers = max(
+        0,
+        _env_int("PAYMENT_CLASSIFICATION_LIVE_BILLING_MAX_CUSTOMERS", DEFAULT_PAYMENT_LIVE_BILLING_MAX_CUSTOMERS),
+    )
+    limited_customer_ids = customer_ids[:max_customers] if max_customers else []
+    if not limited_customer_ids:
+        return {}
+
+    max_workers = max(1, min(_env_int("PAYMENT_CLASSIFICATION_LIVE_BILLING_WORKERS", 8), 16))
+    results: dict[str, dict[str, Any]] = {}
+
+    def load(customer_id: str) -> tuple[str, dict[str, Any] | None]:
+        try:
+            billing = _fetch_customer_billing_with_config(config, customer_id)
+            services: list[dict[str, Any]] = []
+            plan, price = _live_price_from_payloads(services, billing)
+            if price <= 0:
+                services = _fetch_customer_services_with_config(config, customer_id)
+                plan, price = _live_price_from_payloads(services, billing)
+            return customer_id, {
+                "tariff_name": plan,
+                "plan": plan,
+                "monthly_fee": float(price),
+                "month_price": float(price),
+                "billing": billing,
+                "services": services,
+                "live_billing_source": "selfcare_subscriber_billing",
+            }
+        except Exception as exc:
+            logger.warning("payment_classification_live_billing_lookup_failed customer_id=%s error=%s", customer_id, exc)
+            return customer_id, None
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(load, customer_id) for customer_id in limited_customer_ids]
+        for future in as_completed(futures):
+            customer_id, payload = future.result()
+            if payload:
+                results[customer_id] = payload
+    return results
 
 
 def _fallback_service_price(db: Session, customer_id: str, service_id: Any) -> Decimal:
@@ -822,6 +1071,133 @@ def _build_rows_from_transactions(
     return sorted(rows, key=lambda row: float(row.get("hours_down") or 0), reverse=True)
 
 
+def _extension_entry_lookup_id(entry: dict[str, Any]) -> str:
+    return str(entry.get("subscriber_id") or entry.get("customer_id") or "").strip()
+
+
+def _service_price_for_extension_entry(
+    db: Session,
+    *,
+    lookup_id: str,
+    entry: dict[str, Any],
+    cache: dict[str, tuple[str, Decimal]],
+) -> tuple[str, Decimal]:
+    if lookup_id in cache:
+        return cache[lookup_id]
+    customer = {
+        "id": lookup_id,
+        "name": entry.get("name") or "",
+        "login": _entry_login(entry),
+    }
+    try:
+        plan, price = _active_plan_for_customer(db, lookup_id, customer, fetch_remote=True)
+    except Exception:
+        logger.warning("revenue_service_report_extension_price_lookup_failed subscriber_id=%s", lookup_id)
+        plan, price = "", Decimal("0")
+    cache[lookup_id] = (plan, price)
+    return plan, price
+
+
+def _row_from_service_extension(
+    *,
+    db: Session,
+    extension: dict[str, Any],
+    entry: dict[str, Any],
+    service_price_cache: dict[str, tuple[str, Decimal]],
+    uptime_map: dict[str, dict[str, Any] | None],
+    year: int | None = None,
+    month: int | None = None,
+) -> dict[str, Any] | None:
+    lookup_id = _extension_entry_lookup_id(entry)
+    customer_id = _entry_customer_id(entry)
+    if not lookup_id or not customer_id:
+        return None
+
+    plan_name, monthly_fee = _service_price_for_extension_entry(
+        db,
+        lookup_id=lookup_id,
+        entry=entry,
+        cache=service_price_cache,
+    )
+    days = _service_extension_days(extension, year, month)
+    selected_year, selected_month = _selected_month(year, month)
+    days_in_month = monthrange(selected_year, selected_month)[1]
+    hours_down = days * 24
+    credit = (monthly_fee * Decimal(days) / Decimal(days_in_month)) if days_in_month else Decimal("0")
+    estimated_uptime = max(Decimal("0"), (Decimal(days_in_month * 24 - hours_down) / Decimal(days_in_month * 24)) * 100)
+    uptime_payload = uptime_map.get(lookup_id)
+    uptime = Decimal(str(uptime_payload["uptime_percent"])) if uptime_payload else estimated_uptime
+    status = "resolved" if uptime >= Decimal("99.5") else "investigating" if uptime >= Decimal("99") else "critical"
+    effective_date = _service_extension_effective_date(extension)
+
+    return {
+        "incident_id": extension.get("id"),
+        "customer_id": customer_id,
+        "customer_name": entry.get("name") or f"Customer {customer_id}",
+        "login": _entry_login(entry),
+        "date": effective_date.isoformat() if effective_date else "",
+        "hours_down": hours_down,
+        "monthly_fee": float(monthly_fee),
+        "credit_note_amount": float(credit),
+        "uptime_percent": float(uptime),
+        "uptime_source": uptime_payload["source"] if uptime_payload else "extension_estimate",
+        "online_hours": uptime_payload["online_hours"] if uptime_payload else None,
+        "offline_hours": uptime_payload["offline_hours"] if uptime_payload else None,
+        "status": status,
+        "root_cause": extension.get("reason") or "Service extension",
+        "service_id": entry.get("subscription_id") or "",
+        "service_name": plan_name or extension.get("reason") or "",
+        "period_from": extension.get("window_start"),
+        "period_to": extension.get("window_end"),
+        "service_extension_id": extension.get("id"),
+        "service_extension_status": extension.get("status"),
+        "previous_next_billing_at": entry.get("previous_next_billing_at"),
+        "new_next_billing_at": entry.get("new_next_billing_at"),
+    }
+
+
+def _build_rows_from_service_extensions(
+    db: Session,
+    *,
+    year: int | None = None,
+    month: int | None = None,
+    max_rows: int | None = None,
+) -> list[dict[str, Any]]:
+    extensions = _fetch_service_extension_details(db, year=year, month=month)
+    entries_by_extension: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    lookup_ids: set[str] = set()
+    for extension in extensions:
+        affected_customers = extension.get("affected_customers")
+        if not isinstance(affected_customers, list):
+            continue
+        for entry in affected_customers:
+            if not isinstance(entry, dict):
+                continue
+            entries_by_extension.append((extension, entry))
+            if lookup_id := _extension_entry_lookup_id(entry):
+                lookup_ids.add(lookup_id)
+
+    selected_year, selected_month = _selected_month(year, month)
+    uptime_map = _session_uptime_map_for_customers(_config(db), lookup_ids, selected_year, selected_month)
+    service_price_cache: dict[str, tuple[str, Decimal]] = {}
+    rows: list[dict[str, Any]] = []
+    for extension, entry in entries_by_extension:
+        row = _row_from_service_extension(
+            db=db,
+            extension=extension,
+            entry=entry,
+            service_price_cache=service_price_cache,
+            uptime_map=uptime_map,
+            year=year,
+            month=month,
+        )
+        if row:
+            rows.append(row)
+
+    rows = sorted(rows, key=lambda row: (str(row.get("date") or ""), float(row.get("hours_down") or 0)), reverse=True)
+    return rows if max_rows is None else rows[:max_rows]
+
+
 def _customer_matches(row: dict[str, Any], words: list[str]) -> bool:
     haystack = " ".join(
         str(row.get(key) or "")
@@ -837,9 +1213,10 @@ def find_customer(db: Session, query: str) -> dict[str, Any] | None:
         return None
 
     if search.isdigit():
-        customer = selfcare.fetch_customer(db, search)
-        if customer and customer.get("id"):
-            return customer
+        with contextlib.suppress(selfcare.SelfcareProviderError):
+            customer = selfcare.fetch_customer(db, search)
+            if customer and customer.get("id"):
+                return customer
 
     config = _config(db)
     words = [word for word in search.lower().split() if word]
@@ -862,16 +1239,26 @@ def find_customer(db: Session, query: str) -> dict[str, Any] | None:
 
 
 def _latest_extension_for_customer(db: Session, customer_id: Any) -> dict[str, Any] | None:
-    customer_key = str(customer_id)
-    matches = [
-        transaction
-        for transaction in _fetch_recent_transactions(db)
-        if str(transaction.get("customer_id") or "") == customer_key and _is_extension_transaction(transaction)
-    ]
+    customer_key = str(customer_id or "").strip().lower()
+    matches: list[dict[str, Any]] = []
+    for extension in _fetch_service_extension_details(db):
+        affected_customers = extension.get("affected_customers")
+        if not isinstance(affected_customers, list):
+            continue
+        for entry in affected_customers:
+            if not isinstance(entry, dict):
+                continue
+            identifiers = {
+                str(entry.get("customer_id") or "").strip().lower(),
+                str(entry.get("subscriber_id") or "").strip().lower(),
+                str(entry.get("subscriber_number") or "").strip().lower(),
+            }
+            if customer_key in identifiers:
+                matches.append({"extension": extension, "entry": entry})
     return (
         sorted(
             matches,
-            key=lambda row: (str(row.get("date") or ""), int(row.get("id") or 0)),
+            key=lambda item: str((item["extension"] or {}).get("applied_at") or (item["extension"] or {}).get("created_at") or ""),
             reverse=True,
         )[0]
         if matches
@@ -882,30 +1269,34 @@ def _latest_extension_for_customer(db: Session, customer_id: Any) -> dict[str, A
 def _compensation_payload(
     *,
     customer: dict[str, Any],
-    services: list[dict[str, Any]],
     billing: dict[str, Any] | None,
-    transaction: dict[str, Any],
+    extension: dict[str, Any],
+    entry: dict[str, Any],
+    service_name: str,
+    service_price: Decimal,
 ) -> dict[str, Any]:
-    service = _service_for_transaction(services, transaction) or {}
-    service_price = _money(service.get("unit_price") or (billing or {}).get("month_price"))
-    days = _extension_days(transaction.get("period_from"), transaction.get("period_to"))
-    month_days = _days_in_billing_month(transaction.get("period_from"))
+    days = _service_extension_days(extension)
+    month_days = _days_in_billing_month(extension.get("window_start"))
     estimated = (service_price * Decimal(days) / Decimal(month_days)) if month_days else Decimal("0")
 
     return {
-        "customer_id": customer.get("id"),
-        "customer_name": customer.get("name") or "",
+        "customer_id": entry.get("customer_id") or customer.get("id"),
+        "customer_name": entry.get("name") or customer.get("name") or "",
         "login": customer.get("login") or "",
         "customer_status": customer.get("status") or "",
-        "active_service_name": service.get("description") or "",
-        "service_id_used": service.get("id") or transaction.get("service_id"),
+        "active_service_name": service_name,
+        "service_id_used": entry.get("subscription_id") or "",
         "service_unit_price_used": float(service_price),
-        "latest_extension_transaction_id": transaction.get("id"),
-        "latest_extension_date": transaction.get("date"),
-        "period_from": transaction.get("period_from"),
-        "period_to": transaction.get("period_to"),
+        "latest_extension_transaction_id": extension.get("id"),
+        "latest_extension_date": extension.get("applied_at") or extension.get("created_at"),
+        "service_extension_id": extension.get("id"),
+        "service_extension_status": extension.get("status"),
+        "period_from": extension.get("window_start"),
+        "period_to": extension.get("window_end"),
         "extension_days": days,
         "estimated_compensation_value": float(estimated),
+        "previous_next_billing_at": entry.get("previous_next_billing_at"),
+        "new_next_billing_at": entry.get("new_next_billing_at"),
         "last_online": customer.get("last_online"),
         "billing_blocking_date": (billing or {}).get("blocking_date"),
     }
@@ -913,13 +1304,43 @@ def _compensation_payload(
 
 def lookup_compensation(db: Session, search: str) -> dict[str, Any]:
     customer = find_customer(db, search)
+    latest = None
+    lookup_candidates: list[object] = [search]
+    if customer:
+        lookup_candidates.extend(
+            [
+                customer.get("id"),
+                customer.get("login"),
+                customer.get("subscriber_number"),
+                customer.get("account_number"),
+            ]
+        )
+    for candidate in lookup_candidates:
+        if not str(candidate or "").strip():
+            continue
+        latest = _latest_extension_for_customer(db, candidate)
+        if latest:
+            break
+    if not customer and latest:
+        entry = latest["entry"]
+        customer = {
+            "id": entry.get("subscriber_id") or entry.get("customer_id"),
+            "name": entry.get("name") or "",
+            "login": _entry_login(entry),
+            "status": "",
+        }
     if not customer:
         return {"found": False, "message": "Customer not found"}
 
-    profile = selfcare.fetch_customer(db, str(customer.get("id"))) or customer
-    services = selfcare.fetch_customer_internet_services(db, str(customer.get("id")))
-    billing = selfcare.fetch_customer_billing(db, str(customer.get("id")))
-    latest = _latest_extension_for_customer(db, customer.get("id"))
+    profile_id = str(customer.get("id") or "")
+    try:
+        profile = selfcare.fetch_customer(db, profile_id) or customer
+    except selfcare.SelfcareProviderError:
+        profile = customer
+    try:
+        billing = selfcare.fetch_customer_billing(db, profile_id)
+    except selfcare.SelfcareProviderError:
+        billing = None
     if not latest:
         return {
             "found": True,
@@ -933,16 +1354,27 @@ def lookup_compensation(db: Session, search: str) -> dict[str, Any]:
             "billing_blocking_date": (billing or {}).get("blocking_date"),
         }
 
+    extension = latest["extension"]
+    entry = latest["entry"]
+    lookup_id = _extension_entry_lookup_id(entry) or profile_id
+    service_name, service_price = _service_price_for_extension_entry(db, lookup_id=lookup_id, entry=entry, cache={})
     return {
         "found": True,
         "has_extension": True,
-        **_compensation_payload(customer=profile, services=services, billing=billing, transaction=latest),
+        **_compensation_payload(
+            customer=profile,
+            billing=billing,
+            extension=extension,
+            entry=entry,
+            service_name=service_name,
+            service_price=service_price,
+        ),
     }
 
 
 def build_downtime_log(db: Session, *, year: int | None = None, month: int | None = None) -> list[dict[str, Any]]:
     max_rows = _env_int("DOWNTIME_LOG_MAX_ROWS", DEFAULT_LOG_MAX_ROWS)
-    return _build_rows_from_transactions(db, _fetch_recent_transactions(db), year=year, month=month, max_rows=max_rows)
+    return _build_rows_from_service_extensions(db, year=year, month=month, max_rows=max_rows)
 
 
 def build_summary_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -988,9 +1420,7 @@ def build_summary_from_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def build_summary(db: Session, *, year: int | None = None, month: int | None = None) -> dict[str, Any]:
-    return build_summary_from_rows(
-        _build_rows_from_transactions(db, _fetch_recent_transactions(db), year=year, month=month)
-    )
+    return build_summary_from_rows(_build_rows_from_service_extensions(db, year=year, month=month))
 
 
 REPORT_CACHE_TTL_SECONDS = 300
@@ -998,8 +1428,7 @@ _REPORT_CACHE: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
 
 
 def _build_report_uncached(db: Session, *, year: int | None = None, month: int | None = None) -> dict[str, Any]:
-    transactions = _fetch_recent_transactions(db)
-    summary_rows = _build_rows_from_transactions(db, transactions, year=year, month=month)
+    summary_rows = _build_rows_from_service_extensions(db, year=year, month=month)
     max_rows = _env_int("DOWNTIME_LOG_MAX_ROWS", DEFAULT_LOG_MAX_ROWS)
     return {
         "summary": build_summary_from_rows(summary_rows),
@@ -1030,7 +1459,7 @@ def _payment_customer_groups(payments: list[dict[str, Any]]) -> dict[str, list[d
             continue
         groups.setdefault(customer_id, []).append(payment)
     for rows in groups.values():
-        rows.sort(key=lambda row: (str(row.get("date") or ""), int(row.get("id") or 0)), reverse=True)
+        rows.sort(key=lambda row: (str(row.get("date") or ""), _stable_id_sort_value(row.get("id"))), reverse=True)
     return groups
 
 
@@ -1122,6 +1551,33 @@ def _classify_payment_group(payments: list[dict[str, Any]], monthly_price: Decim
     )
 
 
+def _infer_monthly_price_from_payments(payments: list[dict[str, Any]]) -> Decimal:
+    amounts = [_money(payment.get("amount")) for payment in payments]
+    amounts = [amount for amount in amounts if amount > Decimal("1000")]
+    if not amounts:
+        return Decimal("0")
+
+    buckets: dict[Decimal, int] = {}
+    for amount in amounts:
+        bucket = (amount / Decimal("100")).to_integral_value() * Decimal("100")
+        buckets[bucket] = buckets.get(bucket, 0) + 1
+
+    recurring_bucket, recurring_count = max(
+        buckets.items(),
+        key=lambda item: (item[1], -item[0]),
+    )
+    if recurring_count >= 2:
+        matching = [
+            amount
+            for amount in amounts
+            if abs(amount - recurring_bucket) <= max(Decimal("100"), recurring_bucket * Decimal("0.05"))
+        ]
+        if matching:
+            return sum(matching, Decimal("0")) / Decimal(len(matching))
+
+    return amounts[0]
+
+
 def _payment_row(
     db: Session,
     *,
@@ -1133,6 +1589,8 @@ def _payment_row(
     active_plan, monthly_price = _active_plan_for_customer(db, customer_id, customer, fetch_remote=False)
     if not payments or not current_month_payments:
         return None
+    if monthly_price <= 0:
+        monthly_price = _infer_monthly_price_from_payments(payments)
 
     classification, reason, months_covered = _classify_payment_group(payments, monthly_price)
     latest = current_month_payments[0]
@@ -1187,21 +1645,23 @@ def build_payment_classification(
         selected_month_groups,
         key=lambda customer_id: (
             str(selected_month_groups[customer_id][0].get("date") or ""),
-            int(selected_month_groups[customer_id][0].get("id") or 0),
+            _stable_id_sort_value(selected_month_groups[customer_id][0].get("id")),
         ),
         reverse=True,
     )
     max_customers = _env_int("PAYMENT_CLASSIFICATION_MAX_CUSTOMERS", DEFAULT_PAYMENT_CLASSIFICATION_MAX_CUSTOMERS)
     selected_customer_ids = sorted_selected_month_customer_ids[:max_customers]
-    config = _config(db)
-    customer_map = _fetch_customer_map(config, set(selected_customer_ids))
+    customer_map = _fetch_local_customer_map(db, set(selected_customer_ids))
+    live_billing_map = _fetch_live_payment_billing_map(_config(db), selected_customer_ids)
     rows: list[dict[str, Any]] = []
 
     for customer_id in selected_customer_ids:
+        customer = dict(customer_map.get(customer_id, {"id": customer_id}))
+        customer.update({key: value for key, value in live_billing_map.get(customer_id, {}).items() if value})
         row = _payment_row(
             db,
             customer_id=customer_id,
-            customer=customer_map.get(customer_id, {"id": customer_id}),
+            customer=customer,
             payments=groups[customer_id],
             current_month_payments=selected_month_groups[customer_id],
         )
@@ -1284,9 +1744,7 @@ def build_month_options(db: Session) -> dict[str, Any]:
     dates: list[date] = []
     with contextlib.suppress(SelfcareReportError):
         dates.extend(
-            parsed
-            for row in _fetch_recent_transactions(db)
-            if _is_extension_transaction(row) and (parsed := _parse_date(row.get("date")))
+            parsed for row in _fetch_service_extensions(db) if (parsed := _service_extension_effective_date(row))
         )
     with contextlib.suppress(SelfcareReportError):
         dates.extend(parsed for row in _fetch_recent_payments(db) if (parsed := _parse_date(row.get("date"))))

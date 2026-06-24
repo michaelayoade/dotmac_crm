@@ -3188,7 +3188,7 @@ def revenue_service_log(
     month: int | None = Query(None, ge=1, le=12),
     db: Session = Depends(get_db),
 ):
-    """Return all downtime incidents derived from extension transactions."""
+    """Return all downtime incidents derived from Selfcare service extensions."""
     from app.services import revenue_service_report as revenue_service_report_service
 
     try:
@@ -3220,7 +3220,7 @@ def revenue_service_compensation(
     search: str = Query(..., min_length=1),
     db: Session = Depends(get_db),
 ):
-    """Look up the latest extension compensation for a Splynx customer."""
+    """Look up the latest Selfcare service-extension compensation for a customer."""
     from app.services import revenue_service_report as revenue_service_report_service
 
     try:
@@ -3240,7 +3240,7 @@ def revenue_service_payment_classification(
     month: int | None = Query(None, ge=1, le=12),
     db: Session = Depends(get_db),
 ):
-    """Return Splynx customer payment behaviour classification."""
+    """Return Selfcare customer payment behaviour classification."""
     from app.services import revenue_service_report as revenue_service_report_service
 
     try:

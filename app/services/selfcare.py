@@ -484,6 +484,8 @@ def map_customer_to_subscriber_data(
         "selfcare_subscriber_number": _coalesce_str(
             customer.get("subscriber_number"), customer.get("login"), customer.get("account_number")
         ),
+        "billing_mode": _coalesce_str(customer.get("billing_mode"), (billing or {}).get("billing_mode")),
+        "billing_type": _coalesce_str(customer.get("billing_type"), (billing or {}).get("billing_type")),
         "invoiced_until": _coalesce_str(customer.get("invoiced_until"), (billing or {}).get("invoiced_until")),
         "total_paid": _normalize_decimal_str(customer.get("total_paid") or (billing or {}).get("total_paid")),
         "last_transaction_date": _coalesce_str(

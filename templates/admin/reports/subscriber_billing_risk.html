@@ -134,11 +134,11 @@
 
     <div class="col-span-12 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
         {% if refresh_started %}
-            Subscriber sync has been queued. This billing-risk page reads live Splynx data.
+            Subscriber sync has been queued. Billing-risk rows come from Selfcare CRM <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">/subscribers?include=services,billing</code>.
         {% elif billing_risk_cache.row_count|default(0) == 0 %}
-            Live Splynx query returned no billing-risk rows for the selected filters.
+            Selfcare CRM <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">/subscribers?include=services,billing</code> returned no billing-risk rows for the selected filters.
         {% else %}
-            Live Splynx rows: {{ billing_risk_cache.row_count }}{% if last_synced_at %}. Local subscriber mirror synced {{ last_synced_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}.
+            Selfcare CRM rows from <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">/subscribers?include=services,billing</code>: {{ billing_risk_cache.row_count }}{% if last_synced_at %}. Local subscriber mirror synced {{ last_synced_at.strftime("%Y-%m-%d %H:%M UTC") }}{% endif %}.
         {% endif %}
     </div>
 
@@ -277,6 +277,25 @@
         </div>
     </div>
 
+    <div class="col-span-12 border-b border-slate-200 dark:border-slate-700">
+        <div class="flex gap-1 overflow-x-auto">
+            <button
+                type="button"
+                data-billing-risk-tab="all"
+                class="billing-risk-tab inline-flex h-11 items-center whitespace-nowrap border-b-2 px-4 text-sm font-semibold transition {% if billing_type|default('all') == 'all' %}border-rose-500 text-rose-700 dark:border-rose-400 dark:text-rose-200{% else %}border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200{% endif %}"
+            >
+                All Billing Risk
+            </button>
+            <button
+                type="button"
+                data-billing-risk-tab="postpaid"
+                class="billing-risk-tab inline-flex h-11 items-center whitespace-nowrap border-b-2 px-4 text-sm font-semibold uppercase transition {% if billing_type|default('all') == 'postpaid' %}border-rose-500 text-rose-700 dark:border-rose-400 dark:text-rose-200{% else %}border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-200{% endif %}"
+            >
+                Postpaid Customers
+            </button>
+        </div>
+    </div>
+
     <div
         id="billing-risk-results"
         class="col-span-12"
@@ -383,6 +402,7 @@
             const bucketButtons = Array.from(document.querySelectorAll('.billing-risk-bucket'));
             const statusButtons = Array.from(document.querySelectorAll('.billing-risk-status-toggle'));
             const billingButtons = Array.from(document.querySelectorAll('.billing-risk-billing-toggle'));
+            const billingTabs = Array.from(document.querySelectorAll('.billing-risk-tab'));
             const tierButtons = Array.from(document.querySelectorAll('.billing-risk-tier-toggle'));
             const tierCount = document.getElementById('billing-risk-tier-count');
             const locationSelect = document.getElementById('billing-risk-location-filter');
@@ -745,6 +765,19 @@
                 }
             }
 
+            function applyBillingTabState() {
+                for (const candidate of billingTabs) {
+                    const active = (candidate.dataset.billingRiskTab || 'all') === filterState.billingType;
+                    candidate.classList.toggle('border-rose-500', active);
+                    candidate.classList.toggle('text-rose-700', active);
+                    candidate.classList.toggle('dark:border-rose-400', active);
+                    candidate.classList.toggle('dark:text-rose-200', active);
+                    candidate.classList.toggle('border-transparent', !active);
+                    candidate.classList.toggle('text-slate-500', !active);
+                    candidate.classList.toggle('dark:text-slate-400', !active);
+                }
+            }
+
             function syncUrlState() {
                 const params = new URLSearchParams();
                 params.set('due_soon_days', results.dataset.dueSoonDays || '7');
@@ -1036,6 +1069,7 @@
                 applyBucketButtonState();
                 applyStatusButtonState();
                 applyBillingButtonState();
+                applyBillingTabState();
                 applyTierButtonState();
                 hydrateResults();
             }
@@ -1044,6 +1078,7 @@
             applyBucketButtonState();
             applyStatusButtonState();
             applyBillingButtonState();
+            applyBillingTabState();
             applyTierButtonState();
             if (searchInput) {
                 searchInput.value = filterState.search;
@@ -1086,6 +1121,7 @@
                 applyTierButtonState();
                 applyStatusButtonState();
                 applyBillingButtonState();
+                applyBillingTabState();
                 loadResults(1, true, {
                     bucket: 'all',
                     customerStatus: 'all',
@@ -1118,6 +1154,18 @@
                     filterState.billingType = button.dataset.billingType || 'all';
                     results.dataset.billingType = filterState.billingType;
                     applyBillingButtonState();
+                    applyBillingTabState();
+                    loadResults(1, true, {
+                        billingType: filterState.billingType,
+                    });
+                });
+            }
+            for (const button of billingTabs) {
+                button.addEventListener('click', () => {
+                    filterState.billingType = button.dataset.billingRiskTab || 'all';
+                    results.dataset.billingType = filterState.billingType;
+                    applyBillingButtonState();
+                    applyBillingTabState();
                     loadResults(1, true, {
                         billingType: filterState.billingType,
                     });

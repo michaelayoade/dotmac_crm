@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import case, func, or_
+from sqlalchemy import case, func, not_, or_
 from sqlalchemy.orm import Session
 
 from app.models.subscriber import Subscriber, SubscriberBillingRiskSnapshot
@@ -22,6 +23,44 @@ SEGMENT_LABELS = {
     "churned": "Churned",
     "pending": "Pending",
 }
+
+DISTRICT_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("gwarinpa", "Gwarinpa"),
+    ("gwarimpa", "Gwarinpa"),
+    ("life camp", "Life Camp"),
+    ("maitama", "Maitama"),
+    ("asokoro", "Asokoro"),
+    ("wuse 2", "Wuse 2"),
+    ("wuse ii", "Wuse 2"),
+    ("wuse", "Wuse"),
+    ("gudu", "Gudu"),
+    ("jabi", "Jabi"),
+    ("utako", "Utako"),
+    ("garki", "Garki"),
+    ("guzape", "Guzape"),
+    ("lokogoma", "Lokogoma"),
+    ("lugbe", "Lugbe"),
+    ("kubwa", "Kubwa"),
+    ("katampe", "Katampe"),
+    ("kado", "Kado"),
+    ("apo", "Apo"),
+    ("galadimawa", "Galadimawa"),
+    ("durumi", "Durumi"),
+    ("jahi", "Jahi"),
+    ("karmo", "Karmo"),
+    ("mpape", "Mpape"),
+    ("wuye", "Wuye"),
+    ("gaduwa", "Gaduwa"),
+    ("ikeja", "Ikeja"),
+    ("lekki", "Lekki"),
+    ("alimosho", "Alimosho"),
+    ("oshodi", "Oshodi"),
+    ("egbeda", "Egbeda"),
+    ("ilasamaja", "Ilasamaja"),
+    ("ogudu", "Ogudu"),
+    ("opebi", "Opebi"),
+    ("isolo", "Isolo"),
+)
 
 
 @dataclass(frozen=True)
@@ -85,13 +124,22 @@ def _snapshot_to_dict(row: SubscriberBillingRiskSnapshot) -> dict[str, Any]:
     mrr_total = float(row.mrr_total or 0)
     total_paid = float(row.total_paid or 0)
     source_metadata = row.source_metadata if isinstance(row.source_metadata, dict) else {}
+    base_location = (
+        _clean_location_text(row.location)
+        or _clean_location_text(row.city)
+        or _infer_location_from_area(row.area)
+    )
+    district = _infer_district(row.location, row.city, row.area)
+    location = base_location
+    if district and district.lower() != base_location.lower():
+        location = f"{base_location} / {district}" if base_location else district
     return {
         "subscriber_id": row.external_id,
         "name": row.name,
         "email": row.email or "",
         "phone": row.phone or "",
         "city": row.city or "",
-        "location": row.location or "",
+        "location": location,
         "mrr_total": mrr_total,
         "subscriber_status": row.subscriber_status or "",
         "area": row.area or "",
@@ -101,7 +149,7 @@ def _snapshot_to_dict(row: SubscriberBillingRiskSnapshot) -> dict[str, Any]:
         "next_bill_date": _date_text(row.next_bill_date),
         "balance": balance,
         "account_balance_deposit": source_metadata.get("account_balance_deposit"),
-        "billing_type": str(source_metadata.get("billing_type") or ""),
+        "billing_type": _billing_type_value(row),
         "billing_cycle": row.billing_cycle or "",
         "blocked_date": _date_text(row.blocked_date),
         "blocked_for_days": row.blocked_for_days,
@@ -123,6 +171,134 @@ def _snapshot_to_dict(row: SubscriberBillingRiskSnapshot) -> dict[str, Any]:
 
 def _selected_segment_labels(selected_segments: list[str] | None) -> set[str]:
     return {SEGMENT_LABELS[key] for key in selected_segments or [] if key in SEGMENT_LABELS}
+
+
+def _normalized_customer_status(value: str | None) -> str:
+    normalized = str(value or "all").strip().lower()
+    if normalized in {"active", "suspended", "all"}:
+        return normalized
+    return "all"
+
+
+def _normalized_billing_type(value: str | None) -> str:
+    normalized = str(value or "all").strip().lower()
+    if normalized in {"prepaid", "postpaid", "all"}:
+        return normalized
+    return "all"
+
+
+def _billing_type_expr():
+    source_type = func.lower(
+        func.coalesce(
+            SubscriberBillingRiskSnapshot.source_metadata["billing_mode"].as_string(),
+            SubscriberBillingRiskSnapshot.source_metadata["billing_type"].as_string(),
+            "",
+        )
+    )
+    billing_cycle = func.lower(func.coalesce(SubscriberBillingRiskSnapshot.billing_cycle, ""))
+    return case(
+        (source_type.like("prepaid%"), "prepaid"),
+        (billing_cycle.like("prepaid%"), "prepaid"),
+        (source_type.in_(["recurring", "postpaid"]), "postpaid"),
+        (billing_cycle.in_(["recurring", "postpaid"]), "postpaid"),
+        else_="postpaid",
+    )
+
+
+def _billing_type_value(row: SubscriberBillingRiskSnapshot) -> str:
+    source_metadata = row.source_metadata if isinstance(row.source_metadata, dict) else {}
+    candidates = (
+        source_metadata.get("billing_mode"),
+        source_metadata.get("billing_type"),
+        row.billing_cycle,
+    )
+    for candidate in candidates:
+        normalized = str(candidate or "").strip().lower()
+        if normalized.startswith("prepaid"):
+            return "prepaid"
+        if normalized in {"recurring", "postpaid"}:
+            return "postpaid"
+    return "postpaid"
+
+
+def _nonblank_text(column):
+    return func.nullif(func.trim(column), "")
+
+
+def _has_digit_expr(column):
+    text = func.coalesce(column, "")
+    return or_(*(text.like(f"%{digit}%") for digit in "0123456789"))
+
+
+def _location_expr():
+    location_text = _nonblank_text(SubscriberBillingRiskSnapshot.location)
+    city_text = _nonblank_text(SubscriberBillingRiskSnapshot.city)
+    area_text = func.lower(func.coalesce(SubscriberBillingRiskSnapshot.area, ""))
+    location_lower = func.lower(func.coalesce(location_text, ""))
+    city_lower = func.lower(func.coalesce(city_text, ""))
+    return case(
+        (location_lower.like("%lagos%"), "Lagos"),
+        (or_(location_lower.like("%abuja%"), location_lower.like("%fct%"), location_lower.like("%f.c.t%")), "Abuja"),
+        (not_(_has_digit_expr(location_text)), location_text),
+        (city_lower.like("%lagos%"), "Lagos"),
+        (or_(city_lower.like("%abuja%"), city_lower.like("%fct%"), city_lower.like("%f.c.t%")), "Abuja"),
+        (not_(_has_digit_expr(city_text)), city_text),
+        (area_text.like("%lagos%"), "Lagos"),
+        (or_(area_text.like("%abuja%"), area_text.like("%fct%"), area_text.like("%f.c.t%")), "Abuja"),
+        (area_text.like("%ibadan%"), "Ibadan"),
+        (or_(area_text.like("%oshogbo%"), area_text.like("%osogbo%")), "Oshogbo"),
+        else_=None,
+    )
+
+
+def _district_expr():
+    searchable_text = func.lower(
+        func.coalesce(SubscriberBillingRiskSnapshot.location, "")
+        + " "
+        + func.coalesce(SubscriberBillingRiskSnapshot.city, "")
+        + " "
+        + func.coalesce(SubscriberBillingRiskSnapshot.area, "")
+    )
+    return case(
+        *[(searchable_text.like(f"%{pattern}%"), label) for pattern, label in DISTRICT_PATTERNS],
+        else_=None,
+    )
+
+
+def _clean_location_text(value: object) -> str:
+    text = str(value or "").strip()
+    if not text or any(char.isdigit() for char in text):
+        return ""
+    normalized = text.lower()
+    if "lagos" in normalized:
+        return "Lagos"
+    if "abuja" in normalized or "fct" in normalized or "f.c.t" in normalized:
+        return "Abuja"
+    return text
+
+
+def _infer_district(*values: object) -> str:
+    searchable = " ".join(str(value or "") for value in values).lower()
+    searchable = re.sub(r"\s+", " ", searchable)
+    for pattern, label in DISTRICT_PATTERNS:
+        if pattern in searchable:
+            return label
+    return ""
+
+
+def _infer_location_from_area(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return ""
+    if "lagos" in normalized:
+        return "Lagos"
+    if "abuja" in normalized or "fct" in normalized or "f.c.t" in normalized:
+        return "Abuja"
+    if "ibadan" in normalized:
+        return "Ibadan"
+    if "oshogbo" in normalized or "osogbo" in normalized:
+        return "Oshogbo"
+    return ""
 
 
 def _days_past_due_bounds(value: str | None) -> tuple[int | None, int | None] | None:
@@ -165,6 +341,8 @@ def _base_query(
     search: str | None,
     overdue_bucket: str | None,
     location: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
 ):
     query = db.query(SubscriberBillingRiskSnapshot)
     due_soon_days = max(1, min(int(due_soon_days or 7), 30))
@@ -217,7 +395,27 @@ def _base_query(
         )
     normalized_location = (location or "").strip()
     if normalized_location:
-        query = query.filter(SubscriberBillingRiskSnapshot.location == normalized_location)
+        normalized_location_lower = normalized_location.lower()
+        query = query.filter(
+            or_(
+                func.lower(_location_expr()) == normalized_location_lower,
+                func.lower(_district_expr()) == normalized_location_lower,
+            )
+        )
+
+    normalized_status = _normalized_customer_status(customer_status)
+    if normalized_status == "active":
+        query = query.filter(func.lower(func.coalesce(SubscriberBillingRiskSnapshot.subscriber_status, "")) == "active")
+    elif normalized_status == "suspended":
+        query = query.filter(
+            func.lower(func.coalesce(SubscriberBillingRiskSnapshot.subscriber_status, "")) == "suspended"
+        )
+
+    normalized_billing_type = _normalized_billing_type(billing_type)
+    if normalized_billing_type == "prepaid":
+        query = query.filter(_billing_type_expr().like("prepaid%"))
+    elif normalized_billing_type == "postpaid":
+        query = query.filter(_billing_type_expr().in_(["recurring", "postpaid"]))
     return query
 
 
@@ -244,6 +442,8 @@ def list_cached_rows(
     search: str | None = None,
     overdue_bucket: str | None = None,
     location: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
 ) -> BillingRiskPage:
     page = max(1, int(page or 1))
     page_size = max(1, min(int(page_size or 50), 100))
@@ -256,6 +456,8 @@ def list_cached_rows(
         search=search,
         overdue_bucket=overdue_bucket,
         location=location,
+        customer_status=customer_status,
+        billing_type=billing_type,
     )
     total_count = int(query.count())
     total_pages = max(1, (total_count + page_size - 1) // page_size)
@@ -292,6 +494,8 @@ def all_cached_rows(
     search: str | None = None,
     overdue_bucket: str | None = None,
     location: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
     limit: int = 2000,
 ) -> list[dict[str, Any]]:
     rows = (
@@ -304,6 +508,8 @@ def all_cached_rows(
             search=search,
             overdue_bucket=overdue_bucket,
             location=location,
+            customer_status=customer_status,
+            billing_type=billing_type,
         )
         .order_by(
             SubscriberBillingRiskSnapshot.is_high_balance_risk.desc(),
@@ -328,6 +534,8 @@ def cached_rows_by_external_ids(
     search: str | None = None,
     overdue_bucket: str | None = None,
     location: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
     normalized_ids = sorted({str(value or "").strip() for value in external_ids if str(value or "").strip()})
@@ -342,6 +550,8 @@ def cached_rows_by_external_ids(
         search=search,
         overdue_bucket=overdue_bucket,
         location=location,
+        customer_status=customer_status,
+        billing_type=billing_type,
     ).filter(SubscriberBillingRiskSnapshot.external_id.in_(normalized_ids))
     rows = query.order_by(
         SubscriberBillingRiskSnapshot.is_high_balance_risk.desc(),
@@ -390,6 +600,8 @@ def _filtered_snapshot_query(
     search: str | None = None,
     overdue_bucket: str | None = None,
     location: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
 ):
     return _base_query(
         db,
@@ -400,6 +612,8 @@ def _filtered_snapshot_query(
         search=search,
         overdue_bucket=overdue_bucket,
         location=location,
+        customer_status=customer_status,
+        billing_type=billing_type,
     )
 
 
@@ -412,9 +626,30 @@ def location_options_cached(
     days_past_due: str | None = None,
     search: str | None = None,
     overdue_bucket: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
 ) -> list[str]:
     """Return distinct cached billing-risk locations for the current filters."""
-    rows = (
+    location_expr = _location_expr()
+    district_expr = _district_expr()
+    base_query = _base_query(
+        db,
+        due_soon_days=due_soon_days,
+        high_balance_only=high_balance_only,
+        selected_segments=selected_segments,
+        days_past_due=days_past_due,
+        search=search,
+        overdue_bucket=overdue_bucket,
+        customer_status=customer_status,
+        billing_type=billing_type,
+    )
+    location_rows = (
+        base_query.with_entities(location_expr.label("location"))
+        .filter(location_expr.isnot(None))
+        .distinct()
+        .all()
+    )
+    district_rows = (
         _base_query(
             db,
             due_soon_days=due_soon_days,
@@ -423,15 +658,16 @@ def location_options_cached(
             days_past_due=days_past_due,
             search=search,
             overdue_bucket=overdue_bucket,
+            customer_status=customer_status,
+            billing_type=billing_type,
         )
-        .with_entities(SubscriberBillingRiskSnapshot.location)
-        .filter(SubscriberBillingRiskSnapshot.location.isnot(None))
-        .filter(SubscriberBillingRiskSnapshot.location != "")
+        .with_entities(district_expr.label("location"))
+        .filter(district_expr.isnot(None))
         .distinct()
-        .order_by(SubscriberBillingRiskSnapshot.location.asc())
         .all()
     )
-    return [str(location).strip() for (location,) in rows if str(location or "").strip()]
+    options = {str(location).strip() for (location,) in [*location_rows, *district_rows] if str(location or "").strip()}
+    return sorted(options, key=str.casefold)
 
 
 def summary_cached(
@@ -444,6 +680,8 @@ def summary_cached(
     search: str | None = None,
     overdue_bucket: str | None = None,
     location: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
     overdue_invoice_balance: float = 0,
 ) -> dict[str, float | int]:
     """Compute billing-risk KPIs from cached snapshot rows without loading all rows."""
@@ -456,6 +694,8 @@ def summary_cached(
         search=search,
         overdue_bucket=overdue_bucket,
         location=location,
+        customer_status=customer_status,
+        billing_type=billing_type,
     )
     row = query.with_entities(
         func.count(SubscriberBillingRiskSnapshot.id).label("total_at_risk"),
@@ -504,6 +744,8 @@ def segment_breakdown_cached(
     search: str | None = None,
     overdue_bucket: str | None = None,
     location: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
 ) -> list[dict[str, float | int | str]]:
     """Build segment breakdown from SQL aggregates instead of Python-side full rows."""
     query = _filtered_snapshot_query(
@@ -515,6 +757,8 @@ def segment_breakdown_cached(
         search=search,
         overdue_bucket=overdue_bucket,
         location=location,
+        customer_status=customer_status,
+        billing_type=billing_type,
     )
     total_count = int(query.count())
     grouped_rows = (
@@ -574,6 +818,8 @@ def aging_buckets_cached(
     search: str | None = None,
     overdue_bucket: str | None = None,
     location: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
 ) -> list[dict[str, int | str]]:
     """Build aging buckets from cached blocked-day values."""
     query = _filtered_snapshot_query(
@@ -585,6 +831,8 @@ def aging_buckets_cached(
         search=search,
         overdue_bucket=overdue_bucket,
         location=location,
+        customer_status=customer_status,
+        billing_type=billing_type,
     )
     buckets = {
         "Blocked 0-7 Days": query.filter(SubscriberBillingRiskSnapshot.blocked_for_days.between(0, 7)).count(),
@@ -647,6 +895,7 @@ def _snapshot_values(
         "expires_in": str(row.get("expires_in") or "").strip()[:80] or None,
         "source_metadata": {
             "last_synced_at": row.get("_last_synced_at") or "",
+            "billing_mode": row.get("billing_mode") or "",
             "billing_type": row.get("billing_type") or "",
             "account_balance_deposit": row.get("account_balance_deposit"),
             "source": "billing_risk_live_builder",

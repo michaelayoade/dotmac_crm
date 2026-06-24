@@ -163,7 +163,7 @@
 </style>
 
 <div class="space-y-6">
-  {{ page_header("Revenue & Service Report", "Downtime, service extensions, and credit exposure from live Splynx data.", color="emerald", color2="teal") }}
+  {{ page_header("Revenue & Service Report", "Downtime, service extensions, and credit exposure from live Selfcare CRM data.", color="emerald", color2="teal") }}
 
   <section class="rs-panel p-5">
     <form id="rs-month-form" class="flex flex-wrap items-end justify-between gap-4">
@@ -344,7 +344,7 @@
           <div id="rs-up-plan" class="text-[11px] text-slate-500 dark:text-slate-400"></div>
         </div>
         <span id="rs-up-status" class="rs-mini-badge rs-mini-grey">status</span>
-        <span class="rs-mini-badge rs-mini-grey">Source: splynx_customer_statistics</span>
+        <span class="rs-mini-badge rs-mini-grey">Source: Selfcare CRM subscriber sessions</span>
         <span class="rs-mini-badge rs-mini-blue">Confidence: imported</span>
       </section>
 
@@ -555,7 +555,7 @@
     rsUpCustomerId = customerId;
     const month = document.getElementById("rs-up-month").value;
     document.getElementById("rs-up-empty").classList.remove("hidden");
-    document.getElementById("rs-up-empty").textContent = "Loading customer uptime from Splynx customer-statistics...";
+    document.getElementById("rs-up-empty").textContent = "Loading customer uptime from Selfcare CRM subscriber sessions...";
     document.getElementById("rs-up-content").classList.add("hidden");
     const profile = await rsGetJson(`/admin/reports/revenue-service/api/uptime/${encodeURIComponent(customerId)}?month=${encodeURIComponent(month)}`);
     let sessions = { rows: [] };
@@ -640,7 +640,7 @@
     const body = document.getElementById("rs-payment-body");
     const search = document.getElementById("rs-payment-search").value.trim();
     const classification = document.getElementById("rs-payment-classification").value;
-    body.innerHTML = '<tr><td colspan="9">Loading payment classification from Splynx...</td></tr>';
+    body.innerHTML = '<tr><td colspan="9">Loading payment classification from Selfcare CRM...</td></tr>';
     const params = rsMonthParams({ search, classification });
     rsDrawPaymentClassification(await rsGetJson(`/admin/reports/revenue-service/api/payment-classification?${params.toString()}`));
     rsPaymentLoaded = true;
@@ -664,7 +664,7 @@
         <div class="rs-field"><span class="rs-field-label">Active service</span><span class="rs-field-value">${rsEscape(data.active_service_name || "")}</span></div>
         <div class="rs-field"><span class="rs-field-label">Service ID</span><span class="rs-field-value">${rsEscape(data.service_id_used || "")}</span></div>
         <div class="rs-field"><span class="rs-field-label">Monthly fee</span><span class="rs-field-value">${rsFormatNaira(data.service_unit_price_used)}</span></div>
-        <div class="rs-field"><span class="rs-field-label">Latest extension transaction</span><span class="rs-field-value">${rsEscape(data.latest_extension_transaction_id || "")}</span></div>
+        <div class="rs-field"><span class="rs-field-label">Service extension ID</span><span class="rs-field-value">${rsEscape(data.service_extension_id || data.latest_extension_transaction_id || "")}</span></div>
         <div class="rs-field"><span class="rs-field-label">Extension date</span><span class="rs-field-value">${rsEscape(data.latest_extension_date || "")}</span></div>
         <div class="rs-field"><span class="rs-field-label">Period from</span><span class="rs-field-value">${rsEscape(data.period_from || "")}</span></div>
         <div class="rs-field"><span class="rs-field-label">Period to</span><span class="rs-field-value">${rsEscape(data.period_to || "")}</span></div>
@@ -764,7 +764,7 @@
     const result = document.getElementById("rs-search-result");
     if (!search) return;
     result.classList.remove("hidden");
-    result.innerHTML = "Searching Splynx...";
+    result.innerHTML = "Searching Selfcare CRM...";
     try {
       rsRenderSearchResult(await rsGetJson(`/admin/reports/revenue-service/api/compensation?search=${encodeURIComponent(search)}`));
     } catch (error) {

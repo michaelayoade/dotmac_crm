@@ -1156,17 +1156,22 @@ def get_billing_risk_table(
             continue
         mapped = map_customer_to_subscriber_data(db, dict(customer), include_remote_details=False)
         cached_subscriber = _cached_subscriber_row(customer)
-        cached_sync_metadata = (
-            cached_subscriber.get("sync_metadata")
-            if isinstance(cached_subscriber.get("sync_metadata"), Mapping)
-            else {}
-        )
+        cached_sync_metadata_raw = cached_subscriber.get("sync_metadata")
+        cached_sync_metadata = dict(cached_sync_metadata_raw) if isinstance(cached_sync_metadata_raw, Mapping) else {}
         cached_suspended_at = _coerce_datetime_utc(cached_subscriber.get("suspended_at"))
         status_raw = str(mapped.get("status") or "unknown").strip().lower()
         status_value = status_raw.removeprefix("subscriberstatus.")
-        billing_type_value = str(customer.get("billing_type") or "").strip()
         plan_value = str(mapped.get("service_plan") or "").strip() or str(cached_subscriber.get("service_plan") or "")
         embedded_billing = customer.get("billing") if isinstance(customer.get("billing"), Mapping) else None
+        billing_type_value = str(
+            customer.get("billing_mode")
+            or (embedded_billing or {}).get("billing_mode")
+            or customer.get("billing_type")
+            or (embedded_billing or {}).get("billing_type")
+            or cached_sync_metadata.get("billing_mode")
+            or cached_sync_metadata.get("billing_type")
+            or ""
+        ).strip()
         billing_start_date = _live_billing_start_date(customer, mapped, embedded_billing)
         if not billing_start_date:
             cached_activated_at = _coerce_datetime_utc(cached_subscriber.get("activated_at"))

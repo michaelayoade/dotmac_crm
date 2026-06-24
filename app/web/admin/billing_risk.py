@@ -400,7 +400,15 @@ def _latest_subscriber_sync_at(db: Session) -> datetime | None:
 
 
 def _billing_risk_cache_available(db: Session | object) -> bool:
-    return hasattr(db, "query")
+    if not hasattr(db, "query"):
+        return False
+    if not isinstance(db, Session):
+        return True
+    try:
+        return int(billing_risk_cache.cache_metadata(db).get("row_count") or 0) > 0
+    except Exception:
+        logger.exception("Failed to inspect billing risk cache metadata")
+        return False
 
 
 def _billing_risk_page_metrics(churn_rows: list[dict]) -> dict[str, int | float]:
