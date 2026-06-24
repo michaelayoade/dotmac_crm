@@ -9,8 +9,9 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.crm.sales import Lead
 from app.models.domain_settings import SettingDomain
@@ -221,15 +222,31 @@ def find_duplicate_ticket_candidates(db: Session, payload: TicketDuplicateInput)
         TicketStatus.site_under_construction,
         TicketStatus.on_hold,
     ]
-    identity_filters: list[Any] = []
+    identity_filters: list[ColumnElement[bool]] = []
     if subscriber_id:
         identity_filters.append(Ticket.subscriber_id == subscriber_id)
     if customer_person_id:
         identity_filters.append(Ticket.customer_person_id == customer_person_id)
     if lead_id:
         identity_filters.append(Ticket.lead_id == lead_id)
+    unassigned_issue_filters: list[ColumnElement[bool]] = [
+        Ticket.subscriber_id.is_(None),
+        Ticket.customer_person_id.is_(None),
+        Ticket.lead_id.is_(None),
+    ]
+    if payload.ticket_type:
+        unassigned_issue_filters.append(Ticket.ticket_type == payload.ticket_type.strip())
     if not identity_filters and not payload.ticket_type and not (payload.title or payload.description):
         return TicketDuplicateResult(matches=[])
+    unassigned_candidate_filter = and_(*unassigned_issue_filters)
+    candidate_filter = (
+        or_(
+            *identity_filters,
+            unassigned_candidate_filter,
+        )
+        if identity_filters
+        else unassigned_candidate_filter
+    )
 
     candidates_query = (
         db.query(Ticket)
@@ -239,12 +256,9 @@ def find_duplicate_ticket_candidates(db: Session, payload: TicketDuplicateInput)
             selectinload(Ticket.subscriber).selectinload(Subscriber.organization),
         )
         .filter(Ticket.is_active.is_(True))
+        .filter(candidate_filter)
         .filter(Ticket.status.in_(active_statuses))
     )
-    if identity_filters:
-        candidates_query = candidates_query.filter(or_(*identity_filters))
-    elif payload.ticket_type:
-        candidates_query = candidates_query.filter(Ticket.ticket_type == payload.ticket_type.strip())
     if exclude_ticket_id:
         candidates_query = candidates_query.filter(Ticket.id != exclude_ticket_id)
     candidates = candidates_query.order_by(Ticket.created_at.desc()).limit(DUPLICATE_CANDIDATE_LIMIT).all()
@@ -260,6 +274,7 @@ def find_duplicate_ticket_candidates(db: Session, payload: TicketDuplicateInput)
     for ticket in candidates:
         score = 0
         reasons: list[str] = []
+        ticket_has_identity = bool(ticket.subscriber_id or ticket.customer_person_id or ticket.lead_id)
         existing_base_station = _normalize_duplicate_location(_ticket_base_station_details(ticket))
         if incoming_base_station and existing_base_station:
             if incoming_base_station != existing_base_station:
@@ -312,6 +327,20 @@ def find_duplicate_ticket_candidates(db: Session, payload: TicketDuplicateInput)
         if subscriber_id and ticket.subscriber_id == subscriber_id and score < DUPLICATE_WARNING_THRESHOLD:
             score = DUPLICATE_WARNING_THRESHOLD
             reasons.append("subscriber already has an active ticket")
+        if not ticket_has_identity:
+            strong_issue_match = (
+                (
+                    bool(incoming_type and (ticket.ticket_type or "").strip().lower() == incoming_type)
+                    and (title_similarity >= 0.40 or description_similarity >= 0.40)
+                )
+                or title_similarity >= 0.75
+                or description_similarity >= 0.70
+            )
+            if not strong_issue_match:
+                continue
+            if score < DUPLICATE_WARNING_THRESHOLD:
+                score = DUPLICATE_WARNING_THRESHOLD
+            reasons.append("unassigned active ticket has a similar issue")
 
         if score < DUPLICATE_WARNING_THRESHOLD:
             continue
