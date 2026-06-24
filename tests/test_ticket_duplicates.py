@@ -47,7 +47,7 @@ def test_unassigned_ticket_can_match_on_strong_issue_content(db_session):
     )
 
     assert [match.ticket_id for match in result.matches] == [str(existing.id)]
-    assert "unassigned active ticket has a similar issue" not in result.matches[0].reasons
+    assert "unassigned active ticket has a similar issue" in result.matches[0].reasons
 
 
 def test_different_base_stations_do_not_match_on_generic_cabinet_text(db_session):
