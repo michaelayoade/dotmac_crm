@@ -606,12 +606,12 @@ def test_subscriber_online_last_24h_passes_notification_state_filter(monkeypatch
     assert captured["activity_segment"] == "active_last24_not_online"
 
 
-def test_online_last_24h_rows_use_strict_splynx_active_recent_offline_conditions(db_session, monkeypatch):
+def test_online_last_24h_rows_use_strict_selfcare_active_recent_offline_conditions(db_session, monkeypatch):
     from app.services import subscriber_reports as subscriber_reports_service
 
     now = datetime.now(UTC)
     monkeypatch.setattr(
-        "app.services.splynx.fetch_customers",
+        "app.services.selfcare.fetch_customers",
         lambda _db: [
             {
                 "id": "active-offline",
@@ -644,7 +644,7 @@ def test_online_last_24h_rows_use_strict_splynx_active_recent_offline_conditions
         ],
     )
     monkeypatch.setattr(
-        "app.services.splynx.fetch_online_customers",
+        "app.services.selfcare.fetch_online_customers",
         lambda _db: [{"customer_id": "active-online", "login": "active-online"}],
     )
 
@@ -664,7 +664,7 @@ def test_online_last_24h_rows_support_inactive_24h_offline_segment(db_session, m
 
     now = datetime.now(UTC)
     monkeypatch.setattr(
-        "app.services.splynx.fetch_customers",
+        "app.services.selfcare.fetch_customers",
         lambda _db: [
             {
                 "id": "active-recent-offline",
@@ -697,7 +697,7 @@ def test_online_last_24h_rows_support_inactive_24h_offline_segment(db_session, m
         ],
     )
     monkeypatch.setattr(
-        "app.services.splynx.fetch_online_customers",
+        "app.services.selfcare.fetch_online_customers",
         lambda _db: [{"customer_id": "active-old-online", "login": "active-old-online"}],
     )
 
