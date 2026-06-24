@@ -1,6 +1,6 @@
 import json
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -9,7 +9,7 @@ from starlette.requests import Request
 from app.models.subscriber import SubscriberBillingRiskSnapshot
 from app.services import billing_risk_cache
 from app.services import billing_risk_reports as billing_risk_service
-from app.services import splynx as splynx_service
+from app.services import selfcare as splynx_service
 from app.web.admin import billing_risk as billing_risk_web
 from app.web.admin import build_router
 
@@ -1759,12 +1759,13 @@ def test_active_expiration_uses_future_billing_blocking_date(monkeypatch):
 
 
 def test_active_expiration_replaces_stale_cached_next_bill_date(monkeypatch):
+    future_blocking_date = (datetime.now(UTC).date() + timedelta(days=1)).isoformat()
     monkeypatch.setattr(
         splynx_service,
         "fetch_customer_billing",
         lambda _db, _external_id: {
             "billing_date": 7,
-            "blocking_date": "2026-06-23",
+            "blocking_date": future_blocking_date,
             "deposit": 36129.03,
         },
     )
@@ -1785,9 +1786,9 @@ def test_active_expiration_replaces_stale_cached_next_bill_date(monkeypatch):
     billing_risk_web._enrich_expiration_fields(rows)
 
     assert rows[0]["blocked_date"] == ""
-    assert rows[0]["next_bill_date"] == "2026-06-23"
-    assert rows[0]["billing_end_date"] == "2026-06-23"
-    assert rows[0]["service_expiration_date"] == "2026-06-23"
+    assert rows[0]["next_bill_date"] == future_blocking_date
+    assert rows[0]["billing_end_date"] == future_blocking_date
+    assert rows[0]["service_expiration_date"] == future_blocking_date
 
 
 def test_service_expiration_date_is_set_even_without_billing_type():

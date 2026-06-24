@@ -62,8 +62,8 @@ def _process_image(content: bytes, mime_type: str) -> tuple[bytes, float | None,
     if mime_type not in _IMAGE_MIME_TYPES:
         return content, None, None
     try:
-        from PIL import Image
-        from PIL.ExifTags import GPSTAGS
+        from PIL import Image  # type: ignore[import-not-found]
+        from PIL.ExifTags import GPSTAGS  # type: ignore[import-not-found]
     except ImportError:
         return content, None, None
     try:
