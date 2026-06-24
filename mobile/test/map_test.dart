@@ -65,6 +65,7 @@ void main() {
 
     expect(find.byKey(const Key('pin-a')), findsOneWidget);
     expect(find.byKey(const Key('pin-b')), findsOneWidget);
+    expect(find.byKey(const Key('edit-pins-button')), findsOneWidget);
   });
 
   testWidgets('tapping a pin opens the job sheet', (tester) async {
@@ -89,5 +90,30 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Job a'), findsOneWidget);
     expect(find.text('Edit pin location'), findsOneWidget);
+  });
+
+  testWidgets('edit pins button opens pinned job list', (tester) async {
+    final pins = [
+      const JobPin(
+        id: 'a',
+        title: 'Job a',
+        status: 'dispatched',
+        latitude: 6.5,
+        longitude: 3.4,
+      ),
+    ];
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [mapPinsProvider.overrideWith((ref) async => pins)],
+        child: const MaterialApp(home: MapScreen(showTiles: false)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('edit-pins-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit pinned job'), findsOneWidget);
+    expect(find.text('Job a'), findsOneWidget);
   });
 }
