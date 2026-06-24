@@ -177,6 +177,21 @@ class FieldJobLocationUpdate(BaseModel):
     longitude: float = Field(ge=-180, le=180)
 
 
+class FieldMapAsset(BaseModel):
+    id: UUID
+    type: str
+    title: str
+    subtitle: str | None = None
+    latitude: float
+    longitude: float
+    status: str | None = None
+
+
+class FieldMapAssetLocationUpdate(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
 class FieldJobDetail(BaseModel):
     job: FieldJobSummary
     customer: FieldCustomer | None

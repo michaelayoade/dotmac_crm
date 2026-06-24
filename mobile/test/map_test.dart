@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:dotmac_field/features/jobs/job_models.dart';
+import 'package:dotmac_field/features/today/map_assets_repository.dart';
 import 'package:dotmac_field/features/today/map_models.dart';
 import 'package:dotmac_field/features/today/map_screen.dart';
 import 'package:flutter/material.dart';
@@ -57,7 +58,10 @@ void main() {
     ];
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [mapPinsProvider.overrideWith((ref) async => pins)],
+        overrides: [
+          mapPinsProvider.overrideWith((ref) async => pins),
+          mapAssetsProvider.overrideWith((ref) async => []),
+        ],
         child: const MaterialApp(home: MapScreen(showTiles: false)),
       ),
     );
@@ -80,7 +84,10 @@ void main() {
     ];
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [mapPinsProvider.overrideWith((ref) async => pins)],
+        overrides: [
+          mapPinsProvider.overrideWith((ref) async => pins),
+          mapAssetsProvider.overrideWith((ref) async => []),
+        ],
         child: const MaterialApp(home: MapScreen(showTiles: false)),
       ),
     );
@@ -104,7 +111,10 @@ void main() {
     ];
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [mapPinsProvider.overrideWith((ref) async => pins)],
+        overrides: [
+          mapPinsProvider.overrideWith((ref) async => pins),
+          mapAssetsProvider.overrideWith((ref) async => []),
+        ],
         child: const MaterialApp(home: MapScreen(showTiles: false)),
       ),
     );
@@ -113,14 +123,17 @@ void main() {
     await tester.tap(find.byKey(const Key('edit-pins-button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Edit pinned job'), findsOneWidget);
+    expect(find.text('Edit map pin'), findsOneWidget);
     expect(find.text('Job a'), findsOneWidget);
   });
 
   testWidgets('edit pins button stays visible with no pins', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [mapPinsProvider.overrideWith((ref) async => [])],
+        overrides: [
+          mapPinsProvider.overrideWith((ref) async => []),
+          mapAssetsProvider.overrideWith((ref) async => []),
+        ],
         child: const MaterialApp(home: MapScreen(showTiles: false)),
       ),
     );
@@ -129,6 +142,37 @@ void main() {
     await tester.tap(find.byKey(const Key('edit-pins-button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('No pinned jobs yet'), findsOneWidget);
+    expect(find.text('No pins loaded yet'), findsOneWidget);
+  });
+
+  testWidgets('map renders crm asset pins and layer filters', (tester) async {
+    final assets = [
+      const MapAsset(
+        id: 'olt-1',
+        type: 'olt',
+        title: 'OLT Alpha',
+        latitude: 9.1,
+        longitude: 7.4,
+      ),
+    ];
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          mapPinsProvider.overrideWith((ref) async => []),
+          mapAssetsProvider.overrideWith((ref) async => assets),
+        ],
+        child: const MaterialApp(home: MapScreen(showTiles: false)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('asset-olt-olt-1')), findsOneWidget);
+    expect(find.text('OLT'), findsOneWidget);
+    expect(find.text('FDH'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('asset-olt-olt-1')));
+    await tester.pumpAndSettle();
+    expect(find.text('OLT Alpha'), findsOneWidget);
+    expect(find.text('Edit asset location'), findsOneWidget);
   });
 }
