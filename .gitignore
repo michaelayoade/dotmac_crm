@@ -86,3 +86,11 @@ static/avatars/
 
 # Git worktrees
 .worktrees/
+
+# Data exports / PII — never commit (scrubbed 2026-06-25)
+*.csv
+*.xlsx
+*.xls
+nohup.out
+mypy.txt
+reports/*.csv
