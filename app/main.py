@@ -502,10 +502,11 @@ _include_api_router(subscribers_router, dependencies=[Depends(require_user_auth)
 _include_api_router(performance_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(ai_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(data_quality_router, dependencies=[Depends(require_user_auth)])
+# Trusted server-to-server chat session mint — registered BEFORE the public
+# widget router so /widget/internal/session is not shadowed by /widget/{config_id}/session.
+_include_api_router(widget_internal_router, dependencies=[Depends(require_user_auth)])
 # Chat widget public endpoints - no auth required (visitor token-based)
 _include_api_router(widget_public_router)
-# Trusted server-to-server chat session mint (authenticated backend asserts identity).
-_include_api_router(widget_internal_router, dependencies=[Depends(require_user_auth)])
 app.include_router(vendors_router, prefix="/api", dependencies=[Depends(require_user_auth)])
 app.include_router(vendors_router, prefix="/api/v1", dependencies=[Depends(require_user_auth)])
 app.include_router(vendor_portal_router, prefix="/api")
