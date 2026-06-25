@@ -850,9 +850,7 @@ def send_widget_message(
                 },
             )
     except Exception:
-        logger.exception(
-            "widget_message_outbound_emit_failed conversation_id=%s", conversation.id
-        )
+        logger.exception("widget_message_outbound_emit_failed conversation_id=%s", conversation.id)
 
     logger.info(
         "webchat_message_sent trace_id=%s message_id=%s conversation_id=%s session_id=%s",
