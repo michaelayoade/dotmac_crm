@@ -8,7 +8,7 @@ adds WebhookEventType.message_outbound (the enum must exist in the DB image):
 Config via env (sensible defaults shown):
     CHAT_WIDGET_NAME          "DotMac Self-care"
     CHAT_ALLOWED_DOMAINS      comma list, e.g. "selfcare.dotmac.io,app.dotmac.io"
-    SUB_CHAT_WEBHOOK_URL      "https://selfcare.dotmac.io/webhooks/crm/chat"
+    SUB_CHAT_WEBHOOK_URL      "https://selfcare.dotmac.io/api/v1/webhooks/crm/chat"
     SUB_CHAT_WEBHOOK_SECRET   must equal the sub's CRM_CHAT_WEBHOOK_SECRET
 
 Prints the ChatWidgetConfig id to use as the sub's CRM_CHAT_CONFIG_ID.
@@ -31,7 +31,7 @@ def main() -> None:
         if d.strip()
     ]
     hook_url = os.getenv(
-        "SUB_CHAT_WEBHOOK_URL", "https://selfcare.dotmac.io/webhooks/crm/chat"
+        "SUB_CHAT_WEBHOOK_URL", "https://selfcare.dotmac.io/api/v1/webhooks/crm/chat"
     )
     hook_secret = os.getenv("SUB_CHAT_WEBHOOK_SECRET", "")
 
