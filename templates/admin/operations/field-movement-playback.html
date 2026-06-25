@@ -1,0 +1,242 @@
+{% extends "layouts/admin.html" %}
+{% block title %}Movement Playback - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6" data-person-id="{{ person_id }}">
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Movement Playback</h1>
+      <p class="mt-1 text-sm text-slate-600 dark:text-slate-300">
+        Review where <span class="font-semibold">{{ person_label }}</span> moved over a time range.
+      </p>
+    </div>
+    <a href="/admin/operations/field-techs/map" class="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">&larr; Live map</a>
+  </div>
+
+  <div class="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <label class="flex flex-col text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      From
+      <input id="mv-since" type="datetime-local" class="mt-1 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+    </label>
+    <label class="flex flex-col text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      To
+      <input id="mv-until" type="datetime-local" class="mt-1 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+    </label>
+    <button id="mv-load" type="button" class="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500">Load</button>
+    <span id="mv-status" class="text-xs text-slate-500 dark:text-slate-400">Choose a range and load.</span>
+  </div>
+
+  <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <div id="mv-map" class="w-full" style="height:60vh;min-height:380px;background:#f1f5f9;"></div>
+  </div>
+  <div id="mv-mapnotice" class="hidden rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
+    Map tiles are unavailable on this network.
+  </div>
+
+  <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <div class="flex items-center gap-3">
+      <button id="mv-play" type="button" class="rounded-xl border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800" disabled>Play</button>
+      <input id="mv-scrubber" type="range" min="0" max="0" value="0" step="1" class="flex-1" disabled>
+      <span id="mv-time" class="w-44 text-right text-xs tabular-nums text-slate-500 dark:text-slate-400">—</span>
+    </div>
+    <div class="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+      <div class="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+        <div id="mv-count" class="text-base font-semibold text-slate-900 dark:text-white">0</div>
+        <div class="text-slate-500 dark:text-slate-400">Points</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+        <div id="mv-span" class="text-base font-semibold text-slate-900 dark:text-white">—</div>
+        <div class="text-slate-500 dark:text-slate-400">Span</div>
+      </div>
+      <div class="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+        <div id="mv-distance" class="text-base font-semibold text-slate-900 dark:text-white">—</div>
+        <div class="text-slate-500 dark:text-slate-400">Distance</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script>
+(() => {
+  const root = document.querySelector("[data-person-id]");
+  const mapEl = document.getElementById("mv-map");
+  if (!root || !mapEl) return;
+  const personId = root.getAttribute("data-person-id");
+
+  const sinceEl = document.getElementById("mv-since");
+  const untilEl = document.getElementById("mv-until");
+  const loadEl = document.getElementById("mv-load");
+  const statusEl = document.getElementById("mv-status");
+  const scrubEl = document.getElementById("mv-scrubber");
+  const playEl = document.getElementById("mv-play");
+  const timeEl = document.getElementById("mv-time");
+  const countEl = document.getElementById("mv-count");
+  const spanEl = document.getElementById("mv-span");
+  const distEl = document.getElementById("mv-distance");
+  const noticeEl = document.getElementById("mv-mapnotice");
+
+  // Default range: the last 24 hours, in the browser's local time for the inputs.
+  const pad = (n) => String(n).padStart(2, "0");
+  const toLocalInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const now = new Date();
+  untilEl.value = toLocalInput(now);
+  sinceEl.value = toLocalInput(new Date(now.getTime() - 24 * 3600 * 1000));
+
+  let map = null;
+  let mapEnabled = typeof L !== "undefined";
+  if (mapEnabled) {
+    try {
+      if (L.Icon && L.Icon.Default) {
+        L.Icon.Default.mergeOptions({
+          iconRetinaUrl: "/static/vendor/leaflet/images/marker-icon-2x.png",
+          iconUrl: "/static/vendor/leaflet/images/marker-icon.png",
+          shadowUrl: "/static/vendor/leaflet/images/marker-shadow.png",
+        });
+      }
+      map = L.map(mapEl).setView([6.5244, 3.3792], 11);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(map);
+    } catch (_) {
+      mapEnabled = false;
+      if (noticeEl) noticeEl.classList.remove("hidden");
+    }
+  } else if (noticeEl) {
+    noticeEl.classList.remove("hidden");
+  }
+
+  const dot = (color) => L.divIcon({
+    className: "mv-dot",
+    html: `<span style="display:block;width:14px;height:14px;border-radius:9999px;border:2px solid #fff;background:${color};box-shadow:0 0 0 1px rgba(15,23,42,.25)"></span>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
+  });
+
+  let fullLine = null;     // faint full route
+  let progressLine = null; // grows with the scrubber
+  let startMarker = null;
+  let endMarker = null;
+  let headMarker = null;
+  let points = [];         // [{lat, lng, captured_at}]
+  let latlngs = [];        // [[lat, lng]]
+  let playTimer = null;
+
+  const haversine = (a, b) => {
+    const R = 6371000, toRad = (d) => (d * Math.PI) / 180;
+    const dLat = toRad(b[0] - a[0]), dLng = toRad(b[1] - a[1]);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  };
+
+  const fmtSpan = (ms) => {
+    const min = Math.round(ms / 60000);
+    if (min < 60) return `${min} min`;
+    const h = Math.floor(min / 60);
+    return `${h}h ${min % 60}m`;
+  };
+
+  const clearLayers = () => {
+    [fullLine, progressLine, startMarker, endMarker, headMarker].forEach((l) => {
+      if (l && map) map.removeLayer(l);
+    });
+    fullLine = progressLine = startMarker = endMarker = headMarker = null;
+  };
+
+  const stopPlay = () => {
+    if (playTimer) { window.clearInterval(playTimer); playTimer = null; }
+    playEl.textContent = "Play";
+  };
+
+  const renderUpTo = (i) => {
+    if (!points.length) return;
+    const idx = Math.max(0, Math.min(i, points.length - 1));
+    if (mapEnabled && map) {
+      const slice = latlngs.slice(0, idx + 1);
+      if (progressLine) progressLine.setLatLngs(slice);
+      if (headMarker) headMarker.setLatLng(latlngs[idx]);
+    }
+    const ts = points[idx].captured_at ? new Date(points[idx].captured_at) : null;
+    timeEl.textContent = ts ? ts.toLocaleString() : "—";
+  };
+
+  const render = (payload) => {
+    stopPlay();
+    clearLayers();
+    points = Array.isArray(payload && payload.points) ? payload.points : [];
+    latlngs = points
+      .map((p) => [Number(p.latitude), Number(p.longitude)])
+      .filter(([la, ln]) => Number.isFinite(la) && Number.isFinite(ln));
+
+    countEl.textContent = String(points.length);
+    if (points.length < 1) {
+      statusEl.textContent = "No movement recorded in this range.";
+      spanEl.textContent = "—";
+      distEl.textContent = "—";
+      timeEl.textContent = "—";
+      scrubEl.max = 0; scrubEl.value = 0; scrubEl.disabled = true; playEl.disabled = true;
+      return;
+    }
+
+    const first = points[0].captured_at ? new Date(points[0].captured_at) : null;
+    const last = points[points.length - 1].captured_at ? new Date(points[points.length - 1].captured_at) : null;
+    spanEl.textContent = (first && last) ? fmtSpan(last - first) : "—";
+    let metres = 0;
+    for (let i = 1; i < latlngs.length; i++) metres += haversine(latlngs[i - 1], latlngs[i]);
+    distEl.textContent = metres >= 1000 ? `${(metres / 1000).toFixed(2)} km` : `${Math.round(metres)} m`;
+
+    if (mapEnabled && map && latlngs.length) {
+      fullLine = L.polyline(latlngs, { color: "#94a3b8", weight: 3, opacity: 0.4 }).addTo(map);
+      progressLine = L.polyline([latlngs[0]], { color: "#2563eb", weight: 4, opacity: 0.9 }).addTo(map);
+      startMarker = L.marker(latlngs[0], { icon: dot("#10b981") }).addTo(map).bindPopup("Start");
+      endMarker = L.marker(latlngs[latlngs.length - 1], { icon: dot("#ef4444") }).addTo(map).bindPopup("End");
+      headMarker = L.marker(latlngs[0], { icon: dot("#2563eb") }).addTo(map);
+      map.fitBounds(L.latLngBounds(latlngs), { padding: [30, 30], maxZoom: 17 });
+    }
+
+    scrubEl.max = String(points.length - 1);
+    scrubEl.value = String(points.length - 1);
+    scrubEl.disabled = false;
+    playEl.disabled = false;
+    renderUpTo(points.length - 1);
+    statusEl.textContent = `${points.length} points loaded.`;
+  };
+
+  const load = () => {
+    stopPlay();
+    statusEl.textContent = "Loading…";
+    const params = new URLSearchParams();
+    if (sinceEl.value) params.set("since", new Date(sinceEl.value).toISOString());
+    if (untilEl.value) params.set("until", new Date(untilEl.value).toISOString());
+    fetch(`/admin/operations/field-techs/${encodeURIComponent(personId)}/history?${params.toString()}`, {
+      headers: { "Accept": "application/json" },
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(render)
+      .catch(() => { statusEl.textContent = "Failed to load history."; });
+  };
+
+  scrubEl.addEventListener("input", () => renderUpTo(Number(scrubEl.value)));
+  loadEl.addEventListener("click", load);
+  playEl.addEventListener("click", () => {
+    if (playTimer) { stopPlay(); return; }
+    if (!points.length) return;
+    if (Number(scrubEl.value) >= points.length - 1) scrubEl.value = "0";
+    playEl.textContent = "Pause";
+    playTimer = window.setInterval(() => {
+      const next = Number(scrubEl.value) + 1;
+      if (next > points.length - 1) { stopPlay(); return; }
+      scrubEl.value = String(next);
+      renderUpTo(next);
+    }, 200);
+  });
+
+  load();
+})();
+</script>
+{% endblock %}

@@ -243,6 +243,37 @@ def require_role(role_name: str):
     return _require_role
 
 
+def require_technician(
+    auth=Depends(require_user_auth),
+    db: Session = Depends(_get_db),
+):
+    """Gate the staff field-app surface to actual field technicians.
+
+    Per-route field services additionally scope access to the caller's own
+    assigned jobs; this guard ensures the caller is a technician at all, rather
+    than any authenticated user who happens to be named on a work order.
+    """
+    roles = set(auth.get("roles") or [])
+    if "admin" in roles or "field_technician" in roles:
+        return auth
+    # A custom role may grant field permissions without the canonical role name.
+    scopes = set(auth.get("scopes") or [])
+    if any(scope.startswith("field:") for scope in scopes):
+        return auth
+    # Cache/claim miss: confirm the role link in the DB before refusing.
+    role = db.query(Role).filter(Role.name == "field_technician").filter(Role.is_active.is_(True)).first()
+    if role:
+        link = (
+            db.query(PersonRole)
+            .filter(PersonRole.person_id == auth["person_id"])
+            .filter(PersonRole.role_id == role.id)
+            .first()
+        )
+        if link:
+            return auth
+    raise HTTPException(status_code=403, detail="Field technician access required")
+
+
 def _expand_permission_keys(permission_key: str) -> list[str]:
     """
     Expand a permission key to include hierarchical matches.

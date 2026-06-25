@@ -28,22 +28,34 @@ from app.schemas.dispatch import (
     WorkOrderAssignmentQueueUpdate,
 )
 from app.services import dispatch as dispatch_service
+from app.services.auth_dependencies import require_permission
 from app.services.response import list_response
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"])
 
+# Dispatch manages technician schedules, skills, and routing rules — read and
+# write both require the operations:technician permission (admin bypasses).
+_read = Depends(require_permission("operations:technician:read"))
+_write = Depends(require_permission("operations:technician:write"))
+_dispatch = Depends(require_permission("operations:work_order:dispatch"))
 
-@router.post("/skills", response_model=SkillRead, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/skills",
+    response_model=SkillRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[_write],
+)
 def create_skill(payload: SkillCreate, db: Session = Depends(get_db)):
     return dispatch_service.skills.create(db, payload)
 
 
-@router.get("/skills/{skill_id}", response_model=SkillRead)
+@router.get("/skills/{skill_id}", response_model=SkillRead, dependencies=[_read])
 def get_skill(skill_id: str, db: Session = Depends(get_db)):
     return dispatch_service.skills.get(db, skill_id)
 
 
-@router.get("/skills", response_model=ListResponse[SkillRead])
+@router.get("/skills", response_model=ListResponse[SkillRead], dependencies=[_read])
 def list_skills(
     is_active: bool | None = None,
     order_by: str = Query(default="created_at"),
@@ -56,12 +68,12 @@ def list_skills(
     return list_response(items, limit, offset)
 
 
-@router.patch("/skills/{skill_id}", response_model=SkillRead)
+@router.patch("/skills/{skill_id}", response_model=SkillRead, dependencies=[_write])
 def update_skill(skill_id: str, payload: SkillUpdate, db: Session = Depends(get_db)):
     return dispatch_service.skills.update(db, skill_id, payload)
 
 
-@router.delete("/skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_write])
 def delete_skill(skill_id: str, db: Session = Depends(get_db)):
     dispatch_service.skills.delete(db, skill_id)
 
@@ -70,17 +82,18 @@ def delete_skill(skill_id: str, db: Session = Depends(get_db)):
     "/technicians",
     response_model=TechnicianProfileRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[_write],
 )
 def create_technician(payload: TechnicianProfileCreate, db: Session = Depends(get_db)):
     return dispatch_service.technicians.create(db, payload)
 
 
-@router.get("/technicians/{technician_id}", response_model=TechnicianProfileRead)
+@router.get("/technicians/{technician_id}", response_model=TechnicianProfileRead, dependencies=[_read])
 def get_technician(technician_id: str, db: Session = Depends(get_db)):
     return dispatch_service.technicians.get(db, technician_id)
 
 
-@router.get("/technicians", response_model=ListResponse[TechnicianProfileRead])
+@router.get("/technicians", response_model=ListResponse[TechnicianProfileRead], dependencies=[_read])
 def list_technicians(
     person_id: str | None = None,
     region: str | None = None,
@@ -95,12 +108,12 @@ def list_technicians(
     return list_response(items, limit, offset)
 
 
-@router.patch("/technicians/{technician_id}", response_model=TechnicianProfileRead)
+@router.patch("/technicians/{technician_id}", response_model=TechnicianProfileRead, dependencies=[_write])
 def update_technician(technician_id: str, payload: TechnicianProfileUpdate, db: Session = Depends(get_db)):
     return dispatch_service.technicians.update(db, technician_id, payload)
 
 
-@router.delete("/technicians/{technician_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/technicians/{technician_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_write])
 def delete_technician(technician_id: str, db: Session = Depends(get_db)):
     dispatch_service.technicians.delete(db, technician_id)
 
@@ -109,17 +122,18 @@ def delete_technician(technician_id: str, db: Session = Depends(get_db)):
     "/technician-skills",
     response_model=TechnicianSkillRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[_write],
 )
 def create_technician_skill(payload: TechnicianSkillCreate, db: Session = Depends(get_db)):
     return dispatch_service.technician_skills.create(db, payload)
 
 
-@router.get("/technician-skills/{skill_id}", response_model=TechnicianSkillRead)
+@router.get("/technician-skills/{skill_id}", response_model=TechnicianSkillRead, dependencies=[_read])
 def get_technician_skill(skill_id: str, db: Session = Depends(get_db)):
     return dispatch_service.technician_skills.get(db, skill_id)
 
 
-@router.get("/technician-skills", response_model=ListResponse[TechnicianSkillRead])
+@router.get("/technician-skills", response_model=ListResponse[TechnicianSkillRead], dependencies=[_read])
 def list_technician_skills(
     technician_id: str | None = None,
     skill_id: str | None = None,
@@ -136,27 +150,27 @@ def list_technician_skills(
     return list_response(items, limit, offset)
 
 
-@router.patch("/technician-skills/{skill_id}", response_model=TechnicianSkillRead)
+@router.patch("/technician-skills/{skill_id}", response_model=TechnicianSkillRead, dependencies=[_write])
 def update_technician_skill(skill_id: str, payload: TechnicianSkillUpdate, db: Session = Depends(get_db)):
     return dispatch_service.technician_skills.update(db, skill_id, payload)
 
 
-@router.delete("/technician-skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/technician-skills/{skill_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_write])
 def delete_technician_skill(skill_id: str, db: Session = Depends(get_db)):
     dispatch_service.technician_skills.delete(db, skill_id)
 
 
-@router.post("/shifts", response_model=ShiftRead, status_code=status.HTTP_201_CREATED)
+@router.post("/shifts", response_model=ShiftRead, status_code=status.HTTP_201_CREATED, dependencies=[_write])
 def create_shift(payload: ShiftCreate, db: Session = Depends(get_db)):
     return dispatch_service.shifts.create(db, payload)
 
 
-@router.get("/shifts/{shift_id}", response_model=ShiftRead)
+@router.get("/shifts/{shift_id}", response_model=ShiftRead, dependencies=[_read])
 def get_shift(shift_id: str, db: Session = Depends(get_db)):
     return dispatch_service.shifts.get(db, shift_id)
 
 
-@router.get("/shifts", response_model=ListResponse[ShiftRead])
+@router.get("/shifts", response_model=ListResponse[ShiftRead], dependencies=[_read])
 def list_shifts(
     technician_id: str | None = None,
     is_active: bool | None = None,
@@ -170,12 +184,12 @@ def list_shifts(
     return list_response(items, limit, offset)
 
 
-@router.patch("/shifts/{shift_id}", response_model=ShiftRead)
+@router.patch("/shifts/{shift_id}", response_model=ShiftRead, dependencies=[_write])
 def update_shift(shift_id: str, payload: ShiftUpdate, db: Session = Depends(get_db)):
     return dispatch_service.shifts.update(db, shift_id, payload)
 
 
-@router.delete("/shifts/{shift_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/shifts/{shift_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_write])
 def delete_shift(shift_id: str, db: Session = Depends(get_db)):
     dispatch_service.shifts.delete(db, shift_id)
 
@@ -184,17 +198,18 @@ def delete_shift(shift_id: str, db: Session = Depends(get_db)):
     "/availability-blocks",
     response_model=AvailabilityBlockRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[_write],
 )
 def create_availability_block(payload: AvailabilityBlockCreate, db: Session = Depends(get_db)):
     return dispatch_service.availability_blocks.create(db, payload)
 
 
-@router.get("/availability-blocks/{block_id}", response_model=AvailabilityBlockRead)
+@router.get("/availability-blocks/{block_id}", response_model=AvailabilityBlockRead, dependencies=[_read])
 def get_availability_block(block_id: str, db: Session = Depends(get_db)):
     return dispatch_service.availability_blocks.get(db, block_id)
 
 
-@router.get("/availability-blocks", response_model=ListResponse[AvailabilityBlockRead])
+@router.get("/availability-blocks", response_model=ListResponse[AvailabilityBlockRead], dependencies=[_read])
 def list_availability_blocks(
     technician_id: str | None = None,
     is_active: bool | None = None,
@@ -211,12 +226,13 @@ def list_availability_blocks(
 @router.patch(
     "/availability-blocks/{block_id}",
     response_model=AvailabilityBlockRead,
+    dependencies=[_write],
 )
 def update_availability_block(block_id: str, payload: AvailabilityBlockUpdate, db: Session = Depends(get_db)):
     return dispatch_service.availability_blocks.update(db, block_id, payload)
 
 
-@router.delete("/availability-blocks/{block_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/availability-blocks/{block_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_write])
 def delete_availability_block(block_id: str, db: Session = Depends(get_db)):
     dispatch_service.availability_blocks.delete(db, block_id)
 
@@ -225,17 +241,18 @@ def delete_availability_block(block_id: str, db: Session = Depends(get_db)):
     "/rules",
     response_model=DispatchRuleRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[_write],
 )
 def create_dispatch_rule(payload: DispatchRuleCreate, db: Session = Depends(get_db)):
     return dispatch_service.dispatch_rules.create(db, payload)
 
 
-@router.get("/rules/{rule_id}", response_model=DispatchRuleRead)
+@router.get("/rules/{rule_id}", response_model=DispatchRuleRead, dependencies=[_read])
 def get_dispatch_rule(rule_id: str, db: Session = Depends(get_db)):
     return dispatch_service.dispatch_rules.get(db, rule_id)
 
 
-@router.get("/rules", response_model=ListResponse[DispatchRuleRead])
+@router.get("/rules", response_model=ListResponse[DispatchRuleRead], dependencies=[_read])
 def list_dispatch_rules(
     is_active: bool | None = None,
     order_by: str = Query(default="priority"),
@@ -248,12 +265,12 @@ def list_dispatch_rules(
     return list_response(items, limit, offset)
 
 
-@router.patch("/rules/{rule_id}", response_model=DispatchRuleRead)
+@router.patch("/rules/{rule_id}", response_model=DispatchRuleRead, dependencies=[_write])
 def update_dispatch_rule(rule_id: str, payload: DispatchRuleUpdate, db: Session = Depends(get_db)):
     return dispatch_service.dispatch_rules.update(db, rule_id, payload)
 
 
-@router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_write])
 def delete_dispatch_rule(rule_id: str, db: Session = Depends(get_db)):
     dispatch_service.dispatch_rules.delete(db, rule_id)
 
@@ -262,17 +279,18 @@ def delete_dispatch_rule(rule_id: str, db: Session = Depends(get_db)):
     "/queue",
     response_model=WorkOrderAssignmentQueueRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[_write],
 )
 def create_queue_entry(payload: WorkOrderAssignmentQueueCreate, db: Session = Depends(get_db)):
     return dispatch_service.assignment_queue.create(db, payload)
 
 
-@router.get("/queue/{entry_id}", response_model=WorkOrderAssignmentQueueRead)
+@router.get("/queue/{entry_id}", response_model=WorkOrderAssignmentQueueRead, dependencies=[_read])
 def get_queue_entry(entry_id: str, db: Session = Depends(get_db)):
     return dispatch_service.assignment_queue.get(db, entry_id)
 
 
-@router.get("/queue", response_model=ListResponse[WorkOrderAssignmentQueueRead])
+@router.get("/queue", response_model=ListResponse[WorkOrderAssignmentQueueRead], dependencies=[_read])
 def list_queue_entries(
     work_order_id: str | None = None,
     status: str | None = None,
@@ -286,12 +304,12 @@ def list_queue_entries(
     return list_response(items, limit, offset)
 
 
-@router.patch("/queue/{entry_id}", response_model=WorkOrderAssignmentQueueRead)
+@router.patch("/queue/{entry_id}", response_model=WorkOrderAssignmentQueueRead, dependencies=[_write])
 def update_queue_entry(entry_id: str, payload: WorkOrderAssignmentQueueUpdate, db: Session = Depends(get_db)):
     return dispatch_service.assignment_queue.update(db, entry_id, payload)
 
 
-@router.delete("/queue/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/queue/{entry_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_write])
 def delete_queue_entry(entry_id: str, db: Session = Depends(get_db)):
     dispatch_service.assignment_queue.delete(db, entry_id)
 
@@ -300,13 +318,14 @@ def delete_queue_entry(entry_id: str, db: Session = Depends(get_db)):
     "/work-orders/{work_order_id}/auto-assign",
     response_model=AutoAssignResponse,
     tags=["work-orders"],
+    dependencies=[_dispatch],
 )
 def auto_assign_work_order(work_order_id: str, db: Session = Depends(get_db)):
     payload = dispatch_service.auto_assign_response(db, work_order_id)
     return AutoAssignResponse(**payload)
 
 
-@router.get("/work-orders/{work_order_id}/nearest-techs", tags=["work-orders"])
+@router.get("/work-orders/{work_order_id}/nearest-techs", tags=["work-orders"], dependencies=[_read])
 def nearest_techs(
     work_order_id: str,
     limit: int = Query(default=5, ge=1, le=25),

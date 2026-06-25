@@ -35,6 +35,9 @@ class _LocationTrackingHostState extends ConsumerState<LocationTrackingHost>
   bool _foreground = true;
   ShiftState? _lastShift;
   String? _lastWorkOrderId;
+  // Captured during build so dispose can stop tracking without touching `ref`
+  // (which is invalid once the element is unmounted).
+  LocationPingService? _service;
 
   @override
   void initState() {
@@ -46,6 +49,10 @@ class _LocationTrackingHostState extends ConsumerState<LocationTrackingHost>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
+    // Teardown/logout: release the background location subscription. (Plain
+    // backgrounding does not dispose this widget, so tracking survives that.)
+    // Use the captured service — `ref` is no longer usable during dispose.
+    _service?.stopBackgroundTracking();
     super.dispose();
   }
 
@@ -80,7 +87,17 @@ class _LocationTrackingHostState extends ConsumerState<LocationTrackingHost>
       final shiftChanged = shift != _lastShift;
       _lastShift = shift;
       _lastWorkOrderId = workOrderId;
-      ref.read(locationPingServiceProvider).setShift(shift);
+      final service = ref.read(locationPingServiceProvider);
+      _service = service;
+      service.setShift(shift);
+      service.setActiveWorkOrder(workOrderId);
+      // Native background stream keeps fixes flowing when backgrounded; the
+      // foreground timer below still covers the stationary heartbeat in-app.
+      if (shift == ShiftState.onShift) {
+        service.startBackgroundTracking(workOrderId: workOrderId);
+      } else {
+        service.stopBackgroundTracking();
+      }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _scheduleNext(immediate: shiftChanged && shift == ShiftState.onShift);

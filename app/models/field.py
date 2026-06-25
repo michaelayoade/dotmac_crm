@@ -22,6 +22,9 @@ class FieldJobEvent(enum.Enum):
     hold = "hold"
     resume = "resume"
     complete = "complete"
+    # Visit ended without completion (customer absent, no access, etc.). Carries a
+    # structured ``reason`` in the event payload and cancels the work order.
+    unable_to_complete = "unable_to_complete"
 
 
 class WorkOrderEvent(Base):

@@ -141,4 +141,46 @@ void main() {
       expect(await svc.flush(), isTrue);
     });
   });
+
+  group('background tracking', () {
+    test('streamed fixes are buffered and flushed while on shift', () async {
+      final fake = FakeLocation((latitude: 6.5, longitude: 3.3));
+      var posted = 0;
+      final svc = LocationPingService(
+        location: fake,
+        poster: (pings) async {
+          posted += pings.length;
+          return true;
+        },
+      )..setShift(ShiftState.onShift);
+
+      svc.startBackgroundTracking(workOrderId: 'wo-1');
+      expect(svc.isBackgroundTracking, isTrue);
+      fake.emit((latitude: 6.51, longitude: 3.31));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(posted, 1);
+      expect(svc.bufferedCount, 0); // flushed on success
+      await svc.stopBackgroundTracking();
+      expect(svc.isBackgroundTracking, isFalse);
+    });
+
+    test('streamed fixes are ignored off shift', () async {
+      final fake = FakeLocation(null);
+      final svc = LocationPingService(location: fake, poster: (_) async => true);
+      svc.startBackgroundTracking();
+      fake.emit((latitude: 1, longitude: 1));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(svc.bufferedCount, 0);
+      await svc.stopBackgroundTracking();
+    });
+
+    test('startBackgroundTracking is idempotent', () async {
+      final svc = LocationPingService(location: FakeLocation(null), poster: (_) async => true);
+      svc.startBackgroundTracking();
+      svc.startBackgroundTracking();
+      expect(svc.isBackgroundTracking, isTrue);
+      await svc.stopBackgroundTracking();
+    });
+  });
 }

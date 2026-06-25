@@ -4,10 +4,10 @@ Adds what the field app needs on top of the raw CRUD: caller scoping,
 offline-batch submission with overlap/duration validation, backdated-entry
 flagging, and timer auto-stop on hold/complete.
 
-Offline idempotency note: WorkLog has no client_ref column; an exact
-(person, work_order, start_at) match is treated as a duplicate instead. Two
-distinct logs can never legitimately share all three, so this dedupes retried
-uploads without a migration.
+Offline idempotency: a retried upload carrying the same client_ref returns the
+original worklog instead of inserting a duplicate (mirrors field attachments).
+Entries without a client_ref fall back to an exact (person, work_order,
+start_at) match, which still dedupes legacy clients that predate the column.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.timecost import WorkLog
@@ -126,7 +127,19 @@ class FieldWorkLogs:
                         detail=f"Worklog exceeds maximum duration of {_MAX_DURATION_HOURS} hours",
                     )
 
-            duplicate = _find_duplicate(db, person_uuid, work_order.id, start_at)
+            client_ref = entry.get("client_ref")
+            client_ref_uuid = coerce_uuid(client_ref) if client_ref else None
+
+            duplicate = None
+            if client_ref_uuid:
+                duplicate = (
+                    db.query(WorkLog)
+                    .filter(WorkLog.person_id == person_uuid)
+                    .filter(WorkLog.client_ref == client_ref_uuid)
+                    .first()
+                )
+            if duplicate is None:
+                duplicate = _find_duplicate(db, person_uuid, work_order.id, start_at)
             if duplicate:
                 results.append({"worklog": duplicate, "duplicate": True, "backdated": False})
                 continue
@@ -134,16 +147,28 @@ class FieldWorkLogs:
             _check_overlap(db, person_uuid, start_at, end_at)
 
             backdated = (now - start_at) > timedelta(days=_BACKDATED_FLAG_DAYS)
-            log = timecost_service.work_logs.create(
-                db,
-                WorkLogCreate(
-                    work_order_id=work_order.id,
-                    person_id=person_uuid,
-                    start_at=start_at,
-                    end_at=end_at,
-                    notes=entry.get("notes"),
-                ),
-            )
+            try:
+                log = timecost_service.work_logs.create(
+                    db,
+                    WorkLogCreate(
+                        work_order_id=work_order.id,
+                        person_id=person_uuid,
+                        start_at=start_at,
+                        end_at=end_at,
+                        notes=entry.get("notes"),
+                        client_ref=client_ref_uuid,
+                    ),
+                )
+            except IntegrityError:
+                # Concurrent retry raced us on client_ref: serve the winner's row.
+                db.rollback()
+                existing = (
+                    db.query(WorkLog).filter(WorkLog.client_ref == client_ref_uuid).first() if client_ref_uuid else None
+                )
+                if existing is None:
+                    raise
+                results.append({"worklog": existing, "duplicate": True, "backdated": False})
+                continue
             results.append({"worklog": log, "duplicate": False, "backdated": backdated})
 
         return results

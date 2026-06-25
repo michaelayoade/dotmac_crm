@@ -257,6 +257,61 @@ def test_replay_enforces_caller_access(db_session, dispatched_job, person):
     assert exc.value.status_code == 404
 
 
+def test_unable_to_complete_cancels_with_reason(db_session, dispatched_job, person):
+    result = _apply(db_session, person, dispatched_job, "unable_to_complete", payload={"reason": "customer_absent"})
+    assert result["replayed"] is False
+    db_session.refresh(dispatched_job)
+    assert dispatched_job.status == WorkOrderStatus.canceled
+
+    event = db_session.query(WorkOrderEvent).filter_by(work_order_id=dispatched_job.id).one()
+    assert event.event == FieldJobEvent.unable_to_complete
+    assert event.payload["reason"] == "customer_absent"
+
+    audit = db_session.query(AuditEvent).filter(AuditEvent.action == "field:job:unable_to_complete").first()
+    assert audit is not None
+
+
+def test_unable_to_complete_requires_reason(db_session, dispatched_job, person):
+    with pytest.raises(HTTPException) as exc:
+        _apply(db_session, person, dispatched_job, "unable_to_complete")
+    assert exc.value.status_code == 422
+
+
+def test_unable_to_complete_rejects_unknown_reason(db_session, dispatched_job, person):
+    with pytest.raises(HTTPException) as exc:
+        _apply(db_session, person, dispatched_job, "unable_to_complete", payload={"reason": "bored"})
+    assert exc.value.status_code == 422
+
+
+def test_unable_to_complete_bypasses_completion_gate(db_session, dispatched_job, person):
+    # No photo/signature evidence, yet a failed visit can still be recorded.
+    _apply(db_session, person, dispatched_job, "start")
+    result = _apply(db_session, person, dispatched_job, "unable_to_complete", payload={"reason": "no_access"})
+    db_session.refresh(dispatched_job)
+    assert dispatched_job.status == WorkOrderStatus.canceled
+    assert result["event"].payload["reason"] == "no_access"
+
+
+def test_unable_to_complete_stops_open_worklog(db_session, dispatched_job, person):
+    _apply(db_session, person, dispatched_job, "start")
+    db_session.add(
+        WorkLog(
+            work_order_id=dispatched_job.id,
+            person_id=person.id,
+            start_at=datetime.now(UTC) - timedelta(minutes=30),
+        )
+    )
+    db_session.commit()
+    _apply(db_session, person, dispatched_job, "unable_to_complete", payload={"reason": "unsafe"})
+    open_logs = (
+        db_session.query(WorkLog)
+        .filter(WorkLog.work_order_id == dispatched_job.id)
+        .filter(WorkLog.end_at.is_(None))
+        .count()
+    )
+    assert open_logs == 0
+
+
 def test_repeated_en_route_notifies_customer_once(db_session, dispatched_job, person, monkeypatch):
     calls = []
     monkeypatch.setattr(

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 import 'package:geolocator/geolocator.dart';
 
 import 'location_source.dart';
@@ -53,5 +54,54 @@ class GeolocatorLocationSource implements LocationSource {
       // GPS failure must never break a transition or capture.
       return null;
     }
+  }
+
+  @override
+  Stream<GeoPoint> positions() async* {
+    if (_permanentlyDenied) return;
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    var permission = await Geolocator.checkPermission();
+    var decision = decideForPermission(permission, serviceEnabled: serviceEnabled);
+    if (decision == LocationDecision.request) {
+      permission = await Geolocator.requestPermission();
+      decision = decideForPermission(permission, serviceEnabled: serviceEnabled);
+    }
+    if (decision != LocationDecision.proceed) {
+      if (permission == LocationPermission.deniedForever) _permanentlyDenied = true;
+      return;
+    }
+    yield* Geolocator.getPositionStream(locationSettings: _backgroundSettings())
+        .map((p) => (latitude: p.latitude, longitude: p.longitude));
+  }
+
+  /// Platform settings that keep fixes flowing while backgrounded: an Android
+  /// foreground service with an ongoing notification, and iOS background
+  /// location updates (also requires UIBackgroundModes=location + the Always
+  /// usage description in Info.plist).
+  LocationSettings _backgroundSettings() {
+    const accuracy = LocationAccuracy.high;
+    const distanceFilter = 15; // metres; the OS coalesces the rest
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidSettings(
+        accuracy: accuracy,
+        distanceFilter: distanceFilter,
+        intervalDuration: const Duration(seconds: 30),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: 'DotMac Field',
+          notificationText: 'Sharing your location with dispatch while on shift.',
+          enableWakeLock: true,
+        ),
+      );
+    }
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return AppleSettings(
+        accuracy: accuracy,
+        distanceFilter: distanceFilter,
+        allowBackgroundLocationUpdates: true,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+      );
+    }
+    return const LocationSettings(accuracy: accuracy, distanceFilter: distanceFilter);
   }
 }

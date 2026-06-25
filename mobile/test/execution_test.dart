@@ -108,6 +108,19 @@ void main() {
       expect(container.read(executionControllerProvider), isNull);
       expect((await queued('worklog')).length, 1);
     });
+
+    test('unable to complete queues a cancel event with reason and clears the timer', () async {
+      final controller = container.read(executionControllerProvider.notifier);
+      await controller.transition('wo-1', 'start');
+      expect(container.read(executionControllerProvider), isNotNull);
+
+      await controller.unableToComplete('wo-1', reason: 'no_access', note: 'gate locked');
+      expect(container.read(executionControllerProvider), isNull); // timer cleared
+
+      final event = (await queued('transition')).firstWhere((p) => p['event'] == 'unable_to_complete');
+      expect((event['payload'] as Map)['reason'], 'no_access');
+      expect(event['note'], 'gate locked');
+    });
   });
 
   group('completion gating mirrors the server gate', () {

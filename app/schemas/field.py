@@ -225,6 +225,8 @@ class FieldWorkLogEntry(BaseModel):
     start_at: datetime
     end_at: datetime | None = None
     notes: str | None = Field(default=None, max_length=2000)
+    # Per-entry idempotency key so retried offline uploads dedupe server-side.
+    client_ref: UUID | None = None
 
 
 class FieldWorkLogSubmit(BaseModel):
