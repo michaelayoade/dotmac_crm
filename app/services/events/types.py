@@ -77,6 +77,7 @@ class EventType(enum.Enum):
 
     # CRM - Message events (1)
     message_inbound = "message.inbound"
+    message_outbound = "message.outbound"
 
     # Projects - Project events
     project_created = "project.created"
