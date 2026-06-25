@@ -75,7 +75,7 @@ class EventType(enum.Enum):
     # CRM - Conversation events (1)
     conversation_created = "conversation.created"
 
-    # CRM - Message events (1)
+    # CRM - Message events (2)
     message_inbound = "message.inbound"
     message_outbound = "message.outbound"
 
