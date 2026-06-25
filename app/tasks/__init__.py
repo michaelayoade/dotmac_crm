@@ -72,6 +72,7 @@ from app.tasks.webhooks import (
     process_email_webhook,
     process_meta_webhook,
     process_whatsapp_webhook,
+    requeue_stale_pending_deliveries,
     retry_failed_deliveries,
 )
 from app.tasks.workflow import detect_sla_breaches, send_daily_sla_violation_report
@@ -108,6 +109,7 @@ __all__ = [
     "refresh_material_request_erp_status",
     "refresh_pending_material_request_erp_statuses",
     "reopen_due_snoozed_conversations_task",
+    "requeue_stale_pending_deliveries",
     "resolve_stale_offline_outreach_conversations_task",
     "retry_failed_deliveries",
     "run_daily_offline_outreach_task",

@@ -233,6 +233,21 @@ def build_beat_schedule() -> dict:
             enabled=notification_queue_enabled,
             interval_seconds=notification_queue_interval_seconds,
         )
+
+        # Safety net for webhook deliveries that were never picked up (e.g. the
+        # delivery task raced ahead of the emitting commit). Re-dispatches rows
+        # stuck pending with no attempts. Cheap no-op when the queue is clean.
+        webhook_sweep_enabled = _env_bool("WEBHOOK_PENDING_SWEEP_ENABLED")
+        if webhook_sweep_enabled is None:
+            webhook_sweep_enabled = True
+        webhook_sweep_interval_seconds = max(_env_int("WEBHOOK_PENDING_SWEEP_INTERVAL_SECONDS") or 300, 60)
+        _sync_scheduled_task(
+            session,
+            name="webhook_pending_sweep",
+            task_name="app.tasks.webhooks.requeue_stale_pending_deliveries",
+            enabled=webhook_sweep_enabled,
+            interval_seconds=webhook_sweep_interval_seconds,
+        )
         offline_outreach_enabled = _effective_bool(
             session,
             SettingDomain.notification,

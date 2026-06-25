@@ -65,6 +65,7 @@ EVENT_TYPE_TO_WEBHOOK = {
     EventType.ticket_created: WebhookEventType.ticket_created,
     EventType.ticket_escalated: WebhookEventType.ticket_escalated,
     EventType.ticket_resolved: WebhookEventType.ticket_resolved,
+    # CRM message events
     EventType.message_outbound: WebhookEventType.message_outbound,
     # Custom
     EventType.custom: WebhookEventType.custom,
@@ -125,13 +126,29 @@ class WebhookHandler:
         if not delivery_ids:
             return
 
-        # Queue Celery task for delivery
-        try:
-            from app.tasks.webhooks import deliver_webhook
+        # Queue Celery tasks only AFTER the surrounding transaction commits.
+        #
+        # The delivery rows above are flushed (to obtain their ids) but not yet
+        # committed — the emitting service commits later. If we enqueued here,
+        # an idle worker could run deliver_webhook (which opens its own session)
+        # before the row is visible, see "WebhookDelivery not found", and return
+        # early, leaving the row stuck at pending/0-attempts forever. Registering
+        # an after_commit hook guarantees the worker can always load the row.
+        self._enqueue_after_commit(db, delivery_ids, event)
 
-            for delivery_id in delivery_ids:
-                deliver_webhook.delay(delivery_id)
+    @staticmethod
+    def _enqueue_after_commit(db: Session, delivery_ids: list[str], event: Event) -> None:
+        """Enqueue deliver_webhook tasks once the session commits the rows."""
+        from sqlalchemy import event as sa_event
 
-            logger.info(f"Queued {len(delivery_ids)} webhook deliveries for event {event.event_type.value}")
-        except Exception as exc:
-            logger.error(f"Failed to queue webhook delivery tasks: {exc}")
+        def _enqueue(session: Session) -> None:
+            try:
+                from app.tasks.webhooks import deliver_webhook
+
+                for delivery_id in delivery_ids:
+                    deliver_webhook.delay(delivery_id)
+                logger.info(f"Queued {len(delivery_ids)} webhook deliveries for event {event.event_type.value}")
+            except Exception as exc:
+                logger.error(f"Failed to queue webhook delivery tasks: {exc}")
+
+        sa_event.listen(db, "after_commit", _enqueue, once=True)

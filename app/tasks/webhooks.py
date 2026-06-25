@@ -10,6 +10,7 @@ import logging
 from datetime import UTC, datetime
 
 import httpx
+from celery.exceptions import Retry
 from sqlalchemy.exc import IntegrityError
 
 from app.celery_app import celery_app
@@ -26,6 +27,11 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 10
 # Exponential backoff: 1min, 2min, 4min, 8min, 16min, 32min, ~1hr, ~2hr, ~4hr, ~8hr
 RETRY_DELAYS = [60, 120, 240, 480, 960, 1920, 3600, 7200, 14400, 28800]
+
+# If a delivery row isn't visible yet (task ran before the emitting transaction
+# committed), retry a few times with a short delay before giving up.
+NOT_FOUND_MAX_RETRIES = 5
+NOT_FOUND_RETRY_DELAY = 5  # seconds
 
 # Retry configuration — inbound webhook processing
 INBOUND_MAX_RETRIES = 5
@@ -71,7 +77,15 @@ def deliver_webhook(self, delivery_id: str):
     try:
         delivery = session.get(WebhookDelivery, delivery_id)
         if not delivery:
-            logger.error(f"WebhookDelivery not found: {delivery_id}")
+            # The row may not be committed yet if this task was enqueued before
+            # the emitting transaction committed. Retry briefly before giving up.
+            if self.request.retries < NOT_FOUND_MAX_RETRIES:
+                logger.info(
+                    f"WebhookDelivery {delivery_id} not visible yet "
+                    f"(attempt {self.request.retries + 1}/{NOT_FOUND_MAX_RETRIES}), retrying"
+                )
+                raise self.retry(countdown=NOT_FOUND_RETRY_DELAY, max_retries=NOT_FOUND_MAX_RETRIES)
+            logger.error(f"WebhookDelivery not found after retries: {delivery_id}")
             return
 
         # Get endpoint
@@ -145,6 +159,11 @@ def deliver_webhook(self, delivery_id: str):
 
         session.commit()
 
+    except Retry:
+        # Celery retry signal (HTTP backoff or not-yet-visible row) — must
+        # propagate untouched so the task is rescheduled, not marked failed.
+        raise
+
     except (httpx.RequestError, httpx.TimeoutException) as exc:
         # Network/timeout error - update delivery and retry
         try:
@@ -215,6 +234,53 @@ def retry_failed_deliveries():
         raise
     finally:
         session.close()
+
+
+# A delivery should normally be picked up within seconds. Anything still
+# pending past this window was almost certainly never enqueued (e.g. the task
+# raced ahead of the emitting commit) and needs to be re-dispatched.
+STALE_PENDING_MINUTES = 10
+
+
+@celery_app.task(name="app.tasks.webhooks.requeue_stale_pending_deliveries")
+def requeue_stale_pending_deliveries(stale_minutes: int = STALE_PENDING_MINUTES, batch_size: int = 500):
+    """Re-enqueue webhook deliveries stuck in ``pending`` with no attempts.
+
+    These rows were created but never delivered — typically because the
+    delivery task ran before the emitting transaction committed and could not
+    find the row. They have no last_attempt_at, so re-dispatching is safe and
+    idempotent (the task no-ops if the row is already delivered).
+    """
+    from datetime import timedelta
+
+    cutoff = datetime.now(UTC) - timedelta(minutes=stale_minutes)
+    session = SessionLocal()
+    requeued = 0
+    try:
+        stale = (
+            session.query(WebhookDelivery)
+            .filter(WebhookDelivery.status == WebhookDeliveryStatus.pending)
+            .filter(WebhookDelivery.last_attempt_at.is_(None))
+            .filter(WebhookDelivery.created_at < cutoff)
+            .order_by(WebhookDelivery.created_at.asc())
+            .limit(batch_size)
+            .all()
+        )
+        delivery_ids = [str(d.id) for d in stale]
+        # No DB mutation needed — just re-dispatch the existing pending rows.
+        for delivery_id in delivery_ids:
+            deliver_webhook.delay(delivery_id)
+            requeued += 1
+
+        if requeued:
+            logger.info(f"Re-enqueued {requeued} stale pending webhook deliveries")
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+    return {"requeued": requeued}
 
 
 @celery_app.task(

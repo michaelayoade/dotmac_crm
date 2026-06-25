@@ -401,12 +401,13 @@ class Messages(ListResponseMixin):
         recompute_conversation_summary(db, str(conversation.id))
         db.commit()
         db.refresh(message)
-        if message.direction == MessageDirection.inbound:
+        if message.direction in (MessageDirection.inbound, MessageDirection.outbound):
             from app.services.events import EventType, emit_event
 
+            is_inbound = message.direction == MessageDirection.inbound
             emit_event(
                 db,
-                EventType.message_inbound,
+                EventType.message_inbound if is_inbound else EventType.message_outbound,
                 {
                     "message_id": str(message.id),
                     "conversation_id": str(message.conversation_id),
@@ -415,8 +416,14 @@ class Messages(ListResponseMixin):
                     "channel_target_id": (str(message.channel_target_id) if message.channel_target_id else None),
                     "subject": message.subject,
                     "external_id": message.external_id,
+                    "direction": message.direction.value,
                 },
             )
+            if not is_inbound:
+                # Persist any handler-created rows (e.g. webhook deliveries flushed
+                # by WebhookHandler) so they survive and their after_commit enqueue
+                # fires. Inbound keeps its prior behaviour (no extra commit here).
+                db.commit()
         return message
 
     @staticmethod
