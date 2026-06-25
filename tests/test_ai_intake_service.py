@@ -323,7 +323,10 @@ def test_process_pending_intake_resolves_and_assigns_team(db_session, monkeypatc
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["handoff_state"] == AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["department"] == "support"
     assert {tag.tag for tag in conversation.tags} == {"support"}
-    assert sent["body"] == "A member of our support team will respond within 15-30 minutes."
+    assert (
+        sent["body"]
+        == "Thanks for reaching out to us. A member of our support team will respond to you shortly. Please wait for the next available agent."
+    )
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["handoff_sent"] is True
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["handoff_sent_at"] is not None
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["handoff_followup_due_at"] is not None
@@ -459,7 +462,10 @@ def test_process_pending_intake_routes_billing_payment_to_sales_call_center(db_s
     assert assignment is not None
     assert assignment.team_id == sales_team.id
     assert assignment.agent_id is not None
-    assert sent["body"] == "A member of our billing team will respond within 15-30 minutes."
+    assert (
+        sent["body"]
+        == "Thanks for reaching out to us. A member of our billing team will respond to you shortly. Please wait for the next available agent."
+    )
 
 
 def test_process_pending_intake_routes_billing_renewal_to_sales(db_session, monkeypatch):
@@ -525,7 +531,10 @@ def test_process_pending_intake_routes_billing_renewal_to_sales(db_session, monk
     assert assignment is not None
     assert assignment.team_id == sales_team.id
     assert assignment.agent_id is not None
-    assert sent["body"] == "A member of our billing team will respond within 15-30 minutes."
+    assert (
+        sent["body"]
+        == "Thanks for reaching out to us. A member of our billing team will respond to you shortly. Please wait for the next available agent."
+    )
 
 
 def test_process_pending_intake_assigns_specific_sales_agent_immediately(db_session, monkeypatch):
@@ -695,17 +704,17 @@ def test_coerce_ai_bool_variants(raw_value, expected):
     [
         (
             "support",
-            "A member of our support team will respond within 15-30 minutes.",
+            "Thanks for reaching out to us. A member of our support team will respond to you shortly. Please wait for the next available agent.",
             "Thanks for your patience - our support team is still reviewing your request and will respond as soon as possible.",
         ),
         (
             "billing_payment",
-            "A member of our billing team will respond within 15-30 minutes.",
+            "Thanks for reaching out to us. A member of our billing team will respond to you shortly. Please wait for the next available agent.",
             "Thanks for your patience - our billing team is still reviewing your request and will respond as soon as possible.",
         ),
         (
             "sales",
-            "A member of our sales team will respond within 15-30 minutes.",
+            "Thanks for reaching out to us. A member of our sales team will respond to you shortly. Please wait for the next available agent.",
             "Thanks for your patience - our sales team is still reviewing your request and will respond as soon as possible.",
         ),
     ],
@@ -1653,7 +1662,7 @@ def test_send_handoff_message_reconciles_existing_message_without_resend(db_sess
         channel_type=inbound.channel_type,
         direction=MessageDirection.outbound,
         status=MessageStatus.sent,
-        body="A member of our support team will respond within 15-30 minutes.",
+        body="Thanks for reaching out to us. A member of our support team will respond to you shortly. Please wait for the next available agent.",
         sent_at=datetime.now(UTC),
         metadata_={
             "ai_intake_generated": True,
@@ -2109,7 +2118,12 @@ def test_process_pending_intake_does_not_duplicate_handoff_or_assignment(db_sess
     assert first.resolved is True
     assert second.handled is False
     assert len(active_assignments) == 1
-    assert sent_messages.count("A member of our support team will respond within 15-30 minutes.") == 1
+    assert (
+        sent_messages.count(
+            "Thanks for reaching out to us. A member of our support team will respond to you shortly. Please wait for the next available agent."
+        )
+        == 1
+    )
 
 
 def test_escalate_expired_pending_intakes_opens_without_assigning_empty_fallback_team(db_session, monkeypatch):

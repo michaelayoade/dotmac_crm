@@ -1080,6 +1080,17 @@ class Tickets(ListResponseMixin):
             assignee_ids = [str(value) for value in (payload.assigned_to_person_ids or [])]
         elif payload.assigned_to_person_id:
             assignee_ids = [str(payload.assigned_to_person_id)]
+        from app.services.ticket_assignment import find_authoritative_ticket_creation_rule
+
+        rule_probe = Ticket(**data)
+        creation_rule = find_authoritative_ticket_creation_rule(db, rule_probe)
+        if creation_rule:
+            data["assigned_to_person_id"] = None
+            data["ticket_manager_person_id"] = None
+            data["assistant_manager_person_id"] = None
+            assignee_ids = []
+            if creation_rule.team_id:
+                data["service_team_id"] = creation_rule.team_id
         if not data.get("number"):
             number = generate_number(
                 db=db,
@@ -1093,7 +1104,7 @@ class Tickets(ListResponseMixin):
             if number:
                 data["number"] = number
         # Auto-assign project manager + SPC based on region if not already specified
-        if data.get("region"):
+        if data.get("region") and not creation_rule:
             auto_manager, auto_spc = _get_region_ticket_assignments(db, data["region"])
             if auto_manager and not data.get("ticket_manager_person_id"):
                 data["ticket_manager_person_id"] = coerce_uuid(auto_manager)

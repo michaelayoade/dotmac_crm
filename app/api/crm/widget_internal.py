@@ -47,9 +47,7 @@ def require_chat_mint(
     """
     allowed = {
         e.strip().lower()
-        for e in os.getenv(
-            "CHAT_MINT_SERVICE_ACCOUNTS", "selfcare-sync@dotmac.io"
-        ).split(",")
+        for e in os.getenv("CHAT_MINT_SERVICE_ACCOUNTS", "selfcare-sync@dotmac.io").split(",")
         if e.strip()
     }
     person = db.get(Person, coerce_uuid(auth.get("person_id")))

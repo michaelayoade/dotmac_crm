@@ -38,8 +38,8 @@ from app.api.bandwidth import router as bandwidth_router
 from app.api.comms import router as comms_router
 from app.api.connectors import router as connectors_router
 from app.api.crm import router as crm_router
-from app.api.crm.widget_public import router as widget_public_router
 from app.api.crm.widget_internal import router as widget_internal_router
+from app.api.crm.widget_public import router as widget_public_router
 from app.api.customers import router as customers_router
 from app.api.data_quality import router as data_quality_router
 from app.api.defaults import router as defaults_router
