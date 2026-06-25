@@ -558,7 +558,10 @@ def _handoff_message_for_department(department: str) -> str | None:
     team_label = _handoff_team_label_for_department(department)
     if not team_label:
         return None
-    return f"A member of our {team_label} will respond within 15-30 minutes."
+    return (
+        f"Thanks for reaching out to us. A member of our {team_label} will "
+        "respond to you shortly. Please wait for the next available agent."
+    )
 
 
 def _handoff_reassurance_message_for_department(department: str) -> str | None:
