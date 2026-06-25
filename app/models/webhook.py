@@ -61,7 +61,6 @@ class WebhookEventType(enum.Enum):
     ticket_created = "ticket.created"
     ticket_escalated = "ticket.escalated"
     ticket_resolved = "ticket.resolved"
-    message_outbound = "message.outbound"
 
     # CRM - Message events (1)
     message_outbound = "message.outbound"
