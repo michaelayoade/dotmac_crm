@@ -19,7 +19,7 @@ class WorkLogBase(BaseModel):
 
 
 class WorkLogCreate(WorkLogBase):
-    pass
+    client_ref: UUID | None = None
 
 
 class WorkLogUpdate(BaseModel):

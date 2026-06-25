@@ -37,9 +37,12 @@ class LocationPingService {
 
   final List<Map<String, dynamic>> _buffer = [];
   ShiftState _shift = ShiftState.offShift;
+  StreamSubscription<GeoPoint>? _backgroundSub;
+  String? _activeWorkOrderId;
 
   ShiftState get shift => _shift;
   int get bufferedCount => _buffer.length;
+  bool get isBackgroundTracking => _backgroundSub != null;
 
   /// Switching off shift / on break stops capture; going on break keeps a final
   /// status so the map can show the tech paused rather than vanish instantly.
@@ -61,6 +64,10 @@ class LocationPingService {
     if (_shift != ShiftState.onShift) return;
     final point = await location.current();
     if (point == null) return;
+    _appendFix(point, workOrderId: workOrderId);
+  }
+
+  void _appendFix(GeoPoint point, {String? workOrderId}) {
     _buffer.add({
       'latitude': point.latitude,
       'longitude': point.longitude,
@@ -72,6 +79,30 @@ class LocationPingService {
       _buffer.removeRange(0, _buffer.length - maxBuffer);
     }
   }
+
+  /// The work order pings should be tagged with while background tracking runs.
+  void setActiveWorkOrder(String? workOrderId) => _activeWorkOrderId = workOrderId;
+
+  /// Subscribe to the platform's background-capable position stream so fixes
+  /// keep arriving while the app is backgrounded or the screen is locked. Each
+  /// fix is buffered and flushed. Idempotent; off-shift fixes are ignored.
+  void startBackgroundTracking({String? workOrderId}) {
+    _activeWorkOrderId = workOrderId;
+    if (_backgroundSub != null) return;
+    _backgroundSub = location.positions().listen((point) async {
+      if (_shift != ShiftState.onShift) return;
+      _appendFix(point, workOrderId: _activeWorkOrderId);
+      await flush();
+    });
+  }
+
+  Future<void> stopBackgroundTracking() async {
+    await _backgroundSub?.cancel();
+    _backgroundSub = null;
+  }
+
+  /// Release the background subscription. Call when the host widget disposes.
+  Future<void> dispose() => stopBackgroundTracking();
 
   /// Flush the buffer as one batch. On failure the buffer is retained for the
   /// next attempt; only the fixes actually sent are removed on success.

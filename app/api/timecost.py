@@ -19,22 +19,33 @@ from app.schemas.timecost import (
     WorkLogUpdate,
 )
 from app.services import timecost as timecost_service
+from app.services.auth_dependencies import require_permission
 from app.services.response import list_response
 
 router = APIRouter(prefix="/timecost", tags=["timecost"])
 
+# Worklogs, expenses, and cost/billing rates are job-costing data — guarded by
+# the operations:work_order permission (admin bypasses).
+_read = Depends(require_permission("operations:work_order:read"))
+_write = Depends(require_permission("operations:work_order:update"))
 
-@router.post("/work-logs", response_model=WorkLogRead, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/work-logs",
+    response_model=WorkLogRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[_write],
+)
 def create_work_log(payload: WorkLogCreate, db: Session = Depends(get_db)):
     return timecost_service.work_logs.create(db, payload)
 
 
-@router.get("/work-logs/{log_id}", response_model=WorkLogRead)
+@router.get("/work-logs/{log_id}", response_model=WorkLogRead, dependencies=[_read])
 def get_work_log(log_id: str, db: Session = Depends(get_db)):
     return timecost_service.work_logs.get(db, log_id)
 
 
-@router.get("/work-logs", response_model=ListResponse[WorkLogRead])
+@router.get("/work-logs", response_model=ListResponse[WorkLogRead], dependencies=[_read])
 def list_work_logs(
     work_order_id: str | None = None,
     person_id: str | None = None,
@@ -49,27 +60,32 @@ def list_work_logs(
     return list_response(items, limit, offset)
 
 
-@router.patch("/work-logs/{log_id}", response_model=WorkLogRead)
+@router.patch("/work-logs/{log_id}", response_model=WorkLogRead, dependencies=[_write])
 def update_work_log(log_id: str, payload: WorkLogUpdate, db: Session = Depends(get_db)):
     return timecost_service.work_logs.update(db, log_id, payload)
 
 
-@router.delete("/work-logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/work-logs/{log_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_write])
 def delete_work_log(log_id: str, db: Session = Depends(get_db)):
     timecost_service.work_logs.delete(db, log_id)
 
 
-@router.post("/expenses", response_model=ExpenseLineRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/expenses",
+    response_model=ExpenseLineRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[_write],
+)
 def create_expense(payload: ExpenseLineCreate, db: Session = Depends(get_db)):
     return timecost_service.expense_lines.create(db, payload)
 
 
-@router.get("/expenses/{expense_id}", response_model=ExpenseLineRead)
+@router.get("/expenses/{expense_id}", response_model=ExpenseLineRead, dependencies=[_read])
 def get_expense(expense_id: str, db: Session = Depends(get_db)):
     return timecost_service.expense_lines.get(db, expense_id)
 
 
-@router.get("/expenses", response_model=ListResponse[ExpenseLineRead])
+@router.get("/expenses", response_model=ListResponse[ExpenseLineRead], dependencies=[_read])
 def list_expenses(
     work_order_id: str | None = None,
     project_id: str | None = None,
@@ -86,27 +102,32 @@ def list_expenses(
     return list_response(items, limit, offset)
 
 
-@router.patch("/expenses/{expense_id}", response_model=ExpenseLineRead)
+@router.patch("/expenses/{expense_id}", response_model=ExpenseLineRead, dependencies=[_write])
 def update_expense(expense_id: str, payload: ExpenseLineUpdate, db: Session = Depends(get_db)):
     return timecost_service.expense_lines.update(db, expense_id, payload)
 
 
-@router.delete("/expenses/{expense_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/expenses/{expense_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_write])
 def delete_expense(expense_id: str, db: Session = Depends(get_db)):
     timecost_service.expense_lines.delete(db, expense_id)
 
 
-@router.post("/cost-rates", response_model=CostRateRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/cost-rates",
+    response_model=CostRateRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[_write],
+)
 def create_cost_rate(payload: CostRateCreate, db: Session = Depends(get_db)):
     return timecost_service.cost_rates.create(db, payload)
 
 
-@router.get("/cost-rates/{rate_id}", response_model=CostRateRead)
+@router.get("/cost-rates/{rate_id}", response_model=CostRateRead, dependencies=[_read])
 def get_cost_rate(rate_id: str, db: Session = Depends(get_db)):
     return timecost_service.cost_rates.get(db, rate_id)
 
 
-@router.get("/cost-rates", response_model=ListResponse[CostRateRead])
+@router.get("/cost-rates", response_model=ListResponse[CostRateRead], dependencies=[_read])
 def list_cost_rates(
     person_id: str | None = None,
     is_active: bool | None = None,
@@ -120,27 +141,32 @@ def list_cost_rates(
     return list_response(items, limit, offset)
 
 
-@router.patch("/cost-rates/{rate_id}", response_model=CostRateRead)
+@router.patch("/cost-rates/{rate_id}", response_model=CostRateRead, dependencies=[_write])
 def update_cost_rate(rate_id: str, payload: CostRateUpdate, db: Session = Depends(get_db)):
     return timecost_service.cost_rates.update(db, rate_id, payload)
 
 
-@router.delete("/cost-rates/{rate_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/cost-rates/{rate_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_write])
 def delete_cost_rate(rate_id: str, db: Session = Depends(get_db)):
     timecost_service.cost_rates.delete(db, rate_id)
 
 
-@router.post("/billing-rates", response_model=BillingRateRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/billing-rates",
+    response_model=BillingRateRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[_write],
+)
 def create_billing_rate(payload: BillingRateCreate, db: Session = Depends(get_db)):
     return timecost_service.billing_rates.create(db, payload)
 
 
-@router.get("/billing-rates/{rate_id}", response_model=BillingRateRead)
+@router.get("/billing-rates/{rate_id}", response_model=BillingRateRead, dependencies=[_read])
 def get_billing_rate(rate_id: str, db: Session = Depends(get_db)):
     return timecost_service.billing_rates.get(db, rate_id)
 
 
-@router.get("/billing-rates", response_model=ListResponse[BillingRateRead])
+@router.get("/billing-rates", response_model=ListResponse[BillingRateRead], dependencies=[_read])
 def list_billing_rates(
     is_active: bool | None = None,
     order_by: str = Query(default="created_at"),
@@ -153,21 +179,21 @@ def list_billing_rates(
     return list_response(items, limit, offset)
 
 
-@router.patch("/billing-rates/{rate_id}", response_model=BillingRateRead)
+@router.patch("/billing-rates/{rate_id}", response_model=BillingRateRead, dependencies=[_write])
 def update_billing_rate(rate_id: str, payload: BillingRateUpdate, db: Session = Depends(get_db)):
     return timecost_service.billing_rates.update(db, rate_id, payload)
 
 
-@router.delete("/billing-rates/{rate_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/billing-rates/{rate_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[_write])
 def delete_billing_rate(rate_id: str, db: Session = Depends(get_db)):
     timecost_service.billing_rates.delete(db, rate_id)
 
 
-@router.get("/work-orders/{work_order_id}/cost-summary", response_model=CostSummary)
+@router.get("/work-orders/{work_order_id}/cost-summary", response_model=CostSummary, dependencies=[_read])
 def work_order_cost_summary(work_order_id: str, db: Session = Depends(get_db)):
     return timecost_service.work_order_cost_summary(db, work_order_id)
 
 
-@router.get("/projects/{project_id}/cost-summary", response_model=CostSummary)
+@router.get("/projects/{project_id}/cost-summary", response_model=CostSummary, dependencies=[_read])
 def project_cost_summary(project_id: str, db: Session = Depends(get_db)):
     return timecost_service.project_cost_summary(db, project_id)

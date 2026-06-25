@@ -15,14 +15,18 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.dispatch import TechnicianProfile
+from app.models.domain_settings import DomainSetting, SettingDomain
 from app.models.field_location import FieldPresenceStatus, FieldTechLocationPing, FieldTechPresence
 from app.models.person import Person
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services.common import coerce_uuid, validate_enum
 
 # Default retention for the immutable ping audit. Pings older than this are pruned;
-# the current-snapshot row on FieldTechPresence is kept.
-DEFAULT_PING_RETENTION_HOURS = 72
+# the current-snapshot row on FieldTechPresence is kept. Kept long enough (30 days)
+# that admins can review movement history; overridable via the field DomainSetting
+# ``location_ping_retention_hours`` (see resolved_retention_hours).
+DEFAULT_PING_RETENTION_HOURS = 720
+RETENTION_SETTING_KEY = "location_ping_retention_hours"
 DEFAULT_STALE_AFTER_SECONDS = 120
 MAX_BATCH_PINGS = 200
 
@@ -331,6 +335,135 @@ class FieldLocationTracking:
                 }
             )
         return items
+
+    @staticmethod
+    def recent_tracks(
+        db: Session,
+        *,
+        window_minutes: int = 30,
+        stale_after_seconds: int = DEFAULT_STALE_AFTER_SECONDS,
+        max_points_per_tech: int = 240,
+        limit_techs: int = 200,
+    ) -> list[dict]:
+        """Recent breadcrumb trails for sharing-enabled, non-stale technicians.
+
+        Powers the admin live map's movement view: each tech carries an ordered
+        (oldest -> newest) list of their pings within the window, so the map can
+        draw where they have been, not just where they are. Trimmed to the most
+        recent ``max_points_per_tech`` points per tech.
+        """
+        window_minutes = max(1, min(int(window_minutes or 30), 24 * 60))
+        safe_points = max(2, min(int(max_points_per_tech or 240), 1000))
+        safe_limit = max(1, min(int(limit_techs or 200), 500))
+        stale_window = max(int(stale_after_seconds or DEFAULT_STALE_AFTER_SECONDS), 30)
+        now = _now()
+        stale_cutoff = now - timedelta(seconds=stale_window)
+        track_cutoff = now - timedelta(minutes=window_minutes)
+
+        presence_rows = (
+            db.query(FieldTechPresence, Person)
+            .join(Person, Person.id == FieldTechPresence.person_id)
+            .filter(FieldTechPresence.location_sharing_enabled.is_(True))
+            .filter(FieldTechPresence.last_location_at.isnot(None))
+            .filter(FieldTechPresence.last_location_at >= stale_cutoff)
+            .order_by(FieldTechPresence.last_location_at.desc())
+            .limit(safe_limit)
+            .all()
+        )
+        if not presence_rows:
+            return []
+
+        person_ids = [presence.person_id for presence, _person in presence_rows]
+        pings = (
+            db.query(FieldTechLocationPing)
+            .filter(FieldTechLocationPing.person_id.in_(person_ids))
+            .filter(FieldTechLocationPing.captured_at >= track_cutoff)
+            .order_by(FieldTechLocationPing.person_id, FieldTechLocationPing.captured_at.asc())
+            .all()
+        )
+        points_by_person: dict[str, list[dict]] = {}
+        for ping in pings:
+            points_by_person.setdefault(str(ping.person_id), []).append(
+                {
+                    "latitude": float(ping.latitude),
+                    "longitude": float(ping.longitude),
+                    "accuracy_m": float(ping.accuracy_m) if ping.accuracy_m is not None else None,
+                    "captured_at": ping.captured_at,
+                }
+            )
+
+        items: list[dict] = []
+        for presence, person in presence_rows:
+            key = str(presence.person_id)
+            points = points_by_person.get(key, [])
+            if len(points) > safe_points:
+                points = points[-safe_points:]
+            items.append(
+                {
+                    "person_id": key,
+                    "person_label": _person_label(person),
+                    "status": presence.status.value,
+                    "last_location_at": presence.last_location_at,
+                    "points": points,
+                }
+            )
+        return items
+
+    @staticmethod
+    def ping_history(
+        db: Session,
+        person_id: str,
+        *,
+        since: datetime,
+        until: datetime | None = None,
+        max_points: int = 5000,
+    ) -> list[dict]:
+        """Ordered (oldest -> newest) ping history for one technician over a time
+        range — the data source for admin movement playback / audit."""
+        person_uuid = coerce_uuid(person_id)
+        until = until or _now()
+        safe_points = max(1, min(int(max_points or 5000), 20000))
+        rows = (
+            db.query(FieldTechLocationPing)
+            .filter(FieldTechLocationPing.person_id == person_uuid)
+            .filter(FieldTechLocationPing.captured_at >= since)
+            .filter(FieldTechLocationPing.captured_at <= until)
+            .order_by(FieldTechLocationPing.captured_at.asc())
+            .limit(safe_points)
+            .all()
+        )
+        return [
+            {
+                "latitude": float(row.latitude),
+                "longitude": float(row.longitude),
+                "accuracy_m": float(row.accuracy_m) if row.accuracy_m is not None else None,
+                "captured_at": row.captured_at,
+                "work_order_id": str(row.work_order_id) if row.work_order_id else None,
+            }
+            for row in rows
+        ]
+
+    @staticmethod
+    def resolved_retention_hours(db: Session) -> int:
+        """Retention window for the ping audit, overridable via the field
+        DomainSetting ``location_ping_retention_hours`` so movement history can be
+        kept longer (or shorter) for review without a code change."""
+        row = (
+            db.query(DomainSetting)
+            .filter(DomainSetting.domain == SettingDomain.field)
+            .filter(DomainSetting.key == RETENTION_SETTING_KEY)
+            .filter(DomainSetting.is_active.is_(True))
+            .first()
+        )
+        if row is not None:
+            raw = row.value_json if row.value_json is not None else row.value_text
+            try:
+                hours = int(str(raw).strip())
+            except (TypeError, ValueError):
+                hours = 0
+            if hours >= 1:
+                return hours
+        return DEFAULT_PING_RETENTION_HOURS
 
     @staticmethod
     def prune_pings(db: Session, *, older_than_hours: int = DEFAULT_PING_RETENTION_HOURS) -> int:

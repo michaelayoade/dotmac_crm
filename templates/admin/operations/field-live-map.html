@@ -95,6 +95,7 @@
   let tileLoaded = false;
   let tileErrorCount = 0;
   const markers = new Map();
+  const trails = new Map();
   const latestById = new Map();
   let hasFit = false;
 
@@ -205,6 +206,8 @@
         <div>Accuracy: ${acc}</div>
         <div class="mt-1">
           <button type="button" data-focus-tech="${pid}" style="color:#2563eb;text-decoration:underline;background:none;border:0;padding:0;cursor:pointer;">Show on Map</button>
+          &nbsp;·&nbsp;
+          <a href="/admin/operations/field-techs/${pid}/movement" style="color:#2563eb;text-decoration:underline;">Movement history</a>
         </div>
       </div>
     `;
@@ -260,6 +263,33 @@
     mapEl.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  // Draw each tech's recent movement as a polyline beneath their marker.
+  // Trails are best-effort: a tracks-feed failure must not blank the map.
+  const renderTrails = (payload) => {
+    if (!mapEnabled || !map) return;
+    const items = Array.isArray(payload && payload.items) ? payload.items : [];
+    const seen = new Set();
+    items.forEach((track) => {
+      const id = String(track.person_id);
+      const latlngs = (Array.isArray(track.points) ? track.points : [])
+        .map((p) => [Number(p.latitude), Number(p.longitude)])
+        .filter(([la, ln]) => Number.isFinite(la) && Number.isFinite(ln));
+      if (latlngs.length < 2) return; // need two points to draw a path
+      seen.add(id);
+      const color = colorFor(track.status);
+      const existing = trails.get(id);
+      if (existing) {
+        existing.setLatLngs(latlngs);
+        existing.setStyle({ color });
+      } else {
+        trails.set(id, L.polyline(latlngs, { color, weight: 3, opacity: 0.65 }).addTo(map));
+      }
+    });
+    trails.forEach((line, id) => {
+      if (!seen.has(id)) { map.removeLayer(line); trails.delete(id); }
+    });
+  };
+
   const refresh = () => {
     Promise.all([
       fetch("/admin/operations/field-techs/live-map?stale_after_seconds=120&limit=500", {
@@ -267,10 +297,14 @@
       }).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
       fetch("/admin/operations/field-techs/tracking-states?stale_after_seconds=120&limit=500", {
         headers: { "Accept": "application/json" }
-      }).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      }).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
+      fetch("/admin/operations/field-techs/tracks?window_minutes=30&stale_after_seconds=120&limit=500", {
+        headers: { "Accept": "application/json" }
+      }).then((r) => r.ok ? r.json() : { items: [] }).catch(() => ({ items: [] }))
     ])
-      .then(([data, states]) => {
+      .then(([data, states, tracks]) => {
         renderTrackingStates(states);
+        renderTrails(tracks);
         const items = Array.isArray(data && data.items) ? data.items : [];
         latestById.clear();
         items.forEach((i) => latestById.set(String(i.person_id), i));

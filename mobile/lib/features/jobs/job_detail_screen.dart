@@ -169,28 +169,81 @@ class _JobDetailView extends ConsumerWidget {
           : SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: FilledButton(
-                  key: const Key('primary-action'),
-                  onPressed: () async {
-                    if (action == 'complete') {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => CompletionWizard(jobId: job.id),
-                        ),
-                      );
-                    } else {
-                      await ref
-                          .read(executionControllerProvider.notifier)
-                          .transition(job.id, action);
-                    }
-                    ref.invalidate(jobDetailProvider(job.id));
-                  },
-                  child: Text(actionLabel(action)),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FilledButton(
+                      key: const Key('primary-action'),
+                      onPressed: () async {
+                        if (action == 'complete') {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => CompletionWizard(jobId: job.id),
+                            ),
+                          );
+                        } else {
+                          await ref
+                              .read(executionControllerProvider.notifier)
+                              .transition(job.id, action);
+                        }
+                        ref.invalidate(jobDetailProvider(job.id));
+                      },
+                      child: Text(actionLabel(action)),
+                    ),
+                    TextButton(
+                      key: const Key('unable-action'),
+                      onPressed: () => promptUnableToComplete(context, ref, job.id),
+                      child: const Text("Can't complete this job"),
+                    ),
+                  ],
                 ),
               ),
             ),
     );
   }
+}
+
+/// Field outcomes for a visit that can't be completed. Keys mirror the backend
+/// ``unable_to_complete`` reasons; labels are tech-facing.
+const List<({String key, String label})> kUnableReasons = [
+  (key: 'customer_absent', label: 'Customer not home'),
+  (key: 'no_access', label: 'Could not access site'),
+  (key: 'site_not_ready', label: 'Site not ready'),
+  (key: 'needs_parts', label: 'Missing parts/materials'),
+  (key: 'unsafe', label: 'Unsafe conditions'),
+  (key: 'other', label: 'Other'),
+];
+
+/// Ask why the job can't be completed, then record the failed visit (which
+/// cancels the job server-side with the chosen reason).
+Future<void> promptUnableToComplete(BuildContext context, WidgetRef ref, String jobId) async {
+  final reason = await showModalBottomSheet<String>(
+    context: context,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+              "Why can't this job be completed?",
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          for (final reasonOption in kUnableReasons)
+            ListTile(
+              key: Key('reason-${reasonOption.key}'),
+              title: Text(reasonOption.label),
+              onTap: () => Navigator.of(sheetContext).pop(reasonOption.key),
+            ),
+        ],
+      ),
+    ),
+  );
+  if (reason == null) return;
+  await ref.read(executionControllerProvider.notifier).unableToComplete(jobId, reason: reason);
+  ref.invalidate(jobDetailProvider(jobId));
+  if (context.mounted) Navigator.of(context).maybePop();
 }
 
 class _LocationCard extends ConsumerWidget {

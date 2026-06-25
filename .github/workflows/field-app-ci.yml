@@ -32,7 +32,7 @@ jobs:
       - name: Ruff
         run: poetry run ruff check app/
       - name: Field-app test suite
-        run: poetry run pytest tests/ -q -k "field or push_service or vendor_auth or auth_person or workforce_api"
+        run: poetry run pytest tests/ -q -k "field or push_service or vendor_auth or auth_person or workforce_api or dispatch or timecost"
 
   mobile:
     runs-on: ubuntu-latest

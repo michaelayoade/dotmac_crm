@@ -68,6 +68,12 @@
 	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Your location is attached to job updates and route captures so dispatch can verify completed work.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>While you are on shift, your location is shared with dispatch so they can coordinate jobs and verify work — including when the app is in the background.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Photos document completed installations and site conditions.</string>
 </dict>

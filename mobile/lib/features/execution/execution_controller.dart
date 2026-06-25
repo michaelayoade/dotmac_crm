@@ -61,7 +61,7 @@ class ExecutionController extends Notifier<ActiveTimer?> {
     if (event == 'start') {
       state = ActiveTimer(jobId: jobId, startedAt: DateTime.now().toUtc());
     }
-    if (event == 'hold' || event == 'complete') {
+    if (event == 'hold' || event == 'complete' || event == 'unable_to_complete') {
       await _stopTimer(jobId);
     }
 
@@ -70,17 +70,31 @@ class ExecutionController extends Notifier<ActiveTimer?> {
     return clientEventId;
   }
 
+  /// Record a failed visit (customer absent, no access, …). Cancels the job
+  /// server-side with the reason; bypasses the completion-evidence gate.
+  Future<String> unableToComplete(
+    String jobId, {
+    required String reason,
+    String? note,
+  }) {
+    return transition(jobId, 'unable_to_complete', note: note, payload: {'reason': reason});
+  }
+
   Future<void> _stopTimer(String jobId) async {
     final timer = state;
     if (timer == null || timer.jobId != jobId) return;
     state = null;
+    // One entry per worklog submission: reuse the outbox ref as the entry's
+    // client_ref so a retried flush dedupes server-side instead of duplicating.
+    final clientRef = _uuid.v4();
     await _sync.enqueue(
       kind: 'worklog',
-      clientRef: _uuid.v4(),
+      clientRef: clientRef,
       payload: {
         'work_order_id': jobId,
         'entries': [
           {
+            'client_ref': clientRef,
             'start_at': timer.startedAt.toIso8601String(),
             'end_at': DateTime.now().toUtc().toIso8601String(),
           }

@@ -1187,6 +1187,32 @@ def field_techs_tracking_states_feed(
     )
 
 
+@router.get("/field-techs/tracks")
+def field_techs_tracks_feed(
+    request: Request,
+    window_minutes: int = Query(default=30, ge=1, le=1440),
+    stale_after_seconds: int = Query(default=120, ge=30, le=3600),
+    limit: int = Query(default=200, ge=1, le=500),
+    db: Session = Depends(get_db),
+    _auth=Depends(require_permission("operations:work_order:read")),
+):
+    """JSON feed of recent breadcrumb trails per sharing-enabled field tech.
+
+    Powers the live map's movement view: each tech carries an ordered list of
+    their recent pings so the map can draw where they have been moving.
+    """
+    from app.services.field.location_tracking import field_location_tracking
+
+    items = field_location_tracking.recent_tracks(
+        db, window_minutes=window_minutes, stale_after_seconds=stale_after_seconds, limit_techs=limit
+    )
+    return JSONResponse(
+        jsonable_encoder(
+            {"items": items, "count": len(items), "window_minutes": window_minutes, "limit": limit, "offset": 0}
+        )
+    )
+
+
 @router.get("/field-techs/map", response_class=HTMLResponse)
 def field_techs_map(
     request: Request,
@@ -1203,6 +1229,73 @@ def field_techs_map(
             "current_user": user,
             "sidebar_stats": get_sidebar_stats(db),
             "active_page": "field-tech-live-map",
+        },
+    )
+
+
+def _person_label(person: Person | None) -> str:
+    if person is None:
+        return "Technician"
+    if person.display_name:
+        return person.display_name
+    full = f"{person.first_name or ''} {person.last_name or ''}".strip()
+    return full or "Technician"
+
+
+@router.get("/field-techs/{person_id}/history")
+def field_tech_history_feed(
+    person_id: str,
+    request: Request,
+    since: datetime | None = Query(default=None),
+    until: datetime | None = Query(default=None),
+    max_points: int = Query(default=5000, ge=1, le=20000),
+    db: Session = Depends(get_db),
+    _auth=Depends(require_permission("operations:work_order:read")),
+):
+    """Ordered ping history for one technician over a time range (movement playback)."""
+    from app.services.field.location_tracking import field_location_tracking
+
+    person = db.get(Person, coerce_uuid(person_id))
+    if not person:
+        raise HTTPException(status_code=404, detail="Technician not found")
+    window_since = since or (datetime.now(UTC) - timedelta(hours=24))
+    points = field_location_tracking.ping_history(db, person_id, since=window_since, until=until, max_points=max_points)
+    return JSONResponse(
+        jsonable_encoder(
+            {
+                "person_id": person_id,
+                "person_label": _person_label(person),
+                "since": window_since,
+                "until": until,
+                "points": points,
+                "count": len(points),
+            }
+        )
+    )
+
+
+@router.get("/field-techs/{person_id}/movement", response_class=HTMLResponse)
+def field_tech_movement_page(
+    person_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    _auth=Depends(require_permission("operations:work_order:read")),
+):
+    """Playback of a technician's historical movement over a chosen time range."""
+    person = db.get(Person, coerce_uuid(person_id))
+    if not person:
+        raise HTTPException(status_code=404, detail="Technician not found")
+    user = get_current_user(request)
+    return templates.TemplateResponse(
+        "admin/operations/field-movement-playback.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "field-tech-live-map",
+            "person_id": person_id,
+            "person_label": _person_label(person),
         },
     )
 

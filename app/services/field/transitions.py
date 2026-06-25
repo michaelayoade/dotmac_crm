@@ -42,6 +42,8 @@ _EVENT_TO_STATUS: dict[FieldJobEvent, WorkOrderStatus | None] = {
     FieldJobEvent.hold: None,
     FieldJobEvent.resume: None,
     FieldJobEvent.complete: WorkOrderStatus.completed,
+    # A failed visit cancels the order (with a reason); dispatch reschedules.
+    FieldJobEvent.unable_to_complete: WorkOrderStatus.canceled,
 }
 
 _TRANSITION_ALLOWED_FROM: dict[FieldJobEvent, set[WorkOrderStatus]] = {
@@ -51,7 +53,17 @@ _TRANSITION_ALLOWED_FROM: dict[FieldJobEvent, set[WorkOrderStatus]] = {
     FieldJobEvent.hold: {WorkOrderStatus.in_progress},
     FieldJobEvent.resume: {WorkOrderStatus.in_progress},
     FieldJobEvent.complete: {WorkOrderStatus.in_progress},
+    # Allowed any time the tech has the job in hand but can't finish it.
+    FieldJobEvent.unable_to_complete: {
+        WorkOrderStatus.scheduled,
+        WorkOrderStatus.dispatched,
+        WorkOrderStatus.in_progress,
+    },
 }
+
+# Structured outcomes for a failed visit; kept on the event payload so dispatch
+# can triage (and so reporting can aggregate) rather than free text alone.
+_UNABLE_REASONS = {"customer_absent", "no_access", "site_not_ready", "needs_parts", "unsafe", "other"}
 
 
 def _completion_gate_enabled(db: Session) -> bool:
@@ -143,17 +155,34 @@ class FieldTransitions:
         if skew > _CLOCK_SKEW_FLAG_SECONDS:
             event_payload["clock_skew_seconds"] = int(skew)
 
+        if event_value == FieldJobEvent.unable_to_complete:
+            reason = event_payload.get("reason")
+            reason = reason.strip() if isinstance(reason, str) else reason
+            if not reason:
+                raise HTTPException(status_code=422, detail="unable_to_complete requires a reason")
+            if reason not in _UNABLE_REASONS:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid reason '{reason}'. Allowed: {', '.join(sorted(_UNABLE_REASONS))}",
+                )
+            event_payload["reason"] = reason
+
         if event_value == FieldJobEvent.complete:
             _check_completion_gate(db, work_order, event_payload)
 
         previous_status = work_order.status
         target_status = _EVENT_TO_STATUS[event_value]
         if target_status is not None and target_status != previous_status:
+            # A cancel always carries a note (the reason) so a configured
+            # requires-note transition rule never blocks the field outcome.
+            transition_note = note
+            if event_value == FieldJobEvent.unable_to_complete:
+                transition_note = note or f"Unable to complete: {event_payload.get('reason')}"
             # The workflow engine owns rules + started_at/completed_at.
             work_order = workflow_service.transition_work_order(
                 db,
                 str(work_order.id),
-                StatusTransitionRequest(to_status=target_status.value, note=note),
+                StatusTransitionRequest(to_status=target_status.value, note=transition_note),
             )
             emit_work_order_status_events(db, work_order, previous_status)
 
@@ -195,8 +224,9 @@ class FieldTransitions:
             raise
         db.refresh(order_event)
 
-        if event_value in (FieldJobEvent.hold, FieldJobEvent.complete):
-            # Timers must not run overnight or past completion. Best-effort:
+        if event_value in (FieldJobEvent.hold, FieldJobEvent.complete, FieldJobEvent.unable_to_complete):
+            # Timers must not run overnight, past completion, or after an aborted
+            # visit. Best-effort:
             # the transition is already committed, so a worklog-stop failure
             # must not 500 an otherwise-successful completion.
             from app.services.field.worklogs import stop_open_worklog
