@@ -14,6 +14,10 @@ from app.models.projects import Project, ProjectTask, ProjectTaskAssignee, Proje
 from app.models.service_team import ServiceTeam, ServiceTeamMember, ServiceTeamType
 from app.models.tickets import Ticket, TicketAssignee, TicketStatus
 from app.models.workflow import TicketAssignmentRule, TicketAssignmentStrategy
+from app.schemas.projects import ProjectCreate
+from app.schemas.tickets import TicketCreate
+from app.services import projects as projects_service
+from app.services import tickets as tickets_service
 from app.services.ticket_assignment.engine import auto_assign_project, auto_assign_ticket, auto_assign_ticket_all
 
 
@@ -258,11 +262,154 @@ def test_ticket_auto_assign_applies_queue_fallback_team_when_no_candidates(db_se
     result = auto_assign_ticket(db_session, str(ticket.id))
     db_session.refresh(ticket)
 
-    assert result.assigned is False
-    assert result.reason == "queue_fallback_team_assigned"
+    assert result.assigned is True
+    assert result.reason == "group_assigned"
     assert result.fallback_service_team_id == str(rule_team.id)
     assert ticket.service_team_id == rule_team.id
     assert ticket.assigned_to_person_id is None
+
+
+def test_ticket_create_scoped_group_rule_suppresses_manual_and_region_roles(db_session, monkeypatch):
+    monkeypatch.setattr(tickets_service, "generate_number", lambda **_: None)
+    monkeypatch.setattr(tickets_service, "emit_event", lambda *_, **__: None)
+    monkeypatch.setattr(tickets_service, "_notify_ticket_role_assignment_in_app", lambda *_, **__: set())
+    monkeypatch.setattr(tickets_service, "_notify_ticket_service_team_assignment", lambda *_, **__: set())
+
+    manual = _person(db_session, "ManualTicket")
+    manager = _person(db_session, "ManagerTicket")
+    spc = _person(db_session, "SpcTicket")
+    team = ServiceTeam(name="Radio Management Unit", team_type=ServiceTeamType.operations)
+    db_session.add(team)
+    db_session.flush()
+    db_session.add(
+        TicketAssignmentRule(
+            name="Radio tickets",
+            priority=100,
+            is_active=True,
+            strategy=TicketAssignmentStrategy.round_robin,
+            team_id=team.id,
+            match_config={"entity_types": ["ticket"], "ticket_types": ["Radio Assignment"]},
+        )
+    )
+    db_session.commit()
+
+    def _resolve_value(_db, domain, key):
+        if domain.value == "workflow" and key == "ticket_auto_assignment_enabled":
+            return False
+        if domain.value == "comms" and key == "region_ticket_assignments":
+            return {"Lagos": {"ticket_manager_person_id": str(manager.id), "spc_person_id": str(spc.id)}}
+        return None
+
+    monkeypatch.setattr(tickets_service.settings_spec, "resolve_value", _resolve_value)
+
+    ticket = tickets_service.Tickets.create(
+        db_session,
+        TicketCreate(
+            title="Radio issue",
+            ticket_type="Radio Assignment",
+            region="Lagos",
+            assigned_to_person_id=manual.id,
+            ticket_manager_person_id=manual.id,
+            assistant_manager_person_id=manual.id,
+        ),
+    )
+
+    assert ticket.region == "Lagos"
+    assert ticket.service_team_id == team.id
+    assert ticket.assigned_to_person_id is None
+    assert ticket.ticket_manager_person_id is None
+    assert ticket.assistant_manager_person_id is None
+    assert ticket.assignees == []
+
+
+def test_project_create_scoped_group_rule_suppresses_pm_spc_and_does_not_assign_tasks(db_session, monkeypatch):
+    monkeypatch.setattr(projects_service, "generate_number", lambda **_: None)
+    monkeypatch.setattr(projects_service, "emit_event", lambda *_, **__: None)
+    monkeypatch.setattr(projects_service, "_notify_project_roles_created_in_app", lambda *_, **__: None)
+
+    manual = _person(db_session, "ManualProject")
+    region_pm = _person(db_session, "RegionPm")
+    team = ServiceTeam(name="Radio Management Unit Projects", team_type=ServiceTeamType.operations)
+    db_session.add(team)
+    db_session.flush()
+    db_session.add(
+        TicketAssignmentRule(
+            name="Radio projects",
+            priority=100,
+            is_active=True,
+            strategy=TicketAssignmentStrategy.round_robin,
+            team_id=team.id,
+            match_config={"entity_types": ["project"], "project_types": ["air_fiber_installation"]},
+        )
+    )
+    db_session.commit()
+
+    def _resolve_value(_db, domain, key):
+        if domain.value == "workflow" and key == "ticket_auto_assignment_enabled":
+            return False
+        if domain.value == "projects" and key == "region_pm_assignments":
+            return {"Lagos": {"project_manager_person_id": str(region_pm.id)}}
+        return None
+
+    monkeypatch.setattr(projects_service.settings_spec, "resolve_value", _resolve_value)
+
+    project = projects_service.projects.create(
+        db_session,
+        ProjectCreate(
+            name="Radio install",
+            project_type=ProjectType.air_fiber_installation,
+            region="Lagos",
+            manager_person_id=manual.id,
+            project_manager_person_id=manual.id,
+            assistant_manager_person_id=manual.id,
+        ),
+    )
+    assert project.region == "Lagos"
+    assert project.service_team_id == team.id
+    assert project.manager_person_id is None
+    assert project.project_manager_person_id is None
+    assert project.assistant_manager_person_id is None
+
+
+def test_project_auto_assign_scoped_group_rule_assigns_project_not_tasks(db_session):
+    manual = _person(db_session, "ManualProjectTask")
+    team = ServiceTeam(name="Radio Management Unit Tasks", team_type=ServiceTeamType.operations)
+    db_session.add(team)
+    db_session.flush()
+    db_session.add(
+        TicketAssignmentRule(
+            name="Radio project task guard",
+            priority=100,
+            is_active=True,
+            strategy=TicketAssignmentStrategy.round_robin,
+            team_id=team.id,
+            match_config={"entity_types": ["project"], "project_types": ["air_fiber_installation"]},
+        )
+    )
+    project = Project(
+        name="Radio install",
+        project_type=ProjectType.air_fiber_installation,
+        manager_person_id=manual.id,
+        project_manager_person_id=manual.id,
+        assistant_manager_person_id=manual.id,
+    )
+    db_session.add(project)
+    db_session.flush()
+    task = ProjectTask(project_id=project.id, title="Install radio", assigned_to_person_id=manual.id)
+    db_session.add(task)
+    db_session.commit()
+
+    results = auto_assign_project(db_session, str(project.id))
+    db_session.refresh(project)
+    db_session.refresh(task)
+
+    assert results[0].assigned is True
+    assert results[0].assignment_target == "team"
+    assert project.service_team_id == team.id
+    assert project.manager_person_id is None
+    assert project.project_manager_person_id is None
+    assert project.assistant_manager_person_id is None
+    assert task.assigned_to_person_id == manual.id
 
 
 def test_ticket_auto_assign_direct_technician_from_rule_config(db_session):

@@ -1026,8 +1026,18 @@ class Projects(ListResponseMixin):
         )
         if number:
             data["number"] = number
+        from app.services.ticket_assignment import find_authoritative_project_creation_rule
+
+        rule_probe = Project(**data)
+        creation_rule = find_authoritative_project_creation_rule(db, rule_probe)
+        if creation_rule:
+            data["manager_person_id"] = None
+            data["project_manager_person_id"] = None
+            data["assistant_manager_person_id"] = None
+            if creation_rule.team_id:
+                data["service_team_id"] = creation_rule.team_id
         # Auto-assign PM based on region if not already specified
-        if data.get("region"):
+        if data.get("region") and not creation_rule:
             auto_pm, auto_spc = Projects._get_region_pm_assignments(db, data["region"])
             if auto_pm:
                 if not data.get("project_manager_person_id"):

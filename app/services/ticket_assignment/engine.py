@@ -48,6 +48,24 @@ def auto_assign_ticket(
     return assigned_result or results[0]
 
 
+def find_authoritative_ticket_creation_rule(db: Session, ticket: Ticket) -> TicketAssignmentRule | None:
+    """Return the first creation rule that owns initial assignment for a ticket."""
+    ctx = build_context(ticket)
+    for rule in list_active_rules(db):
+        if matches_rule(rule, ctx) and _assignee_person_id(rule) is None and _has_authoritative_creation_scope(rule):
+            return rule
+    return None
+
+
+def find_authoritative_project_creation_rule(db: Session, project: Project) -> TicketAssignmentRule | None:
+    """Return the first creation rule that owns initial assignment for a project."""
+    ctx = build_project_context(project)
+    for rule in list_active_rules(db):
+        if matches_rule(rule, ctx) and _assignee_person_id(rule) is None and _has_authoritative_creation_scope(rule):
+            return rule
+    return None
+
+
 def auto_assign_ticket_all(
     db: Session,
     ticket_id: str,
@@ -73,6 +91,10 @@ def auto_assign_ticket_all(
         if not matches_rule(rule, ctx):
             continue
         last_matched_rule = rule
+        authoritative_result = _apply_authoritative_ticket_rule(db, ticket=ticket, rule=rule)
+        if authoritative_result:
+            results.append(authoritative_result)
+            continue
         direct_result = _apply_direct_ticket_assignment(db, ticket=ticket, rule=rule)
         if direct_result:
             results.append(direct_result)
@@ -163,6 +185,10 @@ def auto_assign_project(
     for rule in list_active_rules(db):
         if not matches_rule(rule, ctx):
             continue
+        authoritative_result = _apply_authoritative_project_rule(db, project=project, rule=rule)
+        if authoritative_result:
+            results.append(authoritative_result)
+            continue
         result = _apply_direct_project_assignment(db, project=project, rule=rule)
         if result:
             results.append(result)
@@ -206,8 +232,61 @@ def _assignee_person_id(rule: TicketAssignmentRule) -> str | None:
     return value or None
 
 
+def _has_authoritative_creation_scope(rule: TicketAssignmentRule) -> bool:
+    config = _assignment_config(rule)
+    return bool(
+        config.get("entity_types")
+        or config.get("ticket_types")
+        or config.get("project_types")
+        or config.get("regions")
+        or config.get("service_team_ids")
+        or config.get("tags_any")
+    )
+
+
 def _person_exists(db: Session, person_id: str) -> bool:
     return db.get(Person, coerce_uuid(person_id)) is not None
+
+
+def _apply_authoritative_ticket_rule(
+    db: Session,
+    *,
+    ticket: Ticket,
+    rule: TicketAssignmentRule,
+) -> AssignmentResult | None:
+    if _assignee_person_id(rule) or not _has_authoritative_creation_scope(rule):
+        return None
+
+    changed = False
+    if rule.team_id and ticket.service_team_id != rule.team_id:
+        ticket.service_team_id = rule.team_id
+        changed = True
+    if ticket.assigned_to_person_id:
+        ticket.assigned_to_person_id = None
+        changed = True
+    if ticket.ticket_manager_person_id:
+        ticket.ticket_manager_person_id = None
+        changed = True
+    if ticket.assistant_manager_person_id:
+        ticket.assistant_manager_person_id = None
+        changed = True
+    if ticket.assignees:
+        ticket.assignees.clear()
+        changed = True
+
+    if changed:
+        db.commit()
+        db.refresh(ticket)
+    return AssignmentResult(
+        assigned=bool(rule.team_id),
+        ticket_id=str(ticket.id),
+        rule_id=str(rule.id),
+        rule_name=rule.name,
+        strategy="group" if rule.team_id else None,
+        assignment_target="team" if rule.team_id else "rule_scope",
+        fallback_service_team_id=str(rule.team_id) if rule.team_id else None,
+        reason="group_assigned" if rule.team_id else "individual_assignment_suppressed_by_rule",
+    )
 
 
 def _apply_direct_ticket_assignment(
@@ -329,4 +408,42 @@ def _apply_direct_project_assignment(
         candidate_count=1,
         assignee_person_id=assignee,
         reason="assigned" if changed else "already_assigned",
+    )
+
+
+def _apply_authoritative_project_rule(
+    db: Session,
+    *,
+    project: Project,
+    rule: TicketAssignmentRule,
+) -> AssignmentResult | None:
+    if _assignee_person_id(rule) or not _has_authoritative_creation_scope(rule):
+        return None
+
+    changed = False
+    if rule.team_id and project.service_team_id != rule.team_id:
+        project.service_team_id = rule.team_id
+        changed = True
+    if project.manager_person_id:
+        project.manager_person_id = None
+        changed = True
+    if project.project_manager_person_id:
+        project.project_manager_person_id = None
+        changed = True
+    if project.assistant_manager_person_id:
+        project.assistant_manager_person_id = None
+        changed = True
+
+    if changed:
+        db.commit()
+        db.refresh(project)
+    return AssignmentResult(
+        assigned=bool(rule.team_id),
+        project_id=str(project.id),
+        rule_id=str(rule.id),
+        rule_name=rule.name,
+        strategy="group" if rule.team_id else None,
+        assignment_target="team" if rule.team_id else "rule_scope",
+        fallback_service_team_id=str(rule.team_id) if rule.team_id else None,
+        reason="group_assigned" if rule.team_id else "individual_assignment_suppressed_by_rule",
     )

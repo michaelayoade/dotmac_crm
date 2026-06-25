@@ -5,6 +5,15 @@ from app.services.ticket_assignment.engine import (
     auto_assign_project,
     auto_assign_ticket,
     auto_assign_ticket_all,
+    find_authoritative_project_creation_rule,
+    find_authoritative_ticket_creation_rule,
 )
 
-__all__ = ["AssignmentResult", "auto_assign_project", "auto_assign_ticket", "auto_assign_ticket_all"]
+__all__ = [
+    "AssignmentResult",
+    "auto_assign_project",
+    "auto_assign_ticket",
+    "auto_assign_ticket_all",
+    "find_authoritative_project_creation_rule",
+    "find_authoritative_ticket_creation_rule",
+]
