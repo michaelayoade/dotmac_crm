@@ -829,6 +829,31 @@ def send_widget_message(
 
     broadcast_new_message(message, conversation)
 
+    # Wake backgrounded DotMac Sub clients (mobile push) when an agent replies on
+    # a sub-originated chat. Best-effort: never break the reply on emit failure.
+    try:
+        _md = session.metadata_ or {}
+        _surface = _md.get("surface")
+        if _surface in ("customer", "reseller_portal"):
+            from app.services.events import emit_event
+            from app.services.events.types import EventType
+
+            emit_event(
+                db,
+                EventType.message_outbound,
+                {
+                    "conversation_id": str(conversation.id),
+                    "subscriber_id": _md.get("subscriber_id"),
+                    "reseller_id": _md.get("reseller_id"),
+                    "surface": _surface,
+                    "preview": (body or "")[:140],
+                },
+            )
+    except Exception:
+        logger.exception(
+            "widget_message_outbound_emit_failed conversation_id=%s", conversation.id
+        )
+
     logger.info(
         "webchat_message_sent trace_id=%s message_id=%s conversation_id=%s session_id=%s",
         trace_id,

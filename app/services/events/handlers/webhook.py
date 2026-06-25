@@ -65,6 +65,7 @@ EVENT_TYPE_TO_WEBHOOK = {
     EventType.ticket_created: WebhookEventType.ticket_created,
     EventType.ticket_escalated: WebhookEventType.ticket_escalated,
     EventType.ticket_resolved: WebhookEventType.ticket_resolved,
+    EventType.message_outbound: WebhookEventType.message_outbound,
     # Custom
     EventType.custom: WebhookEventType.custom,
 }
