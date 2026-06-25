@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'package:dotmac_field/features/jobs/location_pin_screen.dart';
 import 'package:dotmac_field/features/jobs/job_models.dart';
+import 'package:dotmac_field/features/today/asset_pin_screen.dart';
 import 'package:dotmac_field/features/today/map_assets_repository.dart';
 import 'package:dotmac_field/features/today/map_models.dart';
 import 'package:dotmac_field/features/today/map_screen.dart';
@@ -226,4 +228,55 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('No pins loaded yet'), findsOneWidget);
   });
+
+  testWidgets(
+    'job pin editor falls back when initial coordinates are invalid',
+    (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: LocationPinScreen(
+              jobId: 'bad-job',
+              initialLocation: JobLocation(
+                latitude: double.nan,
+                longitude: 3.4,
+                source: 'cached',
+              ),
+              showTiles: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('6.524400, 3.379200'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'asset pin editor falls back when initial coordinates are invalid',
+    (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: AssetPinScreen(
+              asset: MapAsset(
+                id: 'bad-asset',
+                type: 'olt',
+                title: 'Bad asset',
+                latitude: 9.1,
+                longitude: double.infinity,
+              ),
+              showTiles: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('6.524400, 3.379200'), findsOneWidget);
+    },
+  );
 }

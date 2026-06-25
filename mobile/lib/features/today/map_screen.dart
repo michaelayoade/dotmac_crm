@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:latlong2/latlong.dart';
 
 import '../../app/theme.dart';
+import '../../core/location/map_coordinates.dart';
 import '../execution/execution_controller.dart';
 import '../jobs/job_models.dart';
 import '../jobs/jobs_providers.dart';
@@ -69,10 +69,13 @@ class MapScreen extends ConsumerWidget {
               .where((asset) => asset.hasValidCoordinates)
               .toList();
           final center = validPins.isNotEmpty
-              ? LatLng(validPins.first.latitude, validPins.first.longitude)
+              ? safeLatLng(validPins.first.latitude, validPins.first.longitude)!
               : assetItems.isNotEmpty
-              ? LatLng(assetItems.first.latitude, assetItems.first.longitude)
-              : const LatLng(6.5244, 3.3792); // Lagos default
+              ? safeLatLng(
+                  assetItems.first.latitude,
+                  assetItems.first.longitude,
+                )!
+              : defaultMapCenter;
           return Stack(
             children: [
               FlutterMap(
@@ -88,7 +91,7 @@ class MapScreen extends ConsumerWidget {
                     markers: [
                       for (final asset in assetItems)
                         Marker(
-                          point: LatLng(asset.latitude, asset.longitude),
+                          point: safeLatLng(asset.latitude, asset.longitude)!,
                           width: 38,
                           height: 38,
                           child: GestureDetector(
@@ -103,7 +106,7 @@ class MapScreen extends ConsumerWidget {
                         ),
                       for (final pin in validPins)
                         Marker(
-                          point: LatLng(pin.latitude, pin.longitude),
+                          point: safeLatLng(pin.latitude, pin.longitude)!,
                           width: 44,
                           height: 44,
                           child: GestureDetector(

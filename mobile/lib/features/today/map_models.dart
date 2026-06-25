@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../core/location/map_coordinates.dart';
 import '../jobs/job_models.dart';
 
 class JobPin {
@@ -50,15 +51,6 @@ class MapAsset {
     longitude: (json['longitude'] as num).toDouble(),
     status: json['status'] as String?,
   );
-}
-
-bool isValidMapCoordinate(double latitude, double longitude) {
-  return latitude.isFinite &&
-      longitude.isFinite &&
-      latitude >= -90 &&
-      latitude <= 90 &&
-      longitude >= -180 &&
-      longitude <= 180;
 }
 
 const mapAssetTypeLabels = {

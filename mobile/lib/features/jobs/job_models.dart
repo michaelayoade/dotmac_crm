@@ -1,3 +1,5 @@
+import '../../core/location/map_coordinates.dart';
+
 /// Wire models for the field jobs API. Hand-rolled fromJson keeps the app
 /// free of codegen for plain DTOs.
 class JobSummary {
@@ -94,16 +96,7 @@ class JobLocation {
   };
 
   bool get hasCoordinates {
-    final lat = latitude;
-    final lng = longitude;
-    return lat != null &&
-        lng != null &&
-        lat.isFinite &&
-        lng.isFinite &&
-        lat >= -90 &&
-        lat <= 90 &&
-        lng >= -180 &&
-        lng <= 180;
+    return isValidMapCoordinate(latitude, longitude);
   }
 
   /// Navigation handoff: precise coordinates when geocoded, otherwise a

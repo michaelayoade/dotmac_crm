@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../app/theme.dart';
+import '../../core/location/map_coordinates.dart';
 import 'job_models.dart';
 import 'jobs_providers.dart';
 
@@ -12,30 +13,30 @@ class LocationPinScreen extends ConsumerStatefulWidget {
     super.key,
     required this.jobId,
     required this.initialLocation,
+    this.showTiles = true,
   });
 
   final String jobId;
   final JobLocation initialLocation;
+  final bool showTiles;
 
   @override
   ConsumerState<LocationPinScreen> createState() => _LocationPinScreenState();
 }
 
 class _LocationPinScreenState extends ConsumerState<LocationPinScreen> {
-  static const _fallbackCenter = LatLng(6.5244, 3.3792);
-
   late LatLng _selected;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    _selected = widget.initialLocation.hasCoordinates
-        ? LatLng(
-            widget.initialLocation.latitude!,
-            widget.initialLocation.longitude!,
-          )
-        : _fallbackCenter;
+    _selected =
+        safeLatLng(
+          widget.initialLocation.latitude,
+          widget.initialLocation.longitude,
+        ) ??
+        defaultMapCenter;
   }
 
   Future<void> _save() async {
@@ -76,10 +77,11 @@ class _LocationPinScreenState extends ConsumerState<LocationPinScreen> {
               onTap: (_, point) => setState(() => _selected = point),
             ),
             children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'io.dotmac.dotmac_field',
-              ),
+              if (widget.showTiles)
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'io.dotmac.dotmac_field',
+                ),
               MarkerLayer(
                 markers: [
                   Marker(
@@ -94,16 +96,17 @@ class _LocationPinScreenState extends ConsumerState<LocationPinScreen> {
                   ),
                 ],
               ),
-              const Align(
-                alignment: Alignment.bottomLeft,
-                child: Padding(
-                  padding: EdgeInsets.all(4),
-                  child: Text(
-                    '© OpenStreetMap contributors',
-                    style: TextStyle(fontSize: 10),
+              if (widget.showTiles)
+                const Align(
+                  alignment: Alignment.bottomLeft,
+                  child: Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Text(
+                      '© OpenStreetMap contributors',
+                      style: TextStyle(fontSize: 10),
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ],

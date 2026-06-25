@@ -4,30 +4,30 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../app/theme.dart';
+import '../../core/location/map_coordinates.dart';
 import 'map_assets_repository.dart';
 import 'map_models.dart';
 
 class AssetPinScreen extends ConsumerStatefulWidget {
-  const AssetPinScreen({super.key, required this.asset});
+  const AssetPinScreen({super.key, required this.asset, this.showTiles = true});
 
   final MapAsset asset;
+  final bool showTiles;
 
   @override
   ConsumerState<AssetPinScreen> createState() => _AssetPinScreenState();
 }
 
 class _AssetPinScreenState extends ConsumerState<AssetPinScreen> {
-  static const _fallbackCenter = LatLng(6.5244, 3.3792);
-
   late LatLng _selected;
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    _selected = widget.asset.hasValidCoordinates
-        ? LatLng(widget.asset.latitude, widget.asset.longitude)
-        : _fallbackCenter;
+    _selected =
+        safeLatLng(widget.asset.latitude, widget.asset.longitude) ??
+        defaultMapCenter;
   }
 
   Future<void> _save() async {
@@ -65,10 +65,11 @@ class _AssetPinScreenState extends ConsumerState<AssetPinScreen> {
           onTap: (_, point) => setState(() => _selected = point),
         ),
         children: [
-          TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'io.dotmac.dotmac_field',
-          ),
+          if (widget.showTiles)
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'io.dotmac.dotmac_field',
+            ),
           MarkerLayer(
             markers: [
               Marker(
