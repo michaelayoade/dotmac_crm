@@ -95,7 +95,7 @@ def test_material_request_list_marks_pending_erp_issue():
     assert "Issued" in html
     assert "Awaiting ERP issue" not in html
     assert "ERP: Pending issue" in html
-    assert "All ERP statuses" not in html
+    assert "All ERP statuses" in html
 
 
 def test_material_request_detail_warns_when_erp_has_not_confirmed_issue():
@@ -115,7 +115,7 @@ def test_material_request_detail_warns_when_erp_has_not_confirmed_issue():
     assert "Retry ERP Sync" in html
 
 
-def test_material_request_detail_renders_searchable_serial_picker():
+def test_material_request_detail_renders_checkbox_serial_picker():
     templates = Jinja2Templates(directory="templates")
     template = templates.env.get_template("admin/material_requests/detail.html")
 
@@ -127,7 +127,6 @@ def test_material_request_detail_renders_searchable_serial_picker():
         )
     )
 
-    assert "data-serial-search" in html
-    assert "data-serial-results" in html
-    assert "data-load-more" in html
-    assert 'name="serial_numbers_' in html
+    assert "data-serial-options" in html
+    assert "data-input-name=\"serial_numbers_" in html
+    assert "data-serial-help" in html

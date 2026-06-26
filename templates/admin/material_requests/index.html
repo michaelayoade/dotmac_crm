@@ -107,7 +107,9 @@
                         {% if erp_status %}
                         {% set erp_label = erp_status|replace('_', ' ')|title %}
                         <div class="mt-1">
-                            {% if erp_status == 'pending_stock' %}
+                            {% if erp_status == 'pending' %}
+                            <span class="inline-flex items-center rounded-lg bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">ERP: Pending issue</span>
+                            {% elif erp_status == 'pending_stock' %}
                             <span class="inline-flex items-center rounded-lg bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">ERP: Pending stock</span>
                             {% elif erp_status == 'fulfilled' %}
                             <span class="inline-flex items-center rounded-lg bg-teal-100 px-2 py-0.5 text-[11px] font-semibold text-teal-700 dark:bg-teal-500/20 dark:text-teal-300">ERP: Fulfilled</span>
