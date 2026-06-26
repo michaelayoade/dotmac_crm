@@ -63,6 +63,12 @@ class _LocationPinScreenState extends ConsumerState<LocationPinScreen> {
     }
   }
 
+  void _selectPoint(LatLng point) {
+    final safePoint = safeLatLng(point.latitude, point.longitude);
+    if (safePoint == null) return;
+    setState(() => _selected = safePoint);
+  }
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
@@ -74,7 +80,7 @@ class _LocationPinScreenState extends ConsumerState<LocationPinScreen> {
             options: MapOptions(
               initialCenter: _selected,
               initialZoom: widget.initialLocation.hasCoordinates ? 15 : 12,
-              onTap: (_, point) => setState(() => _selected = point),
+              onTap: (_, point) => _selectPoint(point),
             ),
             children: [
               if (widget.showTiles)

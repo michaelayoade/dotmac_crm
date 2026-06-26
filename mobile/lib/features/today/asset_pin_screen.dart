@@ -53,6 +53,12 @@ class _AssetPinScreenState extends ConsumerState<AssetPinScreen> {
     }
   }
 
+  void _selectPoint(LatLng point) {
+    final safePoint = safeLatLng(point.latitude, point.longitude);
+    if (safePoint == null) return;
+    setState(() => _selected = safePoint);
+  }
+
   @override
   Widget build(BuildContext context) {
     final label = mapAssetTypeLabels[widget.asset.type] ?? widget.asset.type;
@@ -62,7 +68,7 @@ class _AssetPinScreenState extends ConsumerState<AssetPinScreen> {
         options: MapOptions(
           initialCenter: _selected,
           initialZoom: 15,
-          onTap: (_, point) => setState(() => _selected = point),
+          onTap: (_, point) => _selectPoint(point),
         ),
         children: [
           if (widget.showTiles)
