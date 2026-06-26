@@ -220,6 +220,9 @@ class WidgetMessageRead(BaseModel):
     created_at: datetime
     author_name: str | None = None
     author_avatar: str | None = None
+    # When an agent has read this (inbound) visitor message — drives the widget's
+    # "Seen" receipt. Null until read; always null for outbound (agent) messages.
+    read_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
