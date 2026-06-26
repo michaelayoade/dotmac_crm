@@ -68,6 +68,7 @@ class _AssetPinScreenState extends ConsumerState<AssetPinScreen> {
         options: MapOptions(
           initialCenter: _selected,
           initialZoom: 15,
+          cameraConstraint: finiteMapCameraConstraint,
           onTap: (_, point) => _selectPoint(point),
         ),
         children: [

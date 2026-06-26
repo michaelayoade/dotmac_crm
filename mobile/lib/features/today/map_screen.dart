@@ -79,7 +79,11 @@ class MapScreen extends ConsumerWidget {
           return Stack(
             children: [
               FlutterMap(
-                options: MapOptions(initialCenter: center, initialZoom: 12),
+                options: MapOptions(
+                  initialCenter: center,
+                  initialZoom: 12,
+                  cameraConstraint: finiteMapCameraConstraint,
+                ),
                 children: [
                   if (showTiles)
                     TileLayer(

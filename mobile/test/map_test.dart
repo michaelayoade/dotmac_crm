@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:dotmac_field/core/location/map_coordinates.dart';
 import 'package:dotmac_field/features/jobs/location_pin_screen.dart';
 import 'package:dotmac_field/features/jobs/job_models.dart';
 import 'package:dotmac_field/features/today/asset_pin_screen.dart';
@@ -7,8 +8,10 @@ import 'package:dotmac_field/features/today/map_assets_repository.dart';
 import 'package:dotmac_field/features/today/map_models.dart';
 import 'package:dotmac_field/features/today/map_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 
 JobSummary _job(String id, {String status = 'dispatched'}) => JobSummary(
   id: id,
@@ -28,6 +31,26 @@ String _detailWith({double? lat, double? lng}) => jsonEncode({
 });
 
 void main() {
+  test('finite map camera constraint rejects non-finite camera centers', () {
+    final invalidCamera = MapCamera(
+      crs: const Epsg3857(),
+      center: const LatLng(double.nan, double.nan),
+      zoom: 12,
+      rotation: 0,
+      nonRotatedSize: const Size(360, 640),
+    );
+    final validCamera = MapCamera(
+      crs: const Epsg3857(),
+      center: defaultMapCenter,
+      zoom: 12,
+      rotation: 0,
+      nonRotatedSize: const Size(360, 640),
+    );
+
+    expect(finiteMapCameraConstraint.constrain(invalidCamera), isNull);
+    expect(finiteMapCameraConstraint.constrain(validCamera), same(validCamera));
+  });
+
   test('buildJobPins skips jobs without cached coordinates', () {
     final pins = buildJobPins(
       [_job('a'), _job('b'), _job('c')],

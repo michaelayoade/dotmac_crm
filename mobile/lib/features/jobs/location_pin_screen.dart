@@ -80,6 +80,7 @@ class _LocationPinScreenState extends ConsumerState<LocationPinScreen> {
             options: MapOptions(
               initialCenter: _selected,
               initialZoom: widget.initialLocation.hasCoordinates ? 15 : 12,
+              cameraConstraint: finiteMapCameraConstraint,
               onTap: (_, point) => _selectPoint(point),
             ),
             children: [
