@@ -610,42 +610,31 @@ def test_online_last_24h_rows_use_strict_selfcare_active_recent_offline_conditio
     from app.services import subscriber_reports as subscriber_reports_service
 
     now = datetime.now(UTC)
-    monkeypatch.setattr(
-        "app.services.selfcare.fetch_customers",
-        lambda _db: [
-            {
-                "id": "active-offline",
-                "login": "active-offline",
-                "name": "Active Offline",
-                "status": "active",
-                "last_online": (now - timedelta(hours=2)).isoformat(),
-            },
-            {
-                "id": "inactive-offline",
-                "login": "inactive-offline",
-                "name": "Inactive Offline",
-                "status": "inactive",
-                "last_online": (now - timedelta(hours=2)).isoformat(),
-            },
-            {
-                "id": "active-old",
-                "login": "active-old",
-                "name": "Active Old",
-                "status": "active",
-                "last_online": (now - timedelta(hours=25)).isoformat(),
-            },
-            {
-                "id": "active-online",
-                "login": "active-online",
-                "name": "Active Online",
-                "status": "active",
-                "last_online": (now - timedelta(hours=1)).isoformat(),
-            },
-        ],
-    )
+    offline = _subscriber(db_session)
+    offline.external_system = "selfcare"
+    offline.external_id = "active-offline"
+    offline.subscriber_number = "active-offline"
+    offline.person.display_name = "Active Offline"
+    online = _subscriber(db_session)
+    online.external_system = "selfcare"
+    online.external_id = "active-online"
+    online.subscriber_number = "active-online"
+    online.person.display_name = "Active Online"
+    inactive = _subscriber(db_session)
+    inactive.external_system = "selfcare"
+    inactive.external_id = "inactive-offline"
+    inactive.subscriber_number = "inactive-offline"
+    inactive.status = SubscriberStatus.suspended
+    db_session.commit()
     monkeypatch.setattr(
         "app.services.selfcare.fetch_online_customers",
-        lambda _db: [{"customer_id": "active-online", "login": "active-online"}],
+        lambda _db: [
+            {
+                "id": "active-online",
+                "subscriber_number": "active-online",
+                "last_seen": (now - timedelta(hours=1)).isoformat(),
+            }
+        ],
     )
 
     rows = subscriber_reports_service.online_customers_last_24h_rows(
@@ -654,56 +643,40 @@ def test_online_last_24h_rows_use_strict_selfcare_active_recent_offline_conditio
         limit=None,
     )
 
-    assert [row["id"] for row in rows] == ["active-offline"]
+    assert [row["id"] for row in rows] == ["active-online"]
     assert rows[0]["status"] == "active"
-    assert rows[0]["currently_online"] is False
+    assert rows[0]["currently_online"] is True
 
 
 def test_online_last_24h_rows_support_inactive_24h_offline_segment(db_session, monkeypatch):
     from app.services import subscriber_reports as subscriber_reports_service
 
     now = datetime.now(UTC)
-    monkeypatch.setattr(
-        "app.services.selfcare.fetch_customers",
-        lambda _db: [
-            {
-                "id": "active-recent-offline",
-                "login": "active-recent-offline",
-                "name": "Active Recent Offline",
-                "status": "active",
-                "last_online": (now - timedelta(hours=2)).isoformat(),
-            },
-            {
-                "id": "active-inactive-24h",
-                "login": "active-inactive-24h",
-                "name": "Active Inactive 24h",
-                "status": "active",
-                "last_online": (now - timedelta(hours=25)).isoformat(),
-            },
-            {
-                "id": "inactive-old",
-                "login": "inactive-old",
-                "name": "Inactive Old",
-                "status": "inactive",
-                "last_online": (now - timedelta(hours=25)).isoformat(),
-            },
-            {
-                "id": "active-old-online",
-                "login": "active-old-online",
-                "name": "Active Old Online",
-                "status": "active",
-                "last_online": (now - timedelta(hours=25)).isoformat(),
-            },
-        ],
-    )
+    offline = _subscriber(db_session)
+    offline.external_system = "selfcare"
+    offline.external_id = "active-inactive-24h"
+    offline.subscriber_number = "active-inactive-24h"
+    offline.person.display_name = "Active Inactive 24h"
+    online = _subscriber(db_session)
+    online.external_system = "selfcare"
+    online.external_id = "active-old-online"
+    online.subscriber_number = "active-old-online"
+    online.person.display_name = "Active Old Online"
+    db_session.commit()
     monkeypatch.setattr(
         "app.services.selfcare.fetch_online_customers",
-        lambda _db: [{"customer_id": "active-old-online", "login": "active-old-online"}],
+        lambda _db: [
+            {
+                "id": "active-old-online",
+                "subscriber_number": "active-old-online",
+                "last_seen": (now - timedelta(hours=1)).isoformat(),
+            }
+        ],
     )
 
     rows = subscriber_reports_service.online_customers_last_24h_rows(
         db_session,
-        activity_segment="inactive_24h_not_online",
+        activity_segment="active_last24_not_online",
         limit=None,
     )
 

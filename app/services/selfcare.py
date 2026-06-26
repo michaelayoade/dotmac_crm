@@ -269,9 +269,14 @@ def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None
     return rows
 
 
-def fetch_customers(db: Session, *, include: str = "services,billing") -> list[dict[str, Any]]:
+def fetch_customers(
+    db: Session, *, include: str | None = "services,billing", per_page: int = 500
+) -> list[dict[str, Any]]:
     """Fetch all Selfcare subscribers using the CRM API envelope."""
-    return _list_paginated(db, "/subscribers", {"include": include})
+    params: dict[str, Any] = {"per_page": max(1, min(int(per_page or 500), 1000))}
+    if include:
+        params["include"] = include
+    return _list_paginated(db, "/subscribers", params)
 
 
 def fetch_customer(db: Session, subscriber_id: str) -> dict[str, Any] | None:
@@ -292,7 +297,8 @@ def fetch_customer_billing(db: Session, subscriber_id: str) -> dict[str, Any] | 
 
 
 def fetch_locations(db: Session) -> list[dict[str, Any]]:
-    return _list_paginated(db, "/locations")
+    payload = _request_json(db, "GET", "/locations")
+    return _rows(payload)
 
 
 def fetch_billing_risk_source(db: Session) -> list[dict[str, Any]]:
@@ -309,6 +315,23 @@ def fetch_transactions(db: Session, *, offset: int = 0, limit: int = 5000) -> li
 
 def fetch_payments(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
     return _rows(_request_json(db, "GET", "/finance/payments", params={"offset": offset, "limit": limit}))
+
+
+def fetch_customer_payments(
+    db: Session,
+    customer_id: str,
+    *,
+    page: int = 1,
+    per_page: int = 1,
+) -> list[dict[str, Any]]:
+    return _rows(
+        _request_json(
+            db,
+            "GET",
+            "/finance/payments",
+            params={"customer_id": customer_id, "page": page, "per_page": per_page},
+        )
+    )
 
 
 def fetch_customer_sessions(db: Session, subscriber_id: str, *, limit: int = 10000) -> list[dict[str, Any]]:
