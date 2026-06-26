@@ -543,6 +543,9 @@ def get_messages(
                 created_at=msg.created_at,
                 author_name=author_name,
                 author_avatar=author_avatar,
+                # Surfaced only for the visitor's own (inbound) messages so the
+                # widget can show a "Seen" receipt once an agent has read them.
+                read_at=msg.read_at if msg.direction == MessageDirection.inbound else None,
             )
         )
 
