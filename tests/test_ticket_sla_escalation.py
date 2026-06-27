@@ -149,6 +149,35 @@ def test_breach_event_fires_even_without_role_recipients(db_session, monkeypatch
     assert any(et == EventType.ticket_escalated for et, _ in events)
 
 
+def test_rebreach_after_reopen_escalates_again(db_session, monkeypatch):
+    """Reopening a breached clock clears the breach flag so a later breach
+    escalates again (regression for the sticky sla_breach_notified flag)."""
+    events: list[int] = []
+    monkeypatch.setattr(tickets_service, "emit_event", lambda *a, **k: events.append(1))
+
+    mgr = _person(db_session, "mgr3@example.com")
+    policy = _ticket_policy(db_session)
+    ticket = _ticket(db_session, ticket_manager_person_id=mgr.id, status=TicketStatus.open)
+    clock = _breached_clock(db_session, entity_id=ticket.id, policy=policy)
+
+    tickets_service.notify_ticket_sla_breach(db_session, clock)
+    db_session.commit()
+    db_session.refresh(ticket)
+    assert ticket.metadata_["sla_breach_notified"] is True
+    assert len(events) == 1
+
+    # The reopen path clears the breach flags (this is the fix under test).
+    tickets_service._clear_ticket_sla_breach_flags(ticket)
+    db_session.commit()
+    db_session.refresh(ticket)
+    assert "sla_breach_notified" not in (ticket.metadata_ or {})
+
+    # A subsequent breach now escalates again instead of being suppressed.
+    tickets_service.notify_ticket_sla_breach(db_session, clock)
+    db_session.commit()
+    assert len(events) == 2
+
+
 def test_non_ticket_clock_is_ignored(db_session, monkeypatch):
     called: list[int] = []
     monkeypatch.setattr(tickets_service, "emit_event", lambda *a, **k: called.append(1))

@@ -1063,6 +1063,25 @@ def _reopen_ticket_sla_breaches(db: Session, clock: SlaClock) -> None:
     _resolve_ticket_sla_breaches(db, clock)
 
 
+def _clear_ticket_sla_breach_flags(ticket: Ticket) -> None:
+    """Drop the breach/escalation flags so a later re-breach escalates again.
+
+    ``notify_ticket_sla_breach`` is idempotent via ``sla_breach_notified``; if a
+    breached clock is reopened (due_at recalculated into the future) without
+    clearing it, a subsequent breach would be silently suppressed.
+    """
+    metadata = ticket.metadata_
+    if not isinstance(metadata, dict):
+        return
+    cleaned = {
+        key: value
+        for key, value in metadata.items()
+        if key not in ("sla_breached", "sla_breached_at", "sla_breach_notified")
+    }
+    if cleaned != metadata:
+        ticket.metadata_ = cleaned
+
+
 def _align_ticket_sla_breach_time(db: Session, clock: SlaClock, breached_at: datetime) -> None:
     clock.breached_at = breached_at
     open_breaches = (
@@ -1119,6 +1138,7 @@ def _sync_ticket_sla_clock(db: Session, ticket: Ticket, *, reset_started_at: boo
     if clock.status == SlaClockStatus.breached:
         if due_at > now:
             _reopen_ticket_sla_breaches(db, clock)
+            _clear_ticket_sla_breach_flags(ticket)
             clock.breached_at = None
             clock.status = SlaClockStatus.running
             clock.paused_at = None
