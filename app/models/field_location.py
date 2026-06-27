@@ -82,3 +82,36 @@ class FieldTechLocationPing(Base):
     source: Mapped[str] = mapped_column(String(32), default="mobile", nullable=False)
 
     person = relationship("Person")
+
+
+class WorkOrderAccessToken(Base):
+    """Magic-link token granting a customer the "Track My Visit" page for one job.
+
+    There is no customer login: the unguessable ``token`` *is* the capability,
+    exactly like the survey-invitation pattern. One active token per work order
+    (the service get-or-creates it). Read access plus the limited confirm /
+    request-reschedule actions are all authorized by holding the link.
+    """
+
+    __tablename__ = "work_order_access_tokens"
+    __table_args__ = (
+        Index("ix_work_order_access_tokens_token", "token", unique=True),
+        Index("ix_work_order_access_tokens_work_order_id", "work_order_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    work_order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("work_orders.id"), nullable=False)
+    # Uniqueness comes from the explicit index above (matches the migration);
+    # no column-level unique=True to avoid a duplicate constraint under create_all.
+    token: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    accessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    work_order = relationship("WorkOrder")

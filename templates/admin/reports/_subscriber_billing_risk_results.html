@@ -16,7 +16,7 @@
 {% set show_next = has_next|default(false) %}
 {% set enterprise_threshold = enterprise_mrr_threshold|default(70000) %}
 {% set current_aging_buckets = aging_buckets|default([]) %}
-{% set empty_colspan = 14 %}
+{% set empty_colspan = 13 %}
 {% set page_size_control %}
 <label class="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
     Show
@@ -130,7 +130,6 @@
             <thead class="sticky top-0 z-10">
                 <tr class="bg-slate-50 shadow-sm dark:bg-slate-950">
                     <th class="whitespace-nowrap rounded-l-lg px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Customer</th>
-                    <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Customer ID</th>
                     <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Location</th>
                     <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Segment</th>
                     <th class="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
@@ -150,12 +149,18 @@
                 {% set blocked_for_days = row.blocked_for_days if row.blocked_for_days is defined and row.blocked_for_days is not none else none %}
                 {% set engagement_customer_id = row.get('_external_id') or row.subscriber_id or row.get('_subscriber_number') or '' %}
                 {% set ticket_subscriber_id = row.ticket_subscriber_id or '' %}
-                {% set customer_identifier = row.get('_external_id') or row.subscriber_id or row.get('_subscriber_number') or '-' %}
                 {% set status_value = (row.subscriber_status or '')|string %}
                 {% set status_lower = status_value|lower %}
+                {% set billing_mode_value = (row.billing_mode or '')|string %}
+                {% set subscription_billing_mode_value = (row.subscription_billing_mode or '')|string %}
                 {% set billing_type_value = (row.billing_type or '')|string %}
+                {% set billing_mode_normalized = billing_mode_value|lower %}
+                {% set subscription_billing_mode_normalized = subscription_billing_mode_value|lower %}
                 {% set billing_type_lower = billing_type_value|lower %}
-                {% set billing_category = 'postpaid' if 'postpaid' in billing_type_lower or billing_type_lower == 'recurring' else ('prepaid' if 'prepaid' in billing_type_lower else '') %}
+                {% set billing_type_normalized = billing_type_lower.replace("-", "_").replace(" ", "_") %}
+                {% set billing_mode_source = billing_mode_normalized or subscription_billing_mode_normalized %}
+                {% set billing_category = 'prepaid' if billing_mode_source == 'prepaid' or billing_type_normalized.startswith('prepaid') else ('postpaid' if billing_mode_source == 'postpaid' or billing_type_normalized in ['postpaid', 'post_paid', 'recurring'] else '') %}
+                {% set billing_type_label = 'Prepaid' if billing_category == 'prepaid' else ('Recurring/Postpaid' if billing_category == 'postpaid' else 'Unknown') %}
                 {% set remaining_days = row.remaining_days if row.remaining_days is defined and row.remaining_days is not none else none %}
                 {% set postpaid_remaining_days = row.postpaid_remaining_days if row.postpaid_remaining_days is defined and row.postpaid_remaining_days is not none else none %}
                 {% set risk_remaining_days = postpaid_remaining_days if billing_category == 'postpaid' and postpaid_remaining_days is not none else remaining_days %}
@@ -183,7 +188,6 @@
                         <div class="max-w-64 truncate">{{ row.name or "-" }}</div>
                         <div class="mt-1 max-w-64 truncate text-xs font-medium text-slate-500 dark:text-slate-400">{{ row.plan or "-" }}</div>
                     </td>
-                    <td class="whitespace-nowrap px-4 py-4 align-middle text-sm text-slate-600 dark:text-slate-300">{{ customer_identifier }}</td>
                     <td class="whitespace-nowrap px-4 py-4 align-middle text-sm text-slate-600 dark:text-slate-300">{{ row.location or row.city or "-" }}</td>
                     <td class="whitespace-nowrap px-4 py-4 align-middle">
                         <span class="inline-flex items-center rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-200">{{ segment_label }}</span>
@@ -197,13 +201,11 @@
                     </td>
                     <td class="whitespace-nowrap px-4 py-4 align-middle">
                         {% if billing_category == 'prepaid' %}
-                        <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-200">{{ billing_type_value.replace("_", " ")|title }}</span>
+                        <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-200">{{ billing_type_label }}</span>
                         {% elif billing_category == 'postpaid' %}
-                        <span class="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700 dark:bg-purple-900/30 dark:text-purple-200">{{ billing_type_value.replace("_", " ")|title }}</span>
-                        {% elif billing_type_value %}
-                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{{ billing_type_value.replace("_", " ")|title }}</span>
+                        <span class="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700 dark:bg-purple-900/30 dark:text-purple-200">{{ billing_type_label }}</span>
                         {% else %}
-                        <span class="text-slate-500 dark:text-slate-400">-</span>
+                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">{{ billing_type_label }}</span>
                         {% endif %}
                     </td>
                     <td class="whitespace-nowrap px-4 py-4 align-middle text-sm text-slate-600 dark:text-slate-300">

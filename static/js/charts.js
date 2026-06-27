@@ -56,8 +56,8 @@ function isDarkMode() {
 function getThemeColors() {
     const dark = isDarkMode();
     return {
-        text: dark ? ChartColors.slate[300] : ChartColors.slate[700],
-        textMuted: dark ? ChartColors.slate[500] : ChartColors.slate[400],
+        text: dark ? ChartColors.slate[100] : ChartColors.slate[900],
+        textMuted: dark ? ChartColors.slate[300] : ChartColors.slate[700],
         grid: dark ? ChartColors.slate[700] : ChartColors.slate[200],
         border: dark ? ChartColors.slate[700] : ChartColors.slate[200],
         background: dark ? ChartColors.slate[800] : '#ffffff',
@@ -80,7 +80,8 @@ function getDefaultOptions(type = 'line') {
                     color: theme.text,
                     font: {
                         family: "'Plus Jakarta Sans', sans-serif",
-                        size: 12,
+                        size: 13,
+                        weight: 600,
                     },
                     usePointStyle: true,
                     pointStyle: 'circle',
@@ -122,7 +123,8 @@ function getDefaultOptions(type = 'line') {
                     color: theme.textMuted,
                     font: {
                         family: "'Plus Jakarta Sans', sans-serif",
-                        size: 11,
+                        size: 12,
+                        weight: 600,
                     },
                 },
             },
@@ -135,7 +137,8 @@ function getDefaultOptions(type = 'line') {
                     color: theme.textMuted,
                     font: {
                         family: "'Plus Jakarta Sans', sans-serif",
-                        size: 11,
+                        size: 12,
+                        weight: 600,
                     },
                 },
                 beginAtZero: true,
@@ -251,7 +254,8 @@ function createDoughnutChart(ctx, data, options = {}) {
                         color: theme.text,
                         font: {
                             family: "'Plus Jakarta Sans', sans-serif",
-                            size: 12,
+                            size: 13,
+                            weight: 600,
                         },
                         usePointStyle: true,
                         pointStyle: 'circle',

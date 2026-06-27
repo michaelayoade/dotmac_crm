@@ -751,6 +751,18 @@ def auto_assign_work_order(db: Session, work_order_id: str):
     db.add(entry)
     db.commit()
     db.refresh(entry)
+
+    # Tell the customer their technician is assigned, with the Track My Visit
+    # link. The admin assign path already does this via WorkOrders.update; the
+    # auto-assign path set assigned_to_person_id directly and notified no one.
+    # Best-effort: a notification failure must not fail dispatch.
+    try:
+        from app.services import eta_notifications
+
+        eta_notifications.send_technician_assigned_notification(db, str(work_order.id))
+    except Exception:
+        logger.exception("auto_assign_customer_notification_failed work_order_id=%s", work_order.id)
+
     return entry
 
 

@@ -48,11 +48,15 @@ def update_field_map_asset_location(
     auth=Depends(require_user_auth),
     db: Session = Depends(get_db),
 ):
-    del auth
     return update_map_asset_location(
         db,
         asset_type=asset_type,
         asset_id=asset_id,
         latitude=payload.latitude,
         longitude=payload.longitude,
+        actor_id=auth.get("person_id"),
+        expected_updated_at=payload.expected_updated_at,
+        source=payload.source,
+        accuracy_m=payload.accuracy_m,
+        client_ref=str(payload.client_ref) if payload.client_ref else None,
     )
