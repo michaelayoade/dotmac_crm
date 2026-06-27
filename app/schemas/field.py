@@ -206,6 +206,16 @@ class FieldMapAssetListResponse(BaseModel):
 class FieldMapAssetLocationUpdate(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
+    # Optimistic concurrency token: the ``updated_at`` the device last saw for
+    # this asset. When present and stale, the server rejects with 409 instead of
+    # letting a delayed offline edit clobber a newer correction.
+    expected_updated_at: datetime | None = None
+    # Pin provenance, recorded on the audit trail (a 50m-accuracy phone fix and a
+    # surveyed coordinate should not look identical after the fact).
+    source: str | None = Field(default=None, max_length=32)
+    accuracy_m: float | None = Field(default=None, ge=0)
+    # Offline idempotency key so retried uploads are traceable to one capture.
+    client_ref: UUID | None = None
 
 
 class FieldJobDetail(BaseModel):

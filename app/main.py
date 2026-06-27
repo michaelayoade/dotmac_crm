@@ -68,6 +68,7 @@ from app.api.search import router as search_router
 from app.api.service_teams import router as service_teams_router
 from app.api.settings import router as settings_router
 from app.api.subscribers import router as subscribers_router
+from app.api.system import router as system_router
 from app.api.tickets import router as tickets_router
 from app.api.timecost import router as timecost_router
 from app.api.validation import router as validation_router
@@ -502,6 +503,7 @@ _include_api_router(subscribers_router, dependencies=[Depends(require_user_auth)
 _include_api_router(performance_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(ai_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(data_quality_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(system_router, dependencies=[Depends(require_user_auth)])
 # Chat widget public endpoints - no auth required (visitor token-based)
 _include_api_router(widget_public_router)
 # Trusted server-to-server chat session mint (authenticated backend asserts identity).
