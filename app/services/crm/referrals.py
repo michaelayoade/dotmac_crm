@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import logging
 import secrets
-import string
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from typing import cast
 
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
@@ -55,11 +55,13 @@ def _config(db: Session) -> dict:
         amount = Decimal("0")
     window_raw = settings_spec.resolve_value(db, _DOMAIN, "referral_qualify_window_days", use_cache=False)
     try:
-        window = int(window_raw) if window_raw not in (None, "") else 90
+        window = int(cast(str | int, window_raw)) if window_raw not in (None, "") else 90
     except (TypeError, ValueError):
         window = 90
     return {
-        "enabled": _as_bool(settings_spec.resolve_value(db, _DOMAIN, "referral_program_enabled", use_cache=False), False),
+        "enabled": _as_bool(
+            settings_spec.resolve_value(db, _DOMAIN, "referral_program_enabled", use_cache=False), False
+        ),
         "amount": amount,
         "currency": str(settings_spec.resolve_value(db, _DOMAIN, "referral_reward_currency", use_cache=False) or "NGN"),
         "window_days": window,
@@ -90,8 +92,10 @@ def _referrer_subscriber_id(db: Session, referrer_person_id) -> str | None:
     if sub is not None and sub.external_id:
         return str(sub.external_id)
     person = db.get(Person, referrer_person_id)
-    if person is not None and person.selfcare_id:
-        return str(person.selfcare_id)
+    metadata = person.metadata_ if person is not None and isinstance(person.metadata_, dict) else {}
+    selfcare_id = metadata.get("selfcare_id")
+    if selfcare_id:
+        return str(selfcare_id)
     return None
 
 
@@ -171,6 +175,8 @@ class Referrals:
 
         channel_type = ChannelType.email if email else ChannelType.phone
         address_value = email if email else phone
+        if address_value is None:
+            raise HTTPException(status_code=422, detail="An email or phone number is required to refer someone.")
         resolved = resolve_person(
             db,
             channel_type=channel_type,
@@ -291,9 +297,7 @@ class Referrals:
         referral.qualified_at = now
         referral.reward_amount = cfg["amount"]
         referral.reward_currency = cfg["currency"]
-        referral.reward_status = (
-            ReferralRewardStatus.approved if cfg["auto_approve"] else ReferralRewardStatus.pending
-        )
+        referral.reward_status = ReferralRewardStatus.approved if cfg["auto_approve"] else ReferralRewardStatus.pending
         db.commit()
         db.refresh(referral)
         logger.info(

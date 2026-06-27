@@ -45,11 +45,12 @@ def _referral_rows(db: Session, items: list[Referral]) -> list[dict]:
     rows = []
     for r in items:
         amount = r.reward_amount
+        referred = persons.get(r.referred_person_id) if r.referred_person_id is not None else None
         rows.append(
             {
                 "id": str(r.id),
                 "referrer": _name(persons.get(r.referrer_person_id)),
-                "referred": _name(persons.get(r.referred_person_id)),
+                "referred": _name(referred),
                 "status": r.status.value,
                 "reward_status": r.reward_status.value,
                 "reward": f"{r.reward_currency} {amount:,.0f}" if amount is not None else "—",

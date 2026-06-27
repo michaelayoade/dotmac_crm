@@ -59,9 +59,7 @@ def test_capture_creates_lead_and_pending_referral(db_session, monkeypatch):
     referrer = _person(db_session)
     code = svc.ensure_code(db_session, str(referrer.id))
 
-    referral = svc.capture(
-        db_session, code=code.code, name="New Prospect", email="prospect@example.com"
-    )
+    referral = svc.capture(db_session, code=code.code, name="New Prospect", email="prospect@example.com")
 
     assert referral.status == ReferralStatus.pending
     assert referral.referrer_person_id == referrer.id

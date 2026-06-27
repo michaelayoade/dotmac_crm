@@ -38,9 +38,7 @@ def list_referrals(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ):
-    items = referrals_service.list(
-        db, status=status, referrer_person_id=referrer_person_id, limit=limit, offset=offset
-    )
+    items = referrals_service.list(db, status=status, referrer_person_id=referrer_person_id, limit=limit, offset=offset)
     return {"items": items, "count": len(items), "limit": limit, "offset": offset}
 
 

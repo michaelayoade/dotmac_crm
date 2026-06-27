@@ -79,16 +79,12 @@ class Referral(Base):
     referrer_person_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("people.id"), nullable=False, index=True
     )
-    referral_code_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("referral_codes.id")
-    )
+    referral_code_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("referral_codes.id"))
     referred_person_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("people.id"), index=True
     )
     referred_lead_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_leads.id"))
-    referred_subscriber_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("subscribers.id")
-    )
+    referred_subscriber_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("subscribers.id"))
 
     status: Mapped[ReferralStatus] = mapped_column(
         Enum(ReferralStatus), default=ReferralStatus.pending, nullable=False, index=True
