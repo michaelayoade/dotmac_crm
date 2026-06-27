@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.schemas.common import ListResponse
 from app.schemas.crm.contact import (
     ContactChannelCreate,
@@ -12,6 +13,7 @@ from app.schemas.crm.contact import (
     ContactUpdate,
 )
 from app.services import crm as crm_service
+from app.services.crm import web_contacts
 
 router = APIRouter(prefix="/crm/contacts", tags=["crm-contacts"])
 
@@ -87,3 +89,24 @@ def update_contact_channel(
     db: Session = Depends(get_db),
 ):
     return crm_service.contact_channels.update(db, channel_id, payload)
+
+
+class ContactMergeRequest(BaseModel):
+    source_person_id: str
+    target_person_id: str
+
+
+@router.post("/merge")
+def merge_contacts(payload: ContactMergeRequest, db: Session = Depends(get_db), auth=Depends(get_current_user)):
+    """Merge the source contact into the target (channels, conversations, history)."""
+    merged_by = str(auth["person_id"]) if auth and auth.get("person_id") else None
+    try:
+        merged_id = web_contacts.merge_contacts(
+            db,
+            source_person_id=payload.source_person_id,
+            target_person_id=payload.target_person_id,
+            merged_by_person_id=merged_by,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"merged_person_id": str(merged_id)}

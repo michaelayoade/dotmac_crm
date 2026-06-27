@@ -13,7 +13,8 @@ import 'core/offline/connectivity.dart';
 import 'core/offline/database.dart';
 import 'core/offline/sync_service.dart';
 import 'core/photos/photo_queue.dart';
-import 'features/auth/auth_repository.dart';
+import 'core/push/fcm_push_source.dart';
+import 'core/push/push_registrar.dart';
 import 'features/auth/auth_state.dart';
 import 'features/execution/completion_wizard.dart';
 import 'features/execution/execution_controller.dart';
@@ -33,9 +34,13 @@ Future<void> main() async {
 
   final db = AppDatabase(NativeDatabase(dbFile));
 
+  // FCM push, when Firebase is configured (else null → NoopPushSource).
+  final fcm = await FcmPushSource.tryCreate();
+
   void runTheApp() => runApp(
     ProviderScope(
       overrides: [
+        if (fcm != null) pushSourceProvider.overrideWithValue(fcm),
         syncServiceProvider.overrideWith((ref) {
           final sync = SyncService(
             db: db,

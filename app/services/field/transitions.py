@@ -289,6 +289,8 @@ def _notify_customer_for_event(db: Session, work_order: WorkOrder, event: FieldJ
                 eta_notifications.send_eta_notification(db, str(work_order.id))
         elif event == FieldJobEvent.complete:
             eta_notifications.send_work_order_completed_notification(db, str(work_order.id))
+        elif event == FieldJobEvent.unable_to_complete:
+            eta_notifications.send_unable_to_complete_notification(db, str(work_order.id))
     except Exception:
         logger.exception(
             "field_transition_customer_notification_failed work_order_id=%s event=%s",

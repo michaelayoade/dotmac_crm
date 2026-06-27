@@ -3,7 +3,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import text
 
+from app.models.audit import AuditEvent
 from app.models.field import FieldMapAssetTombstone
 from app.models.network import FdhCabinet, FiberAccessPoint, FiberSpliceClosure, OLTDevice
 from app.services.field.map_assets import (
@@ -135,6 +137,114 @@ def test_fdh_delete_records_map_asset_tombstone(db_session):
 
     deleted = list_deleted_map_assets(db_session, asset_types=["fdh"])
     assert deleted[0]["id"] == cabinet.id
+
+
+def test_update_map_asset_location_syncs_geom(db_session):
+    cabinet = FdhCabinet(name="FDH Geom", code="FDH-GEOM", latitude=9.2, longitude=7.5)
+    db_session.add(cabinet)
+    db_session.commit()
+
+    update_map_asset_location(
+        db_session,
+        asset_type="fdh",
+        asset_id=str(cabinet.id),
+        latitude=9.6,
+        longitude=7.9,
+    )
+
+    # geom must track the float columns so ST_DWithin/map queries stay correct.
+    # Read via raw SQL so geoalchemy2's geometry result processor doesn't wrap it.
+    row = db_session.execute(
+        text("SELECT ST_X(geom) AS x, ST_Y(geom) AS y FROM fdh_cabinets WHERE name = :name"),
+        {"name": "FDH Geom"},
+    ).one()
+    assert row.x is not None
+    assert round(row.x, 6) == 7.9
+    assert round(row.y, 6) == 9.6
+
+
+def test_update_map_asset_location_writes_audit_event(db_session):
+    olt = OLTDevice(name="OLT Audit", latitude=9.1, longitude=7.4)
+    db_session.add(olt)
+    db_session.commit()
+
+    update_map_asset_location(
+        db_session,
+        asset_type="olt",
+        asset_id=str(olt.id),
+        latitude=9.5,
+        longitude=7.8,
+        actor_id="tech-123",
+        source="gps",
+        accuracy_m=12.5,
+    )
+
+    event = (
+        db_session.query(AuditEvent)
+        .filter(AuditEvent.action == "field:map_asset:update_location")
+        .filter(AuditEvent.entity_id == str(olt.id))
+        .one()
+    )
+    assert event.actor_id == "tech-123"
+    assert event.entity_type == "OLTDevice"
+    assert event.metadata_["from"] == {"latitude": 9.1, "longitude": 7.4}
+    assert event.metadata_["to"] == {"latitude": 9.5, "longitude": 7.8}
+    assert event.metadata_["source"] == "gps"
+    assert event.metadata_["accuracy_m"] == 12.5
+
+
+def test_update_map_asset_location_rejects_stale_expected_updated_at(db_session):
+    olt = OLTDevice(name="OLT Stale", latitude=9.1, longitude=7.4)
+    db_session.add(olt)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        update_map_asset_location(
+            db_session,
+            asset_type="olt",
+            asset_id=str(olt.id),
+            latitude=9.5,
+            longitude=7.8,
+            expected_updated_at=datetime.now(UTC) - timedelta(hours=1),
+        )
+
+    assert exc.value.status_code == 409
+    db_session.refresh(olt)
+    assert olt.latitude == 9.1  # unchanged
+
+
+def test_update_map_asset_location_accepts_matching_expected_updated_at(db_session):
+    olt = OLTDevice(name="OLT Fresh", latitude=9.1, longitude=7.4)
+    db_session.add(olt)
+    db_session.commit()
+
+    result = update_map_asset_location(
+        db_session,
+        asset_type="olt",
+        asset_id=str(olt.id),
+        latitude=9.5,
+        longitude=7.8,
+        expected_updated_at=olt.updated_at,
+    )
+
+    assert result["latitude"] == 9.5
+
+
+def test_update_map_asset_location_rejects_inactive_asset(db_session):
+    olt = OLTDevice(name="OLT Gone", latitude=9.1, longitude=7.4, is_active=False)
+    db_session.add(olt)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        update_map_asset_location(
+            db_session,
+            asset_type="olt",
+            asset_id=str(olt.id),
+            latitude=9.5,
+            longitude=7.8,
+        )
+
+    assert exc.value.status_code == 404
 
 
 def test_update_map_asset_location_rejects_unknown_asset(db_session):

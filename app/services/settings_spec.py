@@ -1048,6 +1048,43 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default="primary",
         allowed={"primary", "billing", "technical", "support"},
     ),
+    # --- Referral program ---
+    SettingSpec(
+        domain=SettingDomain.subscriber,
+        key="referral_program_enabled",
+        env_var="REFERRAL_PROGRAM_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+    ),
+    SettingSpec(
+        domain=SettingDomain.subscriber,
+        key="referral_reward_amount",
+        env_var="REFERRAL_REWARD_AMOUNT",
+        value_type=SettingValueType.decimal,
+        default=0,
+    ),
+    SettingSpec(
+        domain=SettingDomain.subscriber,
+        key="referral_reward_currency",
+        env_var="REFERRAL_REWARD_CURRENCY",
+        value_type=SettingValueType.string,
+        default="NGN",
+    ),
+    SettingSpec(
+        domain=SettingDomain.subscriber,
+        key="referral_qualify_window_days",
+        env_var="REFERRAL_QUALIFY_WINDOW_DAYS",
+        value_type=SettingValueType.integer,
+        default=90,
+        min_value=1,
+    ),
+    SettingSpec(
+        domain=SettingDomain.subscriber,
+        key="referral_auto_approve_reward",
+        env_var="REFERRAL_AUTO_APPROVE_REWARD",
+        value_type=SettingValueType.boolean,
+        default=False,
+    ),
     SettingSpec(
         domain=SettingDomain.subscriber,
         key="subscriber_number_enabled",
