@@ -743,6 +743,21 @@ def _auto_create_work_order_for_ticket(db: Session, ticket: Ticket) -> WorkOrder
         ticket_id=ticket.id,
     )
     db.add(work_order)
+    db.flush()  # need work_order.id to enqueue it
+
+    # Surface the new job in the dispatch queue instead of leaving an orphan
+    # draft: a dispatcher triages, schedules, and assigns it — at which point
+    # the customer gets the "Track My Visit" link. Without this the work order
+    # is invisible to the field app and the customer hears nothing.
+    from app.models.dispatch import DispatchQueueStatus, WorkOrderAssignmentQueue
+
+    db.add(
+        WorkOrderAssignmentQueue(
+            work_order_id=work_order.id,
+            status=DispatchQueueStatus.queued,
+            reason="Auto-created from field_visit ticket",
+        )
+    )
     return work_order
 
 
