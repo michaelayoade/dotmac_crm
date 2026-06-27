@@ -62,6 +62,12 @@ class WebhookEventType(enum.Enum):
     ticket_escalated = "ticket.escalated"
     ticket_resolved = "ticket.resolved"
 
+    # Operations - Work-order (field-visit) lifecycle (3). The push backbone for
+    # an external app tracking a customer's service visit.
+    work_order_dispatched = "work_order.dispatched"
+    work_order_completed = "work_order.completed"
+    work_order_canceled = "work_order.canceled"
+
     # CRM - Message events (1)
     message_outbound = "message.outbound"
 
