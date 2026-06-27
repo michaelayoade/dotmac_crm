@@ -234,6 +234,46 @@ def ping(db: Session) -> bool:
     return True
 
 
+def create_account_credit(
+    db: Session,
+    *,
+    subscriber_id: str,
+    amount: Any,
+    reason: str = "Referral reward",
+    external_ref: str | None = None,
+    currency: str = "NGN",
+) -> str:
+    """Issue an account credit on a subscriber's dotmac_sub billing account
+    (used to pay out referral rewards). Returns the new credit id.
+
+    Raises ``SelfcareProviderError`` when sync is disabled or the call fails, so
+    the caller can decide whether to mark the reward issued. Idempotent on
+    ``external_ref`` server-side.
+    """
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        amt = Decimal(str(amount))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise SelfcareProviderError(f"Invalid credit amount: {amount!r}") from exc
+    if amt <= 0:
+        raise SelfcareProviderError("Credit amount must be greater than 0.")
+
+    body = {
+        "subscriber_id": str(subscriber_id),
+        "amount": str(amt),
+        "reason": reason,
+        "external_ref": external_ref,
+        "currency": currency,
+    }
+    data = _request_json(db, "POST", "/credits", json_body=body)
+    row = _unwrap_data(data) or {}
+    credit_id = str(row.get("id") or "").strip() if isinstance(row, dict) else ""
+    if not credit_id:
+        raise SelfcareProviderError("Credit response did not include an id.")
+    return credit_id
+
+
 def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     page = 1
     rows: list[dict[str, Any]] = []
