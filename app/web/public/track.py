@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.csrf import CSRF_COOKIE_NAME, generate_csrf_token, set_csrf_cookie, validate_csrf_token
 from app.db import SessionLocal
 from app.middleware.widget_rate_limit import WidgetRateLimiter
+from app.models.workforce import WorkOrderStatus
 from app.services.field import tracking as tracking_service
 from app.web.templates import Jinja2Templates
 
@@ -164,7 +165,7 @@ async def track_reschedule(request: Request, token: str, db: Session = Depends(_
         )
     except HTTPException as exc:
         if exc.status_code == 409:  # already pending, or visit already complete
-            reason = "complete" if "complete" in (exc.detail or "").lower() else "pending"
+            reason = "complete" if token_row.work_order.status == WorkOrderStatus.completed else "pending"
             return RedirectResponse(url=f"/track/{token}?reschedule={reason}", status_code=303)
         raise
     return RedirectResponse(url=f"/track/{token}?reschedule=1", status_code=303)
