@@ -13,7 +13,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "rf2026062700"
-down_revision = "sc2026062700"
+down_revision = "qb3c4d5e6f7a"
 branch_labels = None
 depends_on = None
 
