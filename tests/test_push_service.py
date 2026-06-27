@@ -25,6 +25,7 @@ def _other_person(db):
     db.commit()
     return other
 
+
 FAKE_ACCOUNT = {"client_email": "svc@test.iam", "private_key": "key", "project_id": "test-proj"}
 
 
