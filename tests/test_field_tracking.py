@@ -228,3 +228,23 @@ def test_route_page_and_live_and_404(track_client, db_session):
 
     missing = track_client.get("/track/not-a-real-token")
     assert missing.status_code == 404
+
+
+def test_route_serializes_live_tech_pin(track_client, db_session):
+    """Regression: the live pin carries a datetime — the page (tojson) and the
+    /live JSONResponse must serialize it without a 500."""
+    tech = _make_tech(db_session)
+    wo = _make_work_order(db_session, status=WorkOrderStatus.dispatched, assigned_to=tech.id)
+    _add_event(db_session, wo, FieldJobEvent.en_route)
+    _set_presence(db_session, tech)
+    token_row = tracking.tokens.get_or_create(db_session, wo)
+
+    page = track_client.get(f"/track/{token_row.token}")
+    assert page.status_code == 200  # tojson over tech_position must not raise
+
+    live = track_client.get(f"/track/{token_row.token}/live")
+    assert live.status_code == 200
+    pos = live.json()["tech_position"]
+    assert pos is not None
+    assert pos["latitude"] == 6.5 and pos["longitude"] == 3.3
+    assert isinstance(pos["updated_at"], str)  # ISO string, JSON-safe

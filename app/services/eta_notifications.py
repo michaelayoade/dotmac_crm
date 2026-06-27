@@ -77,6 +77,7 @@ def _track_url(db: Session, work_order: WorkOrder) -> str | None:
         return f"{base}/track/{token_row.token}"
     except Exception:
         logger.exception("track_url_failed work_order_id=%s", work_order.id)
+        db.rollback()  # leave the session usable so the message can still send
         return None
 
 

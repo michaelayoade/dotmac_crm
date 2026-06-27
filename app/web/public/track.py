@@ -86,7 +86,9 @@ def track_live(token: str, db: Session = Depends(_get_db)):
     state = tracking_service.token_state(token_row)
     if token_row is None or state != "ok":
         return JSONResponse({"available": False, "reason": state}, status_code=404 if state == "not_found" else 410)
-    return JSONResponse({"available": True, **tracking_service.public_state(db, token_row.work_order)})
+    # geocode=False: the destination is static and the page already has it; this
+    # unauthenticated endpoint is polled every ~10s and must not call the geocoder.
+    return JSONResponse({"available": True, **tracking_service.public_state(db, token_row.work_order, geocode=False)})
 
 
 @router.post("/{token}/confirm", response_class=HTMLResponse)

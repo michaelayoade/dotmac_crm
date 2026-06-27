@@ -101,7 +101,9 @@ class WorkOrderAccessToken(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     work_order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("work_orders.id"), nullable=False)
-    token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    # Uniqueness comes from the explicit index above (matches the migration);
+    # no column-level unique=True to avoid a duplicate constraint under create_all.
+    token: Mapped[str] = mapped_column(String(64), nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     accessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

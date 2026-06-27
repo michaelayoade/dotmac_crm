@@ -27,7 +27,7 @@ from app.models.field_location import FieldTechPresence, WorkOrderAccessToken
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.person import Person
 from app.models.workforce import WorkOrder, WorkOrderNote, WorkOrderStatus
-from app.services.field.location import resolve_job_location
+from app.services.field.location import cached_job_location, resolve_job_location
 
 logger = logging.getLogger(__name__)
 
@@ -133,13 +133,16 @@ def _events_by_type(db: Session, work_order_id) -> dict[FieldJobEvent, datetime]
     return seen
 
 
-def build_timeline(db: Session, work_order: WorkOrder) -> list[dict]:
+def build_timeline(
+    db: Session, work_order: WorkOrder, *, events: dict[FieldJobEvent, datetime] | None = None
+) -> list[dict]:
     """Customer-facing status steps, derived from server-confirmed facts only.
 
     Each step is {key, label, state, at} where state is
-    done | current | upcoming | failed.
+    done | current | upcoming | failed. Pass ``events`` to reuse one query.
     """
-    events = _events_by_type(db, work_order.id)
+    if events is None:
+        events = _events_by_type(db, work_order.id)
     status = work_order.status
     canceled = status == WorkOrderStatus.canceled or FieldJobEvent.unable_to_complete in events
     completed = status == WorkOrderStatus.completed or FieldJobEvent.complete in events
@@ -200,7 +203,9 @@ def build_timeline(db: Session, work_order: WorkOrder) -> list[dict]:
     return timeline
 
 
-def public_live_position(db: Session, work_order: WorkOrder) -> dict | None:
+def public_live_position(
+    db: Session, work_order: WorkOrder, *, events: dict[FieldJobEvent, datetime] | None = None
+) -> dict | None:
     """The privacy gate for the moving-technician pin.
 
     Returns the technician's coords ONLY when they are genuinely on the way:
@@ -213,7 +218,8 @@ def public_live_position(db: Session, work_order: WorkOrder) -> dict | None:
         return None
     if work_order.status != WorkOrderStatus.dispatched:
         return None
-    events = _events_by_type(db, work_order.id)
+    if events is None:
+        events = _events_by_type(db, work_order.id)
     if FieldJobEvent.en_route not in events:
         return None
 
@@ -238,7 +244,7 @@ def public_live_position(db: Session, work_order: WorkOrder) -> dict | None:
         "accuracy_m": float(presence.last_location_accuracy_m)
         if presence.last_location_accuracy_m is not None
         else None,
-        "updated_at": last_at,
+        "updated_at": last_at.isoformat(),
         "name": first_name or "Your technician",
     }
 
@@ -252,16 +258,23 @@ def _technician_first_name(db: Session, work_order: WorkOrder) -> str | None:
     return person.first_name or (person.display_name or "").split(" ")[0] or None
 
 
-def public_state(db: Session, work_order: WorkOrder) -> dict:
-    """Assemble the full customer-facing state for the page + the /live poll."""
-    location = resolve_job_location(db, work_order)
+def public_state(db: Session, work_order: WorkOrder, *, geocode: bool = True) -> dict:
+    """Assemble the full customer-facing state for the page + the /live poll.
+
+    ``geocode`` is True only on the initial page load — the destination is
+    static, so the high-frequency, unauthenticated ``/live`` poll passes
+    ``geocode=False`` to read cached coordinates and never call the geocoder.
+    """
+    location = resolve_job_location(db, work_order) if geocode else (cached_job_location(work_order) or {})
     eta = _aware(work_order.estimated_arrival_at) or _aware(work_order.scheduled_start)
     meta = work_order.metadata_ or {}
+    events = _events_by_type(db, work_order.id)  # one query, shared below
     return {
         "status": work_order.status.value if work_order.status else None,
         "eta": eta.isoformat() if eta else None,
         "timeline": [
-            {**step, "at": step["at"].isoformat() if step["at"] else None} for step in build_timeline(db, work_order)
+            {**step, "at": step["at"].isoformat() if step["at"] else None}
+            for step in build_timeline(db, work_order, events=events)
         ],
         "technician": {"name": _technician_first_name(db, work_order)},
         "destination": {
@@ -269,7 +282,7 @@ def public_state(db: Session, work_order: WorkOrder) -> dict:
             "longitude": location.get("longitude"),
             "address_text": location.get("address_text"),
         },
-        "tech_position": public_live_position(db, work_order),
+        "tech_position": public_live_position(db, work_order, events=events),
         "customer_confirmed": bool(meta.get("customer_confirmed_at")),
         "reschedule_pending": _open_reschedule_request(work_order) is not None,
     }
