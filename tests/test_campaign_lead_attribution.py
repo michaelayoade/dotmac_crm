@@ -106,11 +106,23 @@ def test_attribution_report_aggregates(db_session, monkeypatch):
 
     pw = _person(db_session)
     db_session.add(
-        Lead(person_id=pw.id, title="Won", status=LeadStatus.won, campaign_id=campaign.id, estimated_value=Decimal("10000"))
+        Lead(
+            person_id=pw.id,
+            title="Won",
+            status=LeadStatus.won,
+            campaign_id=campaign.id,
+            estimated_value=Decimal("10000"),
+        )
     )
     po = _person(db_session)
     db_session.add(
-        Lead(person_id=po.id, title="Open", status=LeadStatus.new, campaign_id=campaign.id, estimated_value=Decimal("5000"))
+        Lead(
+            person_id=po.id,
+            title="Open",
+            status=LeadStatus.new,
+            campaign_id=campaign.id,
+            estimated_value=Decimal("5000"),
+        )
     )
     db_session.commit()
 

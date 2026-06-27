@@ -925,11 +925,7 @@ def attribute_lead_from_reply(
     if not pid or not cid:
         return None
 
-    already = (
-        db.query(Lead)
-        .filter(Lead.person_id == pid, Lead.campaign_id == cid, Lead.is_active.is_(True))
-        .first()
-    )
+    already = db.query(Lead).filter(Lead.person_id == pid, Lead.campaign_id == cid, Lead.is_active.is_(True)).first()
     if already is not None:
         return already
 
@@ -965,9 +961,7 @@ def attribute_lead_from_reply(
     db.add(lead)
     db.commit()
     db.refresh(lead)
-    logger.info(
-        "campaign_lead_attributed campaign_id=%s person_id=%s lead_id=%s", cid, pid, lead.id
-    )
+    logger.info("campaign_lead_attributed campaign_id=%s person_id=%s lead_id=%s", cid, pid, lead.id)
     return lead
 
 
@@ -1027,9 +1021,11 @@ def reconcile_outreach_inbound_reply(db: Session, *, message_id: str) -> None:
     # Attribute a lead for the engaged person (best-effort: an attribution hiccup
     # must never break inbound message handling).
     try:
+        if message.conversation is None:
+            return
         attribute_lead_from_reply(
             db,
-            person_id=message.person_id,
+            person_id=message.conversation.person_id,
             campaign_id=campaign_id,
             recipient_id=_outreach_message_campaign_recipient_id(outbound_context),
         )
