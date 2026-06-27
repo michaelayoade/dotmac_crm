@@ -178,26 +178,94 @@ def test_pending_subscriber_does_not_qualify(db_session, monkeypatch):
     assert referral.status == ReferralStatus.pending
 
 
-def test_issue_reward_and_reject(db_session, monkeypatch):
-    _enable(monkeypatch)
-    referrer = _person(db_session)
-    code = svc.ensure_code(db_session, str(referrer.id))
-    referral = svc.capture(db_session, code=code.code, email="reward@example.com")
+def _referrer_subscriber(db, person, external_id):
     sub = Subscriber(
         external_system="selfcare",
-        external_id="sc-4",
+        external_id=external_id,
+        subscriber_number=f"SUB-{uuid.uuid4().hex[:8]}",
+        status=SubscriberStatus.active,
+        person_id=person.id,
+    )
+    db.add(sub)
+    db.commit()
+    return sub
+
+
+def _qualified_referral(db, monkeypatch, *, referrer, referred_email, referred_ext_id):
+    code = svc.ensure_code(db, str(referrer.id))
+    referral = svc.capture(db, code=code.code, email=referred_email)
+    sub = Subscriber(
+        external_system="selfcare",
+        external_id=referred_ext_id,
         subscriber_number=f"SUB-{uuid.uuid4().hex[:8]}",
         status=SubscriberStatus.active,
         person_id=referral.referred_person_id,
     )
-    db_session.add(sub)
-    db_session.commit()
-    svc.qualify_for_subscriber(db_session, sub)
+    db.add(sub)
+    db.commit()
+    svc.qualify_for_subscriber(db, sub)
+    return referral
+
+
+def test_issue_reward_pushes_credit_and_marks_issued(db_session, monkeypatch):
+    import app.services.selfcare as selfcare_mod
+
+    _enable(monkeypatch)
+    referrer = _person(db_session)
+    _referrer_subscriber(db_session, referrer, external_id="ref-sub-1")
+    referral = _qualified_referral(
+        db_session, monkeypatch, referrer=referrer, referred_email="reward@example.com", referred_ext_id="sc-4"
+    )
+
+    pushed = {}
+
+    def _fake_credit(db, *, subscriber_id, amount, reason, external_ref, currency):
+        pushed.update({"subscriber_id": subscriber_id, "amount": amount, "external_ref": external_ref})
+        return "credit-xyz"
+
+    monkeypatch.setattr(selfcare_mod, "create_account_credit", _fake_credit)
 
     issued = svc.issue_reward(db_session, str(referral.id))
     assert issued.status == ReferralStatus.rewarded
     assert issued.reward_status == ReferralRewardStatus.issued
     assert issued.reward_issued_at is not None
+    assert issued.metadata_["reward_credit_id"] == "credit-xyz"
+    assert pushed["subscriber_id"] == "ref-sub-1"
+    assert pushed["external_ref"] == f"referral:{referral.id}"
+
+
+def test_issue_reward_without_referrer_subscriber_is_409(db_session, monkeypatch):
+    _enable(monkeypatch)
+    referrer = _person(db_session)  # no subscriber account → can't be credited
+    referral = _qualified_referral(
+        db_session, monkeypatch, referrer=referrer, referred_email="nosub@example.com", referred_ext_id="sc-5"
+    )
+    with pytest.raises(HTTPException) as exc:
+        svc.issue_reward(db_session, str(referral.id))
+    assert exc.value.status_code == 409
+
+
+def test_issue_reward_credit_failure_is_502_and_stays_qualified(db_session, monkeypatch):
+    import app.services.selfcare as selfcare_mod
+
+    _enable(monkeypatch)
+    referrer = _person(db_session)
+    _referrer_subscriber(db_session, referrer, external_id="ref-sub-2")
+    referral = _qualified_referral(
+        db_session, monkeypatch, referrer=referrer, referred_email="boom@example.com", referred_ext_id="sc-6"
+    )
+
+    def _boom(*a, **k):
+        raise selfcare_mod.SelfcareProviderError("dotmac_sub down")
+
+    monkeypatch.setattr(selfcare_mod, "create_account_credit", _boom)
+
+    with pytest.raises(HTTPException) as exc:
+        svc.issue_reward(db_session, str(referral.id))
+    assert exc.value.status_code == 502
+    db_session.refresh(referral)
+    assert referral.reward_status != ReferralRewardStatus.issued  # left for retry
+    assert referral.status == ReferralStatus.qualified
 
 
 def test_reject_voids_reward(db_session, monkeypatch):

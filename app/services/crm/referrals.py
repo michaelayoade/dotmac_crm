@@ -77,6 +77,24 @@ def _generate_code(db: Session) -> str:
     raise HTTPException(status_code=500, detail="Could not generate a unique referral code")
 
 
+def _referrer_subscriber_id(db: Session, referrer_person_id) -> str | None:
+    """Resolve the referrer's dotmac_sub subscriber id (the credit target)."""
+    sub = (
+        db.query(Subscriber)
+        .filter(Subscriber.person_id == referrer_person_id)
+        .filter(Subscriber.is_active.is_(True))
+        .filter(Subscriber.external_system == "selfcare")
+        .order_by(Subscriber.updated_at.desc())
+        .first()
+    )
+    if sub is not None and sub.external_id:
+        return str(sub.external_id)
+    person = db.get(Person, referrer_person_id)
+    if person is not None and person.selfcare_id:
+        return str(person.selfcare_id)
+    return None
+
+
 class Referrals:
     @staticmethod
     def ensure_code(db: Session, person_id: str) -> ReferralCode:
@@ -288,24 +306,57 @@ class Referrals:
 
     @staticmethod
     def issue_reward(db: Session, referral_id: str) -> Referral:
+        """Apply the referrer's reward as an account credit in dotmac_sub and
+        mark the referral rewarded. Raises 502 if the credit push fails (the
+        referral stays qualified for retry)."""
+        from app.services import selfcare
+
         referral = get_or_404(db, Referral, str(referral_id), "Referral not found")
         if referral.status not in (ReferralStatus.qualified, ReferralStatus.rewarded):
             raise HTTPException(
                 status_code=409,
                 detail=f"Cannot issue a reward for a referral in status {referral.status.value}",
             )
+
+        amount = referral.reward_amount or Decimal("0")
+        if amount > 0 and referral.reward_status != ReferralRewardStatus.issued:
+            subscriber_id = _referrer_subscriber_id(db, referral.referrer_person_id)
+            if not subscriber_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Referrer has no linked dotmac_sub subscriber account to credit.",
+                )
+            try:
+                credit_id = selfcare.create_account_credit(
+                    db,
+                    subscriber_id=subscriber_id,
+                    amount=amount,
+                    reason=f"Referral reward (referral {referral.id})",
+                    external_ref=f"referral:{referral.id}",
+                    currency=referral.reward_currency,
+                )
+            except selfcare.SelfcareProviderError as exc:
+                logger.warning("referral_credit_push_failed referral_id=%s error=%s", referral.id, exc)
+                raise HTTPException(
+                    status_code=502,
+                    detail="Could not apply the account credit in dotmac_sub. Try again.",
+                ) from exc
+            meta = dict(referral.metadata_ or {})
+            meta["reward_credit_id"] = credit_id
+            meta["reward_subscriber_id"] = subscriber_id
+            referral.metadata_ = meta
+
         referral.reward_status = ReferralRewardStatus.issued
         referral.reward_issued_at = datetime.now(UTC)
         referral.status = ReferralStatus.rewarded
         db.commit()
         db.refresh(referral)
-        # Integration hook: apply the credit to the referrer's dotmac_sub account.
-        # Recorded here; the actual credit push is a follow-up (selfcare credit API).
         logger.info(
-            "referral_reward_issued referral_id=%s referrer=%s amount=%s",
+            "referral_reward_issued referral_id=%s referrer=%s amount=%s credit=%s",
             referral.id,
             referral.referrer_person_id,
             referral.reward_amount,
+            (referral.metadata_ or {}).get("reward_credit_id"),
         )
         return referral
 
