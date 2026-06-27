@@ -50,6 +50,19 @@ def _address_parts(work_order: WorkOrder) -> dict:
     }
 
 
+def cached_job_location(work_order: WorkOrder) -> dict | None:
+    """Return the already-cached coordinates without geocoding, or None.
+
+    For high-frequency / unauthenticated read paths (e.g. the customer live
+    poll) that must never trigger an external geocoder call.
+    """
+    meta = work_order.metadata_ or {}
+    cached = meta.get(_CACHE_KEY)
+    if isinstance(cached, dict) and cached.get("latitude") is not None:
+        return {**cached, "source": cached.get("source") or "cached"}
+    return None
+
+
 def resolve_job_location(db: Session, work_order: WorkOrder) -> dict:
     """Return {latitude, longitude, address_text, source} for a job.
 
