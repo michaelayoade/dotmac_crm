@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.csrf import CSRF_COOKIE_NAME, generate_csrf_token, set_csrf_cookie, validate_csrf_token
 from app.db import SessionLocal
+from app.middleware.widget_rate_limit import WidgetRateLimiter
 from app.services.field import tracking as tracking_service
 from app.web.templates import Jinja2Templates
 
@@ -21,6 +22,36 @@ logger = logging.getLogger(__name__)
 templates = Jinja2Templates(directory="templates")
 
 router = APIRouter(prefix="/track", tags=["web-public-track"])
+
+
+class _TrackRateLimiter(WidgetRateLimiter):
+    """Reuse the widget limiter's Redis/in-memory sliding-window core for the
+    unauthenticated /track/* surface (the global API limiter only covers /api)."""
+
+    def check(self, key: str, limit: int, window_seconds: int) -> bool:
+        allowed, _ = self._check_rate(key, limit, window_seconds)
+        return allowed
+
+
+_rate_limiter = _TrackRateLimiter()
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_limit(action: str, limit: int, window_seconds: int):
+    """Per-IP rate-limit dependency factory → HTTP 429 when exceeded."""
+
+    def _dep(request: Request) -> None:
+        if not _rate_limiter.check(f"track:{action}:{_client_ip(request)}", limit, window_seconds):
+            raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
+
+    return _dep
+
 
 # Token-state → friendly page + HTTP status for the unavailable cases.
 _UNAVAILABLE = {
@@ -62,7 +93,7 @@ def _unavailable(request: Request, state: str) -> HTMLResponse:
     )
 
 
-@router.get("/{token}", response_class=HTMLResponse)
+@router.get("/{token}", response_class=HTMLResponse, dependencies=[Depends(_rate_limit("page", 30, 60))])
 def track_visit(request: Request, token: str, db: Session = Depends(_get_db)):
     token_row = tracking_service.tokens.get_by_token(db, token)
     state = tracking_service.token_state(token_row)
@@ -80,7 +111,7 @@ def track_visit(request: Request, token: str, db: Session = Depends(_get_db)):
     return response
 
 
-@router.get("/{token}/live")
+@router.get("/{token}/live", dependencies=[Depends(_rate_limit("live", 60, 60))])
 def track_live(token: str, db: Session = Depends(_get_db)):
     token_row = tracking_service.tokens.get_by_token(db, token)
     state = tracking_service.token_state(token_row)
@@ -91,7 +122,7 @@ def track_live(token: str, db: Session = Depends(_get_db)):
     return JSONResponse({"available": True, **tracking_service.public_state(db, token_row.work_order, geocode=False)})
 
 
-@router.post("/{token}/confirm", response_class=HTMLResponse)
+@router.post("/{token}/confirm", response_class=HTMLResponse, dependencies=[Depends(_rate_limit("action", 10, 300))])
 async def track_confirm(request: Request, token: str, db: Session = Depends(_get_db)):
     token_row = tracking_service.tokens.get_by_token(db, token)
     state = tracking_service.token_state(token_row)
@@ -102,11 +133,16 @@ async def track_confirm(request: Request, token: str, db: Session = Depends(_get
     if not _csrf_token_valid(request, form):
         return RedirectResponse(url=f"/track/{token}?error=csrf", status_code=303)
 
-    tracking_service.confirm_appointment(db, token_row)
+    try:
+        tracking_service.confirm_appointment(db, token_row)
+    except HTTPException as exc:
+        if exc.status_code == 409:  # visit already closed
+            return RedirectResponse(url=f"/track/{token}?error=closed", status_code=303)
+        raise
     return RedirectResponse(url=f"/track/{token}?confirmed=1", status_code=303)
 
 
-@router.post("/{token}/reschedule", response_class=HTMLResponse)
+@router.post("/{token}/reschedule", response_class=HTMLResponse, dependencies=[Depends(_rate_limit("action", 10, 300))])
 async def track_reschedule(request: Request, token: str, db: Session = Depends(_get_db)):
     token_row = tracking_service.tokens.get_by_token(db, token)
     state = tracking_service.token_state(token_row)
@@ -127,7 +163,8 @@ async def track_reschedule(request: Request, token: str, db: Session = Depends(_
             preferred_window=preferred_window if isinstance(preferred_window, str) else None,
         )
     except HTTPException as exc:
-        if exc.status_code == 409:  # one is already pending
-            return RedirectResponse(url=f"/track/{token}?reschedule=pending", status_code=303)
+        if exc.status_code == 409:  # already pending, or visit already complete
+            reason = "complete" if "complete" in (exc.detail or "").lower() else "pending"
+            return RedirectResponse(url=f"/track/{token}?reschedule={reason}", status_code=303)
         raise
     return RedirectResponse(url=f"/track/{token}?reschedule=1", status_code=303)

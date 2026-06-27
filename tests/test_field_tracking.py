@@ -248,3 +248,92 @@ def test_route_serializes_live_tech_pin(track_client, db_session):
     assert pos is not None
     assert pos["latitude"] == 6.5 and pos["longitude"] == 3.3
     assert isinstance(pos["updated_at"], str)  # ISO string, JSON-safe
+
+
+# ── follow-ups: terminal-state action gating (#2) ────────────────────────────
+
+
+def test_confirm_rejected_on_completed(db_session):
+    wo = _make_work_order(db_session, status=WorkOrderStatus.completed)
+    token_row = tracking.tokens.get_or_create(db_session, wo)
+    with pytest.raises(HTTPException) as exc:
+        tracking.confirm_appointment(db_session, token_row)
+    assert exc.value.status_code == 409
+
+
+def test_reschedule_rejected_on_completed_but_allowed_when_missed(db_session):
+    done = _make_work_order(db_session, status=WorkOrderStatus.completed)
+    with pytest.raises(HTTPException) as exc:
+        tracking.request_reschedule(db_session, tracking.tokens.get_or_create(db_session, done))
+    assert exc.value.status_code == 409
+
+    # A canceled ("missed") visit must still accept a reschedule request — that
+    # is exactly what the missed-visit message invites.
+    missed = _make_work_order(db_session, status=WorkOrderStatus.canceled)
+    res = tracking.request_reschedule(
+        db_session, tracking.tokens.get_or_create(db_session, missed), preferred_window="tomorrow"
+    )
+    assert res == {"requested": True}
+
+
+# ── follow-ups: completion-email summary (#4) ────────────────────────────────
+
+
+def test_completion_summary_excludes_internal_and_never_list_repr(db_session):
+    from app.models.workforce import WorkOrderNote
+    from app.services.eta_notifications import _completion_summary
+
+    wo = _make_work_order(db_session)
+    db_session.add(WorkOrderNote(work_order_id=wo.id, body="Customer requested reschedule", is_internal=True))
+    db_session.add(WorkOrderNote(work_order_id=wo.id, body="Replaced the ONT; signal good.", is_internal=False))
+    db_session.commit()
+    db_session.refresh(wo)
+
+    summary = _completion_summary(wo)
+    assert summary == "Replaced the ONT; signal good."
+    assert "WorkOrderNote" not in summary  # never the Python list repr
+    assert "reschedule" not in summary.lower()  # internal note never leaks
+
+
+def test_completion_summary_default_when_no_customer_notes(db_session):
+    from app.services.eta_notifications import _completion_summary
+
+    wo = _make_work_order(db_session)
+    assert _completion_summary(wo) == "Work completed successfully."
+
+
+# ── follow-ups: auto-assign notifies the customer (#3) ───────────────────────
+
+
+def test_auto_assign_notifies_customer_with_link(db_session, monkeypatch):
+    from app.models.dispatch import TechnicianProfile
+    from app.services import dispatch as dispatch_service
+    from app.services import eta_notifications
+
+    tech = _make_tech(db_session)
+    db_session.add(TechnicianProfile(person_id=tech.id, is_active=True))
+    db_session.commit()
+    wo = _make_work_order(db_session, status=WorkOrderStatus.draft)
+
+    calls: list[str] = []
+    monkeypatch.setattr(eta_notifications, "send_technician_assigned_notification", lambda db, wid: calls.append(wid))
+    dispatch_service.auto_assign_work_order(db_session, str(wo.id))
+
+    db_session.refresh(wo)
+    assert wo.assigned_to_person_id == tech.id
+    assert calls == [str(wo.id)]
+
+
+# ── follow-ups: rate limiting (#1) ───────────────────────────────────────────
+
+
+def test_rate_limit_blocks_after_threshold(track_client, db_session):
+    wo = _make_work_order(db_session)
+    token_row = tracking.tokens.get_or_create(db_session, wo)
+    headers = {"X-Forwarded-For": "203.0.113.77"}  # isolate this IP's bucket
+    codes = [
+        track_client.post(f"/track/{token_row.token}/confirm", headers=headers, follow_redirects=False).status_code
+        for _ in range(12)
+    ]
+    assert codes[-1] == 429  # action limit is 10 / 300s → 11th+ blocked
+    assert codes.count(429) >= 2

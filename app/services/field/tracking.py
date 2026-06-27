@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 # Hard cap on a link's life from when it is minted; the page also closes a
 # completed visit after a short grace window (below).
-_TOKEN_TTL_DAYS = 30
+_TOKEN_TTL_DAYS = 14
 _COMPLETED_GRACE_DAYS = 7
 # A live position is only "live" within this window of the last fix.
 _LIVE_STALE_SECONDS = 120
@@ -327,6 +327,9 @@ def _notify_dispatch(db: Session, work_order: WorkOrder, subject: str, body: str
 def confirm_appointment(db: Session, token_row: WorkOrderAccessToken) -> dict:
     """Customer confirms they'll be present. Idempotent; routes a notice to dispatch."""
     work_order = token_row.work_order
+    # A finished or aborted visit has nothing left to confirm.
+    if work_order.status in (WorkOrderStatus.completed, WorkOrderStatus.canceled):
+        raise HTTPException(status_code=409, detail="This visit is already closed.")
     meta = dict(work_order.metadata_ or {})
     if meta.get("customer_confirmed_at"):
         return {"confirmed": True, "already": True}
@@ -361,6 +364,10 @@ def request_reschedule(
     never mutates ``scheduled_start`` from this unauthenticated surface.
     """
     work_order = token_row.work_order
+    # A completed visit needs no reschedule. (A canceled/"missed" visit still
+    # does — the missed-visit message invites exactly this.)
+    if work_order.status == WorkOrderStatus.completed:
+        raise HTTPException(status_code=409, detail="This visit is already complete.")
     if _open_reschedule_request(work_order) is not None:
         raise HTTPException(status_code=409, detail="A reschedule request is already pending.")
 

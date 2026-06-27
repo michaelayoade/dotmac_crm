@@ -85,6 +85,22 @@ def _track_line(track_url: str | None) -> str:
     return f"\n\nTrack your visit live: {track_url}" if track_url else ""
 
 
+def _completion_summary(work_order: WorkOrder) -> str:
+    """Latest customer-safe note body for the completion email.
+
+    ``work_order.notes`` is a relationship (list of WorkOrderNote); rendering it
+    directly printed a Python list repr. Internal dispatch notes (e.g. the
+    customer's own reschedule/confirm notes) must never appear in a customer
+    email, so they are excluded here.
+    """
+    customer_notes = sorted(
+        (n for n in (work_order.notes or []) if not n.is_internal and isinstance(n.body, str) and n.body.strip()),
+        key=lambda n: n.created_at,
+        reverse=True,
+    )
+    return customer_notes[0].body.strip() if customer_notes else "Work completed successfully."
+
+
 def send_eta_notification(db: Session, work_order_id: str) -> bool:
     """Send ETA notification to customer for a work order.
 
@@ -357,7 +373,7 @@ def send_work_order_completed_notification(db: Session, work_order_id: str) -> b
         "work_order_title": work_order.title or "Service Visit",
         "technician_name": technician_name,
         "completed_at": datetime.now(UTC).strftime("%B %d, %Y at %H:%M"),
-        "completion_notes": work_order.notes or "Work completed successfully.",
+        "completion_notes": _completion_summary(work_order),
         "track_url": track or "",
     }
 

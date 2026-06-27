@@ -32,6 +32,8 @@
           <div class="rounded-xl bg-cyan-50 dark:bg-cyan-500/10 border border-cyan-200 dark:border-cyan-400/30 px-4 py-3 text-sm text-cyan-800 dark:text-cyan-200">Got it — we've sent your reschedule request to our team.</div>
         {% elif q.get('reschedule') == 'pending' %}
           <div class="rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-400/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">You already have a reschedule request pending — our team will be in touch.</div>
+        {% elif q.get('reschedule') == 'complete' or q.get('error') == 'closed' %}
+          <div class="rounded-xl bg-slate-100 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600 px-4 py-3 text-sm text-slate-700 dark:text-slate-200">This visit is already closed — there's nothing left to update here.</div>
         {% elif q.get('error') == 'csrf' %}
           <div class="rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-400/30 px-4 py-3 text-sm text-rose-800 dark:text-rose-200">Something went wrong — please refresh and try again.</div>
         {% endif %}
