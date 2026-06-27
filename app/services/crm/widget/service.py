@@ -214,7 +214,6 @@ def apply_dialog_routing(
     """Apply routing from a dialog flow terminal step to a conversation."""
     from app.models.crm.conversation import ConversationTag
     from app.models.crm.enums import ConversationPriority
-    from app.services.crm import conversation as conversation_service
 
     # Set priority
     priority_value = step_config.get("priority")
@@ -240,16 +239,16 @@ def apply_dialog_routing(
             db.add(ConversationTag(conversation_id=conversation.id, tag=tag_name))
     db.flush()
 
-    # Assign to team
+    # Assign to team — try an available agent, otherwise hold in the team queue.
     team_id = step_config.get("assign_team")
     if team_id:
-        conversation_service.assign_conversation(
+        from app.services.crm.inbox.routing import assign_or_enqueue
+
+        assign_or_enqueue(
             db,
-            conversation_id=str(conversation.id),
-            agent_id=None,
+            conversation=conversation,
             team_id=team_id,
             assigned_by_id=None,
-            update_lead_owner=False,
         )
 
     db.commit()

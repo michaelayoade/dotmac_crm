@@ -46,6 +46,7 @@ def assign_conversation(
     agent_id: str | None,
     team_id: str | None,
     assigned_by_id: str | None,
+    note: str | None = None,
     roles: list[str] | None = None,
     scopes: list[str] | None = None,
 ) -> AssignConversationResult:
@@ -141,12 +142,13 @@ def assign_conversation(
         contact = contact_service.get_person_with_relationships(db, str(conversation.person_id))
     except Exception:
         contact = None
+    note_value = (note or "").strip()[:500] or None
     log_conversation_action(
         db,
         action="assign_conversation",
         conversation_id=str(conversation.id),
         actor_id=assigned_by_value,
-        metadata={"agent_id": agent_value, "team_id": team_value},
+        metadata={"agent_id": agent_value, "team_id": team_value, "note": note_value},
     )
     return AssignConversationResult(
         kind="success",

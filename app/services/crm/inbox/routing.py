@@ -17,6 +17,8 @@ from app.services.crm import conversation as conversation_service
 from app.services.crm.presence import DEFAULT_STALE_MINUTES
 from app.services.crm.presence import agent_presence as presence_service
 
+DEFAULT_MAX_CONCURRENT_CHATS = 3
+
 
 @dataclass(frozen=True)
 class RoutingDecision:
@@ -73,30 +75,63 @@ def _list_active_agents(db: Session, team_id: str) -> list[CrmAgent]:
     )
 
 
-def _pick_least_loaded_agent(db: Session, team_id: str) -> str | None:
-    agents = _list_active_agents(db, team_id)
-    if not agents:
-        return None
-    agent_ids = [agent.id for agent in agents]
+def _global_max_concurrent(db: Session) -> int:
+    """Default per-agent concurrent-chat cap (used when the agent has no override)."""
+    from app.services.settings_spec import SettingDomain, resolve_value
+
+    value = resolve_value(db, SettingDomain.notification, "crm_chat_max_concurrent_per_agent")
+    if isinstance(value, int):
+        return value if value > 0 else DEFAULT_MAX_CONCURRENT_CHATS
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value)
+    return DEFAULT_MAX_CONCURRENT_CHATS
+
+
+def _agent_active_chat_counts(db: Session, agent_ids: list) -> dict:
+    """Active-chat count per agent. The canonical definition of an agent's load:
+    an active assignment to an active conversation whose status is open or pending
+    (excludes snoozed/resolved/closed)."""
     if not agent_ids:
-        return None
-    load_rows = (
+        return {}
+    rows = (
         db.query(ConversationAssignment.agent_id, func.count(ConversationAssignment.id))
         .join(Conversation, Conversation.id == ConversationAssignment.conversation_id)
         .filter(ConversationAssignment.agent_id.in_(agent_ids))
         .filter(ConversationAssignment.is_active.is_(True))
         .filter(Conversation.is_active.is_(True))
-        .filter(Conversation.status != ConversationStatus.resolved)
+        .filter(Conversation.status.in_([ConversationStatus.open, ConversationStatus.pending]))
         .group_by(ConversationAssignment.agent_id)
         .all()
     )
-    load_map = {row[0]: int(row[1]) for row in load_rows}
+    return {row[0]: int(row[1]) for row in rows}
+
+
+def _agent_cap(agent: CrmAgent, default_cap: int) -> int:
+    return agent.max_concurrent_chats if agent.max_concurrent_chats is not None else default_cap
+
+
+def _list_available_agents(db: Session, team_id: str) -> list[CrmAgent]:
+    """Online/away agents in the team that are still under their concurrency cap."""
+    agents = _list_active_agents(db, team_id)
+    if not agents:
+        return []
+    default_cap = _global_max_concurrent(db)
+    counts = _agent_active_chat_counts(db, [agent.id for agent in agents])
+    return [agent for agent in agents if counts.get(agent.id, 0) < _agent_cap(agent, default_cap)]
+
+
+def _pick_least_loaded_agent(db: Session, team_id: str) -> str | None:
+    agents = _list_available_agents(db, team_id)
+    if not agents:
+        return None
+    agent_ids = [agent.id for agent in agents]
+    load_map = _agent_active_chat_counts(db, agent_ids)
     agent_ids_sorted = sorted(agent_ids, key=lambda agent_id: load_map.get(agent_id, 0))
     return str(agent_ids_sorted[0]) if agent_ids_sorted else None
 
 
 def _pick_round_robin_agent(db: Session, team: CrmTeam, rule_id: str) -> str | None:
-    agents = _list_active_agents(db, str(team.id))
+    agents = _list_available_agents(db, str(team.id))
     if not agents:
         return None
     agent_ids = [str(agent.id) for agent in agents]
@@ -159,6 +194,53 @@ def _resolve_agent_for_rule(db: Session, team: CrmTeam, rule: CrmRoutingRule) ->
     return _pick_round_robin_agent(db, team, str(rule.id))
 
 
+def mark_conversation_queued(db: Session, conversation: Conversation) -> None:
+    """Stamp ``queued_at`` the first time a conversation waits for an available
+    agent. Idempotent: only sets it when currently unset and there is no active
+    agent assignment, so a chat that bounces team->agent->team keeps its original
+    queue-entry time (the correct denominator for queue-wait metrics)."""
+    if conversation.queued_at is not None:
+        return
+    has_agent = (
+        db.query(ConversationAssignment.id)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .filter(ConversationAssignment.agent_id.isnot(None))
+        .first()
+    )
+    if has_agent is not None:
+        return
+    conversation.queued_at = datetime.now(UTC)
+    db.add(conversation)
+    db.commit()
+
+
+def assign_or_enqueue(
+    db: Session,
+    *,
+    conversation: Conversation,
+    team_id: str,
+    agent_id: str | None = None,
+    assigned_by_id: str | None = None,
+) -> ConversationAssignment | None:
+    """Assign to an available agent, otherwise hold the conversation in the team
+    queue. When ``agent_id`` is not supplied, the least-loaded available agent is
+    chosen (capacity-aware); when nobody is available the chat is enqueued."""
+    if agent_id is None:
+        agent_id = _pick_least_loaded_agent(db, team_id)
+    assignment = conversation_service.assign_conversation(
+        db,
+        conversation_id=str(conversation.id),
+        agent_id=agent_id,
+        team_id=team_id,
+        assigned_by_id=assigned_by_id,
+        update_lead_owner=False,
+    )
+    if assignment is None or assignment.agent_id is None:
+        mark_conversation_queued(db, conversation)
+    return assignment
+
+
 def apply_routing_rules(
     db: Session,
     *,
@@ -186,13 +268,12 @@ def apply_routing_rules(
         if not team or not team.is_active:
             continue
         agent_id = _resolve_agent_for_rule(db, team, rule)
-        assignment = conversation_service.assign_conversation(
+        assignment = assign_or_enqueue(
             db,
-            conversation_id=str(conversation.id),
-            agent_id=agent_id,
+            conversation=conversation,
             team_id=str(team.id),
+            agent_id=agent_id,
             assigned_by_id=None,
-            update_lead_owner=False,
         )
         return RoutingDecision(
             rule_id=str(rule.id),

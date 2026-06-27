@@ -597,6 +597,24 @@ def _assigned_agent_payload(db: Session, conversation_id: UUID | None) -> dict |
         return None
 
 
+def _queue_payload(db: Session, conversation_id: UUID | None) -> dict | None:
+    """Queue position + estimated wait when the conversation is still waiting for an
+    agent. ``None`` when assigned or not queued. Best-effort: never raises."""
+    if not conversation_id:
+        return None
+    try:
+        from app.models.crm.conversation import Conversation
+        from app.services.crm.inbox.queue import queue_status_for_conversation
+
+        conversation = db.get(Conversation, conversation_id)
+        if conversation is None:
+            return None
+        return queue_status_for_conversation(db, conversation)
+    except Exception:
+        logger.warning("widget_queue_payload_failed conversation_id=%s", conversation_id)
+        return None
+
+
 @router.get("/session/{session_id}/status")
 def get_session_status(
     session_id: UUID,
@@ -638,6 +656,7 @@ def get_session_status(
         "unread_count": unread_count,
         "is_online": is_within_business_hours(config.business_hours) if config else True,
         "agent": _assigned_agent_payload(db, session.conversation_id),
+        "queue": _queue_payload(db, session.conversation_id),
     }
 
 

@@ -114,6 +114,18 @@
   }
 
   /**
+   * Human-friendly wait estimate, e.g. 330 -> "6 min", 40 -> "1 min".
+   */
+  function formatWait(seconds) {
+    const s = Number(seconds);
+    if (!Number.isFinite(s) || s <= 0) return '';
+    const mins = Math.max(1, Math.round(s / 60));
+    if (mins < 60) return `${mins} min`;
+    const hours = Math.round(mins / 60);
+    return `${hours} hr`;
+  }
+
+  /**
    * Up to two uppercase initials from a name (e.g. "Sarah O'Neil" -> "SO").
    */
   function initialsOf(name) {
@@ -184,6 +196,7 @@
       this.pollInterval = null;
       this.renderedMessageIds = new Set(); // Track rendered messages for animations
       this.agent = null; // Currently assigned support agent {name, avatar_url, status}
+      this._queued = false; // Whether the visitor is currently shown the queue banner
 
       // Dialog flow state
       this.dialogFlowActive = false;
@@ -394,6 +407,8 @@
               </svg>
             </button>
           </div>
+
+          <div class="dotmac-widget-queue-banner" style="display: none" role="status" aria-live="polite"></div>
 
           <div class="dotmac-widget-messages">
             ${this.getPrechatHTML()}
@@ -985,6 +1000,34 @@
           white-space: nowrap;
         }
 
+        /* Queue banner (customer waiting for an agent) */
+        .dotmac-widget-queue-banner {
+          margin: 12px 16px 0;
+          padding: 12px 14px;
+          border-radius: 12px;
+          background: #fffbeb;
+          border: 1px solid #fde68a;
+          color: #92400e;
+          text-align: center;
+        }
+
+        .dotmac-widget-queue-title {
+          font-weight: 600;
+          font-size: 14px;
+        }
+
+        .dotmac-widget-queue-sub {
+          font-size: 12px;
+          opacity: 0.85;
+          margin-top: 2px;
+        }
+
+        .dotmac-widget-queue-eta {
+          font-size: 12px;
+          font-weight: 600;
+          margin-top: 4px;
+        }
+
         .dotmac-widget-message-body a {
           text-decoration: underline;
           cursor: pointer;
@@ -1551,9 +1594,40 @@
         if (response.ok) {
           const data = await response.json();
           this.updateAgentHeader(data.agent || this._agentFromMessages());
+          this.updateQueueBanner(data.queue);
         }
       } catch (error) {
         console.warn('[DotMac Widget] Failed to refresh agent status:', error);
+      }
+    }
+
+    /**
+     * Show/hide the "you're in the queue" banner with live position + ETA.
+     */
+    updateQueueBanner(queue) {
+      if (!this.container) return;
+      const banner = this.container.querySelector('.dotmac-widget-queue-banner');
+      if (!banner) return;
+
+      if (!queue || !queue.position) {
+        banner.style.display = 'none';
+        this._queued = false;
+        return;
+      }
+
+      const position = queue.position;
+      const wait = formatWait(queue.estimated_wait_seconds);
+      const waitHtml = wait ? `<div class="dotmac-widget-queue-eta">~${sanitizeHtml(wait)} estimated wait</div>` : '';
+      banner.innerHTML =
+        `<div class="dotmac-widget-queue-title">You're #${position} in line</div>` +
+        `<div class="dotmac-widget-queue-sub">We'll connect you with the next available agent.</div>` +
+        waitHtml;
+      banner.style.display = 'block';
+
+      // One-shot reassurance message the first time we enter the queue.
+      if (!this._queued) {
+        this._queued = true;
+        this.addSystemMessage("You're in the queue — the next available agent will be with you shortly.");
       }
     }
 
@@ -1802,8 +1876,9 @@
 
           if (response.ok) {
             const data = await response.json();
-            // Keep the header agent + presence dot fresh while polling.
+            // Keep the header agent + presence dot + queue banner fresh while polling.
             this.updateAgentHeader(data.agent || this._agentFromMessages());
+            this.updateQueueBanner(data.queue);
             if (data.unread_count > 0 && !this.isOpen) {
               this.updateUnreadBadge(data.unread_count);
               // Reload messages to get new ones

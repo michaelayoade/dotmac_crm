@@ -846,6 +846,13 @@ def assign_conversation(
         )
         assignment = ConversationAssignments.create(db, payload)
 
+        # Stamp the first time an agent (not a team-only queue) takes the chat —
+        # powers queue-wait metrics (first_assigned_at - queued_at). Idempotent.
+        if agent_uuid and conversation.first_assigned_at is None:
+            conversation.first_assigned_at = _now()
+            db.add(conversation)
+            db.commit()
+
         if update_lead_owner and agent_uuid:
             db.query(Lead).filter(
                 Lead.contact_id == conversation.contact_id,

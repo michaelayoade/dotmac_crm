@@ -161,6 +161,7 @@ def inbox_conversation_assignment(
     conversation_id: str,
     agent_id: str | None = Form(None),
     team_id: str | None = Form(None),
+    note: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     from app.services.crm.inbox.conversation_actions import assign_conversation
@@ -174,6 +175,7 @@ def inbox_conversation_assignment(
         agent_id=agent_id,
         team_id=team_id,
         assigned_by_id=assigned_by_id,
+        note=note,
         roles=_get_current_roles(request),
         scopes=_get_current_scopes(request),
     )
