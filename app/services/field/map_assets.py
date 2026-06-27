@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.models.field import FieldMapAssetTombstone
 from app.models.gis import ServiceBuilding
 from app.models.network import FdhCabinet, FiberAccessPoint, FiberSpliceClosure, OLTDevice
 from app.models.wireless_mast import WirelessMast
@@ -54,6 +56,7 @@ def _asset_payload(asset_type: str, config: AssetConfig, row: Any) -> dict:
         "latitude": float(row.latitude),
         "longitude": float(row.longitude),
         "status": _status(row, config.status_attr),
+        "updated_at": getattr(row, "updated_at", None),
     }
 
 
@@ -61,6 +64,7 @@ def list_map_assets(
     db: Session,
     *,
     asset_types: list[str] | None = None,
+    updated_since: datetime | None = None,
     limit: int = 1000,
 ) -> list[dict]:
     selected = asset_types or list(DEFAULT_ASSET_TYPES)
@@ -72,15 +76,55 @@ def list_map_assets(
         remaining = limit - len(items)
         if remaining <= 0:
             break
-        rows = (
-            db.query(config.model)
-            .filter(config.model.latitude.isnot(None), config.model.longitude.isnot(None))
-            .order_by(config.model.updated_at.desc())
-            .limit(remaining)
-            .all()
+        query = db.query(config.model).filter(
+            config.model.latitude.isnot(None),
+            config.model.longitude.isnot(None),
         )
+        if hasattr(config.model, "is_active"):
+            query = query.filter(config.model.is_active.is_(True))
+        if updated_since is not None:
+            query = query.filter(config.model.updated_at > updated_since)
+        rows = query.order_by(config.model.updated_at.desc()).limit(remaining).all()
         items.extend(_asset_payload(asset_type, config, row) for row in rows)
     return items
+
+
+def list_deleted_map_assets(
+    db: Session,
+    *,
+    asset_types: list[str] | None = None,
+    deleted_since: datetime | None = None,
+    limit: int = 1000,
+) -> list[dict]:
+    query = db.query(FieldMapAssetTombstone)
+    if asset_types:
+        query = query.filter(FieldMapAssetTombstone.asset_type.in_(asset_types))
+    if deleted_since is not None:
+        query = query.filter(FieldMapAssetTombstone.deleted_at > deleted_since)
+    rows = query.order_by(FieldMapAssetTombstone.deleted_at.desc()).limit(limit).all()
+    return [{"type": row.asset_type, "id": row.asset_id, "deleted_at": row.deleted_at} for row in rows]
+
+
+def record_map_asset_tombstone(db: Session, *, asset_type: str, asset_id) -> None:
+    deleted_at = datetime.now(UTC)
+    row = (
+        db.query(FieldMapAssetTombstone)
+        .filter(
+            FieldMapAssetTombstone.asset_type == asset_type,
+            FieldMapAssetTombstone.asset_id == asset_id,
+        )
+        .one_or_none()
+    )
+    if row is None:
+        db.add(
+            FieldMapAssetTombstone(
+                asset_type=asset_type,
+                asset_id=asset_id,
+                deleted_at=deleted_at,
+            )
+        )
+    else:
+        row.deleted_at = deleted_at
 
 
 def update_map_asset_location(
