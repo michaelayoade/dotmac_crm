@@ -8,11 +8,12 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import case, func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session
 
 from app.models.subscriber import Subscriber, SubscriberBillingRiskSnapshot
 from app.services import billing_risk_reports as live_billing_risk
+from app.services import selfcare
 
 SEGMENT_LABELS = {
     "active": "Active",
@@ -80,6 +81,217 @@ def _date_text(value: date | datetime | None) -> str:
     return value.isoformat()
 
 
+_GENERIC_LOCATION_VALUES = {"ng", "nga", "nigeria", "unknown", "none", "null", "n/a", "na", "-"}
+_ADDRESS_LOCATION_KEYWORDS = (
+    " avenue",
+    " building",
+    " center",
+    " centre",
+    " close",
+    " court",
+    " crescent",
+    " drive",
+    " estate",
+    " expressway",
+    " floor",
+    " hotel",
+    " layout",
+    " road",
+    " street",
+    " terrace",
+    " unit",
+)
+
+
+def _looks_like_address_or_identifier(text: str) -> bool:
+    compact = text.replace(" ", "")
+    if compact.isdigit():
+        return True
+    first_token = text.split(maxsplit=1)[0].strip(".,#")
+    if first_token and first_token[0].isdigit():
+        return True
+    if len(first_token) <= 5 and any(character.isdigit() for character in first_token):
+        return True
+    lowered = f" {text.casefold()} "
+    return any(keyword in lowered for keyword in _ADDRESS_LOCATION_KEYWORDS)
+
+
+def _usable_location_text(value: object) -> str:
+    text = str(value or "").strip().strip(",")
+    if not text:
+        return ""
+    for suffix in (", NG", ", NGA", ", Nigeria"):
+        if text.casefold().endswith(suffix.casefold()):
+            text = text[: -len(suffix)].strip().strip(",")
+            break
+    if text.casefold().replace(".", "").strip() in _GENERIC_LOCATION_VALUES:
+        return ""
+    if _looks_like_address_or_identifier(text):
+        return ""
+    return text
+
+
+def _display_location(*values: object) -> str:
+    for value in values:
+        if text := _usable_location_text(value):
+            return text
+    return ""
+
+
+def _display_billing_type(
+    billing_mode: object = None,
+    subscription_billing_mode: object = None,
+    billing_type: object = None,
+) -> str:
+    for value in (billing_mode, subscription_billing_mode):
+        normalized = str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
+        if normalized == "prepaid":
+            return "prepaid"
+        if normalized == "postpaid":
+            return "postpaid"
+    normalized_type = str(billing_type or "").strip().casefold().replace("-", "_").replace(" ", "_")
+    if normalized_type.startswith("prepaid"):
+        return "prepaid"
+    if normalized_type in {"postpaid", "post_paid", "recurring"}:
+        return "postpaid"
+    return "unknown"
+
+
+def _first_text(*values: object) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text and text != "0000-00-00":
+            return text
+    return ""
+
+
+def _latest_payment_by_customer(payments: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for payment in payments:
+        if not isinstance(payment, dict):
+            continue
+        customer_id = str(
+            payment.get("customer_id")
+            or payment.get("subscriber_id")
+            or payment.get("customerId")
+            or payment.get("subscriberId")
+            or ""
+        ).strip()
+        if not customer_id:
+            continue
+        payment_date = _first_text(
+            payment.get("date"),
+            payment.get("paid_at"),
+            payment.get("payment_date"),
+            payment.get("created_at"),
+        )
+        if customer_id not in latest or payment_date > str(latest[customer_id].get("date") or ""):
+            latest[customer_id] = {
+                "date": payment_date,
+                "amount": str(
+                    _parse_decimal(payment.get("amount") or payment.get("paid_amount") or payment.get("total"))
+                ),
+            }
+    return latest
+
+
+def _billing_invoice_rows(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for key in ("invoices", "active_invoices", "unpaid_invoices", "open_invoices"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            rows.extend(row for row in value if isinstance(row, dict))
+    for key in ("billing", "account", "customer"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            rows.extend(_billing_invoice_rows(nested))
+    return rows
+
+
+def _invoice_balance_due(invoice: dict[str, Any]) -> Decimal:
+    return _parse_decimal(
+        invoice.get("balance_due")
+        or invoice.get("balanceDue")
+        or invoice.get("due_balance")
+        or invoice.get("amount_due")
+        or invoice.get("outstanding_balance")
+        or invoice.get("balance")
+    )
+
+
+def _is_active_unpaid_invoice(invoice: dict[str, Any]) -> bool:
+    if _invoice_balance_due(invoice) <= 0:
+        return False
+    if invoice.get("is_active") is False or invoice.get("active") is False:
+        return False
+    status = str(invoice.get("status") or invoice.get("invoice_status") or "").strip().casefold()
+    payment_status = str(invoice.get("payment_status") or invoice.get("paid_status") or "").strip().casefold()
+    excluded = {"paid", "cancelled", "canceled", "void", "voided", "deleted", "draft", "refunded"}
+    return not (status in excluded or payment_status in excluded)
+
+
+def _active_unpaid_invoice_summary(billing_payload: dict[str, Any] | None) -> dict[str, Any]:
+    invoices = [invoice for invoice in _billing_invoice_rows(billing_payload) if _is_active_unpaid_invoice(invoice)]
+    balance_due = sum((_invoice_balance_due(invoice) for invoice in invoices), Decimal("0.00")).quantize(
+        Decimal("0.01")
+    )
+    return {
+        "count": len(invoices),
+        "balance_due": str(balance_due),
+        "last_invoice_date": _first_text(
+            *[
+                _first_text(
+                    invoice.get("invoice_date"),
+                    invoice.get("date"),
+                    invoice.get("created_at"),
+                    invoice.get("issued_at"),
+                )
+                for invoice in invoices
+            ]
+        ),
+        "next_due_date": _first_text(
+            *[
+                _first_text(
+                    invoice.get("due_date"),
+                    invoice.get("dueDate"),
+                    invoice.get("payment_due_date"),
+                )
+                for invoice in invoices
+            ]
+        ),
+    }
+
+
+def _enrich_cached_payment_and_invoice_fields(db: Session, rows: list[dict[str, Any]]) -> None:
+    try:
+        latest_payments = _latest_payment_by_customer(selfcare.fetch_payments(db, limit=10000))
+    except Exception:
+        latest_payments = {}
+    for row in rows:
+        external_id = str(row.get("_external_id") or row.get("subscriber_id") or "").strip()
+        latest_payment = latest_payments.get(external_id) or {}
+        row["last_payment_date"] = _first_text(
+            latest_payment.get("date"),
+            row.get("last_payment_date"),
+            row.get("last_transaction_date"),
+        )
+        row["last_payment_amount"] = _first_text(latest_payment.get("amount"), row.get("last_payment_amount"))
+        billing_type = _display_billing_type(
+            row.get("billing_mode"),
+            row.get("subscription_billing_mode"),
+            row.get("billing_type"),
+        )
+        if billing_type != "prepaid" or not external_id:
+            continue
+        try:
+            billing_payload = selfcare.fetch_customer_billing(db, external_id)
+        except Exception:
+            billing_payload = None
+        row["prepaid_unpaid_invoice_summary"] = _active_unpaid_invoice_summary(billing_payload)
+
+
 def _snapshot_to_dict(row: SubscriberBillingRiskSnapshot) -> dict[str, Any]:
     balance = float(row.balance or 0)
     mrr_total = float(row.mrr_total or 0)
@@ -91,7 +303,7 @@ def _snapshot_to_dict(row: SubscriberBillingRiskSnapshot) -> dict[str, Any]:
         "email": row.email or "",
         "phone": row.phone or "",
         "city": row.city or "",
-        "location": row.location or "",
+        "location": _display_location(row.location, row.city, row.area),
         "mrr_total": mrr_total,
         "subscriber_status": row.subscriber_status or "",
         "area": row.area or "",
@@ -101,11 +313,19 @@ def _snapshot_to_dict(row: SubscriberBillingRiskSnapshot) -> dict[str, Any]:
         "next_bill_date": _date_text(row.next_bill_date),
         "balance": balance,
         "account_balance_deposit": source_metadata.get("account_balance_deposit"),
-        "billing_type": str(source_metadata.get("billing_type") or ""),
+        "billing_type": _display_billing_type(
+            source_metadata.get("billing_mode"),
+            source_metadata.get("subscription_billing_mode"),
+            source_metadata.get("billing_type"),
+        ),
+        "billing_mode": str(source_metadata.get("billing_mode") or ""),
+        "subscription_billing_mode": str(source_metadata.get("subscription_billing_mode") or ""),
         "billing_cycle": row.billing_cycle or "",
         "blocked_date": _date_text(row.blocked_date),
         "blocked_for_days": row.blocked_for_days,
         "last_transaction_date": _date_text(row.last_transaction_date),
+        "last_payment_date": str(source_metadata.get("last_payment_date") or ""),
+        "last_payment_amount": source_metadata.get("last_payment_amount") or 0,
         "expires_in": row.expires_in or "",
         "invoiced_until": _date_text(row.invoiced_until),
         "days_since_last_payment": row.days_since_last_payment,
@@ -118,6 +338,12 @@ def _snapshot_to_dict(row: SubscriberBillingRiskSnapshot) -> dict[str, Any]:
         "_external_id": row.external_id,
         "_subscriber_number": row.subscriber_number or "",
         "_last_synced_at": row.refreshed_at.isoformat() if row.refreshed_at else "",
+        "prepaid_unpaid_invoice_count": _parse_int(source_metadata.get("prepaid_unpaid_invoice_count")) or 0,
+        "prepaid_unpaid_invoice_balance_due": float(
+            _parse_decimal(source_metadata.get("prepaid_unpaid_invoice_balance_due"))
+        ),
+        "prepaid_unpaid_last_invoice_date": str(source_metadata.get("prepaid_unpaid_last_invoice_date") or ""),
+        "prepaid_unpaid_next_due_date": str(source_metadata.get("prepaid_unpaid_next_due_date") or ""),
     }
 
 
@@ -217,7 +443,22 @@ def _base_query(
         )
     normalized_location = (location or "").strip()
     if normalized_location:
-        query = query.filter(SubscriberBillingRiskSnapshot.location == normalized_location)
+        query = query.filter(
+            or_(
+                SubscriberBillingRiskSnapshot.location == normalized_location,
+                and_(
+                    or_(
+                        SubscriberBillingRiskSnapshot.location.is_(None),
+                        SubscriberBillingRiskSnapshot.location == "",
+                        func.lower(SubscriberBillingRiskSnapshot.location).in_(_GENERIC_LOCATION_VALUES),
+                    ),
+                    or_(
+                        SubscriberBillingRiskSnapshot.city == normalized_location,
+                        SubscriberBillingRiskSnapshot.area == normalized_location,
+                    ),
+                ),
+            )
+        )
     return query
 
 
@@ -424,14 +665,17 @@ def location_options_cached(
             search=search,
             overdue_bucket=overdue_bucket,
         )
-        .with_entities(SubscriberBillingRiskSnapshot.location)
-        .filter(SubscriberBillingRiskSnapshot.location.isnot(None))
-        .filter(SubscriberBillingRiskSnapshot.location != "")
+        .with_entities(
+            SubscriberBillingRiskSnapshot.location,
+            SubscriberBillingRiskSnapshot.city,
+            SubscriberBillingRiskSnapshot.area,
+        )
         .distinct()
         .order_by(SubscriberBillingRiskSnapshot.location.asc())
         .all()
     )
-    return [str(location).strip() for (location,) in rows if str(location or "").strip()]
+    locations = {_display_location(location, city, area) for location, city, area in rows}
+    return sorted((location for location in locations if location), key=str.casefold)
 
 
 def summary_cached(
@@ -613,6 +857,10 @@ def _snapshot_values(
 ) -> dict:
     external_id = str(row.get("_external_id") or row.get("subscriber_id") or "").strip()
     subscriber = subscribers_by_external.get(external_id)
+    raw_prepaid_invoice_summary = row.get("prepaid_unpaid_invoice_summary")
+    prepaid_invoice_summary: dict[str, Any] = (
+        raw_prepaid_invoice_summary if isinstance(raw_prepaid_invoice_summary, dict) else {}
+    )
     return {
         "id": uuid.uuid4(),
         "external_system": "selfcare",
@@ -648,7 +896,15 @@ def _snapshot_values(
         "source_metadata": {
             "last_synced_at": row.get("_last_synced_at") or "",
             "billing_type": row.get("billing_type") or "",
+            "billing_mode": row.get("billing_mode") or "",
+            "subscription_billing_mode": row.get("subscription_billing_mode") or "",
             "account_balance_deposit": row.get("account_balance_deposit"),
+            "last_payment_date": _first_text(row.get("last_payment_date"), row.get("last_transaction_date")),
+            "last_payment_amount": str(_parse_decimal(row.get("last_payment_amount"))),
+            "prepaid_unpaid_invoice_count": prepaid_invoice_summary.get("count") or 0,
+            "prepaid_unpaid_invoice_balance_due": str(_parse_decimal(prepaid_invoice_summary.get("balance_due"))),
+            "prepaid_unpaid_last_invoice_date": prepaid_invoice_summary.get("last_invoice_date") or "",
+            "prepaid_unpaid_next_due_date": prepaid_invoice_summary.get("next_due_date") or "",
             "source": "billing_risk_live_builder",
         },
         "refreshed_at": refreshed_at,
@@ -672,6 +928,7 @@ def refresh_cache(
         enrich_visible_rows=False,
     )
     live_billing_risk.enrich_billing_risk_rows(rows)
+    _enrich_cached_payment_and_invoice_fields(db, rows)
     external_ids = {
         str(row.get("_external_id") or row.get("subscriber_id") or "").strip()
         for row in rows
