@@ -84,14 +84,30 @@ Authorization: Bearer <CRM service-account JWT>     # crm_client.py login
 
 ### 4.3 Token
 - Short-lived (15 min). No refresh token; re-mint via sub (sub holds the trust).
-- Claims: `sub=crm_subscriber_id`, `scopes`, `exp`, `iss=crm`, `aud=portal`. Signed by CRM.
+- Claims: `sub=crm_subscriber_id`, `actor=subscriber`, `scopes`, `exp`, `iss=crm`, `aud=portal`. Signed by CRM.
 - CRM scopes **every** Portal query to `sub` claim. A missing/extra scope → 403.
+
+### 4.4 Reseller identity & partner linkage
+
+Today sub's `Reseller` (`app/models/subscriber.py`) has **no CRM link** — unlike `Subscriber` (`crm_subscriber_id` + `splynx_customer_id`). CRM already has the home for it: `Organization` with `AccountType.reseller` and **parent/child hierarchy** (`organization_membership` describes "a reseller managing many child customer orgs"). We link them and scope managed accounts via that hierarchy.
+
+- **Link**: add `crm_organization_id` to sub `Reseller` (mirror `Subscriber.crm_subscriber_id`: unique, nullable, sync-backfilled).
+- **Maintained by** a `reseller.changed` event (sub→CRM, §6.3) that upserts the reseller `Organization(account_type=reseller)` and persists `crm_organization_id` — the reseller analogue of `_persist_crm_link`.
+- **Managed accounts = org subtree**: a subscriber's `reseller_id` (sub) places that subscriber's CRM record as a **child org** under the reseller's Organization (`parent_id`). "This reseller's accounts" is then a subtree query in CRM — **authorization stays server-side**; sub never passes an account list.
+- **People**: sub `ResellerUser` ↔ CRM `Person` + `OrganizationMembership` (portal logins).
+
+### 4.5 Reseller portal token (subtree-scoped)
+- Same mint (§4.1), reseller variant: `{crm_organization_id | reseller_external_id, scopes:[…]}`.
+- Claims: `sub=crm_organization_id`, **`actor=reseller`** — tells CRM to apply **subtree** scoping (the org + its child customer orgs) instead of single-subscriber scoping.
+- Reseller scopes: `read:managed_accounts`, `read:projects`, `read:work_orders`, `read:referrals` (own/partner), plus writes (`write:service_requests`) as needed.
+- The reseller portal calls the **same** `/api/v1/portal/*`; CRM returns the subtree, not one subscriber. Aligns with sub's existing reseller impersonation model.
+- **SoR boundary holds**: reseller **commissions/billing are sub-owned** — the app reads those from sub, *not* the Portal API. Sync feeds CRM's partner view for agent context only.
 
 ---
 
 ## 5. Portal API (v1) — `/api/v1/portal`
 
-All endpoints: `Bearer portal_token`, auto-scoped to the token's subscriber, **customer-safe DTOs only** (no internal notes, costs, SLA timers, tech rates, other customers). 404 (not 403) for non-owned ids.
+All endpoints: `Bearer portal_token`, auto-scoped to the token's subject — a single subscriber (`actor=subscriber`) or a reseller org subtree (`actor=reseller`, §4.5) — **customer-safe DTOs only** (no internal notes, costs, SLA timers, tech rates, other customers). 404 (not 403) for non-owned ids.
 
 ### 5.1 Referrals (reference vertical — see §7)
 ```
@@ -128,6 +144,16 @@ GET  /portal/quotes                   → [ {id,status,total,currency,expires_at
 GET  /portal/quotes/{id}              → { ...,line_items:[{description,quantity,unit_price,amount}] }
 POST /portal/quotes/{id}/accept       → 200 { "status":"accepted","sales_order_id":"<uuid>" }
 ```
+
+### 5.5 Reseller (subtree-scoped — `actor=reseller` token)
+Same endpoints, but CRM scopes to the reseller org's subtree (§4.5). `?account=` must resolve inside the subtree or → 404.
+```
+GET /portal/managed-accounts          → [ {crm_subscriber_id,name,status} ]   # the org subtree
+GET /portal/projects?account={id}     → that managed account's projects
+GET /portal/work-orders?account={id}  → that managed account's work orders
+GET /portal/referrals                 → the reseller's own partner referrals/rewards
+```
+Commissions/billing are **not** here — sub-owned, read from sub (§4.5 SoR note).
 
 ---
 
@@ -175,7 +201,8 @@ One envelope replaces all bespoke pipelines (§1). Both directions, same shape, 
 **sub → CRM**
 | Type | data | Consumer action | Replaces |
 |---|---|---|---|
-| `subscriber.changed` | profile/status fields | upsert CRM Subscriber (+ link) | `push_subscriber_change` |
+| `subscriber.changed` | profile/status fields, `reseller_id` | upsert CRM Subscriber (+ link, + child-org under reseller) | `push_subscriber_change` |
+| `reseller.changed` | name, code, contact, status | upsert reseller `Organization(account_type=reseller)` (+ persist `crm_organization_id`) | (new) |
 | `billing.snapshot_updated` | balance, dunning, next_charge_at | update CRM 360 snapshot | `push_crm_billing_snapshots` |
 | `invoice.paid` | invoice_id, amount | timeline event; **referral qualify trigger** | (new) |
 | `service.changed` | subscription/plan/status | update CRM service view | (part of subscriber sync) |
@@ -219,4 +246,4 @@ This proves: mint, Portal read + write, a CRM→sub event with a money side-effe
 ## 10. Open questions
 - `portal_token` as JWT (stateless, CRM-verifiable) vs opaque (revocable via store)? Leaning JWT for parity with existing tokens.
 - Per-subject `sequence` source on the sub side (logical clock vs updated_at)?
-- Do resellers get a portal token scoped to their managed accounts (impersonation already exists) — same mint, different scope claim?
+- ~~Do resellers get a portal token scoped to their managed accounts?~~ **Resolved (§4.4–4.5):** yes — `Reseller.crm_organization_id` ↔ CRM reseller `Organization`, managed accounts as the org subtree, `actor=reseller` token scopes to that subtree. Open sub-question: should `reseller.changed`/subtree placement be backfilled for existing resellers in one migration, or lazily on first mint?
