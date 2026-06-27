@@ -33,6 +33,12 @@ from app.models.crm.macro import CrmConversationMacro
 from app.models.crm.message_template import CrmMessageTemplate
 from app.models.crm.outbox import OutboxMessage
 from app.models.crm.presence import AgentLocationPing, AgentPresence, AgentPresenceEvent
+from app.models.crm.referral import (
+    Referral,
+    ReferralCode,
+    ReferralRewardStatus,
+    ReferralStatus,
+)
 from app.models.crm.sales import CrmQuoteLineItem, Lead, Pipeline, PipelineStage, Quote
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmRoutingRule, CrmTeam, CrmTeamChannel
 
@@ -81,6 +87,10 @@ __all__ = [
     "PipelineStage",
     "Quote",
     "QuoteStatus",
+    "Referral",
+    "ReferralCode",
+    "ReferralRewardStatus",
+    "ReferralStatus",
     "SocialComment",
     "SocialCommentPlatform",
     "SocialCommentReply",

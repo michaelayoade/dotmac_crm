@@ -3,6 +3,7 @@ import datetime as _datetime
 import enum
 import os
 import sqlite3
+import struct
 import typing as _typing
 import uuid
 from datetime import timezone
@@ -217,6 +218,43 @@ def _backfill_enum_values(engine):
             conn.execute(text(f"ALTER TYPE channeltype ADD VALUE IF NOT EXISTS '{val}'"))
 
 
+def _stub_st_makepoint(x, y):
+    """Standard little-endian WKB point (no SRID) — SpatiaLite-less shim."""
+    return "0101000000" + struct.pack("<d", float(x)).hex() + struct.pack("<d", float(y)).hex()
+
+
+def _stub_st_setsrid(geom_hex, srid):
+    """Wrap a stub WKB point as EWKB with an SRID so geoalchemy2 can read it back."""
+    x, y = _stub_wkb_coords(geom_hex)
+    return (
+        "01"
+        + struct.pack("<I", 0x20000001).hex()  # point type | SRID flag
+        + struct.pack("<I", int(srid)).hex()
+        + struct.pack("<d", x).hex()
+        + struct.pack("<d", y).hex()
+    )
+
+
+def _stub_wkb_coords(geom_hex):
+    raw = bytes.fromhex(str(geom_hex))
+    wkb_type = struct.unpack("<I", raw[1:5])[0]
+    offset = 9 if wkb_type & 0x20000000 else 5  # skip SRID word when the flag is set
+    x = struct.unpack("<d", raw[offset : offset + 8])[0]
+    y = struct.unpack("<d", raw[offset + 8 : offset + 16])[0]
+    return x, y
+
+
+def _stub_st_coord(index: int):
+    """Read coordinate ``index`` from a stub WKB/EWKB point (SpatiaLite-less)."""
+
+    def _coord(value):
+        if value is None:
+            return None
+        return _stub_wkb_coords(value)[index]
+
+    return _coord
+
+
 @pytest.fixture(scope="session")
 def engine():
     database_url = _resolve_test_database_url()
@@ -264,6 +302,13 @@ def engine():
             dbapi_connection.create_function("DisableSpatialIndex", 2, lambda *_args: 1)
             dbapi_connection.create_function("GeomFromEWKT", 1, lambda value: value)
             dbapi_connection.create_function("AsEWKB", 1, lambda value: value)
+            # Minimal point arithmetic so code paths that keep a `geom` column in
+            # sync with lat/lng (e.g. field map-asset edits) run without PostGIS.
+            # Points are encoded as plain "POINT(x y)" text; ST_X/ST_Y read it back.
+            dbapi_connection.create_function("ST_MakePoint", 2, _stub_st_makepoint)
+            dbapi_connection.create_function("ST_SetSRID", 2, _stub_st_setsrid)
+            dbapi_connection.create_function("ST_X", 1, _stub_st_coord(0))
+            dbapi_connection.create_function("ST_Y", 1, _stub_st_coord(1))
         cursor.close()
 
     # Create a connection first to initialize spatialite

@@ -164,3 +164,44 @@ def evaluate_health(health: dict[str, Any], thresholds: dict[str, float | None])
             register("warning", f"Load per core at {load_per_core:.2f}")
 
     return {"status": status, "issues": issues}
+
+
+_THRESHOLD_SETTING_KEYS = {
+    "disk_warn_pct": "server_health_disk_warn_pct",
+    "disk_crit_pct": "server_health_disk_crit_pct",
+    "mem_warn_pct": "server_health_mem_warn_pct",
+    "mem_crit_pct": "server_health_mem_crit_pct",
+    "load_warn": "server_health_load_warn",
+    "load_crit": "server_health_load_crit",
+}
+
+
+def _coerce_threshold(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def resolve_health_thresholds(db) -> dict[str, float | None]:
+    """Operator-configured warn/crit thresholds from network-monitoring settings."""
+    from app.models.domain_settings import SettingDomain
+    from app.services import settings_spec
+
+    return {
+        key: _coerce_threshold(settings_spec.resolve_value(db, SettingDomain.network_monitoring, setting_key))
+        for key, setting_key in _THRESHOLD_SETTING_KEYS.items()
+    }
+
+
+def system_health_report(db) -> dict[str, Any]:
+    """Host vitals plus the threshold evaluation — the read model behind the
+    admin system page and the system-health API."""
+    health = get_system_health()
+    return {**health, "evaluation": evaluate_health(health, resolve_health_thresholds(db))}
