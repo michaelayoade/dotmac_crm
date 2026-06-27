@@ -956,6 +956,98 @@ def _complete_ticket_sla_clock(ticket: Ticket, clock: SlaClock, completed_at: da
     clock.paused_at = None
 
 
+def notify_ticket_sla_breach(db: Session, clock: SlaClock) -> None:
+    """Real-time escalation when a ticket SLA clock breaches.
+
+    Mirrors ``projects.notify_project_task_sla_breach`` for tickets (which the
+    breach detector previously skipped entirely): flag the ticket, notify the
+    Ticket Manager / Site Project Coordinator / assignee (in-app + email), and
+    emit ``ticket_escalated`` so webhook/ERP escalation also fires. Idempotent —
+    a metadata flag ensures one escalation per breach. Does not commit; the
+    caller (the detector task) owns the transaction.
+    """
+    if clock.entity_type != WorkflowEntityType.ticket:
+        return
+    ticket = db.get(Ticket, clock.entity_id)
+    if not ticket or not ticket.is_active:
+        return
+
+    metadata = dict(ticket.metadata_) if isinstance(ticket.metadata_, dict) else {}
+    if metadata.get("sla_breach_notified"):
+        return  # already escalated for this breach
+
+    now = datetime.now(UTC)
+    breached_at = clock.breached_at or now
+    metadata["sla_breached"] = True
+    metadata["sla_breached_at"] = breached_at.isoformat()
+    metadata["sla_breach_notified"] = True
+    ticket.metadata_ = metadata
+
+    from app.services import email as email_service
+
+    base_url = (email_service.get_app_url(db) or "").rstrip("/")
+    ticket_ref = ticket.number or str(ticket.id)
+    ticket_url = (
+        f"{base_url}/admin/support/tickets/{ticket_ref}" if base_url else f"/admin/support/tickets/{ticket_ref}"
+    )
+    priority_label = ticket.priority.value.replace("_", " ") if ticket.priority else "n/a"
+    subject = f"SLA breach: {ticket.title}"
+    body = (
+        f"Ticket {ticket_ref} has breached its SLA resolution timeline.\n"
+        f"Priority: {priority_label}.\n"
+        f"Action required by the Ticket Manager / SPC.\n"
+        f"Open: {ticket_url}"
+    )
+
+    role_person_ids = [
+        ticket.ticket_manager_person_id,
+        ticket.assistant_manager_person_id,
+        ticket.assigned_to_person_id,
+    ]
+    person_ids = [pid for pid in role_person_ids if pid]
+    if person_ids:
+        people = db.query(Person).filter(Person.id.in_(person_ids)).all()
+        recipients = {p.email.strip() for p in people if isinstance(p.email, str) and p.email.strip()}
+        for recipient in recipients:
+            db.add(
+                Notification(
+                    channel=NotificationChannel.push,
+                    recipient=recipient,
+                    subject=subject,
+                    body=body,
+                    status=NotificationStatus.delivered,
+                    sent_at=now,
+                )
+            )
+            db.add(
+                Notification(
+                    channel=NotificationChannel.email,
+                    recipient=recipient,
+                    subject=subject,
+                    body=body,
+                    status=NotificationStatus.queued,
+                )
+            )
+
+    # Fire the escalation event even with no role recipients so webhook/ERP sync
+    # still react to the breach.
+    emit_event(
+        db,
+        EventType.ticket_escalated,
+        {
+            "ticket_id": str(ticket.id),
+            "title": ticket.title,
+            "subject": ticket.title,
+            "status": ticket.status.value if ticket.status else None,
+            "priority": ticket.priority.value if ticket.priority else None,
+            "reason": "sla_breach",
+            "breached_at": breached_at.isoformat(),
+        },
+        subscriber_id=ticket.subscriber_id,
+        ticket_id=ticket.id,
+    )
+
+
 def _resolve_ticket_sla_breaches(db: Session, clock: SlaClock) -> None:
     open_breaches = (
         db.query(SlaBreach)
