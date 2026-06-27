@@ -246,7 +246,7 @@
                         form.append('file', file);
                         this.uploading = true;
                         try {
-                            const res = await fetch('/auth/me/avatar', {
+                            const res = await fetch('/api/v1/auth/me/avatar', {
                                 method: 'POST',
                                 headers: { 'X-CSRF-Token': getCsrfToken() },
                                 body: form
@@ -266,7 +266,7 @@
                     async remove() {
                         this.uploading = true;
                         try {
-                            const res = await fetch('/auth/me/avatar', {
+                            const res = await fetch('/api/v1/auth/me/avatar', {
                                 method: 'DELETE',
                                 headers: { 'X-CSRF-Token': getCsrfToken() }
                             });
