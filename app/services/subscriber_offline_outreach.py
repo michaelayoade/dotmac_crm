@@ -26,7 +26,7 @@ from app.models.tickets import Ticket, TicketStatus
 from app.schemas.crm.conversation import ConversationCreate
 from app.schemas.crm.inbox import InboxSendRequest
 from app.schemas.settings import DomainSettingUpdate
-from app.services import settings_spec, splynx, subscriber_reports, zabbix
+from app.services import selfcare, settings_spec, subscriber_reports, zabbix
 from app.services.common import coerce_uuid
 from app.services.crm import inbox as inbox_service
 from app.services.crm.conversations.service import Conversations, resolve_open_conversation
@@ -337,10 +337,10 @@ def _monitoring_match_from_row(row: dict[str, Any], *, method: str, confidence: 
 
 
 def _fetch_monitoring_rows(db: Session) -> list[dict[str, Any]]:
-    rows = zabbix.fetch_monitoring_devices(db)
-    if rows:
-        return rows
-    return splynx.fetch_monitoring_devices(db)
+    # Zabbix is the live monitoring source. (The legacy Splynx monitoring-device
+    # fallback was dropped with the dotmac_sub migration — dotmac_sub tracks
+    # presence via RADIUS sessions, not a monitoring-device inventory.)
+    return zabbix.fetch_monitoring_devices(db)
 
 
 def _resolve_monitoring_match(
@@ -1317,7 +1317,7 @@ def enrich_rows_with_station_status(
         except (TypeError, ValueError):
             continue
     subscribers_by_id = _load_subscriber_records(db, subscriber_uuid_ids)
-    customers = splynx.fetch_customers(db)
+    customers = selfcare.fetch_customers(db)
     customer_by_external_id = {
         str(customer.get("id") or "").strip(): customer
         for customer in customers
@@ -1350,7 +1350,7 @@ def enrich_rows_with_station_status(
 
         base_station_label = _coerce_text(row.get("base_station"))
         if not base_station_label and customer is not None:
-            base_station_label = _coerce_text(splynx.customer_base_station(customer))
+            base_station_label = _coerce_text(selfcare.customer_base_station(customer))
         row["base_station"] = base_station_label or ""
         if not base_station_label:
             continue
@@ -1416,7 +1416,7 @@ def run_daily_offline_outreach(
         result["reason"] = "no_candidates"
         return result
 
-    customers = splynx.fetch_customers(db)
+    customers = selfcare.fetch_customers(db)
     customer_by_external_id = {
         str(customer.get("id") or "").strip(): customer
         for customer in customers
@@ -1480,7 +1480,7 @@ def run_daily_offline_outreach(
             result["skipped"] += 1
             continue
 
-        base_station_label = _coerce_text(splynx.customer_base_station(customer))
+        base_station_label = _coerce_text(selfcare.customer_base_station(customer))
         if not base_station_label:
             _write_outreach_log(
                 db,

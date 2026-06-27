@@ -4335,10 +4335,10 @@ def _render_campaign_settings(
 )
 async def splynx_test_connection(request: Request, db: Session = Depends(get_db)):
     from app.csrf import get_csrf_token
-    from app.services import splynx as splynx_service
+    from app.services import selfcare as selfcare_service
     from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
-    ok, message = splynx_service.test_connection(db)
+    ok, message = selfcare_service.test_connection(db)
     settings_context = _build_settings_context(db, "integration")
     base_url = str(request.base_url).rstrip("/")
     crm_meta_callback_url = base_url + "/webhooks/crm/meta"

@@ -320,7 +320,11 @@ def _fetch_ucrm_clients(config: dict[str, Any], logger: logging.Logger) -> list[
 
 
 def _map_splynx_status(status: str | int | None) -> str:
-    """Backward-compatible status mapper retained for tests/imports."""
-    from app.services.splynx import _map_splynx_status as _service_status_mapper
+    """Backward-compatible status mapper retained for tests/imports.
+
+    Now backed by the Selfcare (dotmac_sub) status mapper after the Splynx
+    decommission; the name is kept for callers/tests.
+    """
+    from app.services.selfcare import _map_selfcare_status as _service_status_mapper
 
     return _service_status_mapper(status)

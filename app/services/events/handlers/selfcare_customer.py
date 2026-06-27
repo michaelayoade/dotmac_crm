@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
+from decimal import Decimal, InvalidOperation
 
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from app.models.crm.sales import Lead
+from app.models.crm.sales import CrmQuoteLineItem, Lead
 from app.models.person import Person
 from app.models.projects import Project
+from app.models.sales_order import SalesOrderLine
+from app.services import selfcare
 from app.services.common import coerce_uuid
 from app.services.events.types import Event, EventType
 from app.services.selfcare import (
@@ -54,6 +59,7 @@ class SelfcareCustomerHandler:
             sales_order_id=sales_order_id,
             mode="event",
         )
+        _ensure_installation_invoice(db, project, person)
 
 
 def _resolve_person_for_project(db: Session, project: Project) -> Person | None:
@@ -178,3 +184,222 @@ def _ensure_subscriber(
             logger.warning("selfcare_invalid_sales_order_id value=%s - skipping", sales_order_id)
 
     subscriber_service.sync_from_external(db, "selfcare", identity.external_id, data)
+
+
+# ---------------------------------------------------------------------------
+# Installation invoices (ported from the decommissioned Splynx handler; now
+# created in dotmac_sub via the selfcare client).
+# ---------------------------------------------------------------------------
+
+
+def ensure_installation_invoice_for_sales_order(db: Session, sales_order_id: object) -> None:
+    """Best-effort retry for manual sales-order flows where lines are added
+    after project creation. Creates the dotmac_sub installation invoice."""
+    if not sales_order_id:
+        return
+
+    project = (
+        db.query(Project)
+        .filter(Project.is_active.is_(True))
+        .filter(func.json_extract_path_text(Project.metadata_, "sales_order_id") == str(sales_order_id))
+        .order_by(Project.created_at.desc())
+        .first()
+    )
+    if not project:
+        return
+
+    person = _resolve_person_for_project(db, project)
+    if not person:
+        return
+
+    if not _selfcare_identity(person):
+        # Customer not yet created in selfcare — create it now, then invoice.
+        sync_person_to_selfcare(
+            db,
+            person,
+            project_id=str(project.id),
+            sales_order_id=str(sales_order_id),
+            mode="sales_order_retry",
+        )
+        if not _selfcare_identity(person):
+            return
+
+    _ensure_installation_invoice(db, project, person)
+
+
+def _ensure_installation_invoice(db: Session, project: Project, person: Person) -> None:
+    identity = _selfcare_identity(person)
+    subscriber_id = identity.external_id if identity else None
+    if not subscriber_id:
+        return
+    if _has_existing_installation_invoice(project):
+        return
+
+    related_invoice = _find_existing_related_installation_invoice(db, project)
+    if related_invoice:
+        invoice_id, amount = related_invoice
+        _store_invoice_metadata(project, invoice_id, amount)
+        db.add(project)
+        db.commit()
+        db.refresh(project)
+        logger.info(
+            "selfcare_installation_invoice_reused project_id=%s invoice_id=%s",
+            project.id,
+            invoice_id,
+        )
+        return
+
+    amount = _resolve_installation_amount(db, project)
+    if amount <= 0:
+        logger.info("selfcare_invoice_skip_no_installation_cost project_id=%s", project.id)
+        return
+
+    new_invoice_id = selfcare.create_installation_invoice(
+        db,
+        subscriber_id=subscriber_id,
+        amount=amount,
+        description="Installation cost",
+        external_ref=f"project:{project.id}",
+    )
+    if not new_invoice_id:
+        return
+
+    _store_invoice_metadata(project, new_invoice_id, amount)
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    logger.info(
+        "selfcare_installation_invoice_created project_id=%s subscriber_id=%s invoice_id=%s amount=%s",
+        project.id,
+        subscriber_id,
+        new_invoice_id,
+        amount,
+    )
+
+
+def _resolve_sales_order_id(project: Project) -> str | None:
+    if not isinstance(project.metadata_, dict):
+        return None
+    return project.metadata_.get("sales_order_id")
+
+
+def _resolve_quote_id(project: Project) -> str | None:
+    if not isinstance(project.metadata_, dict):
+        return None
+    return project.metadata_.get("quote_id")
+
+
+def _has_existing_installation_invoice(project: Project) -> bool:
+    metadata = project.metadata_ if isinstance(project.metadata_, dict) else {}
+    return bool(str(metadata.get("selfcare_installation_invoice_id") or "").strip())
+
+
+def _find_existing_related_installation_invoice(
+    db: Session, project: Project
+) -> tuple[str, Decimal | None] | None:
+    sales_order_id = _resolve_sales_order_id(project)
+    quote_id = _resolve_quote_id(project)
+    if not sales_order_id and not quote_id:
+        return None
+
+    filters = []
+    if sales_order_id:
+        filters.append(Project.metadata_["sales_order_id"].as_string() == str(sales_order_id))
+    if quote_id:
+        filters.append(Project.metadata_["quote_id"].as_string() == str(quote_id))
+
+    if filters:
+        rows = (
+            db.query(Project)
+            .filter(Project.id != project.id)
+            .filter(or_(*filters))
+            .order_by(Project.created_at.desc())
+            .all()
+        )
+        for row in rows:
+            metadata = row.metadata_ if isinstance(row.metadata_, dict) else {}
+            invoice_id = str(metadata.get("selfcare_installation_invoice_id") or "").strip()
+            if invoice_id:
+                return invoice_id, _parse_invoice_amount(metadata.get("selfcare_installation_invoice_amount"))
+
+    # SQLite JSON path comparisons are unreliable; fall back to an in-Python
+    # check to keep this idempotent in tests/dev.
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "sqlite":
+        rows = db.query(Project).filter(Project.id != project.id).all()
+        for row in rows:
+            metadata = row.metadata_ if isinstance(row.metadata_, dict) else {}
+            same_sales_order = sales_order_id and str(metadata.get("sales_order_id")) == str(sales_order_id)
+            same_quote = quote_id and str(metadata.get("quote_id")) == str(quote_id)
+            if not (same_sales_order or same_quote):
+                continue
+            invoice_id = str(metadata.get("selfcare_installation_invoice_id") or "").strip()
+            if invoice_id:
+                return invoice_id, _parse_invoice_amount(metadata.get("selfcare_installation_invoice_amount"))
+    return None
+
+
+def _store_invoice_metadata(project: Project, invoice_id: str, amount: Decimal | None) -> None:
+    metadata = dict(project.metadata_ or {})
+    metadata["selfcare_installation_invoice_id"] = str(invoice_id)
+    if amount is not None:
+        metadata["selfcare_installation_invoice_amount"] = str(amount)
+    project.metadata_ = metadata
+
+
+def _parse_invoice_amount(value: object) -> Decimal | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return Decimal(text)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _resolve_installation_amount(db: Session, project: Project) -> Decimal:
+    amount_from_sales_order = _installation_amount_from_sales_order(db, _resolve_sales_order_id(project))
+    if amount_from_sales_order > 0:
+        return amount_from_sales_order
+    return _installation_amount_from_quote(db, _resolve_quote_id(project))
+
+
+def _installation_amount_from_sales_order(db: Session, sales_order_id: str | None) -> Decimal:
+    if not sales_order_id:
+        return Decimal("0.00")
+    try:
+        sales_order_uuid = coerce_uuid(sales_order_id)
+    except Exception:
+        logger.warning("selfcare_invoice_invalid_sales_order_id value=%s", sales_order_id)
+        return Decimal("0.00")
+    lines = (
+        db.query(SalesOrderLine)
+        .filter(SalesOrderLine.sales_order_id == sales_order_uuid)
+        .filter(SalesOrderLine.is_active.is_(True))
+        .all()
+    )
+    return _sum_installation_lines(lines)
+
+
+def _installation_amount_from_quote(db: Session, quote_id: str | None) -> Decimal:
+    if not quote_id:
+        return Decimal("0.00")
+    try:
+        quote_uuid = coerce_uuid(quote_id)
+    except Exception:
+        logger.warning("selfcare_invoice_invalid_quote_id value=%s", quote_id)
+        return Decimal("0.00")
+    lines = db.query(CrmQuoteLineItem).filter(CrmQuoteLineItem.quote_id == quote_uuid).all()
+    return _sum_installation_lines(lines)
+
+
+def _sum_installation_lines(lines: Sequence[object]) -> Decimal:
+    total = Decimal("0.00")
+    for line in lines:
+        description = str(getattr(line, "description", "") or "").lower()
+        if "installation" not in description:
+            continue
+        amount = Decimal(getattr(line, "amount", 0) or 0)
+        if amount > 0:
+            total += amount
+    return total

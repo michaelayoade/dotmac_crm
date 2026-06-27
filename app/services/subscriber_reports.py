@@ -2290,7 +2290,7 @@ def get_churn_table(
         return _days_past_due_bucket(value) == selected_days_past_due_category
 
     if source == "splynx_live":
-        from app.services.splynx import (
+        from app.services.selfcare import (
             fetch_customer_billing,
             fetch_customer_internet_services,
             fetch_customers,
