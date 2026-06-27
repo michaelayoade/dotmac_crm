@@ -22,6 +22,7 @@ from app.models.network import (
     SplitterPort,
 )
 from app.services.common import coerce_uuid
+from app.services.field.map_assets import record_map_asset_tombstone
 
 ASSET_MODEL_MAP = {
     "fdh_cabinet": FdhCabinet,
@@ -33,6 +34,11 @@ ASSET_MODEL_MAP = {
     "fiber_termination_point": FiberTerminationPoint,
     "splitter": Splitter,
     "splitter_port": SplitterPort,
+}
+
+MAP_ASSET_TYPES = {
+    "fdh_cabinet": "fdh",
+    "splice_closure": "splice_closure",
 }
 
 
@@ -152,6 +158,8 @@ def _apply_request(db: Session, request: FiberChangeRequest):
             raise HTTPException(status_code=404, detail="Asset not found")
         if hasattr(asset, "is_active"):
             asset.is_active = False
+            if map_asset_type := MAP_ASSET_TYPES.get(request.asset_type):
+                record_map_asset_tombstone(db, asset_type=map_asset_type, asset_id=asset.id)
         else:
             db.delete(asset)
     else:

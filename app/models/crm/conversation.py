@@ -30,6 +30,10 @@ class Conversation(Base):
     """
 
     __tablename__ = "crm_conversations"
+    __table_args__ = (
+        Index("ix_crm_conversations_queued_at", "queued_at"),
+        Index("ix_crm_conversations_first_assigned_at", "first_assigned_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"), nullable=False)
@@ -46,6 +50,11 @@ class Conversation(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     response_time_seconds: Mapped[int | None] = mapped_column(Integer)
     resolution_time_seconds: Mapped[int | None] = mapped_column(Integer)
+    # Queue lifecycle: queued_at is set when a conversation waits for an available
+    # agent; first_assigned_at is set the first time an agent is assigned. Queue
+    # wait = first_assigned_at - queued_at.
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

@@ -65,9 +65,15 @@ class MapScreen extends ConsumerWidget {
           final validPins = items
               .where((pin) => pin.hasValidCoordinates)
               .toList();
-          final assetItems = (assets.valueOrNull ?? const <MapAsset>[])
-              .where((asset) => asset.hasValidCoordinates)
-              .toList();
+          final assetItems =
+              (assets.valueOrNull ?? const <MapAsset>[])
+                  .where((asset) => asset.hasValidCoordinates)
+                  .toList()
+                ..sort(
+                  (a, b) => _assetPaintRank(
+                    a.type,
+                  ).compareTo(_assetPaintRank(b.type)),
+                );
           final center = validPins.isNotEmpty
               ? safeLatLng(validPins.first.latitude, validPins.first.longitude)!
               : assetItems.isNotEmpty
@@ -390,4 +396,14 @@ Color _assetColor(String type) => switch (type) {
   'wireless_mast' => Colors.redAccent,
   'service_building' => Colors.brown,
   _ => Colors.blueGrey,
+};
+
+int _assetPaintRank(String type) => switch (type) {
+  'service_building' => 0,
+  'fiber_access_point' => 1,
+  'wireless_mast' => 2,
+  'splice_closure' => 3,
+  'fdh' => 4,
+  'olt' => 5,
+  _ => 0,
 };

@@ -542,6 +542,23 @@ def update_conversation_status(
                     created = created.replace(tzinfo=UTC)
                 conversation.resolution_time_seconds = int((now - created).total_seconds()) if created else 0
                 db.commit()
+                # A slot just freed for the assigned agent — pull the next queued chat.
+                if previous_status not in {ConversationStatus.resolved, ConversationStatus.resolved_to_ticket}:
+                    try:
+                        from app.models.crm.conversation import ConversationAssignment
+                        from app.services.crm.inbox.queue import promote_next_for_agent
+
+                        freeing_agent_id = (
+                            db.query(ConversationAssignment.agent_id)
+                            .filter(ConversationAssignment.conversation_id == coerce_uuid(conversation_id))
+                            .filter(ConversationAssignment.is_active.is_(True))
+                            .filter(ConversationAssignment.agent_id.isnot(None))
+                            .scalar()
+                        )
+                        if freeing_agent_id is not None:
+                            promote_next_for_agent(db, freeing_agent_id)
+                    except Exception:
+                        logger.exception("queue_promotion_on_resolve_failed conversation_id=%s", conversation_id)
             elif previous_status in {ConversationStatus.resolved, ConversationStatus.resolved_to_ticket}:
                 conversation.resolved_at = None
                 conversation.resolution_time_seconds = None

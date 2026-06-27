@@ -17,6 +17,7 @@ class EventType(StrEnum):
     CONVERSATION_SUMMARY = "conversation_summary"
     USER_TYPING = "user_typing"
     USER_PRESENCE = "user_presence"
+    CONVERSATION_READ = "conversation_read"
     CONNECTION_ACK = "connection_ack"
     HEARTBEAT = "heartbeat"
     AGENT_NOTIFICATION = "agent_notification"

@@ -161,6 +161,7 @@ def inbox_conversation_assignment(
     conversation_id: str,
     agent_id: str | None = Form(None),
     team_id: str | None = Form(None),
+    note: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     from app.services.crm.inbox.conversation_actions import assign_conversation
@@ -174,6 +175,7 @@ def inbox_conversation_assignment(
         agent_id=agent_id,
         team_id=team_id,
         assigned_by_id=assigned_by_id,
+        note=note,
         roles=_get_current_roles(request),
         scopes=_get_current_scopes(request),
     )
@@ -245,6 +247,7 @@ def inbox_conversation_assignment(
                         "agents": assignment_options["agents"],
                         "teams": assignment_options["teams"],
                         "agent_labels": assignment_options["agent_labels"],
+                        "agent_availability": assignment_options.get("agent_availability"),
                         "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
                         "assignment_error_detail": conversation_result.error_detail or "Assignment failed",
                     },
@@ -291,6 +294,7 @@ def inbox_conversation_assignment(
                 "agents": assignment_options["agents"],
                 "teams": assignment_options["teams"],
                 "agent_labels": assignment_options["agent_labels"],
+                "agent_availability": assignment_options.get("agent_availability"),
                 "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
             },
         )
@@ -374,6 +378,7 @@ def inbox_conversation_resolve(
             "agents": assignment_options["agents"],
             "teams": assignment_options["teams"],
             "agent_labels": assignment_options["agent_labels"],
+            "agent_availability": assignment_options.get("agent_availability"),
             "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
         },
     )

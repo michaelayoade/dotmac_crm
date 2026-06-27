@@ -36,6 +36,10 @@ class ChatWidgetConfig(Base):
     widget_title: Mapped[str] = mapped_column(String(80), default="Chat with us")
     offline_message: Mapped[str | None] = mapped_column(Text)
 
+    # When true, the assigned agent's introduction is auto-sent to the visitor
+    # the moment a human agent picks up the chat (see maybe_send_agent_greeting).
+    agent_greeting_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="true")
+
     # Pre-chat form configuration
     prechat_form_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     prechat_fields: Mapped[list | None] = mapped_column(MutableList.as_mutable(JSON()))
