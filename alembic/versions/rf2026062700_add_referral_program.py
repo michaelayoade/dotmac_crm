@@ -17,11 +17,23 @@ down_revision = "qb3c4d5e6f7a"
 branch_labels = None
 depends_on = None
 
-referral_status = sa.Enum(
-    "pending", "qualified", "rewarded", "rejected", "expired", name="referralstatus"
+referral_status = postgresql.ENUM(
+    "pending",
+    "qualified",
+    "rewarded",
+    "rejected",
+    "expired",
+    name="referralstatus",
+    create_type=False,
 )
-reward_status = sa.Enum(
-    "none", "pending", "approved", "issued", "void", name="referralrewardstatus"
+reward_status = postgresql.ENUM(
+    "none",
+    "pending",
+    "approved",
+    "issued",
+    "void",
+    name="referralrewardstatus",
+    create_type=False,
 )
 
 
