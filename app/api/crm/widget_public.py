@@ -552,6 +552,51 @@ def get_messages(
     return WidgetMessagesResponse(messages=result, has_more=has_more)
 
 
+def _assigned_agent_payload(db: Session, conversation_id: UUID | None) -> dict | None:
+    """Identity + live presence of the agent currently assigned to a widget
+    conversation, for the widget header bar. Returns ``None`` when no agent is
+    assigned (team-only or unassigned). Best-effort: never raises."""
+    if not conversation_id:
+        return None
+    try:
+        from app.models.crm.conversation import ConversationAssignment
+        from app.models.crm.presence import AgentPresence
+        from app.models.crm.team import CrmAgent
+        from app.models.person import Person
+        from app.services.crm.presence import agent_presence as presence_service
+
+        assignment = (
+            db.query(ConversationAssignment)
+            .filter(ConversationAssignment.conversation_id == conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.agent_id.isnot(None))
+            .order_by(ConversationAssignment.assigned_at.desc())
+            .first()
+        )
+        if assignment is None:
+            return None
+
+        agent = db.get(CrmAgent, assignment.agent_id)
+        if agent is None or agent.person_id is None:
+            return None
+        person = db.get(Person, agent.person_id)
+        if person is None:
+            return None
+
+        name = (person.display_name or " ".join(p for p in [person.first_name, person.last_name] if p)).strip()
+        presence = db.query(AgentPresence).filter(AgentPresence.agent_id == agent.id).first()
+        status = presence_service.effective_status(presence) if presence else None
+
+        return {
+            "name": name or "Support agent",
+            "avatar_url": person.avatar_url,
+            "status": status.value if status else "offline",
+        }
+    except Exception:
+        logger.warning("widget_assigned_agent_payload_failed conversation_id=%s", conversation_id)
+        return None
+
+
 @router.get("/session/{session_id}/status")
 def get_session_status(
     session_id: UUID,
@@ -592,6 +637,7 @@ def get_session_status(
         "is_identified": session.is_identified,
         "unread_count": unread_count,
         "is_online": is_within_business_hours(config.business_hours) if config else True,
+        "agent": _assigned_agent_payload(db, session.conversation_id),
     }
 
 

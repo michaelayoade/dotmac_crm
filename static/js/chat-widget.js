@@ -60,6 +60,20 @@
   }
 
   /**
+   * Escape a value for safe interpolation inside a double-quoted HTML attribute.
+   * Unlike sanitizeHtml (text-node based), this also escapes quotes, so a value
+   * containing `"` cannot break out of the attribute.
+   */
+  function escapeAttr(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  /**
    * Escape text and convert http(s) URLs into clickable links.
    */
   function renderMessageBody(text) {
@@ -100,6 +114,56 @@
   }
 
   /**
+   * Up to two uppercase initials from a name (e.g. "Sarah O'Neil" -> "SO").
+   */
+  function initialsOf(name) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    const first = parts[0][0] || '';
+    const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+    return (first + last).toUpperCase();
+  }
+
+  /**
+   * Deterministic, pleasant avatar background color derived from a name, so the
+   * same agent always gets the same fallback color.
+   */
+  function avatarColor(name) {
+    const str = String(name || '');
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = (hash * 31 + str.charCodeAt(i)) & 0xffffffff;
+    }
+    const hue = Math.abs(hash) % 360;
+    return `hsl(${hue}, 55%, 45%)`;
+  }
+
+  /**
+   * Only allow same-origin ("/...") or absolute http(s) image URLs — blocks
+   * javascript:, data:, and other unexpected schemes from reaching an <img src>.
+   */
+  function isSafeImageUrl(url) {
+    return typeof url === 'string' && /^(https?:\/\/|\/)/i.test(url.trim());
+  }
+
+  /**
+   * Avatar markup: an image over a colored initials fallback. If the image is
+   * missing or fails to load, the initials remain visible (onerror removes img).
+   */
+  function avatarMarkup(name, url, extraClass) {
+    const cls = 'dotmac-widget-avatar' + (extraClass ? ' ' + extraClass : '');
+    const initials = sanitizeHtml(initialsOf(name));
+    const color = avatarColor(name);
+    let img = '';
+    if (isSafeImageUrl(url)) {
+      const safeSrc = escapeAttr(url.trim());
+      const safeAlt = escapeAttr(name || 'Support agent');
+      img = `<img src="${safeSrc}" alt="${safeAlt}" loading="lazy" onerror="this.remove()">`;
+    }
+    return `<span class="${cls}" style="background:${color}" aria-hidden="true">${initials}${img}</span>`;
+  }
+
+  /**
    * DotMac Chat Widget Class
    */
   class DotMacChatWidget {
@@ -119,6 +183,7 @@
       this.typingTimeout = null;
       this.pollInterval = null;
       this.renderedMessageIds = new Set(); // Track rendered messages for animations
+      this.agent = null; // Currently assigned support agent {name, avatar_url, status}
 
       // Dialog flow state
       this.dialogFlowActive = false;
@@ -157,6 +222,9 @@
 
         // Load message history
         await this.loadHistory();
+
+        // Refresh the assigned agent's live presence for the header
+        this.refreshAgentStatus();
 
         // Connect WebSocket
         this.connectWebSocket();
@@ -307,7 +375,19 @@
 
         <div class="dotmac-widget-panel dotmac-widget-${position}" style="display: none">
           <div class="dotmac-widget-header" style="background-color: ${color}">
-            <div class="dotmac-widget-title">${sanitizeHtml(this.widgetConfig.widget_title || 'Chat with us')}</div>
+            <div class="dotmac-widget-header-main">
+              <div class="dotmac-widget-title">${sanitizeHtml(this.widgetConfig.widget_title || 'Chat with us')}</div>
+              <div class="dotmac-widget-agent" style="display: none">
+                <span class="dotmac-widget-agent-avatar-wrap">
+                  <span class="dotmac-widget-agent-avatar-slot"></span>
+                  <span class="dotmac-widget-agent-dot"></span>
+                </span>
+                <div class="dotmac-widget-agent-meta">
+                  <span class="dotmac-widget-agent-name"></span>
+                  <span class="dotmac-widget-agent-status"></span>
+                </div>
+              </div>
+            </div>
             <button class="dotmac-widget-close" aria-label="Close chat">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -776,6 +856,133 @@
           font-weight: 500;
           margin-bottom: 4px;
           opacity: 0.9;
+          color: #6b7280;
+        }
+
+        /* Agent avatar ("live picture") + grouped outbound rows */
+        .dotmac-widget-avatar {
+          position: relative;
+          width: 28px;
+          height: 28px;
+          flex-shrink: 0;
+          border-radius: 9999px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          color: #ffffff;
+          font-size: 11px;
+          font-weight: 600;
+          line-height: 1;
+          overflow: hidden;
+          user-select: none;
+        }
+
+        .dotmac-widget-avatar img {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .dotmac-widget-avatar-spacer {
+          width: 28px;
+          flex-shrink: 0;
+        }
+
+        .dotmac-widget-row {
+          display: flex;
+          gap: 8px;
+          align-items: flex-start;
+          max-width: 85%;
+        }
+
+        .dotmac-widget-row-outbound {
+          align-self: flex-start;
+        }
+
+        .dotmac-widget-msg-col {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 2px;
+          min-width: 0;
+        }
+
+        .dotmac-widget-row .dotmac-widget-message {
+          max-width: 100%;
+          width: fit-content;
+        }
+
+        /* "Seen" read receipt under the visitor's last read message */
+        .dotmac-widget-seen {
+          align-self: flex-end;
+          font-size: 11px;
+          color: #9ca3af;
+          padding-right: 6px;
+          margin-top: -6px;
+        }
+
+        /* Header agent identity bar */
+        .dotmac-widget-header-main {
+          display: flex;
+          align-items: center;
+          flex: 1;
+          min-width: 0;
+        }
+
+        .dotmac-widget-agent {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          min-width: 0;
+        }
+
+        .dotmac-widget-agent-avatar-wrap {
+          position: relative;
+          flex-shrink: 0;
+        }
+
+        .dotmac-widget-agent-avatar {
+          width: 32px;
+          height: 32px;
+          font-size: 12px;
+        }
+
+        .dotmac-widget-agent-dot {
+          position: absolute;
+          right: -1px;
+          bottom: -1px;
+          width: 10px;
+          height: 10px;
+          border-radius: 9999px;
+          border: 2px solid rgba(255, 255, 255, 0.9);
+          background: #94a3b8;
+        }
+
+        .dotmac-widget-agent-dot-online { background: #22c55e; }
+        .dotmac-widget-agent-dot-away { background: #f59e0b; }
+        .dotmac-widget-agent-dot-offline { background: #94a3b8; }
+
+        .dotmac-widget-agent-meta {
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
+          line-height: 1.25;
+        }
+
+        .dotmac-widget-agent-name {
+          font-weight: 600;
+          font-size: 14px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .dotmac-widget-agent-status {
+          font-size: 11px;
+          opacity: 0.85;
+          white-space: nowrap;
         }
 
         .dotmac-widget-message-body a {
@@ -1088,6 +1295,7 @@
           const data = await response.json();
           this.messages = data.messages || [];
           this.renderMessages();
+          this.updateAgentHeader(this._agentFromMessages());
           if (this.isOpen) {
             this.markRead();
           }
@@ -1174,7 +1382,11 @@
      * Render messages in the panel
      */
     renderMessages() {
-      this.messagesContainer.innerHTML = this.messages.map(msg => {
+      // Id of the latest inbound (visitor) message the agent has read — drives a
+      // single "Seen" receipt under that message (iMessage-style).
+      const lastSeenInboundId = this._lastSeenInboundId();
+
+      this.messagesContainer.innerHTML = this.messages.map((msg, index) => {
         const direction = msg.direction === 'inbound' ? 'inbound' : 'outbound';
         const classes = ['dotmac-widget-message', `dotmac-widget-message-${direction}`];
 
@@ -1187,22 +1399,57 @@
           classes.push('dotmac-widget-message-new');
         }
 
-        let authorHtml = '';
-        if (msg.author_name && direction === 'outbound') {
-          authorHtml = `<div class="dotmac-widget-message-author">${sanitizeHtml(msg.author_name)}</div>`;
-        }
-
-        return `
+        const bubble = `
           <div class="${classes.join(' ')}">
-            ${authorHtml}
             <div class="dotmac-widget-message-body">${renderMessageBody(msg.body)}</div>
             <div class="dotmac-widget-message-time">${formatTime(msg.created_at)}</div>
-          </div>
-        `;
+          </div>`;
+
+        if (direction !== 'outbound') {
+          // Visitor message; append the "Seen" receipt under the last seen one.
+          const seen = msg.id === lastSeenInboundId
+            ? `<div class="dotmac-widget-seen">Seen${msg.read_at ? ' · ' + formatTime(msg.read_at) : ''}</div>`
+            : '';
+          return bubble + seen;
+        }
+
+        // Outbound (agent): group consecutive messages from the same author —
+        // show the avatar + name only on the first bubble of a run.
+        const prev = this.messages[index - 1];
+        const firstOfRun = !prev || prev.direction === 'inbound'
+          || (prev.author_name || '') !== (msg.author_name || '');
+        const avatar = firstOfRun
+          ? avatarMarkup(msg.author_name, msg.author_avatar)
+          : '<span class="dotmac-widget-avatar-spacer" aria-hidden="true"></span>';
+        const author = (firstOfRun && msg.author_name)
+          ? `<div class="dotmac-widget-message-author">${sanitizeHtml(msg.author_name)}</div>`
+          : '';
+
+        return `
+          <div class="dotmac-widget-row dotmac-widget-row-outbound">
+            ${avatar}
+            <div class="dotmac-widget-msg-col">
+              ${author}
+              ${bubble}
+            </div>
+          </div>`;
       }).join('');
 
       // Mark all current messages as rendered
       this.messages.forEach(msg => this.renderedMessageIds.add(msg.id));
+    }
+
+    /**
+     * Id of the most recent inbound (visitor) message that the agent has read.
+     */
+    _lastSeenInboundId() {
+      let seenId = null;
+      for (const msg of this.messages) {
+        if (msg.direction === 'inbound' && msg.read_at) {
+          seenId = msg.id;
+        }
+      }
+      return seenId;
     }
 
     /**
@@ -1233,6 +1480,98 @@
       } else {
         badge.style.display = 'none';
       }
+    }
+
+    /**
+     * Reveal/update the agent identity bar in the header. Falls back to the
+     * static widget title when no agent is assigned yet.
+     */
+    updateAgentHeader(agent) {
+      if (!this.container) return;
+      const titleEl = this.container.querySelector('.dotmac-widget-title');
+      const agentEl = this.container.querySelector('.dotmac-widget-agent');
+      if (!titleEl || !agentEl) return;
+
+      const name = agent && String(agent.name || '').trim();
+      if (!name) {
+        // No agent yet — keep the default title.
+        agentEl.style.display = 'none';
+        titleEl.style.display = '';
+        return;
+      }
+
+      this.agent = { name, avatar_url: agent.avatar_url || null, status: agent.status || 'online' };
+
+      const slot = agentEl.querySelector('.dotmac-widget-agent-avatar-slot');
+      if (slot) slot.innerHTML = avatarMarkup(name, this.agent.avatar_url, 'dotmac-widget-agent-avatar');
+
+      const nameEl = agentEl.querySelector('.dotmac-widget-agent-name');
+      if (nameEl) nameEl.textContent = name;
+
+      const status = ['online', 'away', 'offline'].includes(this.agent.status) ? this.agent.status : 'online';
+      const labels = { online: 'Online', away: 'Away', offline: 'Offline' };
+      const dot = agentEl.querySelector('.dotmac-widget-agent-dot');
+      if (dot) dot.className = `dotmac-widget-agent-dot dotmac-widget-agent-dot-${status}`;
+      const statusEl = agentEl.querySelector('.dotmac-widget-agent-status');
+      if (statusEl) statusEl.textContent = labels[status];
+
+      titleEl.style.display = 'none';
+      agentEl.style.display = 'flex';
+    }
+
+    /**
+     * Derive the assigned agent from the latest agent message we already have.
+     */
+    _agentFromMessages() {
+      for (let i = this.messages.length - 1; i >= 0; i--) {
+        const m = this.messages[i];
+        if (m.direction === 'outbound' && m.author_name) {
+          return { name: m.author_name, avatar_url: m.author_avatar || null, status: 'online' };
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Fetch session status to refresh the assigned agent + live presence dot.
+     * Prefers the server's agent payload, else derives from message history.
+     */
+    async refreshAgentStatus() {
+      if (!this.session || !this.session.sessionId || !this.session.conversationId) return;
+      try {
+        const response = await fetch(
+          `${this.apiUrl}/widget/session/${this.session.sessionId}/status`,
+          {
+            headers: {
+              'X-Visitor-Token': this.session.visitorToken,
+              'Origin': window.location.origin
+            }
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          this.updateAgentHeader(data.agent || this._agentFromMessages());
+        }
+      } catch (error) {
+        console.warn('[DotMac Widget] Failed to refresh agent status:', error);
+      }
+    }
+
+    /**
+     * Mark visitor messages sent at or before ``readUpTo`` as seen, then re-render
+     * so the "Seen" receipt appears/advances.
+     */
+    applyReadReceipt(readUpTo) {
+      const readMs = new Date(readUpTo).getTime();
+      if (Number.isNaN(readMs)) return;
+      let changed = false;
+      for (const msg of this.messages) {
+        if (msg.direction === 'inbound' && !msg.read_at && new Date(msg.created_at).getTime() <= readMs) {
+          msg.read_at = readUpTo;
+          changed = true;
+        }
+      }
+      if (changed) this.renderMessages();
     }
 
     /**
@@ -1299,7 +1638,8 @@
               body: body,
               direction: 'outbound',
               created_at: createdAt,
-              author_name: data.data.author_name
+              author_name: data.data.author_name,
+              author_avatar: data.data.author_avatar
             };
             if (existingIdx === -1) {
               this.messages.push(nextMessage);
@@ -1309,8 +1649,17 @@
                 ...existing,
                 body: body || existing.body,
                 created_at: createdAt || existing.created_at,
-                author_name: nextMessage.author_name || existing.author_name
+                author_name: nextMessage.author_name || existing.author_name,
+                author_avatar: nextMessage.author_avatar || existing.author_avatar
               };
+            }
+            // A human agent just messaged — reveal their identity in the header.
+            if (data.data.author_name) {
+              this.updateAgentHeader({
+                name: data.data.author_name,
+                avatar_url: data.data.author_avatar,
+                status: 'online'
+              });
             }
             this.renderMessages();
             this.scrollToBottom();
@@ -1330,6 +1679,13 @@
           // Show typing indicator for agent
           if (!data.data.is_visitor) {
             this.showTypingIndicator(data.data.is_typing);
+          }
+          break;
+
+        case 'conversation_read':
+          // Agent read the visitor's messages — flip "Seen" on in real time.
+          if (data.data && data.data.read_up_to) {
+            this.applyReadReceipt(data.data.read_up_to);
           }
           break;
 
@@ -1446,6 +1802,8 @@
 
           if (response.ok) {
             const data = await response.json();
+            // Keep the header agent + presence dot fresh while polling.
+            this.updateAgentHeader(data.agent || this._agentFromMessages());
             if (data.unread_count > 0 && !this.isOpen) {
               this.updateUnreadBadge(data.unread_count);
               // Reload messages to get new ones

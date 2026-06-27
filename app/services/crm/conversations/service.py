@@ -853,6 +853,11 @@ def assign_conversation(
             ).update({"owner_agent_id": agent_uuid}, synchronize_session=False)
             db.commit()
 
+        # Greet the visitor the first time each agent picks up a widget chat.
+        from app.services.crm.widget.service import maybe_send_agent_greeting
+
+        maybe_send_agent_greeting(db, conversation, assignment)
+
         return assignment
     else:
         db.query(ConversationAssignment).filter(
