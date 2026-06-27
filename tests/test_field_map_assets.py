@@ -11,6 +11,7 @@ from app.models.network import FdhCabinet, FiberAccessPoint, FiberSpliceClosure,
 from app.services.field.map_assets import (
     list_deleted_map_assets,
     list_map_assets,
+    list_nearby_map_assets,
     record_map_asset_tombstone,
     update_map_asset_location,
 )
@@ -256,5 +257,93 @@ def test_update_map_asset_location_rejects_unknown_asset(db_session):
             latitude=9.501,
             longitude=7.801,
         )
+
+    assert exc.value.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Nearby / proximity lookup
+# ---------------------------------------------------------------------------
+
+# Search centre (Lagos). Offsets below are derived from metres-per-degree so the
+# fixtures sit at known distances from this point.
+_LAT0, _LNG0 = 6.5, 3.4
+
+
+def _north(meters: float) -> float:
+    return _LAT0 + meters / 111_320.0
+
+
+def test_list_nearby_returns_assets_within_radius_sorted_by_distance(db_session):
+    db_session.add_all(
+        [
+            OLTDevice(name="At Centre", latitude=_LAT0, longitude=_LNG0),
+            OLTDevice(name="300m North", latitude=_north(300), longitude=_LNG0),
+            OLTDevice(name="2km North", latitude=_north(2000), longitude=_LNG0),
+        ]
+    )
+    db_session.commit()
+
+    items = list_nearby_map_assets(db_session, latitude=_LAT0, longitude=_LNG0, radius_m=500, asset_types=["olt"])
+
+    # The 2km asset is outside the radius; the rest come back nearest-first.
+    assert [item["title"] for item in items] == ["At Centre", "300m North"]
+    assert items[0]["distance_m"] == 0.0
+    assert 290 <= items[1]["distance_m"] <= 310
+
+
+def test_list_nearby_excludes_bounding_box_corner_outside_circle(db_session):
+    # ~445m north and ~445m east lands inside the square bounding box but ~629m
+    # away as the crow flies — haversine must reject it for a 500m radius.
+    corner_lat = _north(445)
+    corner_lng = _LNG0 + 445 / (111_320.0 * 0.99357)  # cos(6.5°)
+    db_session.add_all(
+        [
+            OLTDevice(name="Centre", latitude=_LAT0, longitude=_LNG0),
+            OLTDevice(name="Corner", latitude=corner_lat, longitude=corner_lng),
+        ]
+    )
+    db_session.commit()
+
+    items = list_nearby_map_assets(db_session, latitude=_LAT0, longitude=_LNG0, radius_m=500, asset_types=["olt"])
+
+    assert [item["title"] for item in items] == ["Centre"]
+
+
+def test_list_nearby_filters_by_type_and_excludes_inactive(db_session):
+    db_session.add_all(
+        [
+            OLTDevice(name="OLT Near", latitude=_LAT0, longitude=_LNG0),
+            FdhCabinet(name="FDH Near", latitude=_LAT0, longitude=_LNG0),
+            OLTDevice(name="OLT Inactive", latitude=_LAT0, longitude=_LNG0, is_active=False),
+        ]
+    )
+    db_session.commit()
+
+    items = list_nearby_map_assets(db_session, latitude=_LAT0, longitude=_LNG0, radius_m=500, asset_types=["olt"])
+
+    assert [item["title"] for item in items] == ["OLT Near"]
+
+
+def test_list_nearby_respects_limit(db_session):
+    db_session.add_all(
+        [
+            OLTDevice(name="A", latitude=_north(50), longitude=_LNG0),
+            OLTDevice(name="B", latitude=_north(100), longitude=_LNG0),
+            OLTDevice(name="C", latitude=_north(150), longitude=_LNG0),
+        ]
+    )
+    db_session.commit()
+
+    items = list_nearby_map_assets(
+        db_session, latitude=_LAT0, longitude=_LNG0, radius_m=500, asset_types=["olt"], limit=2
+    )
+
+    assert [item["title"] for item in items] == ["A", "B"]
+
+
+def test_list_nearby_rejects_unknown_asset_type(db_session):
+    with pytest.raises(HTTPException) as exc:
+        list_nearby_map_assets(db_session, latitude=_LAT0, longitude=_LNG0, radius_m=500, asset_types=["unknown"])
 
     assert exc.value.status_code == 400

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -127,6 +128,66 @@ def record_map_asset_tombstone(db: Session, *, asset_type: str, asset_id) -> Non
         )
     else:
         row.deleted_at = deleted_at
+
+
+_METERS_PER_DEG_LAT = 111_320.0
+
+
+def list_nearby_map_assets(
+    db: Session,
+    *,
+    latitude: float,
+    longitude: float,
+    radius_m: float,
+    asset_types: list[str] | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Map assets within ``radius_m`` of a point, nearest first.
+
+    Distance is computed from the lat/lng float columns (always populated),
+    not ``geom`` — so this also covers assets without a geometry column (OLT)
+    and legacy rows whose ``geom`` was never backfilled. A cheap lat/lng
+    bounding box pre-filters candidates in SQL; haversine then refines the box
+    to a true circle and supplies the reported distance.
+    """
+    from app.services.field.geofence import haversine_m
+
+    selected = asset_types or list(DEFAULT_ASSET_TYPES)
+    lat_delta = radius_m / _METERS_PER_DEG_LAT
+    cos_lat = math.cos(math.radians(latitude))
+    # Near the poles cos→0 and the longitude span explodes; fall back to the
+    # whole hemisphere and let haversine do the real filtering. (Single-region
+    # ISP deployments never span the antimeridian, so no wrap handling needed.)
+    lng_delta = radius_m / (_METERS_PER_DEG_LAT * cos_lat) if abs(cos_lat) > 1e-6 else 180.0
+    lat_min, lat_max = latitude - lat_delta, latitude + lat_delta
+    lng_min, lng_max = longitude - lng_delta, longitude + lng_delta
+
+    scored: list[tuple[float, dict]] = []
+    for asset_type in selected:
+        config = ASSET_CONFIGS.get(asset_type)
+        if config is None:
+            raise HTTPException(status_code=400, detail=f"Unsupported map asset type: {asset_type}")
+        model = config.model
+        query = db.query(model).filter(
+            model.latitude.isnot(None),
+            model.longitude.isnot(None),
+            model.latitude >= lat_min,
+            model.latitude <= lat_max,
+            model.longitude >= lng_min,
+            model.longitude <= lng_max,
+        )
+        if hasattr(model, "is_active"):
+            query = query.filter(model.is_active.is_(True))
+        for row in query.all():
+            distance = haversine_m(latitude, longitude, float(row.latitude), float(row.longitude))
+            if distance > radius_m:
+                continue
+            payload = _asset_payload(asset_type, config, row)
+            payload["distance_m"] = round(distance, 1)
+            scored.append((distance, payload))
+
+    scored.sort(key=lambda item: item[0])
+    return [payload for _, payload in scored[:limit]]
 
 
 def _as_utc(value: datetime | None) -> datetime | None:

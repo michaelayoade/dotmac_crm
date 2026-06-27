@@ -203,6 +203,19 @@ class FieldMapAssetListResponse(BaseModel):
     server_time: datetime
 
 
+class FieldMapAssetNearby(FieldMapAsset):
+    distance_m: float
+
+
+class FieldMapAssetNearbyResponse(BaseModel):
+    items: list[FieldMapAssetNearby]
+    count: int
+    latitude: float
+    longitude: float
+    radius_m: float
+    server_time: datetime
+
+
 class FieldMapAssetLocationUpdate(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
