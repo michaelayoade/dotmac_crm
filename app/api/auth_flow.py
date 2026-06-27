@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, stat
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.csrf import enforce_csrf_for_cookie_auth
 from app.models.auth import Session as AuthSession
 from app.models.auth import SessionStatus, UserCredential
 from app.models.person import Person
@@ -237,6 +238,7 @@ async def upload_avatar(
     file: UploadFile,
     auth: dict = Depends(require_user_auth),
     db: Session = Depends(get_db),
+    _csrf: None = Depends(enforce_csrf_for_cookie_auth),
 ):
     person = db.get(Person, auth["person_id"])
     if not person:
@@ -265,6 +267,7 @@ async def upload_avatar(
 def delete_avatar(
     auth: dict = Depends(require_user_auth),
     db: Session = Depends(get_db),
+    _csrf: None = Depends(enforce_csrf_for_cookie_auth),
 ):
     person = db.get(Person, auth["person_id"])
     if not person:

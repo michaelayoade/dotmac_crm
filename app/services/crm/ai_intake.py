@@ -717,7 +717,9 @@ def _select_department_assignment(
         agent_id=coerce_uuid(agent_id) if agent_id else None,
         configured_agent_ids=tuple(configured_agent_ids),
         active_agent_ids=tuple(active_candidate_ids),
-        reason="assigned" if agent_id else "no_eligible_agents",
+        # Online agents exist (early-returned otherwise), so a None pick means they
+        # are all at their concurrency cap.
+        reason="assigned" if agent_id else "all_at_capacity",
         routing_state="assigned" if agent_id else "waiting_for_agent",
     )
 

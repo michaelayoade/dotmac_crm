@@ -1172,3 +1172,127 @@ def agent_weekly_performance(
         )
 
     return results
+
+
+def _percentile(values: list[int], pct: float) -> int | None:
+    """Nearest-rank percentile (pct in 0..1). Returns None for empty input."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    k = max(0, min(len(ordered) - 1, round(pct * (len(ordered) - 1))))
+    return int(ordered[k])
+
+
+def queue_wait_metrics(
+    db: Session,
+    start_at: datetime,
+    end_at: datetime,
+    *,
+    team_id: str | None = None,
+) -> dict[str, Any]:
+    """Queue-wait statistics over conversations that were queued and then assigned
+    in the window. Wait = first_assigned_at - queued_at. Grouped overall, by team,
+    and by day."""
+    import statistics
+
+    query = (
+        db.query(
+            Conversation.id,
+            Conversation.queued_at,
+            Conversation.first_assigned_at,
+        )
+        .filter(Conversation.queued_at.isnot(None))
+        .filter(Conversation.first_assigned_at.isnot(None))
+        .filter(Conversation.first_assigned_at >= start_at)
+        .filter(Conversation.first_assigned_at <= end_at)
+    )
+    if team_id:
+        query = query.join(ConversationAssignment, ConversationAssignment.conversation_id == Conversation.id).filter(
+            ConversationAssignment.team_id == coerce_uuid(team_id)
+        )
+
+    rows = query.all()
+
+    waits: list[int] = []
+    by_day: dict[str, list[int]] = {}
+    for _cid, queued_at, first_assigned_at in rows:
+        if queued_at is None or first_assigned_at is None:
+            continue
+        if queued_at.tzinfo is None:
+            queued_at = queued_at.replace(tzinfo=UTC)
+        if first_assigned_at.tzinfo is None:
+            first_assigned_at = first_assigned_at.replace(tzinfo=UTC)
+        wait = int((first_assigned_at - queued_at).total_seconds())
+        if wait < 0:
+            continue
+        waits.append(wait)
+        day = first_assigned_at.date().isoformat()
+        by_day.setdefault(day, []).append(wait)
+
+    def _summary(values: list[int]) -> dict[str, Any]:
+        return {
+            "count": len(values),
+            "avg_seconds": int(statistics.fmean(values)) if values else None,
+            "median_seconds": int(statistics.median(values)) if values else None,
+            "p90_seconds": _percentile(values, 0.9),
+        }
+
+    return {
+        "overall": _summary(waits),
+        "by_day": [{"day": day, **_summary(vals)} for day, vals in sorted(by_day.items())],
+    }
+
+
+def issue_classification_breakdown(
+    db: Session,
+    start_at: datetime,
+    end_at: datetime,
+) -> dict[str, Any]:
+    """Conversation volume + median resolution time grouped by AI-classified
+    department, plus a tag-frequency breakdown, over conversations created in the
+    window."""
+    import statistics
+
+    from app.models.crm.conversation import ConversationTag
+
+    rows = (
+        db.query(Conversation.id, Conversation.metadata_, Conversation.resolution_time_seconds)
+        .filter(Conversation.created_at >= start_at)
+        .filter(Conversation.created_at <= end_at)
+        .all()
+    )
+
+    dept_counts: dict[str, int] = {}
+    dept_resolution: dict[str, list[int]] = {}
+    for _cid, metadata, resolution_seconds in rows:
+        meta = metadata if isinstance(metadata, dict) else {}
+        ai_raw = meta.get("ai_intake")
+        ai = ai_raw if isinstance(ai_raw, dict) else {}
+        department = ai.get("department") or ai.get("routing_department") or "unclassified"
+        dept_counts[department] = dept_counts.get(department, 0) + 1
+        if resolution_seconds is not None:
+            dept_resolution.setdefault(department, []).append(int(resolution_seconds))
+
+    departments = [
+        {
+            "department": dept,
+            "count": count,
+            "median_resolution_seconds": (
+                int(statistics.median(dept_resolution[dept])) if dept_resolution.get(dept) else None
+            ),
+        }
+        for dept, count in sorted(dept_counts.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+
+    tag_rows = (
+        db.query(ConversationTag.tag, func.count(ConversationTag.id))
+        .join(Conversation, Conversation.id == ConversationTag.conversation_id)
+        .filter(Conversation.created_at >= start_at)
+        .filter(Conversation.created_at <= end_at)
+        .group_by(ConversationTag.tag)
+        .order_by(func.count(ConversationTag.id).desc())
+        .all()
+    )
+    tags = [{"tag": tag, "count": int(count)} for tag, count in tag_rows]
+
+    return {"departments": departments, "tags": tags}

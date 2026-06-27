@@ -214,7 +214,6 @@ def apply_dialog_routing(
     """Apply routing from a dialog flow terminal step to a conversation."""
     from app.models.crm.conversation import ConversationTag
     from app.models.crm.enums import ConversationPriority
-    from app.services.crm import conversation as conversation_service
 
     # Set priority
     priority_value = step_config.get("priority")
@@ -240,16 +239,16 @@ def apply_dialog_routing(
             db.add(ConversationTag(conversation_id=conversation.id, tag=tag_name))
     db.flush()
 
-    # Assign to team
+    # Assign to team — try an available agent, otherwise hold in the team queue.
     team_id = step_config.get("assign_team")
     if team_id:
-        conversation_service.assign_conversation(
+        from app.services.crm.inbox.routing import assign_or_enqueue
+
+        assign_or_enqueue(
             db,
-            conversation_id=str(conversation.id),
-            agent_id=None,
+            conversation=conversation,
             team_id=team_id,
             assigned_by_id=None,
-            update_lead_owner=False,
         )
 
     db.commit()
@@ -272,6 +271,7 @@ class ChatWidgetConfigManager:
             placeholder_text=payload.placeholder_text,
             widget_title=payload.widget_title,
             offline_message=payload.offline_message,
+            agent_greeting_enabled=payload.agent_greeting_enabled,
             prechat_form_enabled=payload.prechat_form_enabled,
             prechat_fields=[f.model_dump() for f in payload.prechat_fields] if payload.prechat_fields else None,
             dialog_flow_enabled=payload.dialog_flow_enabled,
@@ -861,6 +861,68 @@ def send_widget_message(
     )
 
     return message
+
+
+def maybe_send_agent_greeting(db: Session, conversation: Conversation, assignment) -> None:
+    """Auto-send an agent's introduction the first time *that agent* picks up a
+    chat-widget conversation.
+
+    Best-effort: never raises, so a greeting failure can't break assignment.
+    Gates (all must hold): an agent (not team-only) is assigned, the conversation
+    came from the chat widget, the widget's ``agent_greeting_enabled`` flag is on,
+    and the assigned agent has not yet sent any message in this conversation. The
+    per-agent gate means each new agent introduces themselves once — including
+    after a hand-off — while never greeting twice for the same agent.
+    The "agent is online/away" gate is enforced upstream in ``assign_conversation``
+    (an unavailable agent is dropped to team-only before we get here).
+    """
+    try:
+        if assignment is None or assignment.agent_id is None:
+            return
+
+        session = db.query(WidgetVisitorSession).filter(WidgetVisitorSession.conversation_id == conversation.id).first()
+        if session is None:
+            return
+
+        config = db.get(ChatWidgetConfig, session.widget_config_id)
+        if config is not None and not config.agent_greeting_enabled:
+            return
+
+        from app.models.crm.team import CrmAgent
+        from app.services.crm.inbox.agent_introduction import render_introduction_template
+
+        agent = db.get(CrmAgent, assignment.agent_id)
+        if agent is None or agent.person_id is None:
+            return
+
+        # Only greet if this agent hasn't spoken in the conversation yet, so each
+        # agent introduces themselves exactly once (handoffs included).
+        prior_outbound = (
+            db.query(Message.id)
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.direction == MessageDirection.outbound)
+            .filter(Message.author_id == agent.person_id)
+            .first()
+        )
+        if prior_outbound is not None:
+            return
+
+        body = render_introduction_template(db, {"person_id": str(agent.person_id)})
+        if not body or not body.strip():
+            return
+
+        message = send_widget_message(db, session, body, author_id=agent.person_id)
+
+        # Deliver to the visitor's own socket with author name + avatar so the
+        # widget can render the agent's live picture and identity immediately.
+        from app.websocket.broadcaster import broadcast_to_widget_visitor
+
+        broadcast_to_widget_visitor(str(session.id), message)
+    except Exception:
+        logger.exception(
+            "agent_greeting_failed conversation_id=%s",
+            getattr(conversation, "id", None),
+        )
 
 
 # Singleton instances
