@@ -46,6 +46,7 @@ from app.api.defaults import router as defaults_router
 from app.api.deps import require_role, require_user_auth
 from app.api.dispatch import router as dispatch_router
 from app.api.external import router as external_router
+from app.api.fiber_change_requests import router as fiber_change_requests_router
 from app.api.fiber_plant import router as fiber_plant_router
 from app.api.field import router as field_router
 from app.api.field.config import router as field_config_router
@@ -455,6 +456,7 @@ def _include_api_router(router, dependencies=None):
 
 
 _include_api_router(notifications_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(fiber_change_requests_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(tickets_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(projects_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(workforce_router, dependencies=[Depends(require_user_auth)])
