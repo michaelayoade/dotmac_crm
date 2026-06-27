@@ -297,7 +297,4 @@ def test_create_installation_invoice_returns_none_on_provider_error(db_session, 
     _enable_selfcare(monkeypatch)
     monkeypatch.setattr("requests.request", lambda *a, **k: _Response(502, {}, text="bad gateway"))
 
-    assert (
-        selfcare.create_installation_invoice(db_session, subscriber_id="s1", amount="100")
-        is None
-    )
+    assert selfcare.create_installation_invoice(db_session, subscriber_id="s1", amount="100") is None

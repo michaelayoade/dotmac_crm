@@ -1346,7 +1346,9 @@ def enrich_rows_with_station_status(
         if customer is None and subscriber and subscriber.external_id:
             customer = customer_by_external_id.get(str(subscriber.external_id).strip())
         if customer is None:
-            customer = customer_by_login.get(str(row.get("subscriber_login") or row.get("subscriber_number") or "").strip())
+            customer = customer_by_login.get(
+                str(row.get("subscriber_login") or row.get("subscriber_number") or "").strip()
+            )
 
         base_station_label = _coerce_text(row.get("base_station"))
         if not base_station_label and customer is not None:

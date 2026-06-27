@@ -294,9 +294,7 @@ def _has_existing_installation_invoice(project: Project) -> bool:
     return bool(str(metadata.get("selfcare_installation_invoice_id") or "").strip())
 
 
-def _find_existing_related_installation_invoice(
-    db: Session, project: Project
-) -> tuple[str, Decimal | None] | None:
+def _find_existing_related_installation_invoice(db: Session, project: Project) -> tuple[str, Decimal | None] | None:
     sales_order_id = _resolve_sales_order_id(project)
     quote_id = _resolve_quote_id(project)
     if not sales_order_id and not quote_id:

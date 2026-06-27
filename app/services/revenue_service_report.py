@@ -36,7 +36,6 @@ class SelfcareReportError(RuntimeError):
     """Raised when live Selfcare report data cannot be loaded."""
 
 
-
 def _env_int(name: str, default: int) -> int:
     with contextlib.suppress(TypeError, ValueError):
         value = int(os.getenv(name, ""))

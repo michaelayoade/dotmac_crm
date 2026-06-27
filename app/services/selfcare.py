@@ -240,7 +240,7 @@ def test_connection(db: Session) -> tuple[bool, str]:
         ping(db)
     except SelfcareProviderError as exc:
         return False, str(exc)
-    except Exception as exc:  # noqa: BLE001 - surface any transport error to the UI
+    except Exception as exc:
         return False, f"Connection failed: {exc}"
     return True, "Connection to dotmac_sub succeeded."
 
