@@ -588,8 +588,8 @@ def online_customers_last_24h_rows(
             "subscriber_id": matched_subscriber_id or str(customer.get("external_id") or customer.get("login") or ""),
             "can_notify": bool(matched_subscriber_id),
             "id": str(customer.get("external_id") or customer.get("login") or ""),
-            "splynx_customer_id": str(customer.get("external_id") or ""),
-            "splynx_login": str(customer.get("login") or ""),
+            "subscriber_external_id": str(customer.get("external_id") or ""),
+            "subscriber_login": str(customer.get("login") or ""),
             "name": _clean_report_name(str(customer.get("name") or "").strip() or "Unknown"),
             "subscriber_number": str(customer.get("login") or ""),
             "plan": "",
@@ -2289,7 +2289,7 @@ def get_churn_table(
             return True
         return _days_past_due_bucket(value) == selected_days_past_due_category
 
-    if source == "splynx_live":
+    if source == "selfcare_live":
         from app.services.selfcare import (
             fetch_customer_billing,
             fetch_customer_internet_services,
@@ -2297,15 +2297,15 @@ def get_churn_table(
             map_customer_to_subscriber_data,
         )
 
-        def _call_splynx(read_fn, *args):
+        def _call_sub(read_fn, *args):
             """Use a short-lived session so live Splynx reads do not pin the caller's DB connection."""
-            splynx_db = SessionLocal()
+            sub_db = SessionLocal()
             try:
-                return read_fn(splynx_db, *args)
+                return read_fn(sub_db, *args)
             finally:
-                splynx_db.close()
+                sub_db.close()
 
-        customers = _call_splynx(fetch_customers)
+        customers = _call_sub(fetch_customers)
         live_results: list[dict] = []
         today = datetime.now(UTC).date()
         customer_emails = {
@@ -2657,11 +2657,11 @@ def get_churn_table(
                 return {}
 
             try:
-                services_payload = _call_splynx(fetch_customer_internet_services, external_id)
+                services_payload = _call_sub(fetch_customer_internet_services, external_id)
             except Exception:
                 services_payload = []
             try:
-                billing_payload = _call_splynx(fetch_customer_billing, external_id)
+                billing_payload = _call_sub(fetch_customer_billing, external_id)
             except Exception:
                 billing_payload = {}
             detailed_customer = {

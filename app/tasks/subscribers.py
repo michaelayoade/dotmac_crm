@@ -8,7 +8,7 @@ from app.celery_app import celery_app
 from app.db import SessionLocal
 from app.logging import get_logger
 from app.metrics import observe_job
-from app.services.external_systems import SPLYNX_EXTERNAL_SYSTEM
+from app.services.external_systems import SELFCARE_EXTERNAL_SYSTEM
 from app.services.subscriber import subscriber as subscriber_service
 
 logger = get_logger(__name__)
@@ -97,7 +97,7 @@ def refresh_billing_risk_cache() -> dict[str, Any]:
 
 @celery_app.task(name="app.tasks.subscribers.reconcile_subscriber_identity")
 def reconcile_subscriber_identity(
-    external_system: str = SPLYNX_EXTERNAL_SYSTEM,
+    external_system: str = SELFCARE_EXTERNAL_SYSTEM,
     clear_duplicate_metadata: bool = True,
 ) -> dict[str, Any]:
     """

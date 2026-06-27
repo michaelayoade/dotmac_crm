@@ -591,7 +591,7 @@ def _full_name_from_report_row(row: dict[str, Any] | None) -> str:
 def _subscriber_number_from_report_row(row: dict[str, Any] | None) -> str:
     if not isinstance(row, dict):
         return ""
-    for key in ("subscriber_number", "splynx_login", "id"):
+    for key in ("subscriber_number", "subscriber_login", "id"):
         value = str(row.get(key) or "").strip()
         if value:
             return value
@@ -1340,13 +1340,13 @@ def enrich_rows_with_station_status(
 
         subscriber = subscribers_by_id.get(str(row.get("subscriber_id") or "").strip())
         customer = None
-        splynx_customer_id = str(row.get("splynx_customer_id") or "").strip()
-        if splynx_customer_id:
-            customer = customer_by_external_id.get(splynx_customer_id)
+        subscriber_external_id = str(row.get("subscriber_external_id") or "").strip()
+        if subscriber_external_id:
+            customer = customer_by_external_id.get(subscriber_external_id)
         if customer is None and subscriber and subscriber.external_id:
             customer = customer_by_external_id.get(str(subscriber.external_id).strip())
         if customer is None:
-            customer = customer_by_login.get(str(row.get("splynx_login") or row.get("subscriber_number") or "").strip())
+            customer = customer_by_login.get(str(row.get("subscriber_login") or row.get("subscriber_number") or "").strip())
 
         base_station_label = _coerce_text(row.get("base_station"))
         if not base_station_label and customer is not None:
@@ -1474,7 +1474,7 @@ def run_daily_offline_outreach(
                 base_station_label=None,
                 match=None,
                 decision_status="skipped",
-                decision_reason="customer_not_found_in_splynx",
+                decision_reason="customer_not_found_in_subscriber_system",
                 message_template=config.message_template,
             )
             result["skipped"] += 1
