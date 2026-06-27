@@ -372,16 +372,50 @@ def _list_agents_with_sales_team_members(db: Session) -> list[CrmAgent]:
     return list(by_id.values())
 
 
+def _agent_availability_map(db: Session, agents: list) -> dict:
+    """Per-agent presence + load, for transfer-picker badges:
+    {agent_id: {status, active_chats, cap, full}}."""
+    from app.models.crm.enums import AgentPresenceStatus
+    from app.models.crm.presence import AgentPresence
+    from app.services.crm.inbox import routing
+    from app.services.crm.presence import agent_presence as presence_service
+
+    agent_ids = [a.id for a in agents]
+    if not agent_ids:
+        return {}
+    counts = routing._agent_active_chat_counts(db, agent_ids)
+    default_cap = routing._global_max_concurrent(db)
+    presences = {p.agent_id: p for p in db.query(AgentPresence).filter(AgentPresence.agent_id.in_(agent_ids)).all()}
+    result = {}
+    for agent in agents:
+        presence = presences.get(agent.id)
+        status = presence_service.effective_status(presence) if presence else AgentPresenceStatus.offline
+        cap = routing._agent_cap(agent, default_cap)
+        active = counts.get(agent.id, 0)
+        result[str(agent.id)] = {
+            "status": status.value,
+            "active_chats": active,
+            "cap": cap,
+            "full": active >= cap,
+        }
+    return result
+
+
 def get_agent_team_options(db: Session) -> dict:
     """Get agents and teams for assignment dropdowns.
 
-    Returns: {agents, teams, agent_labels}
+    Returns: {agents, teams, agent_labels, agent_availability}
     """
     teams = db.query(CrmTeam).filter(CrmTeam.is_active.is_(True)).order_by(CrmTeam.name.asc()).limit(200).all()
     agents = _list_agents_with_sales_team_members(db)
     agent_labels = get_agent_labels(db, agents)
 
-    return {"agents": agents, "teams": teams, "agent_labels": agent_labels}
+    return {
+        "agents": agents,
+        "teams": teams,
+        "agent_labels": agent_labels,
+        "agent_availability": _agent_availability_map(db, agents),
+    }
 
 
 # Singleton instances

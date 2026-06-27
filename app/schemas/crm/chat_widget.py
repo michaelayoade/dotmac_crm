@@ -75,6 +75,7 @@ class ChatWidgetConfigCreate(BaseModel):
     placeholder_text: str = Field(default="Type a message...", max_length=120)
     widget_title: str = Field(default="Chat with us", max_length=80)
     offline_message: str | None = Field(default=None, max_length=500)
+    agent_greeting_enabled: bool = True
     prechat_form_enabled: bool = False
     prechat_fields: list[PrechatField] | None = None
     dialog_flow_enabled: bool = False
@@ -96,6 +97,7 @@ class ChatWidgetConfigUpdate(BaseModel):
     placeholder_text: str | None = Field(default=None, max_length=120)
     widget_title: str | None = Field(default=None, max_length=80)
     offline_message: str | None = None
+    agent_greeting_enabled: bool | None = None
     prechat_form_enabled: bool | None = None
     prechat_fields: list[PrechatField] | None = None
     dialog_flow_enabled: bool | None = None
@@ -119,6 +121,7 @@ class ChatWidgetConfigRead(BaseModel):
     placeholder_text: str
     widget_title: str
     offline_message: str | None
+    agent_greeting_enabled: bool
     prechat_form_enabled: bool
     prechat_fields: list[PrechatField] | None
     dialog_flow_enabled: bool
@@ -220,6 +223,9 @@ class WidgetMessageRead(BaseModel):
     created_at: datetime
     author_name: str | None = None
     author_avatar: str | None = None
+    # When an agent has read this (inbound) visitor message — drives the widget's
+    # "Seen" receipt. Null until read; always null for outbound (agent) messages.
+    read_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

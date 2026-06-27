@@ -5,6 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.logging import get_logger
 from app.models.crm.conversation import (
     Conversation,
     ConversationAssignment,
@@ -18,6 +19,8 @@ from app.models.person import ChannelType as PersonChannelType
 from app.models.person import Person, PersonChannel
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
+
+logger = get_logger(__name__)
 
 
 def _now():
@@ -710,17 +713,32 @@ def mark_conversation_read(
     """Mark inbound messages as read up to last_seen_at."""
     if not last_seen_at or not can_mark_conversation_read(db, conversation_id, actor_person_id):
         return
-    db.query(Message).filter(
-        Message.conversation_id == coerce_uuid(conversation_id),
-        Message.direction == MessageDirection.inbound,
-        Message.status == MessageStatus.received,
-        Message.read_at.is_(None),
-        func.coalesce(Message.received_at, Message.created_at) <= last_seen_at,
-    ).update({"read_at": _now()})
+    updated = (
+        db.query(Message)
+        .filter(
+            Message.conversation_id == coerce_uuid(conversation_id),
+            Message.direction == MessageDirection.inbound,
+            Message.status == MessageStatus.received,
+            Message.read_at.is_(None),
+            func.coalesce(Message.received_at, Message.created_at) <= last_seen_at,
+        )
+        .update({"read_at": _now()})
+    )
     from app.services.crm.inbox.summaries import recompute_conversation_summary
 
     recompute_conversation_summary(db, conversation_id)
     db.commit()
+
+    # Tell the widget visitor (if any) their messages were seen, so the chat
+    # widget can render a "Seen" receipt. Only fires when something was newly
+    # marked read; best-effort.
+    if updated:
+        try:
+            from app.websocket.broadcaster import broadcast_conversation_read
+
+            broadcast_conversation_read(conversation_id, last_seen_at)
+        except Exception:  # pragma: no cover - realtime is best-effort
+            logger.warning("mark_conversation_read_broadcast_failed", exc_info=True)
 
 
 def get_latest_message(db: Session, conversation_id: str) -> Message | None:
@@ -828,12 +846,24 @@ def assign_conversation(
         )
         assignment = ConversationAssignments.create(db, payload)
 
+        # Stamp the first time an agent (not a team-only queue) takes the chat —
+        # powers queue-wait metrics (first_assigned_at - queued_at). Idempotent.
+        if agent_uuid and conversation.first_assigned_at is None:
+            conversation.first_assigned_at = _now()
+            db.add(conversation)
+            db.commit()
+
         if update_lead_owner and agent_uuid:
             db.query(Lead).filter(
                 Lead.contact_id == conversation.contact_id,
                 Lead.is_active.is_(True),
             ).update({"owner_agent_id": agent_uuid}, synchronize_session=False)
             db.commit()
+
+        # Greet the visitor the first time each agent picks up a widget chat.
+        from app.services.crm.widget.service import maybe_send_agent_greeting
+
+        maybe_send_agent_greeting(db, conversation, assignment)
 
         return assignment
     else:

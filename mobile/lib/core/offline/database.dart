@@ -29,14 +29,39 @@ class CachedScheduleEntries extends Table {
   Set<Column> get primaryKey => {referenceId, startAt};
 }
 
+class CachedMapAssets extends Table {
+  TextColumn get assetType => text()();
+  TextColumn get assetId => text()();
+  TextColumn get title => text()();
+  TextColumn get subtitle => text().nullable()();
+  RealColumn get latitude => real()();
+  RealColumn get longitude => real()();
+  TextColumn get status => text().nullable()();
+  DateTimeColumn get updatedAt => dateTime().nullable()();
+  DateTimeColumn get cachedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {assetType, assetId};
+}
+
+class CachedMapAssetSyncCursors extends Table {
+  TextColumn get assetType => text()();
+  DateTimeColumn get syncedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {assetType};
+}
+
 /// Queued offline mutations, flushed FIFO. `clientRef` doubles as the
 /// server-side idempotency key (client_event_id / client_ref).
 class OutboxEntries extends Table {
   IntColumn get seq => integer().autoIncrement()();
   TextColumn get clientRef => text().unique()();
-  TextColumn get kind => text()(); // transition|note|worklog|material_consume|attachment|as_built
+  TextColumn get kind =>
+      text()(); // transition|note|worklog|material_consume|attachment|as_built
   TextColumn get payloadJson => text()();
-  TextColumn get status => text().withDefault(const Constant('pending'))(); // pending|sent|conflict
+  TextColumn get status =>
+      text().withDefault(const Constant('pending'))(); // pending|sent|conflict
   IntColumn get attempts => integer().withDefault(const Constant(0))();
   TextColumn get lastError => text().nullable()();
   DateTimeColumn get createdAt => dateTime()();
@@ -62,19 +87,32 @@ class PendingPhotos extends Table {
   Set<Column> get primaryKey => {clientRef};
 }
 
-@DriftDatabase(tables: [CachedJobs, CachedScheduleEntries, OutboxEntries, PendingPhotos])
+@DriftDatabase(
+  tables: [
+    CachedJobs,
+    CachedScheduleEntries,
+    CachedMapAssets,
+    CachedMapAssetSyncCursors,
+    OutboxEntries,
+    PendingPhotos,
+  ],
+)
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-        onUpgrade: (m, from, to) async {
-          if (from < 2) {
-            await m.addColumn(pendingPhotos, pendingPhotos.failed);
-          }
-        },
-      );
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.addColumn(pendingPhotos, pendingPhotos.failed);
+      }
+      if (from < 3) {
+        await m.createTable(cachedMapAssets);
+        await m.createTable(cachedMapAssetSyncCursors);
+      }
+    },
+  );
 }

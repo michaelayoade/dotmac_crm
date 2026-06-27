@@ -144,6 +144,40 @@ def retry_team_only_ai_assignments_task(limit: int = 200):
         observe_job("retry_team_only_ai_assignments", status, time.monotonic() - start)
 
 
+@celery_app.task(name="app.tasks.crm_inbox.promote_queued_conversations")
+def promote_queued_conversations_task(limit: int = 200):
+    """Assign the oldest-waiting queued chats to any agent that has free capacity."""
+    import logging
+    import time
+
+    from app.metrics import observe_job
+
+    logger = logging.getLogger(__name__)
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger.info("CHAT_QUEUE_PROMOTION_START")
+    try:
+        from app.services.crm.inbox.queue import promote_queued_conversations
+
+        result = promote_queued_conversations(session, limit=limit)
+        logger.info(
+            "CHAT_QUEUE_PROMOTION_COMPLETE scanned=%s promoted=%s still_queued=%s errors=%s",
+            result.get("scanned", 0),
+            result.get("promoted", 0),
+            result.get("still_queued", 0),
+            len(result.get("errors", [])),
+        )
+        return result
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("crm_inbox_promote_queue", status, time.monotonic() - start)
+
+
 @celery_app.task(
     name="app.tasks.crm_inbox.send_outbound_message",
     autoretry_for=(TransientOutboundError,),

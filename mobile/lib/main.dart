@@ -35,6 +35,7 @@ Future<void> main() async {
             api: ref.watch(apiClientProvider),
             connectivity: DeviceConnectivity(),
           );
+          Future.microtask(sync.flushAll);
           ref.onDispose(sync.dispose);
           ref.onDispose(db.close);
           return sync;

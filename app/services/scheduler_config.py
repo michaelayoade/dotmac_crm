@@ -583,6 +583,22 @@ def build_beat_schedule() -> dict:
             interval_seconds=max(ai_assignment_retry_interval_seconds, 30),
         )
 
+        # CRM chat queue promotion — assign queued chats as agents free up
+        queue_promotion_interval_seconds = _effective_int(
+            session,
+            SettingDomain.notification,
+            "crm_chat_queue_promotion_interval_seconds",
+            "CRM_CHAT_QUEUE_PROMOTION_INTERVAL_SECONDS",
+            30,
+        )
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_queue_promotion",
+            task_name="app.tasks.crm_inbox.promote_queued_conversations",
+            enabled=True,
+            interval_seconds=max(queue_promotion_interval_seconds, 15),
+        )
+
         # CRM inbox outbox queue runner
         outbox_interval_seconds = 30
         _sync_scheduled_task(

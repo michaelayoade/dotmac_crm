@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, String
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -88,6 +88,21 @@ class DeviceToken(Base):
 
     person = relationship("Person", foreign_keys=[person_id])
     vendor_user = relationship("VendorUser", foreign_keys=[vendor_user_id])
+
+
+class FieldMapAssetTombstone(Base):
+    """Deletion marker so mobile map caches can remove stale asset pins."""
+
+    __tablename__ = "field_map_asset_tombstones"
+    __table_args__ = (
+        UniqueConstraint("asset_type", "asset_id", name="uq_field_map_asset_tombstones_asset"),
+        Index("ix_field_map_asset_tombstones_deleted_at", "deleted_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    asset_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    asset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
 class FieldAttachment(Base):

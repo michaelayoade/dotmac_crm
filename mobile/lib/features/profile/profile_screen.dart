@@ -9,17 +9,22 @@ import '../jobs/jobs_providers.dart';
 /// Live counts from the offline queues.
 final pendingOutboxProvider = StreamProvider<List<OutboxEntry>>((ref) {
   final db = ref.watch(syncServiceProvider).db;
-  return (db.select(db.outboxEntries)..where((row) => row.status.equals('pending'))).watch();
+  return (db.select(
+    db.outboxEntries,
+  )..where((row) => row.status.equals('pending'))).watch();
 });
 
 final conflictOutboxProvider = StreamProvider<List<OutboxEntry>>((ref) {
   final db = ref.watch(syncServiceProvider).db;
-  return (db.select(db.outboxEntries)..where((row) => row.status.equals('conflict'))).watch();
+  return (db.select(
+    db.outboxEntries,
+  )..where((row) => row.status.equals('conflict'))).watch();
 });
 
 final pendingPhotosProvider = StreamProvider<int>((ref) {
   final db = ref.watch(syncServiceProvider).db;
-  return (db.select(db.pendingPhotos)..where((row) => row.uploaded.equals(false)))
+  return (db.select(db.pendingPhotos)
+        ..where((row) => row.uploaded.equals(false)))
       .watch()
       .map((rows) => rows.length);
 });
@@ -42,9 +47,13 @@ class ProfileScreen extends ConsumerWidget {
           me.when(
             data: (data) => Card(
               child: ListTile(
-                leading: CircleAvatar(child: Text(data.name.isEmpty ? '?' : data.name[0])),
+                leading: CircleAvatar(
+                  child: Text(data.name.isEmpty ? '?' : data.name[0]),
+                ),
                 title: Text(data.name),
-                subtitle: Text('${data.openJobs} open · ${data.completedToday} done today'),
+                subtitle: Text(
+                  '${data.openJobs} open · ${data.completedToday} done today',
+                ),
               ),
             ),
             loading: () => const SizedBox(height: 72),
@@ -59,15 +68,19 @@ class ProfileScreen extends ConsumerWidget {
                 children: [
                   Text('Sync', style: Theme.of(context).textTheme.titleSmall),
                   const SizedBox(height: 8),
-                  Text('${pending.length} queued actions · $pendingPhotos queued photos',
-                      key: const Key('sync-counts')),
+                  Text(
+                    '${pending.length} queued actions · $pendingPhotos queued photos',
+                    key: const Key('sync-counts'),
+                  ),
                   if (conflicts.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Text(
                         '${conflicts.length} need review',
                         key: const Key('conflict-count'),
-                        style: TextStyle(color: Theme.of(context).colorScheme.error),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ),
                   const SizedBox(height: 12),
@@ -77,8 +90,7 @@ class ProfileScreen extends ConsumerWidget {
                     label: const Text('Sync now'),
                     onPressed: () async {
                       final sync = ref.read(syncServiceProvider);
-                      await sync.flushOutbox();
-                      await sync.flushPhotos();
+                      await sync.flushAll();
                     },
                   ),
                 ],
@@ -87,7 +99,10 @@ class ProfileScreen extends ConsumerWidget {
           ),
           if (conflicts.isNotEmpty) ...[
             const SizedBox(height: 16),
-            Text('Needs review', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Needs review',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 4),
             Text(
               'These actions were rejected because the job changed on the server. '
@@ -110,18 +125,26 @@ class ProfileScreen extends ConsumerWidget {
                         context: context,
                         builder: (context) => AlertDialog(
                           title: const Text('Discard this action?'),
-                          content: const Text('It was rejected by the server and cannot be retried.'),
+                          content: const Text(
+                            'It was rejected by the server and cannot be retried.',
+                          ),
                           actions: [
                             TextButton(
-                                onPressed: () => Navigator.pop(context, false), child: const Text('Keep')),
+                              onPressed: () => Navigator.pop(context, false),
+                              child: const Text('Keep'),
+                            ),
                             FilledButton(
-                                onPressed: () => Navigator.pop(context, true), child: const Text('Discard')),
+                              onPressed: () => Navigator.pop(context, true),
+                              child: const Text('Discard'),
+                            ),
                           ],
                         ),
                       );
                       if (confirmed == true) {
                         final db = ref.read(syncServiceProvider).db;
-                        await (db.delete(db.outboxEntries)..where((row) => row.seq.equals(entry.seq))).go();
+                        await (db.delete(
+                          db.outboxEntries,
+                        )..where((row) => row.seq.equals(entry.seq))).go();
                       }
                     },
                   ),
