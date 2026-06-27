@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.models.wireless_mast import WirelessMast
 from app.schemas.wireless_mast import WirelessMastCreate, WirelessMastUpdate
 from app.services.common import apply_ordering, apply_pagination
+from app.services.field.map_assets import record_map_asset_tombstone
 from app.services.response import ListResponseMixin
 
 
@@ -74,6 +75,7 @@ class WirelessMasts(ListResponseMixin):
     def delete(db: Session, mast_id: str) -> None:
         mast = WirelessMasts.get(db, mast_id)
         mast.is_active = False
+        record_map_asset_tombstone(db, asset_type="wireless_mast", asset_id=mast.id)
         db.commit()
 
 

@@ -30,6 +30,7 @@ class MapAsset {
     required this.latitude,
     required this.longitude,
     this.status,
+    this.updatedAt,
   });
 
   final String id;
@@ -39,6 +40,7 @@ class MapAsset {
   final double latitude;
   final double longitude;
   final String? status;
+  final DateTime? updatedAt;
 
   bool get hasValidCoordinates => isValidMapCoordinate(latitude, longitude);
 
@@ -50,6 +52,9 @@ class MapAsset {
     latitude: (json['latitude'] as num).toDouble(),
     longitude: (json['longitude'] as num).toDouble(),
     status: json['status'] as String?,
+    updatedAt: json['updated_at'] != null
+        ? DateTime.parse(json['updated_at'] as String).toUtc()
+        : null,
   );
 }
 
@@ -62,7 +67,13 @@ const mapAssetTypeLabels = {
   'service_building': 'Building',
 };
 
-const defaultMapAssetTypes = {'olt', 'fdh', 'fiber_access_point'};
+const defaultMapAssetTypes = {
+  'olt',
+  'fdh',
+  'fiber_access_point',
+  'splice_closure',
+  'wireless_mast',
+};
 
 /// Build map pins from job summaries + cached detail JSON (keyed by job id).
 /// Jobs without resolved coordinates are skipped — the map shows what it

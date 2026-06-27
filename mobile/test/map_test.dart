@@ -75,6 +75,19 @@ void main() {
     expect(pins, isEmpty);
   });
 
+  test('default map asset layers match backend network defaults', () {
+    expect(
+      defaultMapAssetTypes,
+      containsAll({
+        'olt',
+        'fdh',
+        'fiber_access_point',
+        'splice_closure',
+        'wireless_mast',
+      }),
+    );
+  });
+
   testWidgets('map renders a marker per pinned job', (tester) async {
     final pins = [
       const JobPin(

@@ -702,6 +702,7 @@ async def build_inbox_page_context(
         "agents": assignment_options.get("agents"),
         "teams": assignment_options.get("teams"),
         "agent_labels": assignment_options.get("agent_labels"),
+        "agent_availability": assignment_options.get("agent_availability"),
         "current_filter_agent_id": filter_agent_id or "",
         "current_assigned_from": assigned_from.strftime("%Y-%m-%d") if assigned_from else "",
         "current_assigned_to": assigned_to.strftime("%Y-%m-%d") if assigned_to else "",
@@ -879,6 +880,7 @@ def build_inbox_contact_detail_context(
         "agents": assignment_options.get("agents"),
         "teams": assignment_options.get("teams"),
         "agent_labels": assignment_options.get("agent_labels"),
+        "agent_availability": assignment_options.get("agent_availability"),
         "private_notes": private_notes,
         "retention_card": (
             _conversation_retention_context(

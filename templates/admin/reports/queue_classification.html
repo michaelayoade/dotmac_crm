@@ -1,0 +1,128 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import stats_card, dashboard_kpi_grid %}
+
+{% block title %}Queue & Classification - Admin{% endblock %}
+
+{% macro mins(seconds) %}{{ ((seconds / 60) | round(1)) ~ ' min' if seconds is not none else '—' }}{% endmacro %}
+
+{% block content %}
+<div class="space-y-6">
+    {# Header + filter form #}
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white font-display">Queue &amp; Classification</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Chat queue wait times and issue breakdown</p>
+        </div>
+        <form method="GET" action="/admin/reports/queue" class="flex items-center gap-2">
+            <select name="period_days" class="rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <option value="7" {% if period_days == 7 %}selected{% endif %}>Last 7 Days</option>
+                <option value="14" {% if period_days == 14 %}selected{% endif %}>Last 14 Days</option>
+                <option value="30" {% if period_days == 30 %}selected{% endif %}>Last 30 Days</option>
+            </select>
+            <button type="submit" class="inline-flex items-center gap-2 rounded-xl bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 transition-colors">
+                Filter
+            </button>
+        </form>
+    </div>
+
+    {# Queue summary cards #}
+    {% set o = queue.overall %}
+    {% call dashboard_kpi_grid(cols="4") %}
+        {{ stats_card("Queued & Assigned", o.count, color="indigo", color2="violet") }}
+        {{ stats_card("Avg Wait", mins(o.avg_seconds), color="amber", color2="orange") }}
+        {{ stats_card("Median Wait", mins(o.median_seconds), color="emerald", color2="teal") }}
+        {{ stats_card("P90 Wait", mins(o.p90_seconds), color="rose", color2="pink") }}
+    {% endcall %}
+
+    {# Queue wait by day #}
+    <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+            <h2 class="font-semibold text-slate-900 dark:text-white">Queue wait by day</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-800/50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Day</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Count</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Avg</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Median</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">P90</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                    {% for d in queue.by_day %}
+                    <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                        <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ d.day }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{{ d.count }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{{ mins(d.avg_seconds) }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{{ mins(d.median_seconds) }}</td>
+                        <td class="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{{ mins(d.p90_seconds) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No queued conversations in this period.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {# Issue classification by department #}
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <h2 class="font-semibold text-slate-900 dark:text-white">By department</h2>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead class="bg-slate-50 dark:bg-slate-800/50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Department</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Count</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Med. Resolution</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                        {% for d in classification.departments %}
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                            <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ d.department | replace('_', ' ') | title }}</td>
+                            <td class="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{{ d.count }}</td>
+                            <td class="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{{ mins(d.median_resolution_seconds) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="3" class="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No conversations in this period.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {# Tags #}
+        <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+            <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
+                <h2 class="font-semibold text-slate-900 dark:text-white">Top tags</h2>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                    <thead class="bg-slate-50 dark:bg-slate-800/50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Tag</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Count</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                        {% for t in classification.tags %}
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
+                            <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ t.tag }}</td>
+                            <td class="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-700 dark:text-slate-300">{{ t.count }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="2" class="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No tags in this period.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

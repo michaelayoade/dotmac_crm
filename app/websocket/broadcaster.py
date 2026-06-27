@@ -12,6 +12,8 @@ from app.websocket.events import EventType, WebSocketEvent
 from app.websocket.manager import CHANNEL_PREFIX, get_connection_manager
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from app.models.crm.conversation import Conversation, Message
 
 logger = get_logger(__name__)
@@ -251,6 +253,32 @@ def broadcast_conversation_summary(conversation_id: str, summary: dict):
         logger.warning("broadcast_conversation_summary_error error=%s", exc)
 
 
+def broadcast_conversation_read(conversation_id: str, read_up_to: datetime):
+    """
+    Broadcast that an agent has read the visitor's messages up to ``read_up_to``.
+
+    Drives the widget's "Seen" receipt. Sent to all conversation subscribers
+    (only the widget visitor acts on it). Called from mark_conversation_read.
+    """
+    try:
+        event = WebSocketEvent(
+            event=EventType.CONVERSATION_READ,
+            data={
+                "conversation_id": str(conversation_id),
+                "read_up_to": read_up_to.isoformat() if read_up_to else None,
+                "reader": "agent",
+            },
+        )
+        _broadcast_event_to_conversation(str(conversation_id), event)
+        logger.debug(
+            "broadcast_conversation_read conversation_id=%s read_up_to=%s",
+            conversation_id,
+            read_up_to,
+        )
+    except Exception as exc:
+        logger.warning("broadcast_conversation_read_error error=%s", exc)
+
+
 def broadcast_to_widget_visitor(session_id: str, message: Message):
     """
     Broadcast a message to a specific widget visitor's connections.
@@ -272,6 +300,7 @@ def broadcast_to_widget_visitor(session_id: str, message: Message):
                     if message.author
                     else None
                 ),
+                "author_avatar": message.author.avatar_url if message.author else None,
                 "created_at": message.created_at.isoformat() if message.created_at else None,
             },
         )

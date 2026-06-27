@@ -607,7 +607,8 @@
                         <option value="">Unassigned</option>
                         {% for agent in agents or [] %}
                         {% set label = agent_labels.get(agent.id|string, 'Agent ' ~ (agent.id|string|truncate(8, True, ''))) %}
-                        <option value="{{ agent.id }}" {% if conv.agent_id == agent.id|string %}selected{% endif %}>{{ label }}</option>
+                        {% set av = (agent_availability or {}).get(agent.id|string) %}
+                        <option value="{{ agent.id }}" {% if conv.agent_id == agent.id|string %}selected{% endif %}>{{ label }}{% if av %} · {{ av.status }} {{ av.active_chats }}/{{ av.cap }}{% if av.full %} (full){% endif %}{% endif %}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -622,6 +623,8 @@
                     </select>
                 </div>
             </div>
+            <input type="text" name="note" maxlength="500" placeholder="Transfer note (optional)"
+                   class="w-full rounded-lg border border-slate-700/50 bg-slate-900/60 px-2 py-1.5 text-[11px] text-slate-200 placeholder-slate-500">
         </form>
         {% endfor %}
     </div>

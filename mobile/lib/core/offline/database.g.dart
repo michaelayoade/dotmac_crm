@@ -892,6 +892,798 @@ class CachedScheduleEntriesCompanion
   }
 }
 
+class $CachedMapAssetsTable extends CachedMapAssets
+    with TableInfo<$CachedMapAssetsTable, CachedMapAsset> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CachedMapAssetsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _assetTypeMeta = const VerificationMeta(
+    'assetType',
+  );
+  @override
+  late final GeneratedColumn<String> assetType = GeneratedColumn<String>(
+    'asset_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _assetIdMeta = const VerificationMeta(
+    'assetId',
+  );
+  @override
+  late final GeneratedColumn<String> assetId = GeneratedColumn<String>(
+    'asset_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _subtitleMeta = const VerificationMeta(
+    'subtitle',
+  );
+  @override
+  late final GeneratedColumn<String> subtitle = GeneratedColumn<String>(
+    'subtitle',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _latitudeMeta = const VerificationMeta(
+    'latitude',
+  );
+  @override
+  late final GeneratedColumn<double> latitude = GeneratedColumn<double>(
+    'latitude',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _longitudeMeta = const VerificationMeta(
+    'longitude',
+  );
+  @override
+  late final GeneratedColumn<double> longitude = GeneratedColumn<double>(
+    'longitude',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _cachedAtMeta = const VerificationMeta(
+    'cachedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> cachedAt = GeneratedColumn<DateTime>(
+    'cached_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    assetType,
+    assetId,
+    title,
+    subtitle,
+    latitude,
+    longitude,
+    status,
+    updatedAt,
+    cachedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'cached_map_assets';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CachedMapAsset> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('asset_type')) {
+      context.handle(
+        _assetTypeMeta,
+        assetType.isAcceptableOrUnknown(data['asset_type']!, _assetTypeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_assetTypeMeta);
+    }
+    if (data.containsKey('asset_id')) {
+      context.handle(
+        _assetIdMeta,
+        assetId.isAcceptableOrUnknown(data['asset_id']!, _assetIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_assetIdMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('subtitle')) {
+      context.handle(
+        _subtitleMeta,
+        subtitle.isAcceptableOrUnknown(data['subtitle']!, _subtitleMeta),
+      );
+    }
+    if (data.containsKey('latitude')) {
+      context.handle(
+        _latitudeMeta,
+        latitude.isAcceptableOrUnknown(data['latitude']!, _latitudeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_latitudeMeta);
+    }
+    if (data.containsKey('longitude')) {
+      context.handle(
+        _longitudeMeta,
+        longitude.isAcceptableOrUnknown(data['longitude']!, _longitudeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_longitudeMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
+    if (data.containsKey('cached_at')) {
+      context.handle(
+        _cachedAtMeta,
+        cachedAt.isAcceptableOrUnknown(data['cached_at']!, _cachedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_cachedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {assetType, assetId};
+  @override
+  CachedMapAsset map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CachedMapAsset(
+      assetType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}asset_type'],
+      )!,
+      assetId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}asset_id'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      subtitle: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}subtitle'],
+      ),
+      latitude: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}latitude'],
+      )!,
+      longitude: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}longitude'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      ),
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      ),
+      cachedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}cached_at'],
+      )!,
+    );
+  }
+
+  @override
+  $CachedMapAssetsTable createAlias(String alias) {
+    return $CachedMapAssetsTable(attachedDatabase, alias);
+  }
+}
+
+class CachedMapAsset extends DataClass implements Insertable<CachedMapAsset> {
+  final String assetType;
+  final String assetId;
+  final String title;
+  final String? subtitle;
+  final double latitude;
+  final double longitude;
+  final String? status;
+  final DateTime? updatedAt;
+  final DateTime cachedAt;
+  const CachedMapAsset({
+    required this.assetType,
+    required this.assetId,
+    required this.title,
+    this.subtitle,
+    required this.latitude,
+    required this.longitude,
+    this.status,
+    this.updatedAt,
+    required this.cachedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['asset_type'] = Variable<String>(assetType);
+    map['asset_id'] = Variable<String>(assetId);
+    map['title'] = Variable<String>(title);
+    if (!nullToAbsent || subtitle != null) {
+      map['subtitle'] = Variable<String>(subtitle);
+    }
+    map['latitude'] = Variable<double>(latitude);
+    map['longitude'] = Variable<double>(longitude);
+    if (!nullToAbsent || status != null) {
+      map['status'] = Variable<String>(status);
+    }
+    if (!nullToAbsent || updatedAt != null) {
+      map['updated_at'] = Variable<DateTime>(updatedAt);
+    }
+    map['cached_at'] = Variable<DateTime>(cachedAt);
+    return map;
+  }
+
+  CachedMapAssetsCompanion toCompanion(bool nullToAbsent) {
+    return CachedMapAssetsCompanion(
+      assetType: Value(assetType),
+      assetId: Value(assetId),
+      title: Value(title),
+      subtitle: subtitle == null && nullToAbsent
+          ? const Value.absent()
+          : Value(subtitle),
+      latitude: Value(latitude),
+      longitude: Value(longitude),
+      status: status == null && nullToAbsent
+          ? const Value.absent()
+          : Value(status),
+      updatedAt: updatedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(updatedAt),
+      cachedAt: Value(cachedAt),
+    );
+  }
+
+  factory CachedMapAsset.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CachedMapAsset(
+      assetType: serializer.fromJson<String>(json['assetType']),
+      assetId: serializer.fromJson<String>(json['assetId']),
+      title: serializer.fromJson<String>(json['title']),
+      subtitle: serializer.fromJson<String?>(json['subtitle']),
+      latitude: serializer.fromJson<double>(json['latitude']),
+      longitude: serializer.fromJson<double>(json['longitude']),
+      status: serializer.fromJson<String?>(json['status']),
+      updatedAt: serializer.fromJson<DateTime?>(json['updatedAt']),
+      cachedAt: serializer.fromJson<DateTime>(json['cachedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'assetType': serializer.toJson<String>(assetType),
+      'assetId': serializer.toJson<String>(assetId),
+      'title': serializer.toJson<String>(title),
+      'subtitle': serializer.toJson<String?>(subtitle),
+      'latitude': serializer.toJson<double>(latitude),
+      'longitude': serializer.toJson<double>(longitude),
+      'status': serializer.toJson<String?>(status),
+      'updatedAt': serializer.toJson<DateTime?>(updatedAt),
+      'cachedAt': serializer.toJson<DateTime>(cachedAt),
+    };
+  }
+
+  CachedMapAsset copyWith({
+    String? assetType,
+    String? assetId,
+    String? title,
+    Value<String?> subtitle = const Value.absent(),
+    double? latitude,
+    double? longitude,
+    Value<String?> status = const Value.absent(),
+    Value<DateTime?> updatedAt = const Value.absent(),
+    DateTime? cachedAt,
+  }) => CachedMapAsset(
+    assetType: assetType ?? this.assetType,
+    assetId: assetId ?? this.assetId,
+    title: title ?? this.title,
+    subtitle: subtitle.present ? subtitle.value : this.subtitle,
+    latitude: latitude ?? this.latitude,
+    longitude: longitude ?? this.longitude,
+    status: status.present ? status.value : this.status,
+    updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
+    cachedAt: cachedAt ?? this.cachedAt,
+  );
+  CachedMapAsset copyWithCompanion(CachedMapAssetsCompanion data) {
+    return CachedMapAsset(
+      assetType: data.assetType.present ? data.assetType.value : this.assetType,
+      assetId: data.assetId.present ? data.assetId.value : this.assetId,
+      title: data.title.present ? data.title.value : this.title,
+      subtitle: data.subtitle.present ? data.subtitle.value : this.subtitle,
+      latitude: data.latitude.present ? data.latitude.value : this.latitude,
+      longitude: data.longitude.present ? data.longitude.value : this.longitude,
+      status: data.status.present ? data.status.value : this.status,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      cachedAt: data.cachedAt.present ? data.cachedAt.value : this.cachedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedMapAsset(')
+          ..write('assetType: $assetType, ')
+          ..write('assetId: $assetId, ')
+          ..write('title: $title, ')
+          ..write('subtitle: $subtitle, ')
+          ..write('latitude: $latitude, ')
+          ..write('longitude: $longitude, ')
+          ..write('status: $status, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('cachedAt: $cachedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    assetType,
+    assetId,
+    title,
+    subtitle,
+    latitude,
+    longitude,
+    status,
+    updatedAt,
+    cachedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CachedMapAsset &&
+          other.assetType == this.assetType &&
+          other.assetId == this.assetId &&
+          other.title == this.title &&
+          other.subtitle == this.subtitle &&
+          other.latitude == this.latitude &&
+          other.longitude == this.longitude &&
+          other.status == this.status &&
+          other.updatedAt == this.updatedAt &&
+          other.cachedAt == this.cachedAt);
+}
+
+class CachedMapAssetsCompanion extends UpdateCompanion<CachedMapAsset> {
+  final Value<String> assetType;
+  final Value<String> assetId;
+  final Value<String> title;
+  final Value<String?> subtitle;
+  final Value<double> latitude;
+  final Value<double> longitude;
+  final Value<String?> status;
+  final Value<DateTime?> updatedAt;
+  final Value<DateTime> cachedAt;
+  final Value<int> rowid;
+  const CachedMapAssetsCompanion({
+    this.assetType = const Value.absent(),
+    this.assetId = const Value.absent(),
+    this.title = const Value.absent(),
+    this.subtitle = const Value.absent(),
+    this.latitude = const Value.absent(),
+    this.longitude = const Value.absent(),
+    this.status = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.cachedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CachedMapAssetsCompanion.insert({
+    required String assetType,
+    required String assetId,
+    required String title,
+    this.subtitle = const Value.absent(),
+    required double latitude,
+    required double longitude,
+    this.status = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    required DateTime cachedAt,
+    this.rowid = const Value.absent(),
+  }) : assetType = Value(assetType),
+       assetId = Value(assetId),
+       title = Value(title),
+       latitude = Value(latitude),
+       longitude = Value(longitude),
+       cachedAt = Value(cachedAt);
+  static Insertable<CachedMapAsset> custom({
+    Expression<String>? assetType,
+    Expression<String>? assetId,
+    Expression<String>? title,
+    Expression<String>? subtitle,
+    Expression<double>? latitude,
+    Expression<double>? longitude,
+    Expression<String>? status,
+    Expression<DateTime>? updatedAt,
+    Expression<DateTime>? cachedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (assetType != null) 'asset_type': assetType,
+      if (assetId != null) 'asset_id': assetId,
+      if (title != null) 'title': title,
+      if (subtitle != null) 'subtitle': subtitle,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (status != null) 'status': status,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (cachedAt != null) 'cached_at': cachedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CachedMapAssetsCompanion copyWith({
+    Value<String>? assetType,
+    Value<String>? assetId,
+    Value<String>? title,
+    Value<String?>? subtitle,
+    Value<double>? latitude,
+    Value<double>? longitude,
+    Value<String?>? status,
+    Value<DateTime?>? updatedAt,
+    Value<DateTime>? cachedAt,
+    Value<int>? rowid,
+  }) {
+    return CachedMapAssetsCompanion(
+      assetType: assetType ?? this.assetType,
+      assetId: assetId ?? this.assetId,
+      title: title ?? this.title,
+      subtitle: subtitle ?? this.subtitle,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      status: status ?? this.status,
+      updatedAt: updatedAt ?? this.updatedAt,
+      cachedAt: cachedAt ?? this.cachedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (assetType.present) {
+      map['asset_type'] = Variable<String>(assetType.value);
+    }
+    if (assetId.present) {
+      map['asset_id'] = Variable<String>(assetId.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (subtitle.present) {
+      map['subtitle'] = Variable<String>(subtitle.value);
+    }
+    if (latitude.present) {
+      map['latitude'] = Variable<double>(latitude.value);
+    }
+    if (longitude.present) {
+      map['longitude'] = Variable<double>(longitude.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (cachedAt.present) {
+      map['cached_at'] = Variable<DateTime>(cachedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedMapAssetsCompanion(')
+          ..write('assetType: $assetType, ')
+          ..write('assetId: $assetId, ')
+          ..write('title: $title, ')
+          ..write('subtitle: $subtitle, ')
+          ..write('latitude: $latitude, ')
+          ..write('longitude: $longitude, ')
+          ..write('status: $status, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('cachedAt: $cachedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $CachedMapAssetSyncCursorsTable extends CachedMapAssetSyncCursors
+    with TableInfo<$CachedMapAssetSyncCursorsTable, CachedMapAssetSyncCursor> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CachedMapAssetSyncCursorsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _assetTypeMeta = const VerificationMeta(
+    'assetType',
+  );
+  @override
+  late final GeneratedColumn<String> assetType = GeneratedColumn<String>(
+    'asset_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _syncedAtMeta = const VerificationMeta(
+    'syncedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> syncedAt = GeneratedColumn<DateTime>(
+    'synced_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [assetType, syncedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'cached_map_asset_sync_cursors';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CachedMapAssetSyncCursor> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('asset_type')) {
+      context.handle(
+        _assetTypeMeta,
+        assetType.isAcceptableOrUnknown(data['asset_type']!, _assetTypeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_assetTypeMeta);
+    }
+    if (data.containsKey('synced_at')) {
+      context.handle(
+        _syncedAtMeta,
+        syncedAt.isAcceptableOrUnknown(data['synced_at']!, _syncedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_syncedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {assetType};
+  @override
+  CachedMapAssetSyncCursor map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CachedMapAssetSyncCursor(
+      assetType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}asset_type'],
+      )!,
+      syncedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}synced_at'],
+      )!,
+    );
+  }
+
+  @override
+  $CachedMapAssetSyncCursorsTable createAlias(String alias) {
+    return $CachedMapAssetSyncCursorsTable(attachedDatabase, alias);
+  }
+}
+
+class CachedMapAssetSyncCursor extends DataClass
+    implements Insertable<CachedMapAssetSyncCursor> {
+  final String assetType;
+  final DateTime syncedAt;
+  const CachedMapAssetSyncCursor({
+    required this.assetType,
+    required this.syncedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['asset_type'] = Variable<String>(assetType);
+    map['synced_at'] = Variable<DateTime>(syncedAt);
+    return map;
+  }
+
+  CachedMapAssetSyncCursorsCompanion toCompanion(bool nullToAbsent) {
+    return CachedMapAssetSyncCursorsCompanion(
+      assetType: Value(assetType),
+      syncedAt: Value(syncedAt),
+    );
+  }
+
+  factory CachedMapAssetSyncCursor.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CachedMapAssetSyncCursor(
+      assetType: serializer.fromJson<String>(json['assetType']),
+      syncedAt: serializer.fromJson<DateTime>(json['syncedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'assetType': serializer.toJson<String>(assetType),
+      'syncedAt': serializer.toJson<DateTime>(syncedAt),
+    };
+  }
+
+  CachedMapAssetSyncCursor copyWith({String? assetType, DateTime? syncedAt}) =>
+      CachedMapAssetSyncCursor(
+        assetType: assetType ?? this.assetType,
+        syncedAt: syncedAt ?? this.syncedAt,
+      );
+  CachedMapAssetSyncCursor copyWithCompanion(
+    CachedMapAssetSyncCursorsCompanion data,
+  ) {
+    return CachedMapAssetSyncCursor(
+      assetType: data.assetType.present ? data.assetType.value : this.assetType,
+      syncedAt: data.syncedAt.present ? data.syncedAt.value : this.syncedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedMapAssetSyncCursor(')
+          ..write('assetType: $assetType, ')
+          ..write('syncedAt: $syncedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(assetType, syncedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CachedMapAssetSyncCursor &&
+          other.assetType == this.assetType &&
+          other.syncedAt == this.syncedAt);
+}
+
+class CachedMapAssetSyncCursorsCompanion
+    extends UpdateCompanion<CachedMapAssetSyncCursor> {
+  final Value<String> assetType;
+  final Value<DateTime> syncedAt;
+  final Value<int> rowid;
+  const CachedMapAssetSyncCursorsCompanion({
+    this.assetType = const Value.absent(),
+    this.syncedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CachedMapAssetSyncCursorsCompanion.insert({
+    required String assetType,
+    required DateTime syncedAt,
+    this.rowid = const Value.absent(),
+  }) : assetType = Value(assetType),
+       syncedAt = Value(syncedAt);
+  static Insertable<CachedMapAssetSyncCursor> custom({
+    Expression<String>? assetType,
+    Expression<DateTime>? syncedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (assetType != null) 'asset_type': assetType,
+      if (syncedAt != null) 'synced_at': syncedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CachedMapAssetSyncCursorsCompanion copyWith({
+    Value<String>? assetType,
+    Value<DateTime>? syncedAt,
+    Value<int>? rowid,
+  }) {
+    return CachedMapAssetSyncCursorsCompanion(
+      assetType: assetType ?? this.assetType,
+      syncedAt: syncedAt ?? this.syncedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (assetType.present) {
+      map['asset_type'] = Variable<String>(assetType.value);
+    }
+    if (syncedAt.present) {
+      map['synced_at'] = Variable<DateTime>(syncedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedMapAssetSyncCursorsCompanion(')
+          ..write('assetType: $assetType, ')
+          ..write('syncedAt: $syncedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $OutboxEntriesTable extends OutboxEntries
     with TableInfo<$OutboxEntriesTable, OutboxEntry> {
   @override
@@ -2086,6 +2878,11 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $CachedJobsTable cachedJobs = $CachedJobsTable(this);
   late final $CachedScheduleEntriesTable cachedScheduleEntries =
       $CachedScheduleEntriesTable(this);
+  late final $CachedMapAssetsTable cachedMapAssets = $CachedMapAssetsTable(
+    this,
+  );
+  late final $CachedMapAssetSyncCursorsTable cachedMapAssetSyncCursors =
+      $CachedMapAssetSyncCursorsTable(this);
   late final $OutboxEntriesTable outboxEntries = $OutboxEntriesTable(this);
   late final $PendingPhotosTable pendingPhotos = $PendingPhotosTable(this);
   @override
@@ -2095,6 +2892,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   List<DatabaseSchemaEntity> get allSchemaEntities => [
     cachedJobs,
     cachedScheduleEntries,
+    cachedMapAssets,
+    cachedMapAssetSyncCursors,
     outboxEntries,
     pendingPhotos,
   ];
@@ -2577,6 +3376,450 @@ typedef $$CachedScheduleEntriesTableProcessedTableManager =
         >,
       ),
       CachedScheduleEntry,
+      PrefetchHooks Function()
+    >;
+typedef $$CachedMapAssetsTableCreateCompanionBuilder =
+    CachedMapAssetsCompanion Function({
+      required String assetType,
+      required String assetId,
+      required String title,
+      Value<String?> subtitle,
+      required double latitude,
+      required double longitude,
+      Value<String?> status,
+      Value<DateTime?> updatedAt,
+      required DateTime cachedAt,
+      Value<int> rowid,
+    });
+typedef $$CachedMapAssetsTableUpdateCompanionBuilder =
+    CachedMapAssetsCompanion Function({
+      Value<String> assetType,
+      Value<String> assetId,
+      Value<String> title,
+      Value<String?> subtitle,
+      Value<double> latitude,
+      Value<double> longitude,
+      Value<String?> status,
+      Value<DateTime?> updatedAt,
+      Value<DateTime> cachedAt,
+      Value<int> rowid,
+    });
+
+class $$CachedMapAssetsTableFilterComposer
+    extends Composer<_$AppDatabase, $CachedMapAssetsTable> {
+  $$CachedMapAssetsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get assetType => $composableBuilder(
+    column: $table.assetType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get assetId => $composableBuilder(
+    column: $table.assetId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get subtitle => $composableBuilder(
+    column: $table.subtitle,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get latitude => $composableBuilder(
+    column: $table.latitude,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get longitude => $composableBuilder(
+    column: $table.longitude,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CachedMapAssetsTableOrderingComposer
+    extends Composer<_$AppDatabase, $CachedMapAssetsTable> {
+  $$CachedMapAssetsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get assetType => $composableBuilder(
+    column: $table.assetType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get assetId => $composableBuilder(
+    column: $table.assetId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get subtitle => $composableBuilder(
+    column: $table.subtitle,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get latitude => $composableBuilder(
+    column: $table.latitude,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get longitude => $composableBuilder(
+    column: $table.longitude,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get cachedAt => $composableBuilder(
+    column: $table.cachedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CachedMapAssetsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $CachedMapAssetsTable> {
+  $$CachedMapAssetsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get assetType =>
+      $composableBuilder(column: $table.assetType, builder: (column) => column);
+
+  GeneratedColumn<String> get assetId =>
+      $composableBuilder(column: $table.assetId, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get subtitle =>
+      $composableBuilder(column: $table.subtitle, builder: (column) => column);
+
+  GeneratedColumn<double> get latitude =>
+      $composableBuilder(column: $table.latitude, builder: (column) => column);
+
+  GeneratedColumn<double> get longitude =>
+      $composableBuilder(column: $table.longitude, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get cachedAt =>
+      $composableBuilder(column: $table.cachedAt, builder: (column) => column);
+}
+
+class $$CachedMapAssetsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $CachedMapAssetsTable,
+          CachedMapAsset,
+          $$CachedMapAssetsTableFilterComposer,
+          $$CachedMapAssetsTableOrderingComposer,
+          $$CachedMapAssetsTableAnnotationComposer,
+          $$CachedMapAssetsTableCreateCompanionBuilder,
+          $$CachedMapAssetsTableUpdateCompanionBuilder,
+          (
+            CachedMapAsset,
+            BaseReferences<
+              _$AppDatabase,
+              $CachedMapAssetsTable,
+              CachedMapAsset
+            >,
+          ),
+          CachedMapAsset,
+          PrefetchHooks Function()
+        > {
+  $$CachedMapAssetsTableTableManager(
+    _$AppDatabase db,
+    $CachedMapAssetsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CachedMapAssetsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CachedMapAssetsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$CachedMapAssetsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> assetType = const Value.absent(),
+                Value<String> assetId = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String?> subtitle = const Value.absent(),
+                Value<double> latitude = const Value.absent(),
+                Value<double> longitude = const Value.absent(),
+                Value<String?> status = const Value.absent(),
+                Value<DateTime?> updatedAt = const Value.absent(),
+                Value<DateTime> cachedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CachedMapAssetsCompanion(
+                assetType: assetType,
+                assetId: assetId,
+                title: title,
+                subtitle: subtitle,
+                latitude: latitude,
+                longitude: longitude,
+                status: status,
+                updatedAt: updatedAt,
+                cachedAt: cachedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String assetType,
+                required String assetId,
+                required String title,
+                Value<String?> subtitle = const Value.absent(),
+                required double latitude,
+                required double longitude,
+                Value<String?> status = const Value.absent(),
+                Value<DateTime?> updatedAt = const Value.absent(),
+                required DateTime cachedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => CachedMapAssetsCompanion.insert(
+                assetType: assetType,
+                assetId: assetId,
+                title: title,
+                subtitle: subtitle,
+                latitude: latitude,
+                longitude: longitude,
+                status: status,
+                updatedAt: updatedAt,
+                cachedAt: cachedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CachedMapAssetsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $CachedMapAssetsTable,
+      CachedMapAsset,
+      $$CachedMapAssetsTableFilterComposer,
+      $$CachedMapAssetsTableOrderingComposer,
+      $$CachedMapAssetsTableAnnotationComposer,
+      $$CachedMapAssetsTableCreateCompanionBuilder,
+      $$CachedMapAssetsTableUpdateCompanionBuilder,
+      (
+        CachedMapAsset,
+        BaseReferences<_$AppDatabase, $CachedMapAssetsTable, CachedMapAsset>,
+      ),
+      CachedMapAsset,
+      PrefetchHooks Function()
+    >;
+typedef $$CachedMapAssetSyncCursorsTableCreateCompanionBuilder =
+    CachedMapAssetSyncCursorsCompanion Function({
+      required String assetType,
+      required DateTime syncedAt,
+      Value<int> rowid,
+    });
+typedef $$CachedMapAssetSyncCursorsTableUpdateCompanionBuilder =
+    CachedMapAssetSyncCursorsCompanion Function({
+      Value<String> assetType,
+      Value<DateTime> syncedAt,
+      Value<int> rowid,
+    });
+
+class $$CachedMapAssetSyncCursorsTableFilterComposer
+    extends Composer<_$AppDatabase, $CachedMapAssetSyncCursorsTable> {
+  $$CachedMapAssetSyncCursorsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get assetType => $composableBuilder(
+    column: $table.assetType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get syncedAt => $composableBuilder(
+    column: $table.syncedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CachedMapAssetSyncCursorsTableOrderingComposer
+    extends Composer<_$AppDatabase, $CachedMapAssetSyncCursorsTable> {
+  $$CachedMapAssetSyncCursorsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get assetType => $composableBuilder(
+    column: $table.assetType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get syncedAt => $composableBuilder(
+    column: $table.syncedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CachedMapAssetSyncCursorsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $CachedMapAssetSyncCursorsTable> {
+  $$CachedMapAssetSyncCursorsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get assetType =>
+      $composableBuilder(column: $table.assetType, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get syncedAt =>
+      $composableBuilder(column: $table.syncedAt, builder: (column) => column);
+}
+
+class $$CachedMapAssetSyncCursorsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $CachedMapAssetSyncCursorsTable,
+          CachedMapAssetSyncCursor,
+          $$CachedMapAssetSyncCursorsTableFilterComposer,
+          $$CachedMapAssetSyncCursorsTableOrderingComposer,
+          $$CachedMapAssetSyncCursorsTableAnnotationComposer,
+          $$CachedMapAssetSyncCursorsTableCreateCompanionBuilder,
+          $$CachedMapAssetSyncCursorsTableUpdateCompanionBuilder,
+          (
+            CachedMapAssetSyncCursor,
+            BaseReferences<
+              _$AppDatabase,
+              $CachedMapAssetSyncCursorsTable,
+              CachedMapAssetSyncCursor
+            >,
+          ),
+          CachedMapAssetSyncCursor,
+          PrefetchHooks Function()
+        > {
+  $$CachedMapAssetSyncCursorsTableTableManager(
+    _$AppDatabase db,
+    $CachedMapAssetSyncCursorsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CachedMapAssetSyncCursorsTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$CachedMapAssetSyncCursorsTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$CachedMapAssetSyncCursorsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> assetType = const Value.absent(),
+                Value<DateTime> syncedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CachedMapAssetSyncCursorsCompanion(
+                assetType: assetType,
+                syncedAt: syncedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String assetType,
+                required DateTime syncedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => CachedMapAssetSyncCursorsCompanion.insert(
+                assetType: assetType,
+                syncedAt: syncedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CachedMapAssetSyncCursorsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $CachedMapAssetSyncCursorsTable,
+      CachedMapAssetSyncCursor,
+      $$CachedMapAssetSyncCursorsTableFilterComposer,
+      $$CachedMapAssetSyncCursorsTableOrderingComposer,
+      $$CachedMapAssetSyncCursorsTableAnnotationComposer,
+      $$CachedMapAssetSyncCursorsTableCreateCompanionBuilder,
+      $$CachedMapAssetSyncCursorsTableUpdateCompanionBuilder,
+      (
+        CachedMapAssetSyncCursor,
+        BaseReferences<
+          _$AppDatabase,
+          $CachedMapAssetSyncCursorsTable,
+          CachedMapAssetSyncCursor
+        >,
+      ),
+      CachedMapAssetSyncCursor,
       PrefetchHooks Function()
     >;
 typedef $$OutboxEntriesTableCreateCompanionBuilder =
@@ -3160,6 +4403,13 @@ class $AppDatabaseManager {
       $$CachedJobsTableTableManager(_db, _db.cachedJobs);
   $$CachedScheduleEntriesTableTableManager get cachedScheduleEntries =>
       $$CachedScheduleEntriesTableTableManager(_db, _db.cachedScheduleEntries);
+  $$CachedMapAssetsTableTableManager get cachedMapAssets =>
+      $$CachedMapAssetsTableTableManager(_db, _db.cachedMapAssets);
+  $$CachedMapAssetSyncCursorsTableTableManager get cachedMapAssetSyncCursors =>
+      $$CachedMapAssetSyncCursorsTableTableManager(
+        _db,
+        _db.cachedMapAssetSyncCursors,
+      );
   $$OutboxEntriesTableTableManager get outboxEntries =>
       $$OutboxEntriesTableTableManager(_db, _db.outboxEntries);
   $$PendingPhotosTableTableManager get pendingPhotos =>

@@ -103,6 +103,7 @@ from app.models.field import (  # noqa: F401
     FieldAttachment,
     FieldAttachmentKind,
     FieldJobEvent,
+    FieldMapAssetTombstone,
     WorkOrderEvent,
 )
 from app.models.field_location import (  # noqa: F401

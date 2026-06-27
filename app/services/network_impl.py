@@ -72,6 +72,7 @@ from app.schemas.network import (
 )
 from app.services import settings_spec
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+from app.services.field.map_assets import record_map_asset_tombstone
 from app.services.response import ListResponseMixin
 
 
@@ -140,6 +141,7 @@ class OLTDevices(ListResponseMixin):
         if not device:
             raise HTTPException(status_code=404, detail="OLT device not found")
         device.is_active = False
+        record_map_asset_tombstone(db, asset_type="olt", asset_id=device.id)
         db.commit()
 
 
@@ -647,6 +649,7 @@ class FdhCabinets(ListResponseMixin):
         if child_count > 0:
             raise HTTPException(status_code=409, detail=f"Cannot delete: cabinet has {child_count} active splitter(s)")
         cabinet.is_active = False
+        record_map_asset_tombstone(db, asset_type="fdh", asset_id=cabinet.id)
         db.commit()
 
 
@@ -975,6 +978,7 @@ class FiberSpliceClosures(ListResponseMixin):
         if not closure:
             raise HTTPException(status_code=404, detail="Fiber splice closure not found")
         closure.is_active = False
+        record_map_asset_tombstone(db, asset_type="splice_closure", asset_id=closure.id)
         db.commit()
 
 

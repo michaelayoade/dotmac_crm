@@ -68,6 +68,24 @@ def get_submitted_token(form_data: dict) -> str | None:
     return form_data.get("_csrf_token")
 
 
+def enforce_csrf_for_cookie_auth(request: Request) -> None:
+    """FastAPI dependency that enforces double-submit CSRF on endpoints the global
+    middleware skips (e.g. ``/auth/*`` APIs that still accept cookie auth).
+
+    Bearer-token requests carry credentials explicitly and are not susceptible to
+    CSRF, so they are exempt. Cookie/ambient-credential requests must present a
+    matching ``X-CSRF-Token`` header.
+    """
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        return
+
+    cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
+    header_token = request.headers.get(CSRF_HEADER_NAME)
+    if not cookie_token or not header_token or not secrets.compare_digest(cookie_token, header_token):
+        raise CSRFValidationError()
+
+
 class CSRFValidationError(HTTPException):
     """Raised when CSRF validation fails."""
 

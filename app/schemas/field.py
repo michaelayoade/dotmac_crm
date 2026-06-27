@@ -185,6 +185,22 @@ class FieldMapAsset(BaseModel):
     latitude: float
     longitude: float
     status: str | None = None
+    updated_at: datetime | None = None
+
+
+class FieldMapAssetDeleted(BaseModel):
+    type: str
+    id: UUID
+    deleted_at: datetime
+
+
+class FieldMapAssetListResponse(BaseModel):
+    items: list[FieldMapAsset]
+    deleted: list[FieldMapAssetDeleted] = Field(default_factory=list)
+    count: int
+    limit: int
+    offset: int
+    server_time: datetime
 
 
 class FieldMapAssetLocationUpdate(BaseModel):
