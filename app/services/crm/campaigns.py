@@ -12,6 +12,7 @@ import logging
 import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from typing import cast as type_cast
 
@@ -29,16 +30,19 @@ from app.models.crm.enums import (
     CampaignStatus,
     CampaignType,
     ChannelType,
+    LeadStatus,
     MessageDirection,
     MessageStatus,
 )
 from app.models.crm.sales import Lead
+from app.models.domain_settings import SettingDomain
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.person import ChannelType as PersonChannelType
 from app.models.person import PartyStatus, Person, PersonChannel
 from app.models.subscriber import Organization, Subscriber
 from app.schemas.crm.conversation import ConversationCreate
 from app.schemas.crm.inbox import InboxSendRequest
+from app.services import settings_spec
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.crm import conversation as conversation_service
 from app.services.crm.inbox import outbound as inbox_outbound_service
@@ -885,6 +889,119 @@ def reconcile_outreach_message_status(db: Session, *, message_id: str) -> None:
     reconcile_outreach_tracking(db, campaign_id=campaign_id)
 
 
+# Lead statuses that count as "open" pipeline (not yet closed won/lost).
+_OPEN_LEAD_STATUSES = (
+    LeadStatus.new,
+    LeadStatus.contacted,
+    LeadStatus.qualified,
+    LeadStatus.proposal,
+    LeadStatus.negotiation,
+)
+
+
+def _attribution_enabled(db: Session) -> bool:
+    value = settings_spec.resolve_value(
+        db, SettingDomain.notification, "campaign_lead_attribution_enabled", use_cache=False
+    )
+    if value is None:
+        return True  # default on — feeding the funnel is the point
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def attribute_lead_from_reply(
+    db: Session,
+    *,
+    person_id,
+    campaign_id,
+    recipient_id=None,
+) -> Lead | None:
+    """Attribute an inbound campaign reply to a lead. Reuses the person's open
+    lead (tagging it with the campaign) or creates a campaign-sourced lead.
+    Idempotent; returns the lead, or None when disabled/unresolvable."""
+    if not _attribution_enabled(db):
+        return None
+    pid = coerce_uuid(person_id)
+    cid = coerce_uuid(campaign_id)
+    if not pid or not cid:
+        return None
+
+    already = (
+        db.query(Lead)
+        .filter(Lead.person_id == pid, Lead.campaign_id == cid, Lead.is_active.is_(True))
+        .first()
+    )
+    if already is not None:
+        return already
+
+    open_lead = (
+        db.query(Lead)
+        .filter(Lead.person_id == pid, Lead.is_active.is_(True))
+        .filter(Lead.status.in_(_OPEN_LEAD_STATUSES))
+        .order_by(Lead.created_at.desc())
+        .first()
+    )
+    if open_lead is not None:
+        if open_lead.campaign_id is None:
+            open_lead.campaign_id = cid
+            if recipient_id:
+                open_lead.campaign_recipient_id = coerce_uuid(recipient_id)
+            if not open_lead.lead_source:
+                open_lead.lead_source = "Campaign"
+            db.commit()
+            db.refresh(open_lead)
+        return open_lead
+
+    person = db.get(Person, pid)
+    name = getattr(person, "display_name", None) or "Lead"
+    lead = Lead(
+        person_id=pid,
+        title=f"Campaign reply: {name}"[:200],
+        status=LeadStatus.new,
+        lead_source="Campaign",
+        campaign_id=cid,
+        campaign_recipient_id=coerce_uuid(recipient_id) if recipient_id else None,
+        metadata_={"attributed_from": "campaign_reply"},
+    )
+    db.add(lead)
+    db.commit()
+    db.refresh(lead)
+    logger.info(
+        "campaign_lead_attributed campaign_id=%s person_id=%s lead_id=%s", cid, pid, lead.id
+    )
+    return lead
+
+
+def campaign_attribution_report(db: Session, campaign_id: str) -> dict:
+    """Per-campaign funnel ROI: recipients/sent/replies → leads → won + value."""
+    cid = coerce_uuid(campaign_id)
+    recipients = db.query(func.count(CampaignRecipient.id)).filter(CampaignRecipient.campaign_id == cid).scalar() or 0
+    sent = (
+        db.query(func.count(CampaignRecipient.id))
+        .filter(CampaignRecipient.campaign_id == cid)
+        .filter(CampaignRecipient.status.in_((CampaignRecipientStatus.sent, CampaignRecipientStatus.delivered)))
+        .scalar()
+        or 0
+    )
+    leads = db.query(Lead).filter(Lead.campaign_id == cid, Lead.is_active.is_(True)).all()
+    won = [lead for lead in leads if lead.status == LeadStatus.won]
+    lost = [lead for lead in leads if lead.status == LeadStatus.lost]
+    open_leads = [lead for lead in leads if lead.status in _OPEN_LEAD_STATUSES]
+    won_value = sum((lead.estimated_value or Decimal("0")) for lead in won)
+    pipeline_value = sum((lead.estimated_value or Decimal("0")) for lead in open_leads)
+    return {
+        "campaign_id": str(cid),
+        "recipients": int(recipients),
+        "sent": int(sent),
+        "leads_attributed": len(leads),
+        "leads_open": len(open_leads),
+        "leads_won": len(won),
+        "leads_lost": len(lost),
+        "reply_to_lead_rate": (len(leads) / sent) if sent else 0.0,
+        "won_value": won_value,
+        "pipeline_value": pipeline_value,
+    }
+
+
 def reconcile_outreach_inbound_reply(db: Session, *, message_id: str) -> None:
     message = db.get(Message, coerce_uuid(message_id))
     if not message or message.direction != MessageDirection.inbound:
@@ -906,6 +1023,18 @@ def reconcile_outreach_inbound_reply(db: Session, *, message_id: str) -> None:
     if not campaign_id:
         return
     reconcile_outreach_tracking(db, campaign_id=campaign_id)
+
+    # Attribute a lead for the engaged person (best-effort: an attribution hiccup
+    # must never break inbound message handling).
+    try:
+        attribute_lead_from_reply(
+            db,
+            person_id=message.person_id,
+            campaign_id=campaign_id,
+            recipient_id=_outreach_message_campaign_recipient_id(outbound_context),
+        )
+    except Exception:
+        logger.warning("campaign_lead_attribution_failed campaign_id=%s", campaign_id, exc_info=True)
 
 
 def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> int:
