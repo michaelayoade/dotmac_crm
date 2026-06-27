@@ -138,6 +138,13 @@ def assign_conversation(
             error_detail=str(exc),
         )
 
+    # A manual team-only assignment is a queue entry too — stamp queued_at so the
+    # promotion sweep can hand it to an agent once one frees up.
+    if team_value and not agent_value:
+        from app.services.crm.inbox.routing import mark_conversation_queued
+
+        mark_conversation_queued(db, conversation)
+
     try:
         contact = contact_service.get_person_with_relationships(db, str(conversation.person_id))
     except Exception:

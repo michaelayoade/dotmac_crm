@@ -8,6 +8,7 @@ the oldest-waiting conversations onto agents as capacity frees up — both react
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -49,8 +50,11 @@ def promote_next_for_agent(db: Session, agent_id) -> int:
     """Pull the oldest queued conversation(s) in the agent's teams onto the agent,
     up to their capacity. Called when an agent frees a slot (resolve/close).
 
-    Locks the agent row so the cap is enforced authoritatively against concurrent
-    promotions. Best-effort: never raises. Returns the number promoted.
+    Re-counts the agent's active chats before each assignment so a single call
+    never knowingly exceeds the cap. The cap is a soft limit across concurrent
+    callers (assign_conversation commits per assignment, releasing the agent-row
+    lock); the periodic queue sweep reconciles. Best-effort: never raises.
+    Returns the number promoted.
     """
     promoted = 0
     try:
@@ -144,6 +148,11 @@ def promote_queued_conversations(db: Session, *, limit: int = 200) -> dict[str, 
 
 DEFAULT_HANDLE_SECONDS = 300
 
+# Short-lived per-team cache for the average-handle-time estimate, so the widget
+# status poll (every ~10s per open chat) doesn't re-run the 24h AVG each time.
+_AVG_HANDLE_TTL_SECONDS = 60.0
+_avg_handle_cache: dict[str, tuple[float, float]] = {}
+
 
 def _active_assignment(db: Session, conversation_id) -> ConversationAssignment | None:
     return (
@@ -155,8 +164,15 @@ def _active_assignment(db: Session, conversation_id) -> ConversationAssignment |
 
 
 def _avg_handle_seconds(db: Session, team_id) -> float:
-    """Average recent handle time for a team, used to estimate queue wait."""
+    """Average recent handle time for a team, used to estimate queue wait.
+    Cached per team for a short TTL to keep the widget status poll cheap."""
     from sqlalchemy import func
+
+    key = str(team_id)
+    now = time.monotonic()
+    cached = _avg_handle_cache.get(key)
+    if cached is not None and cached[1] > now:
+        return cached[0]
 
     cutoff = datetime.now(UTC) - timedelta(hours=24)
     avg = (
@@ -168,7 +184,9 @@ def _avg_handle_seconds(db: Session, team_id) -> float:
         .filter(Conversation.resolved_at >= cutoff)
         .scalar()
     )
-    return float(avg) if avg else float(DEFAULT_HANDLE_SECONDS)
+    result = float(avg) if avg else float(DEFAULT_HANDLE_SECONDS)
+    _avg_handle_cache[key] = (result, now + _AVG_HANDLE_TTL_SECONDS)
+    return result
 
 
 def queue_status_for_conversation(db: Session, conversation: Conversation) -> dict[str, Any] | None:

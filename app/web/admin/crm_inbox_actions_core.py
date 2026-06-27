@@ -247,6 +247,7 @@ def inbox_conversation_assignment(
                         "agents": assignment_options["agents"],
                         "teams": assignment_options["teams"],
                         "agent_labels": assignment_options["agent_labels"],
+                        "agent_availability": assignment_options.get("agent_availability"),
                         "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
                         "assignment_error_detail": conversation_result.error_detail or "Assignment failed",
                     },
@@ -293,6 +294,7 @@ def inbox_conversation_assignment(
                 "agents": assignment_options["agents"],
                 "teams": assignment_options["teams"],
                 "agent_labels": assignment_options["agent_labels"],
+                "agent_availability": assignment_options.get("agent_availability"),
                 "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
             },
         )
@@ -376,6 +378,7 @@ def inbox_conversation_resolve(
             "agents": assignment_options["agents"],
             "teams": assignment_options["teams"],
             "agent_labels": assignment_options["agent_labels"],
+            "agent_availability": assignment_options.get("agent_availability"),
             "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
         },
     )

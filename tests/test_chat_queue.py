@@ -309,3 +309,25 @@ def test_agent_availability_map_marks_full(db_session, crm_contact, crm_agent, c
     assert entry["cap"] == 1
     assert entry["full"] is True
     assert entry["status"] == "online"
+
+
+def test_manual_team_only_assignment_sets_queued_at(db_session, crm_contact, crm_agent, crm_team, crm_agent_team):
+    """A manual team-only assignment must enqueue (queued_at) so the promotion
+    sweep can later hand it to an agent."""
+    from app.services.crm.inbox.conversation_actions import assign_conversation as assign_action
+
+    conv = _conversation(db_session, crm_contact)
+    result = assign_action(
+        db_session,
+        conversation_id=str(conv.id),
+        agent_id=None,
+        team_id=str(crm_team.id),
+        assigned_by_id=None,
+    )
+    db_session.refresh(conv)
+    assert result.kind == "success"
+    assert conv.queued_at is not None
+    # And the periodic sweep can now promote it once an agent is available.
+    _online(db_session, crm_agent)
+    swept = queue_service.promote_queued_conversations(db_session)
+    assert swept["promoted"] == 1

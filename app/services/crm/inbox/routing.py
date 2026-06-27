@@ -121,13 +121,17 @@ def _list_available_agents(db: Session, team_id: str) -> list[CrmAgent]:
 
 
 def _pick_least_loaded_agent(db: Session, team_id: str) -> str | None:
-    agents = _list_available_agents(db, team_id)
+    agents = _list_active_agents(db, team_id)
     if not agents:
         return None
-    agent_ids = [agent.id for agent in agents]
-    load_map = _agent_active_chat_counts(db, agent_ids)
-    agent_ids_sorted = sorted(agent_ids, key=lambda agent_id: load_map.get(agent_id, 0))
-    return str(agent_ids_sorted[0]) if agent_ids_sorted else None
+    # One load query drives both the capacity filter and the least-loaded sort.
+    load_map = _agent_active_chat_counts(db, [agent.id for agent in agents])
+    default_cap = _global_max_concurrent(db)
+    available = [agent for agent in agents if load_map.get(agent.id, 0) < _agent_cap(agent, default_cap)]
+    if not available:
+        return None
+    available.sort(key=lambda agent: load_map.get(agent.id, 0))
+    return str(available[0].id)
 
 
 def _pick_round_robin_agent(db: Session, team: CrmTeam, rule_id: str) -> str | None:
