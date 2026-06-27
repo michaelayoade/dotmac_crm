@@ -18,13 +18,16 @@ class ScheduleScreen extends ConsumerWidget {
       body: RefreshIndicator(
         onRefresh: () async => ref.invalidate(scheduleProvider),
         child: schedule.when(
-          data: (entries) {
+          data: (data) {
+            final entries = data.entries;
             if (entries.isEmpty) {
               return ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                children: const [
-                  SizedBox(height: 160),
-                  Center(child: Text('Nothing scheduled this week — enjoy the quiet')),
+                children: [
+                  if (data.fromCache)
+                    const Padding(padding: EdgeInsets.all(16), child: _OfflineBanner()),
+                  const SizedBox(height: 160),
+                  const Center(child: Text('Nothing scheduled this week — enjoy the quiet')),
                 ],
               );
             }
@@ -33,6 +36,7 @@ class ScheduleScreen extends ConsumerWidget {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(16),
               children: [
+                if (data.fromCache) const _OfflineBanner(),
                 for (final (day, dayEntries) in days) ...[
                   Padding(
                     padding: const EdgeInsets.only(top: 8, bottom: 8),
@@ -92,6 +96,25 @@ class _ScheduleTile extends ConsumerWidget {
         subtitle: Text('$time$end · ${entry.type}'),
         onTap: entry.type == 'job' ? () => context.push('/jobs/${entry.referenceId}') : null,
         trailing: entry.type == 'job' ? const Icon(Icons.chevron_right) : null,
+      ),
+    );
+  }
+}
+
+class _OfflineBanner extends StatelessWidget {
+  const _OfflineBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        key: const Key('schedule-offline-banner'),
+        children: [
+          const Icon(Icons.cloud_off_outlined, size: 16),
+          const SizedBox(width: 8),
+          Text('Offline — showing saved schedule', style: Theme.of(context).textTheme.bodySmall),
+        ],
       ),
     );
   }

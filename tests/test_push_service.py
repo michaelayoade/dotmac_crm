@@ -1,8 +1,11 @@
 """Tests for the mobile push pipeline (device registry + FCM sender)."""
 
+import uuid
+
 import pytest
 from fastapi import HTTPException
 
+from app.models.audit import AuditEvent
 from app.models.field import DevicePlatform, DeviceToken
 from app.models.notification import (
     DeliveryStatus,
@@ -11,8 +14,16 @@ from app.models.notification import (
     NotificationDelivery,
     NotificationStatus,
 )
+from app.models.person import Person
 from app.services import push as push_module
 from app.services.push import push_devices, push_sender
+
+
+def _other_person(db):
+    other = Person(first_name="Other", last_name="Tech", email=f"o-{uuid.uuid4().hex}@example.com")
+    db.add(other)
+    db.commit()
+    return other
 
 FAKE_ACCOUNT = {"client_email": "svc@test.iam", "private_key": "key", "project_id": "test-proj"}
 
@@ -144,3 +155,48 @@ def test_work_order_assignment_triggers_push(db_session, person, configured_fcm,
     push_module.queue_work_order_assignment_push(db_session, work_order)
 
     assert any(s["data"]["work_order_id"] == str(work_order.id) for s in configured_fcm)
+
+
+def test_list_for_person_returns_only_own_active_devices(db_session, person):
+    other = _other_person(db_session)
+    push_devices.register(db_session, platform="android", fcm_token="mine-1", person_id=str(person.id))
+    push_devices.register(db_session, platform="ios", fcm_token="mine-2", person_id=str(person.id))
+    push_devices.register(db_session, platform="android", fcm_token="theirs-1", person_id=str(other.id))
+
+    mine = push_devices.list_for_person(db_session, str(person.id))
+    assert {d.fcm_token for d in mine} == {"mine-1", "mine-2"}
+
+
+def test_deregister_deactivates_own_device_and_audits(db_session, person):
+    device = push_devices.register(db_session, platform="android", fcm_token="tok-d", person_id=str(person.id))
+
+    push_devices.deregister(db_session, device_id=str(device.id), person_id=str(person.id))
+
+    db_session.refresh(device)
+    assert device.is_active is False
+    assert push_devices.list_for_person(db_session, str(person.id)) == []
+    audit = (
+        db_session.query(AuditEvent)
+        .filter(AuditEvent.action == "field:device:deregister")
+        .filter(AuditEvent.entity_id == str(device.id))
+        .first()
+    )
+    assert audit is not None
+
+
+def test_deregister_others_device_is_404_and_untouched(db_session, person):
+    other = _other_person(db_session)
+    device = push_devices.register(db_session, platform="android", fcm_token="tok-o", person_id=str(other.id))
+
+    with pytest.raises(HTTPException) as exc:
+        push_devices.deregister(db_session, device_id=str(device.id), person_id=str(person.id))
+    assert exc.value.status_code == 404
+
+    db_session.refresh(device)
+    assert device.is_active is True
+
+
+def test_deregister_unknown_device_is_404(db_session, person):
+    with pytest.raises(HTTPException) as exc:
+        push_devices.deregister(db_session, device_id=str(uuid.uuid4()), person_id=str(person.id))
+    assert exc.value.status_code == 404

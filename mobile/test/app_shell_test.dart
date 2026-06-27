@@ -35,7 +35,7 @@ Widget _app({
         jobsListProvider.overrideWith(
           (ref) async => const JobList(<JobSummary>[]),
         ),
-        scheduleProvider.overrideWith((ref) async => <ScheduleEntry>[]),
+        scheduleProvider.overrideWith((ref) async => const ScheduleData([])),
         // SyncStatusBar reads these; empty streams keep it off-screen without
         // needing a real SyncService.
         pendingOutboxProvider.overrideWith(
