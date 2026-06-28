@@ -240,6 +240,7 @@ def crm_quote_create(
     item_description: list[str] = Form([]),
     item_quantity: list[str] = Form([]),
     item_unit_price: list[str] = Form([]),
+    item_discount_percent: list[str] = Form([]),
     item_inventory_item_id: list[str] = Form([]),
     db: Session = Depends(get_db),
 ):
@@ -259,6 +260,7 @@ def crm_quote_create(
         item_description=item_description,
         item_quantity=item_quantity,
         item_unit_price=item_unit_price,
+        item_discount_percent=item_discount_percent,
         item_inventory_item_id=item_inventory_item_id,
     )
     try:
@@ -337,6 +339,7 @@ def crm_quote_update(
     item_description: list[str] = Form([]),
     item_quantity: list[str] = Form([]),
     item_unit_price: list[str] = Form([]),
+    item_discount_percent: list[str] = Form([]),
     item_inventory_item_id: list[str] = Form([]),
     db: Session = Depends(get_db),
 ):
@@ -356,6 +359,7 @@ def crm_quote_update(
         item_description=item_description,
         item_quantity=item_quantity,
         item_unit_price=item_unit_price,
+        item_discount_percent=item_discount_percent,
         item_inventory_item_id=item_inventory_item_id,
     )
     try:

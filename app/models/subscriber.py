@@ -1,6 +1,7 @@
 import enum
 import uuid
 from datetime import UTC, date, datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     JSON,
@@ -122,6 +123,9 @@ class Organization(Base):
     # Metadata
     notes: Mapped[str | None] = mapped_column(Text)
     tags: Mapped[list | None] = mapped_column(JSON)
+    # Reseller channel: per-reseller commission rate (percent); falls back to the
+    # global default setting when null. Only meaningful for account_type=reseller.
+    commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     metadata_: Mapped[dict | None] = mapped_column("metadata", MutableDict.as_mutable(JSON()))
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -304,7 +308,7 @@ class SubscriberBillingRiskSnapshot(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    external_system: Mapped[str] = mapped_column(String(60), default="splynx", nullable=False)
+    external_system: Mapped[str] = mapped_column(String(60), default="selfcare", nullable=False)
     external_id: Mapped[str] = mapped_column(String(120), nullable=False)
     subscriber_number: Mapped[str | None] = mapped_column(String(60))
 

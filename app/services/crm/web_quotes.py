@@ -28,10 +28,11 @@ from app.schemas.crm.conversation import ConversationCreate
 from app.schemas.crm.inbox import InboxSendRequest
 from app.schemas.crm.sales import QuoteCreate, QuoteLineItemCreate, QuoteLineItemUpdate, QuoteUpdate
 from app.services import crm as crm_service
-from app.services.common import coerce_uuid
+from app.services.common import coerce_uuid, round_money
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm import inbox as inbox_service
+from app.services.crm.sales.service import _recalculate_quote_totals
 from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ class QuoteUpsertInput:
     item_description: list[str] | None = None
     item_quantity: list[str] | None = None
     item_unit_price: list[str] | None = None
+    item_discount_percent: list[str] | None = None
     item_inventory_item_id: list[str] | None = None
 
 
@@ -97,14 +99,16 @@ def _as_quote_items(form: QuoteUpsertInput) -> list[dict[str, str]]:
     descriptions = form.item_description or []
     quantities = form.item_quantity or []
     unit_prices = form.item_unit_price or []
+    discounts = form.item_discount_percent or []
     inventory_ids = form.item_inventory_item_id or []
 
-    max_len = max(len(descriptions), len(quantities), len(unit_prices), len(inventory_ids), 1)
+    max_len = max(len(descriptions), len(quantities), len(unit_prices), len(discounts), len(inventory_ids), 1)
     items: list[dict[str, str]] = []
     for idx in range(max_len):
         description = descriptions[idx].strip() if idx < len(descriptions) and descriptions[idx] else ""
         quantity = quantities[idx].strip() if idx < len(quantities) and quantities[idx] else ""
         unit_price = unit_prices[idx].strip() if idx < len(unit_prices) and unit_prices[idx] else ""
+        discount = discounts[idx].strip() if idx < len(discounts) and discounts[idx] else ""
         inventory_item_id = inventory_ids[idx].strip() if idx < len(inventory_ids) and inventory_ids[idx] else ""
         if not any([description, quantity, unit_price, inventory_item_id]):
             continue
@@ -113,6 +117,7 @@ def _as_quote_items(form: QuoteUpsertInput) -> list[dict[str, str]]:
                 "description": description,
                 "quantity": quantity,
                 "unit_price": unit_price,
+                "discount_percent": discount,
                 "inventory_item_id": inventory_item_id,
             }
         )
@@ -132,16 +137,20 @@ def _parse_quote_line_items(items: list[dict[str, str]]) -> list[dict[str, Any]]
 
         quantity = _parse_decimal(quantity_raw or "1", "quantity")
         unit_price = _parse_decimal(unit_price_raw or "0", "unit_price")
+        discount = _parse_decimal(item.get("discount_percent", "").strip() or "0", "discount") or Decimal("0")
         if quantity is None or quantity <= 0:
             raise ValueError("Quote item quantity must be greater than 0")
         if unit_price is None or unit_price < 0:
             raise ValueError("Quote item unit price must be 0 or greater")
+        if discount < 0 or discount > 100:
+            raise ValueError("Quote item discount must be between 0 and 100")
 
         parsed.append(
             {
                 "description": description,
                 "quantity": quantity,
                 "unit_price": unit_price,
+                "discount_percent": discount,
                 "inventory_item_id": _coerce_uuid_optional(inventory_item_id_raw),
             }
         )
@@ -347,13 +356,15 @@ def create_quote(db: Session, *, form: QuoteUpsertInput, tax_rate_get, owner_per
 
     subtotal_val = _parse_decimal(subtotal_value, "subtotal") or Decimal("0.00")
     tax_val = _parse_decimal(tax_total_value, "tax_total") or Decimal("0.00")
+    tax_rate_percent: Decimal | None = None
     if tax_rate_id_value:
         try:
             rate = tax_rate_get(db, tax_rate_id_value)
             rate_value = Decimal(rate.rate or 0)
             if rate_value > 1:
                 rate_value = rate_value / Decimal("100")
-            tax_val = subtotal_val * rate_value
+            tax_rate_percent = round_money(rate_value * Decimal("100"))
+            tax_val = round_money(subtotal_val * rate_value)
         except Exception as exc:
             raise ValueError("Invalid tax rate") from exc
     total_val = _parse_decimal(total_value, "total") or Decimal("0.00")
@@ -382,6 +393,7 @@ def create_quote(db: Session, *, form: QuoteUpsertInput, tax_rate_get, owner_per
         status=status_enum,
         currency=currency_value or "NGN",
         subtotal=subtotal_val,
+        tax_rate=tax_rate_percent,
         tax_total=tax_val,
         total=total_val,
         expires_at=_parse_optional_datetime(expires_at_value),
@@ -396,6 +408,7 @@ def create_quote(db: Session, *, form: QuoteUpsertInput, tax_rate_get, owner_per
             description=item["description"],
             quantity=item["quantity"],
             unit_price=item["unit_price"],
+            discount_percent=item.get("discount_percent", Decimal("0")),
             inventory_item_id=item["inventory_item_id"],
         )
         crm_service.quote_line_items.create(db=db, payload=item_payload)
@@ -418,6 +431,7 @@ def edit_quote_form_data(
             "description": item.description or "",
             "quantity": str(item.quantity or Decimal("1.000")),
             "unit_price": str(item.unit_price or Decimal("0.00")),
+            "discount_percent": str(item.discount_percent or Decimal("0.00")),
             "inventory_item_id": str(item.inventory_item_id) if item.inventory_item_id else "",
         }
         for item in items
@@ -732,12 +746,15 @@ def update_quote(db: Session, *, quote_id: str, form: QuoteUpsertInput, tax_rate
 
     subtotal_from_items = sum((item["quantity"] * item["unit_price"] for item in parsed_items), Decimal("0.00"))
     tax_value = _parse_decimal(tax_total_value, "tax_total") or Decimal("0.00")
+    tax_rate_percent: Decimal | None = None
     if tax_rate_id_value:
         if tax_rate_get is None:
             raise ValueError("Tax rate lookup is unavailable")
         try:
             rate = tax_rate_get(db, tax_rate_id_value)
-            tax_value = subtotal_from_items * _tax_rate_fraction(rate)
+            fraction = _tax_rate_fraction(rate)
+            tax_rate_percent = round_money(fraction * Decimal("100"))
+            tax_value = round_money(subtotal_from_items * fraction)
         except Exception as exc:
             raise ValueError("Invalid tax rate") from exc
     total_from_items = subtotal_from_items + tax_value
@@ -769,6 +786,7 @@ def update_quote(db: Session, *, quote_id: str, form: QuoteUpsertInput, tax_rate
         status=status_enum,
         currency=currency_value or None,
         subtotal=subtotal_from_items,
+        tax_rate=tax_rate_percent,
         tax_total=tax_value,
         total=total_from_items,
         expires_at=_parse_optional_datetime(expires_at_value),
@@ -796,6 +814,7 @@ def update_quote(db: Session, *, quote_id: str, form: QuoteUpsertInput, tax_rate
                     description=item["description"],
                     quantity=item["quantity"],
                     unit_price=item["unit_price"],
+                    discount_percent=item.get("discount_percent", Decimal("0")),
                     inventory_item_id=item["inventory_item_id"],
                 ),
             )
@@ -807,12 +826,21 @@ def update_quote(db: Session, *, quote_id: str, form: QuoteUpsertInput, tax_rate
                     description=item["description"],
                     quantity=item["quantity"],
                     unit_price=item["unit_price"],
+                    discount_percent=item.get("discount_percent", Decimal("0")),
                     inventory_item_id=item["inventory_item_id"],
                 ),
             )
     for stale_item in existing_items[len(parsed_items) :]:
         db.delete(stale_item)
     db.commit()
+
+    # Re-derive totals from the persisted line items AFTER the sync + deletions,
+    # so subtotal/tax follow the net (discounted) amounts and a removed line no
+    # longer leaves them stale. The earlier payload totals are computed before
+    # line items are synced and ignore per-line discounts.
+    refreshed = crm_service.quotes.get(db=db, quote_id=quote_id)
+    _recalculate_quote_totals(db, refreshed)
+    db.refresh(updated)
 
     return before, updated
 

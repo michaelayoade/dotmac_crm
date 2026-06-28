@@ -129,6 +129,7 @@ class QuoteBase(BaseModel):
     status: QuoteStatus = QuoteStatus.draft
     currency: str = Field(default="NGN", min_length=3, max_length=3)
     subtotal: Decimal = Decimal("0.00")
+    tax_rate: Decimal | None = Field(default=None, ge=0, le=100)
     tax_total: Decimal = Decimal("0.00")
     total: Decimal = Decimal("0.00")
     expires_at: datetime | None = None
@@ -149,6 +150,7 @@ class QuoteUpdate(BaseModel):
     status: QuoteStatus | None = None
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     subtotal: Decimal | None = None
+    tax_rate: Decimal | None = Field(default=None, ge=0, le=100)
     tax_total: Decimal | None = None
     total: Decimal | None = None
     expires_at: datetime | None = None
@@ -173,6 +175,7 @@ class QuoteLineItemBase(BaseModel):
     description: str = Field(min_length=1, max_length=255)
     quantity: Decimal = Field(default=Decimal("1.000"), gt=0)
     unit_price: Decimal = Field(default=Decimal("0.00"), ge=0)
+    discount_percent: Decimal = Field(default=Decimal("0.00"), ge=0, le=100)
     amount: Decimal = Field(default=Decimal("0.00"), ge=0)
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
@@ -186,6 +189,7 @@ class QuoteLineItemUpdate(BaseModel):
     description: str | None = Field(default=None, min_length=1, max_length=255)
     quantity: Decimal | None = Field(default=None, gt=0)
     unit_price: Decimal | None = Field(default=None, ge=0)
+    discount_percent: Decimal | None = Field(default=None, ge=0, le=100)
     amount: Decimal | None = Field(default=None, ge=0)
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 

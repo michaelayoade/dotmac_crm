@@ -357,8 +357,12 @@ def test_create_installation_invoice_skips_non_positive_amount(db_session, monke
     assert called == []  # never hit the network for invalid amounts
 
 
-def test_create_installation_invoice_returns_none_on_provider_error(db_session, monkeypatch):
+def test_create_installation_invoice_raises_on_provider_error(db_session, monkeypatch):
+    # A provider failure now propagates so the caller can record a failure marker
+    # and retry — rather than silently producing no invoice and no signal.
     _enable_selfcare(monkeypatch)
+    monkeypatch.setattr(selfcare, "_sleep_backoff", lambda attempt: None)
     monkeypatch.setattr("requests.request", lambda *a, **k: _Response(502, {}, text="bad gateway"))
 
-    assert selfcare.create_installation_invoice(db_session, subscriber_id="s1", amount="100") is None
+    with pytest.raises(selfcare.SelfcareProviderError):
+        selfcare.create_installation_invoice(db_session, subscriber_id="s1", amount="100")

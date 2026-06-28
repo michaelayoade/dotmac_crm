@@ -39,6 +39,7 @@ from app.api.comms import router as comms_router
 from app.api.connectors import router as connectors_router
 from app.api.contracts import router as contracts_router
 from app.api.crm import router as crm_router
+from app.api.crm.campaign_tracking import public_router as campaign_tracking_public_router
 from app.api.crm.referrals import public_router as referral_public_router
 from app.api.crm.widget_internal import router as widget_internal_router
 from app.api.crm.widget_public import router as widget_public_router
@@ -64,6 +65,8 @@ from app.api.persons import router as people_router
 from app.api.projects import router as projects_router
 from app.api.qualification import router as qualification_router
 from app.api.rbac import router as rbac_router
+from app.api.reseller_commissions import payout_router as reseller_payouts_router
+from app.api.reseller_commissions import router as reseller_commissions_router
 from app.api.reseller_portal import router as reseller_portal_router
 from app.api.sales import router as sales_router
 from app.api.sales_orders import router as sales_orders_router
@@ -469,6 +472,8 @@ _include_api_router(projects_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(workforce_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(external_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(sales_orders_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(reseller_commissions_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(reseller_payouts_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(auth_router, dependencies=[Depends(require_role("admin"))])
 # Only include auth_flow at /api/v1 to avoid conflict with web /auth/login
 app.include_router(auth_flow_router, prefix="/api/v1")
@@ -522,6 +527,8 @@ app.include_router(surveys_api_router, prefix="/api/v1")
 app.include_router(track_api_router, prefix="/api/v1")
 # Public referral capture - no auth (a prospect using a shared referral link)
 _include_api_router(referral_public_router)
+# Public campaign open/click tracking - no auth (recipient UUID + HMAC are the capability)
+_include_api_router(campaign_tracking_public_router)
 # Trusted server-to-server chat session mint (authenticated backend asserts identity).
 _include_api_router(widget_internal_router, dependencies=[Depends(require_user_auth)])
 app.include_router(vendors_router, prefix="/api", dependencies=[Depends(require_user_auth)])

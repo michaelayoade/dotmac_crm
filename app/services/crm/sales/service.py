@@ -1,8 +1,10 @@
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import String, cast, func, nullslast, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
@@ -17,7 +19,7 @@ from app.models.projects import Project, ProjectStatus, ProjectTemplate, Project
 from app.schemas.projects import ProjectCreate
 from app.services import projects as projects_service
 from app.services import settings_spec
-from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+from app.services.common import apply_ordering, apply_pagination, coerce_uuid, round_money, validate_enum
 from app.services.response import ListResponseMixin
 
 LEAD_SOURCE_OPTIONS = (
@@ -255,6 +257,46 @@ def _infer_lead_source(db: Session, person: Person | None, metadata: dict | None
     return None
 
 
+_logger = logging.getLogger(__name__)
+
+# Lead statuses that count as an "open" deal (not yet won/lost).
+_OPEN_LEAD_STATUSES = (
+    LeadStatus.new,
+    LeadStatus.contacted,
+    LeadStatus.qualified,
+    LeadStatus.proposal,
+    LeadStatus.negotiation,
+)
+
+
+def _lead_dedup_enabled(db: Session) -> bool:
+    value = settings_spec.resolve_value(db, SettingDomain.subscriber, "lead_dedup_enabled", use_cache=False)
+    if value is None:
+        return True  # default on: one open lead per person
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _find_open_duplicate_lead(db: Session, person_id, *, pipeline_id=None) -> Lead | None:
+    """The person's most recent open lead within the same pipeline bucket.
+
+    Scope is per-(person, pipeline). A null pipeline is its own bucket (it only
+    collides with other null-pipeline open leads), matching the partial unique
+    index ``uq_crm_leads_one_open_per_person_pipeline`` that COALESCEs a null
+    pipeline to a sentinel UUID.
+    """
+    query = (
+        db.query(Lead)
+        .filter(Lead.person_id == person_id)
+        .filter(Lead.is_active.is_(True))
+        .filter(Lead.status.in_(_OPEN_LEAD_STATUSES))
+    )
+    if pipeline_id is None:
+        query = query.filter(Lead.pipeline_id.is_(None))
+    else:
+        query = query.filter(Lead.pipeline_id == pipeline_id)
+    return query.order_by(Lead.created_at.desc()).first()
+
+
 def _apply_lead_closed_at(
     lead: Lead,
     status: LeadStatus | None,
@@ -359,12 +401,32 @@ def _prepare_quote_ownership(db: Session, data: dict, *, existing: Quote | None 
         data["sent_at"] = datetime.now(UTC)
 
 
+def _line_amount(quantity, unit_price, discount_percent) -> Decimal:
+    """Net line amount: quantity * unit_price, less the line discount percent."""
+    qty = Decimal(quantity or 0)
+    price = Decimal(unit_price or 0)
+    discount = Decimal(discount_percent or 0)
+    if discount < 0:
+        discount = Decimal("0")
+    if discount > 100:
+        discount = Decimal("100")
+    gross = qty * price
+    net = gross * (Decimal("100") - discount) / Decimal("100")
+    if net < 0:
+        net = Decimal("0")
+    return net.quantize(Decimal("0.01"))
+
+
 def _recalculate_quote_totals(db: Session, quote: Quote) -> None:
     items = db.query(CrmQuoteLineItem).filter(CrmQuoteLineItem.quote_id == quote.id).all()
-    subtotal = Decimal("0.00")
-    for item in items:
-        subtotal += Decimal(item.amount or 0)
+    # Subtotal is the sum of net (discounted) line amounts.
+    subtotal = round_money(sum((Decimal(item.amount or 0) for item in items), Decimal("0.00")))
     quote.subtotal = subtotal
+    # Auto-derive tax from the applied rate when one is set; otherwise keep the
+    # manually entered tax_total. Tax always follows the (discounted) subtotal.
+    if quote.tax_rate is not None:
+        rate = Decimal(quote.tax_rate or 0)
+        quote.tax_total = round_money(subtotal * rate / Decimal("100"))
     quote.total = subtotal + Decimal(quote.tax_total or 0)
     db.commit()
 
@@ -601,6 +663,24 @@ class Leads(ListResponseMixin):
         if not person:
             raise HTTPException(status_code=404, detail="Person not found")
 
+        # Dedup: a person shouldn't have two open leads. If one exists, return it
+        # (idempotent) instead of creating a duplicate pipeline entry. Scoped to
+        # the requested pipeline when one is given.
+        dedup_enabled = _lead_dedup_enabled(db)
+        if dedup_enabled:
+            duplicate = _find_open_duplicate_lead(db, person_id, pipeline_id=data.get("pipeline_id"))
+            if duplicate is not None:
+                metadata = dict(duplicate.metadata_ or {})
+                metadata["dedup_hits"] = int(metadata.get("dedup_hits") or 0) + 1
+                duplicate.metadata_ = metadata
+                db.commit()
+                db.refresh(duplicate)
+                _logger.info("lead_dedup_returned_existing person_id=%s lead_id=%s", person_id, duplicate.id)
+                # Transient signal for callers (e.g. web route) to distinguish a
+                # deduped return from a freshly created lead. Not persisted.
+                duplicate.dedup_returned_existing = True
+                return duplicate
+
         # Auto-upgrade person to at least 'contact' status if they're a lead
         if person.party_status == PartyStatus.lead:
             person.party_status = PartyStatus.contact
@@ -624,7 +704,20 @@ class Leads(ListResponseMixin):
         lead = Lead(**data)
         _apply_lead_closed_at(lead, lead.status)
         db.add(lead)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            # A concurrent create won the partial unique index
+            # (uq_crm_leads_one_open_per_person_pipeline). Resolve the race by
+            # returning the existing open lead instead of surfacing a 500.
+            db.rollback()
+            if dedup_enabled:
+                existing = _find_open_duplicate_lead(db, person_id, pipeline_id=data.get("pipeline_id"))
+                if existing is not None:
+                    _logger.info("lead_dedup_race_resolved person_id=%s lead_id=%s", person_id, existing.id)
+                    existing.dedup_returned_existing = True
+                    return existing
+            raise
         db.refresh(lead)
         return lead
 
@@ -1027,6 +1120,10 @@ class Quotes(ListResponseMixin):
 
         db.commit()
         db.refresh(quote)
+        # Re-derive totals when the tax rate changed, so tax follows immediately.
+        if "tax_rate" in data:
+            _recalculate_quote_totals(db, quote)
+            db.refresh(quote)
         if "status" in data:
             _apply_lead_status_from_quote(db, quote, quote.status)
         transitioned_to_accepted = previous_status != QuoteStatus.accepted and quote.status == QuoteStatus.accepted
@@ -1055,8 +1152,8 @@ class CrmQuoteLineItems(ListResponseMixin):
         data = payload.model_dump()
         if data.get("inventory_item_id") and not db.get(InventoryItem, data["inventory_item_id"]):
             raise HTTPException(status_code=404, detail="Inventory item not found")
-        if not data.get("amount"):
-            data["amount"] = Decimal(data.get("quantity") or 0) * Decimal(data.get("unit_price") or 0)
+        # Always derive amount server-side (net of any line discount).
+        data["amount"] = _line_amount(data.get("quantity"), data.get("unit_price"), data.get("discount_percent"))
         item = CrmQuoteLineItem(**data)
         db.add(item)
         db.commit()
@@ -1074,8 +1171,8 @@ class CrmQuoteLineItems(ListResponseMixin):
             raise HTTPException(status_code=404, detail="Inventory item not found")
         for key, value in data.items():
             setattr(item, key, value)
-        if "quantity" in data or "unit_price" in data:
-            item.amount = Decimal(item.quantity or 0) * Decimal(item.unit_price or 0)
+        if {"quantity", "unit_price", "discount_percent"} & set(data):
+            item.amount = _line_amount(item.quantity, item.unit_price, item.discount_percent)
         db.commit()
         db.refresh(item)
         quote = db.get(Quote, item.quote_id)

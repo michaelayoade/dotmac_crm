@@ -215,6 +215,20 @@ SETTINGS_SPECS: list[SettingSpec] = [
     ),
     SettingSpec(
         domain=SettingDomain.notification,
+        key="campaign_tracking_enabled",
+        env_var="CAMPAIGN_TRACKING_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+    ),
+    SettingSpec(
+        domain=SettingDomain.notification,
+        key="campaign_tracking_base_url",
+        env_var="CAMPAIGN_TRACKING_BASE_URL",
+        value_type=SettingValueType.string,
+        default=None,
+    ),
+    SettingSpec(
+        domain=SettingDomain.notification,
         key="alert_notifications_default_channel",
         env_var="ALERT_NOTIFICATIONS_DEFAULT_CHANNEL",
         value_type=SettingValueType.string,
@@ -1055,6 +1069,13 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default="primary",
         allowed={"primary", "billing", "technical", "support"},
     ),
+    SettingSpec(
+        domain=SettingDomain.subscriber,
+        key="lead_dedup_enabled",
+        env_var="LEAD_DEDUP_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=True,
+    ),
     # --- Referral program ---
     SettingSpec(
         domain=SettingDomain.subscriber,
@@ -1091,6 +1112,21 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="REFERRAL_AUTO_APPROVE_REWARD",
         value_type=SettingValueType.boolean,
         default=False,
+    ),
+    # --- Reseller commissions ---
+    SettingSpec(
+        domain=SettingDomain.subscriber,
+        key="reseller_commissions_enabled",
+        env_var="RESELLER_COMMISSIONS_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+    ),
+    SettingSpec(
+        domain=SettingDomain.subscriber,
+        key="reseller_commission_default_rate",
+        env_var="RESELLER_COMMISSION_DEFAULT_RATE",
+        value_type=SettingValueType.decimal,
+        default=0,
     ),
     SettingSpec(
         domain=SettingDomain.subscriber,

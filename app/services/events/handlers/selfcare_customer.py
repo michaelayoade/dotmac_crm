@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import func, or_
@@ -47,19 +48,52 @@ class SelfcareCustomerHandler:
             logger.info("selfcare_skip_no_person project_id=%s", project_id)
             return
 
-        metadata = project.metadata_ if isinstance(project.metadata_, dict) else {}
-        sales_order_id = str(metadata.get("sales_order_id") or "").strip() or None
-        quote_id = str(metadata.get("quote_id") or "").strip() or None
+        # Provision off the request path — sync_person_to_selfcare and the invoice
+        # creation make blocking calls to the sub app, which would otherwise stall
+        # project creation. Fall back to inline only if the task can't be enqueued
+        # (e.g. broker down) so behaviour is never worse than before.
+        if _enqueue_project_provisioning(str(project.id)):
+            return
+        _provision_project(db, project, person)
 
-        sync_person_to_selfcare(
-            db,
-            person,
-            project_id=str(project.id),
-            quote_id=quote_id,
-            sales_order_id=sales_order_id,
-            mode="event",
-        )
-        _ensure_installation_invoice(db, project, person)
+
+def _enqueue_project_provisioning(project_id: str) -> bool:
+    try:
+        from app.tasks.subscribers import provision_selfcare_for_project
+
+        provision_selfcare_for_project.delay(project_id)
+        return True
+    except Exception as exc:
+        logger.warning("selfcare_provision_enqueue_failed project_id=%s error=%s — running inline", project_id, exc)
+        return False
+
+
+def _provision_project(db: Session, project: Project, person: Person) -> dict:
+    metadata = project.metadata_ if isinstance(project.metadata_, dict) else {}
+    sales_order_id = str(metadata.get("sales_order_id") or "").strip() or None
+    quote_id = str(metadata.get("quote_id") or "").strip() or None
+
+    selfcare_id = sync_person_to_selfcare(
+        db,
+        person,
+        project_id=str(project.id),
+        quote_id=quote_id,
+        sales_order_id=sales_order_id,
+        mode="event",
+    )
+    _ensure_installation_invoice(db, project, person)
+    return {"project_id": str(project.id), "person_id": str(person.id), "selfcare_id": selfcare_id}
+
+
+def provision_project_selfcare(db: Session, project_id: str) -> dict:
+    """Celery entry point: (re)load the project + person and provision selfcare."""
+    project = db.get(Project, coerce_uuid(project_id))
+    if not project:
+        return {"skipped": "project_not_found", "project_id": project_id}
+    person = _resolve_person_for_project(db, project)
+    if not person:
+        return {"skipped": "no_person", "project_id": project_id}
+    return _provision_project(db, project, person)
 
 
 def _resolve_person_for_project(db: Session, project: Project) -> Person | None:
@@ -232,6 +266,16 @@ def _ensure_installation_invoice(db: Session, project: Project, person: Person) 
     subscriber_id = identity.external_id if identity else None
     if not subscriber_id:
         return
+    # Serialize concurrent triggers (the project_created event AND sales-order line
+    # create/update both call this) so the read-then-create-then-store sequence
+    # can't double-create an invoice. Re-read the project state under the lock.
+    # populate_existing() forces the locked row to refresh already-loaded column
+    # attributes, so the existence check below reads committed state under the lock,
+    # not a stale in-session copy.
+    locked = db.query(Project).filter(Project.id == project.id).with_for_update().populate_existing().first()
+    if locked is None:
+        return
+    project = locked
     if _has_existing_installation_invoice(project):
         return
 
@@ -254,13 +298,23 @@ def _ensure_installation_invoice(db: Session, project: Project, person: Person) 
         logger.info("selfcare_invoice_skip_no_installation_cost project_id=%s", project.id)
         return
 
-    new_invoice_id = selfcare.create_installation_invoice(
-        db,
-        subscriber_id=subscriber_id,
-        amount=amount,
-        description="Installation cost",
-        external_ref=f"project:{project.id}",
-    )
+    try:
+        new_invoice_id = selfcare.create_installation_invoice(
+            db,
+            subscriber_id=subscriber_id,
+            amount=amount,
+            description="Installation cost",
+            external_ref=f"project:{project.id}",
+        )
+    except selfcare.SelfcareProviderError as exc:
+        # Don't silently drop the invoice — record the failure so it surfaces and
+        # a later trigger (or an operator) can retry. The sub-app external_ref dedup
+        # makes the retry safe.
+        _record_invoice_failure(project, str(exc))
+        db.add(project)
+        db.commit()
+        logger.error("selfcare_installation_invoice_failed project_id=%s error=%s", project.id, exc)
+        return
     if not new_invoice_id:
         return
 
@@ -342,6 +396,16 @@ def _store_invoice_metadata(project: Project, invoice_id: str, amount: Decimal |
     metadata["selfcare_installation_invoice_id"] = str(invoice_id)
     if amount is not None:
         metadata["selfcare_installation_invoice_amount"] = str(amount)
+    metadata.pop("selfcare_installation_invoice_error", None)
+    project.metadata_ = metadata
+
+
+def _record_invoice_failure(project: Project, detail: str) -> None:
+    metadata = dict(project.metadata_ or {})
+    metadata["selfcare_installation_invoice_error"] = {
+        "detail": detail[:500],
+        "at": datetime.now(UTC).isoformat(),
+    }
     project.metadata_ = metadata
 
 

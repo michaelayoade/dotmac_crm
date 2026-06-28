@@ -100,6 +100,11 @@ class Lead(Base):
     quotes = relationship("Quote", back_populates="lead")
     campaign = relationship("Campaign", foreign_keys=[campaign_id])
 
+    # Transient (non-persisted) flag set by the dedup path in Leads.create when
+    # an existing open lead is returned instead of a new one being created, so
+    # callers (e.g. the web route) can surface a distinct "existing lead" notice.
+    dedup_returned_existing: bool = False
+
     @hybrid_property
     def contact_id(self):
         return self.person_id
@@ -131,6 +136,9 @@ class Quote(Base):
     status: Mapped[QuoteStatus] = mapped_column(Enum(QuoteStatus), default=QuoteStatus.draft)
     currency: Mapped[str] = mapped_column(String(3), default="NGN")
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    # Applied tax rate percent (e.g. 7.5). When set, tax_total is auto-derived
+    # from the subtotal on every recalculation; null = manual tax_total.
+    tax_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     tax_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -174,6 +182,8 @@ class CrmQuoteLineItem(Base):
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("1.000"))
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    # Line discount percent (0-100); amount is net of discount.
+    discount_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
 

@@ -1,6 +1,7 @@
 """CRM lead routes."""
 
 from html import escape as html_escape
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -214,12 +215,23 @@ def crm_lead_create(
     )
     try:
         current_user = get_current_user(request)
-        create_lead(
+        lead = create_lead(
             db,
             form=form_input,
             current_person_id=(current_user or {}).get("person_id"),
             load_pipeline_stages=_load_pipeline_stages_for_pipeline,
         )
+        if getattr(lead, "dedup_returned_existing", False):
+            # An open lead already existed for this contact: no new lead was
+            # created. Send the user to the existing lead with a clear notice
+            # instead of a generic "created" outcome.
+            flash = urlencode(
+                {
+                    "flash": "An open lead already exists for this contact — showing the existing one.",
+                    "flash_type": "info",
+                }
+            )
+            return RedirectResponse(url=f"/admin/crm/leads/{lead.id}?{flash}", status_code=303)
         return RedirectResponse(url="/admin/crm/leads", status_code=303)
     except (ValidationError, ValueError) as exc:
         error = str(exc)

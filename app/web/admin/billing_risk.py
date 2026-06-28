@@ -729,13 +729,23 @@ def _service_plan_text(services_payload: object) -> str:
     return ""
 
 
+# Cap per-request synchronous sub-app lookups so a slow/hung sub app can't pin a
+# request worker for one round-trip per row. Rows beyond the cap render un-enriched.
+_MAX_ENRICH_LOOKUPS = 25
+
+
 def _enrich_missing_plan_fields(db: Session, rows: list[dict]) -> None:
+    looked_up = 0
     for row in rows:
         if str(row.get("plan") or "").strip():
             continue
         customer_id = _billing_risk_row_customer_id(row)
         if not customer_id:
             continue
+        if looked_up >= _MAX_ENRICH_LOOKUPS:
+            logger.info("billing_risk_enrich_capped fn=plan cap=%d", _MAX_ENRICH_LOOKUPS)
+            break
+        looked_up += 1
         try:
             services_payload = selfcare.fetch_customer_internet_services(db, customer_id)
         except Exception:
@@ -746,12 +756,17 @@ def _enrich_missing_plan_fields(db: Session, rows: list[dict]) -> None:
 
 
 def _enrich_unknown_billing_type_fields(db: Session, rows: list[dict]) -> None:
+    looked_up = 0
     for row in rows:
         if _billing_row_type_category(row):
             continue
         customer_id = _billing_risk_row_customer_id(row)
         if not customer_id:
             continue
+        if looked_up >= _MAX_ENRICH_LOOKUPS:
+            logger.info("billing_risk_enrich_capped fn=billing_type cap=%d", _MAX_ENRICH_LOOKUPS)
+            break
+        looked_up += 1
         try:
             customer = selfcare.fetch_customer(db, customer_id)
         except Exception as exc:
@@ -793,6 +808,7 @@ def _enrich_unknown_billing_type_fields(db: Session, rows: list[dict]) -> None:
 
 
 def _enrich_account_balance_deposit(db: Session, rows: list[dict]) -> None:
+    looked_up = 0
     for row in rows:
         subscriber_status = str(row.get("subscriber_status") or row.get("status") or "").strip().lower()
         is_postpaid = _billing_row_type_category(row) == "postpaid"
@@ -806,6 +822,10 @@ def _enrich_account_balance_deposit(db: Session, rows: list[dict]) -> None:
         customer_id = _billing_risk_row_customer_id(row)
         if not customer_id:
             continue
+        if looked_up >= _MAX_ENRICH_LOOKUPS:
+            logger.info("billing_risk_enrich_capped fn=balance_deposit cap=%d", _MAX_ENRICH_LOOKUPS)
+            break
+        looked_up += 1
         try:
             billing_payload = selfcare.fetch_customer_billing(db, customer_id)
         except Exception:
