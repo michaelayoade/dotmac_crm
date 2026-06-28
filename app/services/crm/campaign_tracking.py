@@ -21,6 +21,7 @@ import logging
 import re
 from datetime import UTC, datetime
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.models.crm.campaign import Campaign, CampaignRecipient
@@ -31,9 +32,7 @@ from app.services.common import coerce_uuid
 logger = logging.getLogger(__name__)
 
 # 1x1 transparent GIF (43 bytes) returned by the open pixel endpoint.
-TRACKING_PIXEL_GIF: bytes = base64.b64decode(
-    "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
-)
+TRACKING_PIXEL_GIF: bytes = base64.b64decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
 
 # Matches href="http(s)://..." / href='http(s)://...' in campaign HTML bodies.
 _HREF_RE = re.compile(r"""(href\s*=\s*)(["'])(https?://[^"']+)\2""", re.IGNORECASE)
@@ -44,17 +43,11 @@ class CampaignTracking:
 
     @staticmethod
     def is_enabled(db: Session) -> bool:
-        return bool(
-            settings_spec.resolve_value(
-                db, SettingDomain.notification, "campaign_tracking_enabled"
-            )
-        )
+        return bool(settings_spec.resolve_value(db, SettingDomain.notification, "campaign_tracking_enabled"))
 
     @staticmethod
     def _base_url(db: Session) -> str | None:
-        value = settings_spec.resolve_value(
-            db, SettingDomain.notification, "campaign_tracking_base_url"
-        )
+        value = settings_spec.resolve_value(db, SettingDomain.notification, "campaign_tracking_base_url")
         if not value:
             return None
         return str(value).rstrip("/")
@@ -108,9 +101,7 @@ class CampaignTracking:
         base_url = CampaignTracking._base_url(db)
         secret = CampaignTracking._secret(db)
         if not base_url or not secret:
-            logger.warning(
-                "Campaign tracking enabled but base_url/secret missing; skipping injection"
-            )
+            logger.warning("Campaign tracking enabled but base_url/secret missing; skipping injection")
             return html
 
         rid = str(recipient_id)
@@ -147,13 +138,33 @@ class CampaignTracking:
         return db.get(CampaignRecipient, rid)
 
     @staticmethod
+    def _bump_open_count(db: Session, recipient_id) -> None:
+        """Atomically increment the recipient open counter (avoids lost updates
+        under concurrent pixel prefetch). First-open semantics are handled by the
+        caller via the gated ``opened_at`` read."""
+        db.execute(
+            update(CampaignRecipient)
+            .where(CampaignRecipient.id == recipient_id)
+            .values(open_count=CampaignRecipient.open_count + 1)
+        )
+
+    @staticmethod
+    def _bump_click_count(db: Session, recipient_id) -> None:
+        """Atomically increment the recipient click counter."""
+        db.execute(
+            update(CampaignRecipient)
+            .where(CampaignRecipient.id == recipient_id)
+            .values(click_count=CampaignRecipient.click_count + 1)
+        )
+
+    @staticmethod
     def record_open(db: Session, recipient_id) -> bool:
         """Record an email open. Returns True if the recipient was found."""
         recipient = CampaignTracking._get_recipient(db, recipient_id)
         if recipient is None:
             return False
         first_open = recipient.opened_at is None
-        recipient.open_count = (recipient.open_count or 0) + 1
+        CampaignTracking._bump_open_count(db, recipient.id)
         if first_open:
             recipient.opened_at = datetime.now(UTC)
             campaign = db.get(Campaign, recipient.campaign_id)
@@ -181,7 +192,7 @@ class CampaignTracking:
             return None
 
         first_click = recipient.clicked_at is None
-        recipient.click_count = (recipient.click_count or 0) + 1
+        CampaignTracking._bump_click_count(db, recipient.id)
         now = datetime.now(UTC)
         campaign = db.get(Campaign, recipient.campaign_id)
         if first_click:
@@ -190,7 +201,7 @@ class CampaignTracking:
                 campaign.clicked_count = (campaign.clicked_count or 0) + 1
         if recipient.opened_at is None:
             recipient.opened_at = now
-            recipient.open_count = (recipient.open_count or 0) + 1
+            CampaignTracking._bump_open_count(db, recipient.id)
             if campaign is not None:
                 campaign.opened_count = (campaign.opened_count or 0) + 1
         db.commit()

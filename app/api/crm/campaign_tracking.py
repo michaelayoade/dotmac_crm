@@ -5,12 +5,16 @@ additionally carry an HMAC signature so the redirect cannot be tampered with.
 Mounted at the root path (and under ``/api/v1``) without auth dependencies.
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.services.crm.campaign_tracking import TRACKING_PIXEL_GIF, campaign_tracking
+
+logger = logging.getLogger(__name__)
 
 public_router = APIRouter(prefix="/track/email", tags=["crm-campaign-tracking"])
 
@@ -25,10 +29,16 @@ _NO_CACHE_HEADERS = {
 def track_open(recipient_id: str, db: Session = Depends(get_db)) -> Response:
     """Open-tracking pixel. Records the open and always returns a 1x1 GIF.
 
-    Always responds 200 with the pixel — even for unknown recipients — so a
-    forged or stale id never breaks the rendered email.
+    Always responds 200 with the pixel — even for unknown recipients or when
+    recording fails — so a forged/stale id or a DB error never breaks the
+    rendered email.
     """
-    campaign_tracking.record_open(db, recipient_id)
+    try:
+        campaign_tracking.record_open(db, recipient_id)
+    except Exception:
+        # Recording is best-effort: never let a failure break the email image.
+        db.rollback()
+        logger.warning("Failed to record campaign open for %s", recipient_id, exc_info=True)
     return Response(content=TRACKING_PIXEL_GIF, media_type="image/gif", headers=_NO_CACHE_HEADERS)
 
 
