@@ -1,7 +1,10 @@
+import uuid
+
 import pytest
 from fastapi import HTTPException
 
 from app.models.fiber_change_request import FiberChangeRequest, FiberChangeRequestStatus
+from app.models.field import FiberTestResult
 from app.models.network import (
     FiberSplice,
     FiberSpliceClosure,
@@ -9,8 +12,10 @@ from app.models.network import (
     FiberStrand,
     FiberStrandStatus,
 )
+from app.schemas.workforce import WorkOrderUpdate
 from app.services import fiber_change_requests
-from app.services.field.fiber import propose_splice
+from app.services.field.fiber import list_tests, propose_splice, record_test
+from app.services.workforce import work_orders
 
 
 def _closure_with_strands(
@@ -159,3 +164,146 @@ def test_propose_splice_is_idempotent_for_pending_pair(db_session, person):
     assert second["replayed"] is True
     assert second["change_request_id"] == first["change_request_id"]
     assert db_session.query(FiberChangeRequest).count() == 1
+
+
+# ---------------------------------------------------------------------------
+# Fiber test results (OTDR / power readings)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def assigned_job(db_session, work_order, person):
+    return work_orders.update(db_session, str(work_order.id), WorkOrderUpdate(assigned_to_person_id=person.id))
+
+
+def _strand(db_session):
+    strand = FiberStrand(cable_name="CBL-T", strand_number=7)
+    db_session.add(strand)
+    db_session.commit()
+    return strand
+
+
+def test_record_test_persists_reading(db_session, assigned_job, person):
+    strand = _strand(db_session)
+
+    result = record_test(
+        db_session,
+        str(person.id),
+        work_order_id=str(assigned_job.id),
+        asset_type="fiber_strand",
+        asset_id=str(strand.id),
+        test_type="otdr",
+        wavelength_nm=1550,
+        value_db=0.21,
+        unit="dB",
+        passed=True,
+        instrument="EXFO MAX-730",
+    )
+
+    assert result.id is not None
+    assert result.work_order_id == assigned_job.id
+    assert result.measured_by_person_id == person.id
+    assert result.test_type == "otdr"
+    assert result.wavelength_nm == 1550
+    assert result.value_db == 0.21
+
+
+def test_record_test_rejects_unassigned_job(db_session, work_order, person):
+    # work_order is NOT assigned to person here.
+    strand = _strand(db_session)
+    with pytest.raises(HTTPException) as exc:
+        record_test(
+            db_session,
+            str(person.id),
+            work_order_id=str(work_order.id),
+            asset_type="fiber_strand",
+            asset_id=str(strand.id),
+            test_type="otdr",
+        )
+    assert exc.value.status_code == 404
+
+
+def test_record_test_rejects_unknown_test_type(db_session, assigned_job, person):
+    strand = _strand(db_session)
+    with pytest.raises(HTTPException) as exc:
+        record_test(
+            db_session,
+            str(person.id),
+            work_order_id=str(assigned_job.id),
+            asset_type="fiber_strand",
+            asset_id=str(strand.id),
+            test_type="vibes",
+        )
+    assert exc.value.status_code == 422
+
+
+def test_record_test_rejects_unknown_asset_type(db_session, assigned_job, person):
+    with pytest.raises(HTTPException) as exc:
+        record_test(
+            db_session,
+            str(person.id),
+            work_order_id=str(assigned_job.id),
+            asset_type="nonsense",
+            asset_id=str(uuid.uuid4()),
+            test_type="otdr",
+        )
+    assert exc.value.status_code == 400
+
+
+def test_record_test_rejects_missing_asset(db_session, assigned_job, person):
+    with pytest.raises(HTTPException) as exc:
+        record_test(
+            db_session,
+            str(person.id),
+            work_order_id=str(assigned_job.id),
+            asset_type="fiber_strand",
+            asset_id=str(uuid.uuid4()),
+            test_type="otdr",
+        )
+    assert exc.value.status_code == 404
+
+
+def test_record_test_is_idempotent_on_client_ref(db_session, assigned_job, person):
+    strand = _strand(db_session)
+    ref = str(uuid.uuid4())
+    first = record_test(
+        db_session,
+        str(person.id),
+        work_order_id=str(assigned_job.id),
+        asset_type="fiber_strand",
+        asset_id=str(strand.id),
+        test_type="optical_power",
+        value_db=-18.4,
+        unit="dBm",
+        client_ref=ref,
+    )
+    second = record_test(
+        db_session,
+        str(person.id),
+        work_order_id=str(assigned_job.id),
+        asset_type="fiber_strand",
+        asset_id=str(strand.id),
+        test_type="optical_power",
+        value_db=-18.4,
+        unit="dBm",
+        client_ref=ref,
+    )
+
+    assert second.id == first.id
+    assert db_session.query(FiberTestResult).count() == 1
+
+
+def test_list_tests_returns_job_readings(db_session, assigned_job, person):
+    strand = _strand(db_session)
+    record_test(
+        db_session,
+        str(person.id),
+        work_order_id=str(assigned_job.id),
+        asset_type="fiber_strand",
+        asset_id=str(strand.id),
+        test_type="otdr",
+    )
+
+    items = list_tests(db_session, str(person.id), work_order_id=str(assigned_job.id))
+    assert len(items) == 1
+    assert items[0].asset_id == strand.id

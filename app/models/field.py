@@ -2,7 +2,20 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -125,6 +138,36 @@ class FieldMapAssetLocationProvenance(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
+
+
+class FiberTestResult(Base):
+    """A field optical test reading (OTDR, power, loss) against a network asset.
+
+    Polymorphic ``asset_type``/``asset_id`` so a reading can target a strand,
+    splice, closure, etc. Governed by the work order it was captured on (same
+    access model as field attachments); an optional ``attachment_id`` links the
+    trace/photo evidence, and a unique ``client_ref`` makes offline uploads safe.
+    """
+
+    __tablename__ = "fiber_test_results"
+    __table_args__ = (Index("ix_fiber_test_results_asset", "asset_type", "asset_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    work_order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("work_orders.id"))
+    asset_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    asset_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    test_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    wavelength_nm: Mapped[int | None] = mapped_column(Integer)
+    value_db: Mapped[float | None] = mapped_column(Float)
+    unit: Mapped[str | None] = mapped_column(String(16))
+    passed: Mapped[bool | None] = mapped_column(Boolean)
+    instrument: Mapped[str | None] = mapped_column(String(120))
+    attachment_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("field_attachments.id"))
+    measured_by_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
+    measured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text)
+    client_ref: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
 class FieldAttachment(Base):

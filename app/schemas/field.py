@@ -240,6 +240,42 @@ class FieldSpliceProposalResponse(BaseModel):
     to_strand_id: UUID
 
 
+class FieldFiberTestCreate(BaseModel):
+    work_order_id: UUID
+    asset_type: str = Field(min_length=1, max_length=80)
+    asset_id: UUID
+    test_type: str = Field(min_length=1, max_length=40)
+    wavelength_nm: int | None = Field(default=None, ge=0)
+    value_db: float | None = None
+    unit: str | None = Field(default=None, max_length=16)
+    passed: bool | None = None
+    instrument: str | None = Field(default=None, max_length=120)
+    measured_at: datetime | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+    attachment_id: UUID | None = None
+    client_ref: UUID | None = None
+
+
+class FieldFiberTestRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    work_order_id: UUID | None
+    asset_type: str
+    asset_id: UUID
+    test_type: str
+    wavelength_nm: int | None
+    value_db: float | None
+    unit: str | None
+    passed: bool | None
+    instrument: str | None
+    attachment_id: UUID | None
+    measured_by_person_id: UUID | None
+    measured_at: datetime | None
+    notes: str | None
+    created_at: datetime
+
+
 class FieldMapAssetLocationUpdate(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
