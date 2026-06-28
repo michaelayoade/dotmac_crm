@@ -69,6 +69,20 @@ def _patch_jose_datetime(monkeypatch):
     monkeypatch.setattr(jose_jwt, "datetime", _JoseDateTimeProxy, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _configure_celery_for_tests():
+    from app.celery_app import celery_app
+
+    celery_app.conf.update(
+        broker_url="memory://",
+        result_backend="cache+memory://",
+        task_always_eager=True,
+        task_eager_propagates=True,
+        task_ignore_result=True,
+        task_store_eager_result=False,
+    )
+
+
 # Register UUID adapter for SQLite - store as string
 sqlite3.register_adapter(uuid.UUID, lambda u: str(u))
 
