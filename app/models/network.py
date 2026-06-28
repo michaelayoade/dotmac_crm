@@ -530,6 +530,9 @@ class FiberSegment(Base):
     route_geom = mapped_column(Geometry("LINESTRING", srid=4326), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Set when an endpoint asset is relocated: route_geom/length_m may no longer
+    # match reality and the segment needs a re-survey.
+    geometry_stale: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="false")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(

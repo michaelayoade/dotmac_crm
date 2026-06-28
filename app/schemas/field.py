@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
@@ -15,6 +16,8 @@ class FieldAttachmentRead(BaseModel):
     work_order_id: UUID | None
     installation_project_id: UUID | None
     note_id: UUID | None
+    asset_type: str | None = None
+    asset_id: UUID | None = None
     kind: FieldAttachmentKind
     file_name: str
     mime_type: str
@@ -203,6 +206,77 @@ class FieldMapAssetListResponse(BaseModel):
     server_time: datetime
 
 
+class FieldMapAssetNearby(FieldMapAsset):
+    distance_m: float
+
+
+class FieldMapAssetNearbyResponse(BaseModel):
+    items: list[FieldMapAssetNearby]
+    count: int
+    latitude: float
+    longitude: float
+    radius_m: float
+    server_time: datetime
+
+
+class FieldSpliceCreate(BaseModel):
+    closure_id: UUID
+    from_strand_id: UUID
+    to_strand_id: UUID
+    tray_id: UUID | None = None
+    position: int | None = Field(default=None, ge=1)
+    splice_type: str | None = Field(default=None, max_length=80)
+    # Splice loss in dB. Fusion splices are typically <0.3 dB; reject values
+    # outside a plausible field band as fat-finger entry.
+    loss_db: float | None = Field(default=None, ge=0, le=5)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class FieldSpliceProposalResponse(BaseModel):
+    change_request_id: UUID
+    status: str
+    replayed: bool
+    closure_id: UUID
+    from_strand_id: UUID
+    to_strand_id: UUID
+
+
+class FieldFiberTestCreate(BaseModel):
+    work_order_id: UUID
+    asset_type: str = Field(min_length=1, max_length=80)
+    asset_id: UUID
+    test_type: str = Field(min_length=1, max_length=40)
+    wavelength_nm: int | None = Field(default=None, ge=0)
+    value_db: float | None = None
+    unit: str | None = Field(default=None, max_length=16)
+    passed: bool | None = None
+    instrument: str | None = Field(default=None, max_length=120)
+    measured_at: datetime | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+    attachment_id: UUID | None = None
+    client_ref: UUID | None = None
+
+
+class FieldFiberTestRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    work_order_id: UUID | None
+    asset_type: str
+    asset_id: UUID
+    test_type: str
+    wavelength_nm: int | None
+    value_db: float | None
+    unit: str | None
+    passed: bool | None
+    instrument: str | None
+    attachment_id: UUID | None
+    measured_by_person_id: UUID | None
+    measured_at: datetime | None
+    notes: str | None
+    created_at: datetime
+
+
 class FieldMapAssetLocationUpdate(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
@@ -216,6 +290,12 @@ class FieldMapAssetLocationUpdate(BaseModel):
     accuracy_m: float | None = Field(default=None, ge=0)
     # Offline idempotency key so retried uploads are traceable to one capture.
     client_ref: UUID | None = None
+    # Override the downgrade guard (e.g. knowingly replacing a surveyed point
+    # with a fresh field fix).
+    force: bool = False
+    # Intent: a correction fixes a wrong pin (no downstream impact); a relocation
+    # means the asset physically moved, so connected segments are flagged stale.
+    move_type: Literal["correction", "relocation"] | None = None
 
 
 class FieldJobDetail(BaseModel):

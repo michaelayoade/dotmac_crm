@@ -67,6 +67,48 @@ def _create(db_session, job, person, fake_storage, **overrides):
     return field_attachments.create(db_session, **payload)
 
 
+def test_attachment_tags_network_asset(db_session, assigned_job, person, fake_storage):
+    from app.models.network import FiberSpliceClosure
+
+    closure = FiberSpliceClosure(name="Closure Photo")
+    db_session.add(closure)
+    db_session.commit()
+
+    attachment = _create(
+        db_session, assigned_job, person, fake_storage, asset_type="splice_closure", asset_id=str(closure.id)
+    )
+
+    assert attachment.asset_type == "splice_closure"
+    assert attachment.asset_id == closure.id
+    # Filterable by the asset it depicts.
+    found = field_attachments.list(
+        db_session,
+        caller_person_id=str(person.id),
+        work_order_id=str(assigned_job.id),
+        asset_type="splice_closure",
+        asset_id=str(closure.id),
+    )
+    assert [a.id for a in found] == [attachment.id]
+
+
+def test_attachment_rejects_unknown_asset_type(db_session, assigned_job, person, fake_storage):
+    with pytest.raises(HTTPException) as exc:
+        _create(db_session, assigned_job, person, fake_storage, asset_type="nonsense", asset_id=str(uuid.uuid4()))
+    assert exc.value.status_code == 400
+
+
+def test_attachment_rejects_missing_asset(db_session, assigned_job, person, fake_storage):
+    with pytest.raises(HTTPException) as exc:
+        _create(db_session, assigned_job, person, fake_storage, asset_type="splice_closure", asset_id=str(uuid.uuid4()))
+    assert exc.value.status_code == 404
+
+
+def test_attachment_requires_both_asset_fields(db_session, assigned_job, person, fake_storage):
+    with pytest.raises(HTTPException) as exc:
+        _create(db_session, assigned_job, person, fake_storage, asset_type="splice_closure")
+    assert exc.value.status_code == 422
+
+
 def test_upload_and_download_roundtrip(db_session, assigned_job, fake_storage, person):
     attachment = _create(
         db_session,

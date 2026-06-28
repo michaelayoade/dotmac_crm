@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException
@@ -9,10 +10,81 @@ from geoalchemy2.functions import ST_MakePoint, ST_SetSRID
 from sqlalchemy.orm import Session
 
 from app.models.audit import AuditActorType, AuditEvent
-from app.models.field import FieldMapAssetTombstone
+from app.models.field import FieldMapAssetLocationProvenance, FieldMapAssetTombstone
+from app.models.field_location import FieldTechPresence
 from app.models.gis import ServiceBuilding
-from app.models.network import FdhCabinet, FiberAccessPoint, FiberSpliceClosure, OLTDevice
+from app.models.network import (
+    FdhCabinet,
+    FiberAccessPoint,
+    FiberSegment,
+    FiberSpliceClosure,
+    FiberTerminationPoint,
+    OLTDevice,
+)
 from app.models.wireless_mast import WirelessMast
+from app.services.common import coerce_uuid
+
+# Trust ranking of how a coordinate was placed. A write may match or improve the
+# stored tier freely, but downgrading it (e.g. a phone GPS fix over a surveyed
+# point) requires an explicit override so a casual edit can't quietly degrade a
+# deliberately-placed coordinate.
+_SOURCE_CONFIDENCE = {"survey": 4, "manual": 3, "gps": 2, "geocoded": 1}
+
+
+def _confidence(source: str | None) -> int:
+    return _SOURCE_CONFIDENCE.get((source or "").strip().lower(), 0)
+
+
+# A move is flagged for async review (never blocked) when the tech pins an asset
+# far from where they actually are, with a low-confidence source — the
+# "armchair edit" signature. Deliberate placements (manual/survey) are exempt.
+_MOVE_REVIEW_DISTANCE_M = 250.0
+_PRESENCE_RECENCY = timedelta(minutes=30)
+
+
+def _location_review_flag(db: Session, actor_id: str | None, latitude: float, longitude: float, source: str | None):
+    if _confidence(source) >= _confidence("manual") or not actor_id:
+        return None
+    try:
+        person_uuid = coerce_uuid(actor_id)
+    except ValueError:
+        return None
+    presence = db.query(FieldTechPresence).filter(FieldTechPresence.person_id == person_uuid).one_or_none()
+    if presence is None or presence.last_latitude is None or presence.last_longitude is None:
+        return None
+    last_at = _as_utc(presence.last_location_at)
+    if last_at is None or last_at < datetime.now(UTC) - _PRESENCE_RECENCY:
+        return None  # no recent fix — can't judge whether the tech is on-site
+    from app.services.field.geofence import haversine_m
+
+    distance = haversine_m(latitude, longitude, float(presence.last_latitude), float(presence.last_longitude))
+    if distance <= _MOVE_REVIEW_DISTANCE_M:
+        return None
+    return {"needs_review": True, "review_reason": "pin_far_from_technician", "tech_distance_m": round(distance, 1)}
+
+
+def _flag_connected_segments_stale(db: Session, asset_id: str) -> int:
+    """Mark fiber segments touching a relocated asset as geometry-stale.
+
+    Segment endpoints are termination points that reference the asset via
+    ``ref_id``; when the asset physically moves, those segments' route/length
+    no longer match reality and need a re-survey.
+    """
+    asset_uuid = coerce_uuid(asset_id)
+    point_ids = [
+        row[0] for row in db.query(FiberTerminationPoint.id).filter(FiberTerminationPoint.ref_id == asset_uuid).all()
+    ]
+    if not point_ids:
+        return 0
+    segments = (
+        db.query(FiberSegment)
+        .filter(FiberSegment.is_active.is_(True))
+        .filter(FiberSegment.from_point_id.in_(point_ids) | FiberSegment.to_point_id.in_(point_ids))
+        .all()
+    )
+    for segment in segments:
+        segment.geometry_stale = True
+    return len(segments)
 
 
 @dataclass(frozen=True)
@@ -129,6 +201,66 @@ def record_map_asset_tombstone(db: Session, *, asset_type: str, asset_id) -> Non
         row.deleted_at = deleted_at
 
 
+_METERS_PER_DEG_LAT = 111_320.0
+
+
+def list_nearby_map_assets(
+    db: Session,
+    *,
+    latitude: float,
+    longitude: float,
+    radius_m: float,
+    asset_types: list[str] | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Map assets within ``radius_m`` of a point, nearest first.
+
+    Distance is computed from the lat/lng float columns (always populated),
+    not ``geom`` — so this also covers assets without a geometry column (OLT)
+    and legacy rows whose ``geom`` was never backfilled. A cheap lat/lng
+    bounding box pre-filters candidates in SQL; haversine then refines the box
+    to a true circle and supplies the reported distance.
+    """
+    from app.services.field.geofence import haversine_m
+
+    selected = asset_types or list(DEFAULT_ASSET_TYPES)
+    lat_delta = radius_m / _METERS_PER_DEG_LAT
+    cos_lat = math.cos(math.radians(latitude))
+    # Near the poles cos→0 and the longitude span explodes; fall back to the
+    # whole hemisphere and let haversine do the real filtering. (Single-region
+    # ISP deployments never span the antimeridian, so no wrap handling needed.)
+    lng_delta = radius_m / (_METERS_PER_DEG_LAT * cos_lat) if abs(cos_lat) > 1e-6 else 180.0
+    lat_min, lat_max = latitude - lat_delta, latitude + lat_delta
+    lng_min, lng_max = longitude - lng_delta, longitude + lng_delta
+
+    scored: list[tuple[float, dict]] = []
+    for asset_type in selected:
+        config = ASSET_CONFIGS.get(asset_type)
+        if config is None:
+            raise HTTPException(status_code=400, detail=f"Unsupported map asset type: {asset_type}")
+        model = config.model
+        query = db.query(model).filter(
+            model.latitude.isnot(None),
+            model.longitude.isnot(None),
+            model.latitude >= lat_min,
+            model.latitude <= lat_max,
+            model.longitude >= lng_min,
+            model.longitude <= lng_max,
+        )
+        if hasattr(model, "is_active"):
+            query = query.filter(model.is_active.is_(True))
+        for row in query.all():
+            distance = haversine_m(latitude, longitude, float(row.latitude), float(row.longitude))
+            if distance > radius_m:
+                continue
+            payload = _asset_payload(asset_type, config, row)
+            payload["distance_m"] = round(distance, 1)
+            scored.append((distance, payload))
+
+    scored.sort(key=lambda item: item[0])
+    return [payload for _, payload in scored[:limit]]
+
+
 def _as_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -149,6 +281,9 @@ def update_map_asset_location(
     source: str | None = None,
     accuracy_m: float | None = None,
     client_ref: str | None = None,
+    force: bool = False,
+    move_type: str | None = None,
+    extra_metadata: dict | None = None,
 ) -> dict:
     config = ASSET_CONFIGS.get(asset_type)
     if config is None:
@@ -168,6 +303,24 @@ def update_map_asset_location(
         if current_updated_at is not None and current_updated_at != _as_utc(expected_updated_at):
             raise HTTPException(status_code=409, detail="Map asset was modified since it was loaded")
 
+    provenance = (
+        db.query(FieldMapAssetLocationProvenance)
+        .filter(
+            FieldMapAssetLocationProvenance.asset_type == asset_type,
+            FieldMapAssetLocationProvenance.asset_id == coerce_uuid(asset_id),
+        )
+        .one_or_none()
+    )
+    # Don't let a lower-trust source quietly overwrite a higher-trust coordinate.
+    if not force and provenance is not None and _confidence(source) < _confidence(provenance.source):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Refusing to overwrite a '{provenance.source}' location with a lower-confidence "
+                f"'{source or 'unknown'}' one; pass force=true to override"
+            ),
+        )
+
     previous = {
         "latitude": float(row.latitude) if row.latitude is not None else None,
         "longitude": float(row.longitude) if row.longitude is not None else None,
@@ -179,6 +332,18 @@ def update_map_asset_location(
     # the asset showing in two places depending on which column you read.
     if hasattr(config.model, "geom"):
         row.geom = ST_SetSRID(ST_MakePoint(float(longitude), float(latitude)), 4326)
+
+    # Flag (never block) an off-site, low-confidence pin for async review.
+    review_flag = None if force else _location_review_flag(db, actor_id, float(latitude), float(longitude), source)
+
+    # A relocation says the asset physically moved (vs. a correction to a wrong
+    # pin); the segments wired to it then need a re-survey. Corrections don't
+    # touch downstream geometry.
+    move_metadata: dict = {}
+    if move_type:
+        move_metadata["move_type"] = move_type
+        if move_type == "relocation":
+            move_metadata["staled_segments"] = _flag_connected_segments_stale(db, asset_id)
 
     # Canonical network assets are shared records of truth — every field edit is
     # attributable, with before/after coordinates and pin provenance.
@@ -198,9 +363,86 @@ def update_map_asset_location(
                 "source": source,
                 "accuracy_m": accuracy_m,
                 "client_ref": client_ref,
+                "forced": bool(force),
+                **move_metadata,
+                **(extra_metadata or {}),
+                **(review_flag or {}),
             },
         )
     )
+
+    # Record the provenance of the coordinate now in place, so the next write can
+    # apply the downgrade gate above.
+    actor_uuid = None
+    if actor_id:
+        try:
+            actor_uuid = coerce_uuid(actor_id)
+        except ValueError:
+            actor_uuid = None  # non-UUID actor (e.g. an API-key principal)
+    if provenance is None:
+        db.add(
+            FieldMapAssetLocationProvenance(
+                asset_type=asset_type,
+                asset_id=coerce_uuid(asset_id),
+                source=source,
+                accuracy_m=accuracy_m,
+                updated_by_person_id=actor_uuid,
+            )
+        )
+    else:
+        provenance.source = source
+        provenance.accuracy_m = accuracy_m
+        provenance.updated_by_person_id = actor_uuid
+
     db.commit()
     db.refresh(row)
     return _asset_payload(asset_type, config, row)
+
+
+def revert_map_asset_location(
+    db: Session,
+    *,
+    asset_type: str,
+    asset_id: str,
+    actor_id: str | None = None,
+) -> dict:
+    """Undo an asset's most recent location move, restoring the prior coordinate.
+
+    Reuses the ``from`` already captured on the last move's audit event, so a
+    mistaken pin is a one-tap undo rather than permanent corruption. Applied
+    through the normal update path (geom sync, audit, provenance) with
+    ``force`` so it bypasses the downgrade gate against the bad coordinate.
+    """
+    config = ASSET_CONFIGS.get(asset_type)
+    if config is None:
+        raise HTTPException(status_code=400, detail=f"Unsupported map asset type: {asset_type}")
+    row = db.get(config.model, asset_id)
+    if row is None or getattr(row, "is_active", True) is False:
+        raise HTTPException(status_code=404, detail="Map asset not found")
+
+    last = (
+        db.query(AuditEvent)
+        .filter(AuditEvent.action == "field:map_asset:update_location")
+        .filter(AuditEvent.entity_type == config.model.__name__)
+        .filter(AuditEvent.entity_id == str(asset_id))
+        .order_by(AuditEvent.occurred_at.desc())
+        .first()
+    )
+    if last is None or not last.metadata_:
+        raise HTTPException(status_code=404, detail="No location change to revert")
+    previous = (last.metadata_ or {}).get("from") or {}
+    prev_lat, prev_lng = previous.get("latitude"), previous.get("longitude")
+    if prev_lat is None or prev_lng is None:
+        raise HTTPException(status_code=422, detail="The previous location was empty; nothing to revert to")
+
+    return update_map_asset_location(
+        db,
+        asset_type=asset_type,
+        asset_id=asset_id,
+        latitude=prev_lat,
+        longitude=prev_lng,
+        actor_id=actor_id,
+        source="revert",
+        force=True,
+        extra_metadata={"revert_of": str(last.id)},
+    )
