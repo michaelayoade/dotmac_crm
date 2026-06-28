@@ -26,6 +26,8 @@ def upload_field_attachment(
     longitude: float | None = Form(default=None),
     captured_at: str | None = Form(default=None),
     signer_name: str | None = Form(default=None),
+    asset_type: str | None = Form(default=None),
+    asset_id: str | None = Form(default=None),
     auth=Depends(require_user_auth),
     db: Session = Depends(get_db),
 ):
@@ -44,6 +46,8 @@ def upload_field_attachment(
         captured_at=captured_at,
         signer_name=signer_name,
         uploaded_by_person_id=auth["person_id"],
+        asset_type=asset_type,
+        asset_id=asset_id,
     )
 
 
@@ -53,6 +57,8 @@ def list_field_attachments(
     installation_project_id: str | None = None,
     note_id: str | None = None,
     kind: str | None = None,
+    asset_type: str | None = None,
+    asset_id: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     auth=Depends(require_user_auth),
@@ -65,6 +71,8 @@ def list_field_attachments(
         installation_project_id=installation_project_id,
         note_id=note_id,
         kind=kind,
+        asset_type=asset_type,
+        asset_id=asset_id,
         limit=limit,
         offset=offset,
     )

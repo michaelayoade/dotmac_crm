@@ -15,6 +15,8 @@ class FieldAttachmentRead(BaseModel):
     work_order_id: UUID | None
     installation_project_id: UUID | None
     note_id: UUID | None
+    asset_type: str | None = None
+    asset_id: UUID | None = None
     kind: FieldAttachmentKind
     file_name: str
     mime_type: str

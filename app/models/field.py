@@ -137,9 +137,15 @@ class FieldAttachment(Base):
     """
 
     __tablename__ = "field_attachments"
+    __table_args__ = (Index("ix_field_attachments_asset", "asset_type", "asset_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     work_order_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("work_orders.id"))
+    # Optional tag for the network asset this evidence depicts (e.g. a splice
+    # closure). Additive to the work-order link, which still governs access — a
+    # tech photographs an asset while on a job.
+    asset_type: Mapped[str | None] = mapped_column(String(80))
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     installation_project_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("installation_projects.id")
     )

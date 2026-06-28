@@ -18,13 +18,36 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.field import FieldAttachment, FieldAttachmentKind
+from app.models.network import FiberSplice
 from app.models.vendor import InstallationProject
 from app.models.workforce import WorkOrder, WorkOrderNote
 from app.services.common import apply_pagination, coerce_uuid, validate_enum
+from app.services.field.map_assets import ASSET_CONFIGS
 from app.services.response import ListResponseMixin
 from app.services.storage import storage
 
 logger = logging.getLogger(__name__)
+
+# Network assets a field photo may be tagged against: the map asset types plus
+# the splice record itself (so closure/splice evidence is attributable). Derived
+# from ASSET_CONFIGS so the two stay in lockstep.
+_ATTACHABLE_ASSET_MODELS = {key: config.model for key, config in ASSET_CONFIGS.items()} | {"fiber_splice": FiberSplice}
+
+
+def _validate_asset_target(db: Session, asset_type: str | None, asset_id: str | None):
+    """Return the asset_id UUID when a valid asset tag is supplied, else None."""
+    if not asset_type and not asset_id:
+        return None
+    if not (asset_type and asset_id):
+        raise HTTPException(status_code=422, detail="asset_type and asset_id must be provided together")
+    model = _ATTACHABLE_ASSET_MODELS.get(asset_type)
+    if model is None:
+        raise HTTPException(status_code=400, detail=f"Unsupported asset type: {asset_type}")
+    asset_uuid = coerce_uuid(asset_id)
+    if not db.get(model, asset_uuid):
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return asset_uuid
+
 
 MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
 ALLOWED_MIME_TYPES = {
@@ -171,6 +194,8 @@ class FieldAttachments(ListResponseMixin):
         signer_name: str | None = None,
         uploaded_by_person_id: str | None = None,
         uploaded_by_vendor_user_id: str | None = None,
+        asset_type: str | None = None,
+        asset_id: str | None = None,
     ) -> FieldAttachment:
         kind_value = validate_enum(
             kind.value if isinstance(kind, FieldAttachmentKind) else kind, FieldAttachmentKind, "kind"
@@ -209,6 +234,7 @@ class FieldAttachments(ListResponseMixin):
         note_obj = db.get(WorkOrderNote, note_uuid) if note_uuid else None
         if note_uuid and not note_obj:
             raise HTTPException(status_code=404, detail="Work order note not found")
+        asset_uuid = _validate_asset_target(db, asset_type, asset_id)
 
         # The caller must be assigned to the governing work order / own the
         # vendor project — otherwise it's a foreign job (uniform 404).
@@ -229,6 +255,8 @@ class FieldAttachments(ListResponseMixin):
             work_order_id=work_order_uuid,
             installation_project_id=project_uuid,
             note_id=note_uuid,
+            asset_type=asset_type,
+            asset_id=asset_uuid,
             kind=kind_value,
             storage_key=storage_key,
             file_name=file_name[:255],
@@ -286,6 +314,8 @@ class FieldAttachments(ListResponseMixin):
         installation_project_id: str | None = None,
         note_id: str | None = None,
         kind: str | None = None,
+        asset_type: str | None = None,
+        asset_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[FieldAttachment]:
@@ -312,6 +342,10 @@ class FieldAttachments(ListResponseMixin):
             query = query.filter(FieldAttachment.note_id == coerce_uuid(note_id))
         if kind:
             query = query.filter(FieldAttachment.kind == validate_enum(kind, FieldAttachmentKind, "kind"))
+        if asset_type:
+            query = query.filter(FieldAttachment.asset_type == asset_type)
+        if asset_id:
+            query = query.filter(FieldAttachment.asset_id == coerce_uuid(asset_id))
         query = query.order_by(FieldAttachment.created_at.desc())
         return apply_pagination(query, limit, offset).all()
 
