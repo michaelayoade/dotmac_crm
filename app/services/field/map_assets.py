@@ -13,7 +13,14 @@ from app.models.audit import AuditActorType, AuditEvent
 from app.models.field import FieldMapAssetLocationProvenance, FieldMapAssetTombstone
 from app.models.field_location import FieldTechPresence
 from app.models.gis import ServiceBuilding
-from app.models.network import FdhCabinet, FiberAccessPoint, FiberSpliceClosure, OLTDevice
+from app.models.network import (
+    FdhCabinet,
+    FiberAccessPoint,
+    FiberSegment,
+    FiberSpliceClosure,
+    FiberTerminationPoint,
+    OLTDevice,
+)
 from app.models.wireless_mast import WirelessMast
 from app.services.common import coerce_uuid
 
@@ -54,6 +61,30 @@ def _location_review_flag(db: Session, actor_id: str | None, latitude: float, lo
     if distance <= _MOVE_REVIEW_DISTANCE_M:
         return None
     return {"needs_review": True, "review_reason": "pin_far_from_technician", "tech_distance_m": round(distance, 1)}
+
+
+def _flag_connected_segments_stale(db: Session, asset_id: str) -> int:
+    """Mark fiber segments touching a relocated asset as geometry-stale.
+
+    Segment endpoints are termination points that reference the asset via
+    ``ref_id``; when the asset physically moves, those segments' route/length
+    no longer match reality and need a re-survey.
+    """
+    asset_uuid = coerce_uuid(asset_id)
+    point_ids = [
+        row[0] for row in db.query(FiberTerminationPoint.id).filter(FiberTerminationPoint.ref_id == asset_uuid).all()
+    ]
+    if not point_ids:
+        return 0
+    segments = (
+        db.query(FiberSegment)
+        .filter(FiberSegment.is_active.is_(True))
+        .filter(FiberSegment.from_point_id.in_(point_ids) | FiberSegment.to_point_id.in_(point_ids))
+        .all()
+    )
+    for segment in segments:
+        segment.geometry_stale = True
+    return len(segments)
 
 
 @dataclass(frozen=True)
@@ -251,6 +282,7 @@ def update_map_asset_location(
     accuracy_m: float | None = None,
     client_ref: str | None = None,
     force: bool = False,
+    move_type: str | None = None,
     extra_metadata: dict | None = None,
 ) -> dict:
     config = ASSET_CONFIGS.get(asset_type)
@@ -304,6 +336,15 @@ def update_map_asset_location(
     # Flag (never block) an off-site, low-confidence pin for async review.
     review_flag = None if force else _location_review_flag(db, actor_id, float(latitude), float(longitude), source)
 
+    # A relocation says the asset physically moved (vs. a correction to a wrong
+    # pin); the segments wired to it then need a re-survey. Corrections don't
+    # touch downstream geometry.
+    move_metadata: dict = {}
+    if move_type:
+        move_metadata["move_type"] = move_type
+        if move_type == "relocation":
+            move_metadata["staled_segments"] = _flag_connected_segments_stale(db, asset_id)
+
     # Canonical network assets are shared records of truth — every field edit is
     # attributable, with before/after coordinates and pin provenance.
     db.add(
@@ -323,6 +364,7 @@ def update_map_asset_location(
                 "accuracy_m": accuracy_m,
                 "client_ref": client_ref,
                 "forced": bool(force),
+                **move_metadata,
                 **(extra_metadata or {}),
                 **(review_flag or {}),
             },

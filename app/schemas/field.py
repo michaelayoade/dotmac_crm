@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
@@ -292,6 +293,9 @@ class FieldMapAssetLocationUpdate(BaseModel):
     # Override the downgrade guard (e.g. knowingly replacing a surveyed point
     # with a fresh field fix).
     force: bool = False
+    # Intent: a correction fixes a wrong pin (no downstream impact); a relocation
+    # means the asset physically moved, so connected segments are flagged stale.
+    move_type: Literal["correction", "relocation"] | None = None
 
 
 class FieldJobDetail(BaseModel):

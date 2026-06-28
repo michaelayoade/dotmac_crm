@@ -8,7 +8,14 @@ from sqlalchemy import text
 from app.models.audit import AuditEvent
 from app.models.field import FieldMapAssetLocationProvenance, FieldMapAssetTombstone
 from app.models.field_location import FieldTechPresence
-from app.models.network import FdhCabinet, FiberAccessPoint, FiberSpliceClosure, OLTDevice
+from app.models.network import (
+    FdhCabinet,
+    FiberAccessPoint,
+    FiberSegment,
+    FiberSpliceClosure,
+    FiberTerminationPoint,
+    OLTDevice,
+)
 from app.services.field.map_assets import (
     list_deleted_map_assets,
     list_map_assets,
@@ -396,6 +403,65 @@ def test_revert_rejects_when_previous_was_empty(db_session):
     with pytest.raises(HTTPException) as exc:
         revert_map_asset_location(db_session, asset_type="olt", asset_id=str(olt.id))
     assert exc.value.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Move intent: relocation flags connected segments stale
+# ---------------------------------------------------------------------------
+
+
+def _closure_with_segment(db_session):
+    closure = FiberSpliceClosure(name="Closure Seg", latitude=9.0, longitude=7.0)
+    db_session.add(closure)
+    db_session.commit()
+    # A termination point that represents the closure, with a segment off it.
+    point = FiberTerminationPoint(name="TP", ref_id=closure.id)
+    db_session.add(point)
+    db_session.commit()
+    segment = FiberSegment(name="SEG-1", from_point_id=point.id)
+    db_session.add(segment)
+    db_session.commit()
+    return closure, segment
+
+
+def test_relocation_flags_connected_segments_stale(db_session):
+    closure, segment = _closure_with_segment(db_session)
+
+    update_map_asset_location(
+        db_session,
+        asset_type="splice_closure",
+        asset_id=str(closure.id),
+        latitude=9.4,
+        longitude=7.4,
+        move_type="relocation",
+    )
+
+    db_session.refresh(segment)
+    assert segment.geometry_stale is True
+
+
+def test_correction_does_not_flag_segments(db_session):
+    closure, segment = _closure_with_segment(db_session)
+
+    update_map_asset_location(
+        db_session,
+        asset_type="splice_closure",
+        asset_id=str(closure.id),
+        latitude=9.4,
+        longitude=7.4,
+        move_type="correction",
+    )
+
+    db_session.refresh(segment)
+    assert segment.geometry_stale is False
+    # Intent is still recorded on the audit trail.
+    event = (
+        db_session.query(AuditEvent)
+        .filter(AuditEvent.entity_id == str(closure.id))
+        .order_by(AuditEvent.occurred_at.desc())
+        .first()
+    )
+    assert event.metadata_["move_type"] == "correction"
 
 
 # ---------------------------------------------------------------------------

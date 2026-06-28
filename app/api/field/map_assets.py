@@ -101,6 +101,7 @@ def update_field_map_asset_location(
         accuracy_m=payload.accuracy_m,
         client_ref=str(payload.client_ref) if payload.client_ref else None,
         force=payload.force,
+        move_type=payload.move_type,
     )
 
 
