@@ -74,6 +74,13 @@ class Lead(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lost_reason: Mapped[str | None] = mapped_column(String(200))
     lead_source: Mapped[str | None] = mapped_column(String(40))
+    # Campaign attribution: which marketing campaign (and recipient) sourced this lead.
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crm_campaigns.id"), index=True
+    )
+    campaign_recipient_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crm_campaign_recipients.id")
+    )
     region: Mapped[str | None] = mapped_column(String(80))
     address: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
@@ -91,6 +98,7 @@ class Lead(Base):
     pipeline = relationship("Pipeline", back_populates="leads")
     stage = relationship("PipelineStage", back_populates="leads")
     quotes = relationship("Quote", back_populates="lead")
+    campaign = relationship("Campaign", foreign_keys=[campaign_id])
 
     @hybrid_property
     def contact_id(self):
