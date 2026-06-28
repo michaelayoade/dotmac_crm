@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "dotmac_crm"
-version = "0.6.6"
+version = "0.6.7"
 description = "Subscriber management API and web UI"
 authors = ["Codex <codex@local>"]
 package-mode = false
