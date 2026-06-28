@@ -6,7 +6,7 @@ read view lives in the reseller portal (app/web/reseller).
 
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -98,7 +98,9 @@ def list_payouts(
 
 @payout_router.post("", dependencies=[_WRITE])
 def create_payout(payload: dict[str, Any] = Body(default_factory=dict), db: Session = Depends(get_db)):
-    reseller_org_id = str(payload.get("reseller_org_id") or "")
+    reseller_org_id = str(payload.get("reseller_org_id") or "").strip()
+    if not reseller_org_id:
+        raise HTTPException(status_code=400, detail="reseller_org_id is required")
     return _payout_dict(svc.create_payout(db, reseller_org_id))
 
 

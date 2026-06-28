@@ -150,6 +150,143 @@ def test_create_payout_without_approved_is_409(db_session, monkeypatch):
     assert exc.value.status_code == 409
 
 
+def test_accrue_on_paid_transition_via_update(db_session, monkeypatch):
+    """Commissions must accrue when an order transitions to paid through update,
+    not only at create time."""
+    _enable(monkeypatch)
+    from app.services.sales_orders import sales_orders
+
+    reseller = _org(db_session, "Reseller P", AccountType.reseller, rate=Decimal("10"))
+    customer = _org(db_session, "Customer P", AccountType.customer, parent_id=reseller.id)
+    person = _person(db_session, org_id=customer.id)
+    # Pay-later: order starts unpaid, no commission yet.
+    order = SalesOrder(
+        person_id=person.id,
+        total=Decimal("100000"),
+        amount_paid=Decimal("0"),
+        balance_due=Decimal("100000"),
+        currency="NGN",
+        payment_status=SalesOrderPaymentStatus.pending,
+    )
+    db_session.add(order)
+    db_session.commit()
+    db_session.refresh(order)
+    assert db_session.query(ResellerCommission).filter(ResellerCommission.sales_order_id == order.id).count() == 0
+
+    # Mark paid via update_from_input (the web pay-later path) -> accrue.
+    sales_orders.update_from_input(db_session, str(order.id), payment_status="paid")
+    commissions = db_session.query(ResellerCommission).filter(ResellerCommission.sales_order_id == order.id).all()
+    assert len(commissions) == 1
+    assert commissions[0].amount == Decimal("10000.00")
+    assert commissions[0].status == CommissionStatus.pending
+
+    # Idempotent: a second paid-update must not create a duplicate.
+    sales_orders.update_from_input(db_session, str(order.id), payment_status="paid")
+    assert db_session.query(ResellerCommission).filter(ResellerCommission.sales_order_id == order.id).count() == 1
+
+
+def test_create_payout_does_not_double_claim_commissions(db_session, monkeypatch):
+    """Two payouts for the same reseller must not both claim the same commission."""
+    _enable(monkeypatch)
+    reseller, _person_, order = _reseller_customer_order(db_session, rate=Decimal("10"))
+    commission = svc.accrue_for_sales_order(db_session, order)
+    svc.approve(db_session, str(commission.id))
+
+    first = svc.create_payout(db_session, str(reseller.id))
+    db_session.refresh(commission)
+    assert commission.payout_id == first.id
+
+    # No remaining approved/unpaid commissions -> second payout is a 409.
+    with pytest.raises(HTTPException) as exc:
+        svc.create_payout(db_session, str(reseller.id))
+    assert exc.value.status_code == 409
+    # Commission stays attached to the first payout only.
+    assert db_session.query(ResellerCommission).filter(ResellerCommission.payout_id == first.id).count() == 1
+
+
+def test_void_attached_commission_refused(db_session, monkeypatch):
+    """An approved commission already in a draft payout cannot be voided in place."""
+    _enable(monkeypatch)
+    reseller, _person_, order = _reseller_customer_order(db_session, rate=Decimal("10"))
+    commission = svc.accrue_for_sales_order(db_session, order)
+    svc.approve(db_session, str(commission.id))
+    svc.create_payout(db_session, str(reseller.id))
+
+    with pytest.raises(HTTPException) as exc:
+        svc.void(db_session, str(commission.id))
+    assert exc.value.status_code == 409
+    db_session.refresh(commission)
+    assert commission.status == CommissionStatus.approved
+
+
+def test_void_then_mark_paid_skips_voided_commission(db_session, monkeypatch):
+    """A voided commission must never be flipped to paid by mark_payout_paid."""
+    _enable(monkeypatch)
+    reseller = _org(db_session, "Reseller V", AccountType.reseller, rate=Decimal("10"))
+    customer = _org(db_session, "Customer V", AccountType.customer, parent_id=reseller.id)
+    p1 = _person(db_session, org_id=customer.id)
+    p2 = _person(db_session, org_id=customer.id)
+    order1 = _paid_order(db_session, p1, total="100000")
+    order2 = _paid_order(db_session, p2, total="50000")
+    c1 = svc.accrue_for_sales_order(db_session, order1)
+    c2 = svc.accrue_for_sales_order(db_session, order2)
+    svc.approve(db_session, str(c1.id))
+    svc.approve(db_session, str(c2.id))
+
+    # Void c2 BEFORE it is attached to a payout.
+    svc.void(db_session, str(c2.id))
+    db_session.refresh(c2)
+    assert c2.status == CommissionStatus.void
+
+    # Payout now only picks up the approved c1.
+    payout = svc.create_payout(db_session, str(reseller.id))
+    assert payout.total_amount == Decimal("10000.00")
+
+    svc.mark_payout_paid(db_session, str(payout.id), method="bank", reference="TXN-9")
+    db_session.refresh(c1)
+    db_session.refresh(c2)
+    assert c1.status == CommissionStatus.paid
+    assert c2.status == CommissionStatus.void  # NOT resurrected to paid
+
+
+def test_create_payout_rejects_mixed_currencies(db_session, monkeypatch):
+    """Approved commissions in different currencies cannot be paid out together."""
+    _enable(monkeypatch)
+    reseller = _org(db_session, "Reseller C", AccountType.reseller, rate=Decimal("10"))
+    customer = _org(db_session, "Customer C", AccountType.customer, parent_id=reseller.id)
+    p1 = _person(db_session, org_id=customer.id)
+    p2 = _person(db_session, org_id=customer.id)
+    order1 = _paid_order(db_session, p1, total="100000")
+    order2 = _paid_order(db_session, p2, total="100000")
+    order2.currency = "USD"
+    db_session.commit()
+    c1 = svc.accrue_for_sales_order(db_session, order1)
+    c2 = svc.accrue_for_sales_order(db_session, order2)
+    assert c1.currency == "NGN"
+    assert c2.currency == "USD"
+    svc.approve(db_session, str(c1.id))
+    svc.approve(db_session, str(c2.id))
+
+    with pytest.raises(HTTPException) as exc:
+        svc.create_payout(db_session, str(reseller.id))
+    assert exc.value.status_code == 409
+
+
+def test_mark_payout_paid_preserves_existing_method_on_remark(db_session, monkeypatch):
+    """A second mark-paid with no args must not clobber recorded method/reference."""
+    _enable(monkeypatch)
+    reseller, _person_, order = _reseller_customer_order(db_session, rate=Decimal("10"))
+    commission = svc.accrue_for_sales_order(db_session, order)
+    svc.approve(db_session, str(commission.id))
+    payout = svc.create_payout(db_session, str(reseller.id))
+    svc.mark_payout_paid(db_session, str(payout.id), method="bank", reference="TXN-1")
+    # Already paid -> early return, details preserved.
+    svc.mark_payout_paid(db_session, str(payout.id), method=None, reference=None)
+    db_session.refresh(payout)
+    assert payout.method == "bank"
+    assert payout.reference == "TXN-1"
+
+
 def test_summary_aggregates_by_status(db_session, monkeypatch):
     _enable(monkeypatch)
     reseller, _person_, order = _reseller_customer_order(db_session, rate=Decimal("10"))

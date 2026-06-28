@@ -46,7 +46,9 @@ def _config(db: Session) -> dict:
     except (InvalidOperation, TypeError, ValueError):
         default_rate = Decimal("0")
     return {
-        "enabled": _as_bool(settings_spec.resolve_value(db, _DOMAIN, "reseller_commissions_enabled", use_cache=False), False),
+        "enabled": _as_bool(
+            settings_spec.resolve_value(db, _DOMAIN, "reseller_commissions_enabled", use_cache=False), False
+        ),
         "default_rate": default_rate,
     }
 
@@ -80,9 +82,7 @@ class ResellerCommissions:
         if sales_order is None or sales_order.payment_status != SalesOrderPaymentStatus.paid:
             return None
 
-        existing = (
-            db.query(ResellerCommission).filter(ResellerCommission.sales_order_id == sales_order.id).first()
-        )
+        existing = db.query(ResellerCommission).filter(ResellerCommission.sales_order_id == sales_order.id).first()
         if existing is not None:
             return existing
 
@@ -116,9 +116,7 @@ class ResellerCommissions:
             db.commit()
         except IntegrityError:
             db.rollback()
-            existing = (
-                db.query(ResellerCommission).filter(ResellerCommission.sales_order_id == sales_order.id).first()
-            )
+            existing = db.query(ResellerCommission).filter(ResellerCommission.sales_order_id == sales_order.id).first()
             if existing is not None:
                 return existing
             raise
@@ -147,6 +145,14 @@ class ResellerCommissions:
         commission = get_or_404(db, ResellerCommission, str(commission_id), "Commission not found")
         if commission.status == CommissionStatus.paid:
             raise HTTPException(status_code=409, detail="Cannot void a paid commission.")
+        if commission.payout_id is not None:
+            # A commission already grouped into a (draft) payout must not be voided
+            # in place: doing so would leave the payout total overstated and let
+            # mark_payout_paid resurrect it. Detach it from the payout first.
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot void a commission attached to a payout; remove it from the payout first.",
+            )
         commission.status = CommissionStatus.void
         if reason:
             marker = f"Voided: {reason}"
@@ -159,21 +165,34 @@ class ResellerCommissions:
     def create_payout(db: Session, reseller_org_id: str) -> ResellerPayout:
         """Group the reseller's approved, unpaid commissions into a draft payout."""
         rid = coerce_uuid(reseller_org_id)
+        # Lock the approved/unpaid rows so two concurrent payouts can't claim the
+        # same commissions; skip_locked lets a parallel run grab a disjoint set.
         approved = (
             db.query(ResellerCommission)
             .filter(ResellerCommission.reseller_org_id == rid)
             .filter(ResellerCommission.status == CommissionStatus.approved)
             .filter(ResellerCommission.payout_id.is_(None))
             .filter(ResellerCommission.is_active.is_(True))
+            .with_for_update(skip_locked=True)
             .all()
         )
+        # Re-filter under the lock: a row claimed by a concurrent payout between
+        # query planning and the locked read must not be double-assigned.
+        approved = [c for c in approved if c.payout_id is None and c.status == CommissionStatus.approved]
         if not approved:
             raise HTTPException(status_code=409, detail="No approved commissions to pay out.")
+        currencies = {(c.currency or "NGN") for c in approved}
+        if len(currencies) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Approved commissions span multiple currencies; pay out one currency at a time.",
+            )
+        currency = approved[0].currency or "NGN"
         total = sum((c.amount for c in approved), Decimal("0"))
         payout = ResellerPayout(
             reseller_org_id=rid,
             total_amount=total,
-            currency=approved[0].currency or "NGN",
+            currency=currency,
             status=PayoutStatus.draft,
         )
         db.add(payout)
@@ -186,16 +205,31 @@ class ResellerCommissions:
         return payout
 
     @staticmethod
-    def mark_payout_paid(db: Session, payout_id: str, *, method: str | None = None, reference: str | None = None) -> ResellerPayout:
-        payout = get_or_404(db, ResellerPayout, str(payout_id), "Payout not found")
+    def mark_payout_paid(
+        db: Session, payout_id: str, *, method: str | None = None, reference: str | None = None
+    ) -> ResellerPayout:
+        pid = coerce_uuid(str(payout_id))
+        # Re-read under a lock so concurrent mark-paid calls can't both flip it.
+        payout = db.query(ResellerPayout).filter(ResellerPayout.id == pid).with_for_update().first()
+        if payout is None:
+            raise HTTPException(status_code=404, detail="Payout not found")
         if payout.status == PayoutStatus.paid:
             return payout
+        if payout.status != PayoutStatus.draft:
+            raise HTTPException(status_code=409, detail="Only draft payouts can be marked paid.")
         payout.status = PayoutStatus.paid
         payout.paid_at = datetime.now(UTC)
-        payout.method = method
-        payout.reference = reference
+        # Only overwrite method/reference when supplied, so a re-mark or partial
+        # input doesn't clobber previously recorded details.
+        if method is not None:
+            payout.method = method
+        if reference is not None:
+            payout.reference = reference
+        # Only approved commissions become paid; voided/detached ones are skipped
+        # so a voided commission can't be resurrected into a paid state.
         for c in payout.commissions:
-            c.status = CommissionStatus.paid
+            if c.status == CommissionStatus.approved:
+                c.status = CommissionStatus.paid
         db.commit()
         db.refresh(payout)
         logger.info("reseller_payout_paid payout=%s total=%s", payout.id, payout.total_amount)

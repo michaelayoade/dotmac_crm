@@ -124,7 +124,7 @@ def _ensure_fulfillment(db: Session, sales_order: SalesOrder) -> None:
     return None
 
 
-def _accrue_reseller_commission(db: Session, sales_order: SalesOrder) -> None:
+def _accrue_reseller_commission(db: Session, sales_order: SalesOrder | None) -> None:
     """Accrue a reseller commission when the order is paid (best-effort: a
     commission hiccup must never break sales-order processing)."""
     try:
@@ -427,6 +427,9 @@ class SalesOrders(ListResponseMixin):
         _ensure_fulfillment(db, sales_order)
         db.commit()
         db.refresh(sales_order)
+        # Accrue on any transition into paid (idempotent: a no-op if already
+        # accrued or not reseller-sourced). Covers update_from_input too.
+        _accrue_reseller_commission(db, sales_order)
         return sales_order
 
     @staticmethod
@@ -499,6 +502,8 @@ class SalesOrderLines(ListResponseMixin):
         from app.services.events.handlers.selfcare_customer import ensure_installation_invoice_for_sales_order
 
         ensure_installation_invoice_for_sales_order(db, sales_order.id)
+        db.refresh(sales_order)
+        _accrue_reseller_commission(db, sales_order)
         return line
 
     @staticmethod
@@ -518,6 +523,8 @@ class SalesOrderLines(ListResponseMixin):
         from app.services.events.handlers.selfcare_customer import ensure_installation_invoice_for_sales_order
 
         ensure_installation_invoice_for_sales_order(db, line.sales_order_id)
+        sales_order = db.get(SalesOrder, line.sales_order_id)
+        _accrue_reseller_commission(db, sales_order)
         return line
 
     @staticmethod

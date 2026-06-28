@@ -90,6 +90,9 @@ DEFAULT_PERMISSIONS = [
     # Operations - Technicians
     ("operations:technician:read", "View technicians"),
     ("operations:technician:write", "Manage technicians"),
+    # Operations - Reseller commissions + payouts
+    ("operations:reseller:read", "View reseller commissions and payouts"),
+    ("operations:reseller:write", "Manage reseller commissions and payouts"),
     # Support - Tickets
     ("support:ticket:read", "View tickets"),
     ("support:ticket:create", "Create tickets"),
@@ -220,6 +223,8 @@ ROLE_PERMISSIONS = {
         "subscription:read",
         "operations:work_order:read",
         "operations:work_order:update",
+        "operations:reseller:read",
+        "operations:reseller:write",
         "reports:network",
     ],
     "support": [
