@@ -63,6 +63,44 @@ def _resolve_customer_contact(db: Session, work_order: WorkOrder) -> dict | None
     return None
 
 
+def _track_url(db: Session, work_order: WorkOrder) -> str | None:
+    """Mint (or reuse) the customer's "Track My Visit" magic-link for this job.
+
+    Best-effort: a token/link failure must never block the underlying message.
+    """
+    try:
+        from app.services.email import get_app_url
+        from app.services.field.tracking import tokens
+
+        token_row = tokens.get_or_create(db, work_order)
+        base = (get_app_url(db) or "").rstrip("/")
+        return f"{base}/track/{token_row.token}"
+    except Exception:
+        logger.exception("track_url_failed work_order_id=%s", work_order.id)
+        db.rollback()  # leave the session usable so the message can still send
+        return None
+
+
+def _track_line(track_url: str | None) -> str:
+    return f"\n\nTrack your visit live: {track_url}" if track_url else ""
+
+
+def _completion_summary(work_order: WorkOrder) -> str:
+    """Latest customer-safe note body for the completion email.
+
+    ``work_order.notes`` is a relationship (list of WorkOrderNote); rendering it
+    directly printed a Python list repr. Internal dispatch notes (e.g. the
+    customer's own reschedule/confirm notes) must never appear in a customer
+    email, so they are excluded here.
+    """
+    customer_notes = sorted(
+        (n for n in (work_order.notes or []) if not n.is_internal and isinstance(n.body, str) and n.body.strip()),
+        key=lambda n: n.created_at,
+        reverse=True,
+    )
+    return customer_notes[0].body.strip() if customer_notes else "Work completed successfully."
+
+
 def send_eta_notification(db: Session, work_order_id: str) -> bool:
     """Send ETA notification to customer for a work order.
 
@@ -109,11 +147,13 @@ def send_eta_notification(db: Session, work_order_id: str) -> bool:
     # Format ETA time
     eta_time = eta.strftime("%H:%M") if eta else "soon"
 
+    track = _track_url(db, work_order)
     context = {
         "customer_name": contact.get("name", "Valued Customer"),
         "technician_name": technician_name,
         "eta_time": eta_time,
         "work_order_title": work_order.title or "Service Visit",
+        "track_url": track or "",
     }
 
     sent = False
@@ -153,7 +193,7 @@ Your technician {technician_name} is on the way and will arrive at approximately
 
 Service: {context["work_order_title"]}
 
-Please ensure someone is available at the service location.
+Please ensure someone is available at the service location.{_track_line(track)}
 
 Thank you for your patience!"""
 
@@ -219,12 +259,14 @@ def send_technician_assigned_notification(db: Session, work_order_id: str) -> bo
         scheduled_date = work_order.scheduled_start.strftime("%B %d, %Y")
         scheduled_time = work_order.scheduled_start.strftime("%H:%M")
 
+    track = _track_url(db, work_order)
     context = {
         "customer_name": contact.get("name", "Valued Customer"),
         "technician_name": technician_name,
         "scheduled_date": scheduled_date,
         "scheduled_time": scheduled_time,
         "work_order_title": work_order.title or "Service Visit",
+        "track_url": track or "",
     }
 
     sent = False
@@ -267,7 +309,7 @@ Time: {scheduled_time}
 
 Service: {context["work_order_title"]}
 
-You'll receive an update when the technician is on their way.
+You'll receive an update when the technician is on their way.{_track_line(track)}
 
 Thank you for your patience!"""
 
@@ -324,13 +366,15 @@ def send_work_order_completed_notification(db: Session, work_order_id: str) -> b
         if technician:
             technician_name = technician.display_name or technician.first_name or "Our technician"
 
+    track = _track_url(db, work_order)
     context = {
         "customer_name": contact.get("name", "Valued Customer"),
         "work_order_number": str(work_order.id)[:8].upper(),
         "work_order_title": work_order.title or "Service Visit",
         "technician_name": technician_name,
         "completed_at": datetime.now(UTC).strftime("%B %d, %Y at %H:%M"),
-        "completion_notes": work_order.notes or "Work completed successfully.",
+        "completion_notes": _completion_summary(work_order),
+        "track_url": track or "",
     }
 
     try:
@@ -355,7 +399,7 @@ Completed By: {technician_name}
 Completed At: {context["completed_at"]}
 
 Summary:
-{context["completion_notes"]}
+{context["completion_notes"]}{_track_line(track)}
 
 If you have any questions or concerns about the work performed, please contact us.
 
@@ -380,3 +424,62 @@ Thank you for choosing us!"""
     except Exception as exc:
         logger.error(f"Failed to send work order completed email: {exc}")
         return False
+
+
+def send_unable_to_complete_notification(db: Session, work_order_id: str) -> bool:
+    """Tell the customer a visit could not be completed and invite a reschedule.
+
+    Pairs with the Track My Visit reschedule action: the message carries the
+    tracking link so the customer can request a new time in one tap.
+    """
+    from app.services import email as email_service
+    from app.services import sms as sms_service
+
+    work_order = db.get(WorkOrder, coerce_uuid(work_order_id))
+    if not work_order:
+        logger.error(f"Work order not found: {work_order_id}")
+        return False
+
+    contact = _resolve_customer_contact(db, work_order)
+    if not contact:
+        logger.warning(f"No customer contact found for work order {work_order_id}")
+        return False
+
+    track = _track_url(db, work_order)
+    customer_name = contact.get("name", "Valued Customer")
+    service = work_order.title or "your service visit"
+    sent = False
+
+    if contact.get("phone"):
+        try:
+            sms_body = (
+                f"Hi {customer_name}, we're sorry we couldn't complete {service} today. "
+                f"We'll be in touch to reschedule.{_track_line(track)}"
+            )
+            if sms_service.send_sms(db=db, to_phone=contact["phone"], body=sms_body):
+                sent = True
+        except Exception as exc:
+            logger.error(f"Failed to send unable-to-complete SMS: {exc}")
+
+    if contact.get("email"):
+        try:
+            subject = "We missed you — let's reschedule your visit"
+            body = (
+                f"Dear {customer_name},\n\n"
+                f"Unfortunately we were unable to complete {service} today. "
+                f"We'd like to find a new time that works for you.{_track_line(track)}\n\n"
+                "You can request a preferred time from the tracking page above, or reply to this message.\n\n"
+                "Thank you for your patience."
+            )
+            email_service.send_email(
+                db=db,
+                to_email=contact["email"],
+                subject=subject,
+                body_html=body,
+                body_text=body,
+            )
+            sent = True
+        except Exception as exc:
+            logger.error(f"Failed to send unable-to-complete email: {exc}")
+
+    return sent

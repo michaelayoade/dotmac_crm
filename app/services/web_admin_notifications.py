@@ -50,6 +50,7 @@ def _supports_view_action(notification: Notification) -> bool:
         normalized.startswith("new ticket assignment:")
         or normalized.startswith("new project assignment:")
         or normalized.startswith("mentioned in ")
+        or normalized.startswith("infrastructure alert ")
     )
 
 

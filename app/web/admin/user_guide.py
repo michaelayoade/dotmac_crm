@@ -870,7 +870,7 @@ GUIDE_DETAILS = {
                 "steps": [
                     "Review automations and disable noisy/broken rules.",
                     "Check scheduler health and failed jobs.",
-                    "Monitor server health and integration status.",
+                    "Monitor infrastructure health and integration status.",
                     "Review audit logs for critical changes.",
                     "Apply configuration updates through controlled change window.",
                 ],

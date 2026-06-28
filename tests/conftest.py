@@ -69,6 +69,20 @@ def _patch_jose_datetime(monkeypatch):
     monkeypatch.setattr(jose_jwt, "datetime", _JoseDateTimeProxy, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _configure_celery_for_tests():
+    from app.celery_app import celery_app
+
+    celery_app.conf.update(
+        broker_url="memory://",
+        result_backend="cache+memory://",
+        task_always_eager=True,
+        task_eager_propagates=True,
+        task_ignore_result=True,
+        task_store_eager_result=False,
+    )
+
+
 # Register UUID adapter for SQLite - store as string
 sqlite3.register_adapter(uuid.UUID, lambda u: str(u))
 
@@ -304,7 +318,7 @@ def engine():
             dbapi_connection.create_function("AsEWKB", 1, lambda value: value)
             # Minimal point arithmetic so code paths that keep a `geom` column in
             # sync with lat/lng (e.g. field map-asset edits) run without PostGIS.
-            # Points are encoded as WKB hex; ST_X/ST_Y read the coordinates back.
+            # Points are encoded as plain "POINT(x y)" text; ST_X/ST_Y read it back.
             dbapi_connection.create_function("ST_MakePoint", 2, _stub_st_makepoint)
             dbapi_connection.create_function("ST_SetSRID", 2, _stub_st_setsrid)
             dbapi_connection.create_function("ST_X", 1, _stub_st_coord(0))

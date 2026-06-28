@@ -77,6 +77,8 @@ class LeadBase(BaseModel):
     expected_close_date: date | None = None
     lost_reason: str | None = Field(default=None, max_length=200)
     lead_source: str | None = Field(default=None, max_length=40)
+    campaign_id: UUID | None = None
+    campaign_recipient_id: UUID | None = None
     region: str | None = Field(default=None, max_length=80)
     address: str | None = None
     notes: str | None = None

@@ -132,10 +132,23 @@ class Person(Base):
         return cls.id
 
     @hybrid_property
-    def splynx_id(self):
+    def selfcare_id(self):
+        """dotmac_sub (selfcare) subscriber id stored in metadata."""
         if not self.metadata_ or not isinstance(self.metadata_, dict):
             return None
-        return self.metadata_.get("splynx_id")
+        return self.metadata_.get("selfcare_id")
+
+    @hybrid_property
+    def splynx_id(self):
+        """Deprecated external-customer-id alias.
+
+        Splynx was decommissioned in favour of dotmac_sub; this now prefers the
+        legacy Splynx id (historical rows) and falls back to the selfcare id so
+        existing read/display sites keep resolving an external customer id.
+        """
+        if not self.metadata_ or not isinstance(self.metadata_, dict):
+            return None
+        return self.metadata_.get("splynx_id") or self.metadata_.get("selfcare_id")
 
 
 class PersonChannel(Base):

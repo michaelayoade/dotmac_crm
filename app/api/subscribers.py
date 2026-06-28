@@ -18,7 +18,7 @@ from app.schemas.subscriber import (
     SubscriberUpdate,
 )
 from app.services.selfcare import map_customer_to_subscriber_data as map_selfcare_customer_to_subscriber_data
-from app.services.splynx import map_customer_to_subscriber_data as map_splynx_customer_to_subscriber_data
+from app.services.selfcare import map_customer_to_subscriber_data as map_splynx_customer_to_subscriber_data
 from app.services.subscriber import subscriber as subscriber_service
 
 router = APIRouter(prefix="/subscribers", tags=["subscribers"])

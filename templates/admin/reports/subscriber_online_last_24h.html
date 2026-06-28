@@ -9,7 +9,7 @@
 
 {% block content %}
 <div class="space-y-6">
-    {% call page_header("Inactive Last 24h", "Live Splynx data for customers last seen within 24 hours but not currently online.", color="emerald", color2="teal") %}
+    {% call page_header("Inactive Last 24h", "Live dotmac_sub data for customers last seen within 24 hours but not currently online.", color="emerald", color2="teal") %}
         {{ action_button(
             "Export CSV",
             href="/admin/reports/subscribers/online-last-24h/export?status=" ~ (selected_status | default("")) ~ "&region=" ~ (selected_region | default("")) ~ "&search=" ~ (search | default("")) ~ "&ticket_status=" ~ (selected_ticket_status | default("all")) ~ "&notification_state=" ~ (selected_notification_state | default("all")) ~ "&activity_segment=" ~ selected_segment ~ (selected_base_station_query | default("")),
@@ -29,7 +29,7 @@
                     Customers whose last online time is within 24 hours.
                     {% endif %}
                 </span>
-                Data is read live from Splynx on each refresh.
+                Data is read live from dotmac_sub on each refresh.
             </p>
             <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Auto-refreshes every 60s</p>
         </div>
@@ -341,7 +341,7 @@
             </td>
             {% endcall %}
             {% else %}
-            {{ empty_state(title="No matching customers", message="No live Splynx rows match the selected filters.", color="emerald", color2="teal", colspan=12) }}
+            {{ empty_state(title="No matching customers", message="No live dotmac_sub rows match the selected filters.", color="emerald", color2="teal", colspan=12) }}
             {% endfor %}
         </tbody>
     </table>

@@ -77,7 +77,7 @@ def test_create_from_quote_does_not_create_fallback_project(db_session, person):
     assert linked_projects == []
 
 
-@patch("app.services.events.handlers.splynx_customer.ensure_installation_invoice_for_sales_order")
+@patch("app.services.events.handlers.selfcare_customer.ensure_installation_invoice_for_sales_order")
 def test_sales_order_line_create_retries_splynx_installation_invoice(mock_retry, db_session, person):
     order = sales_orders_service.sales_orders.create(
         db_session,

@@ -30,6 +30,7 @@ from app.tasks.customer_retention import (
 )
 from app.tasks.field import prune_field_location_pings
 from app.tasks.gis import sync_gis_sources
+from app.tasks.infrastructure_health import run_infrastructure_health_checks
 from app.tasks.integrations import (
     refresh_material_request_erp_status,
     refresh_pending_material_request_erp_statuses,
@@ -113,6 +114,7 @@ __all__ = [
     "resolve_stale_offline_outreach_conversations_task",
     "retry_failed_deliveries",
     "run_daily_offline_outreach_task",
+    "run_infrastructure_health_checks",
     "run_integration_job",
     "run_scheduled_analysis",
     "send_daily_sla_violation_report",

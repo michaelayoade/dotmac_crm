@@ -239,6 +239,24 @@ def campaign_detail(
     return templates.TemplateResponse("admin/crm/campaign_detail.html", ctx)
 
 
+@router.get("/{campaign_id}/attribution", response_class=JSONResponse)
+def campaign_attribution(
+    request: Request,
+    campaign_id: str,
+    db: Session = Depends(_get_db),
+):
+    """Campaign → lead funnel ROI (recipients/sent/replies → leads → won + value)."""
+    if not can_view_campaigns(_get_current_roles(request), _get_current_scopes(request)):
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+    from app.services.crm.campaigns import campaign_attribution_report
+
+    report = campaign_attribution_report(db, campaign_id)
+    # Decimals → str for JSON.
+    report["won_value"] = str(report["won_value"])
+    report["pipeline_value"] = str(report["pipeline_value"])
+    return JSONResponse(report)
+
+
 # ── Edit ──────────────────────────────────────────────────────────────────────
 
 

@@ -8,6 +8,7 @@ like Splynx, UCRM, WHMCS, or custom platforms.
 from __future__ import annotations
 
 import builtins
+import logging
 import re
 import uuid
 from datetime import UTC, datetime
@@ -21,7 +22,7 @@ from app.models.subscriber import Organization, Subscriber, SubscriberStatus
 from app.services.common import apply_ordering
 from app.services.events import emit_event
 from app.services.events.types import EventType
-from app.services.external_systems import SPLYNX_EXTERNAL_SYSTEM
+from app.services.external_systems import SELFCARE_EXTERNAL_SYSTEM
 
 
 class SubscriberManager:
@@ -209,10 +210,23 @@ class SubscriberManager:
             **data,
         }
 
-        if subscriber:
-            return self.update(db, subscriber, sync_data)
-        else:
-            return self.create(db, sync_data)
+        result = self.update(db, subscriber, sync_data) if subscriber else self.create(db, sync_data)
+
+        # Referral qualification: when a referred prospect becomes an active
+        # subscriber, the referrer earns their reward. Idempotent + best-effort —
+        # a referral hiccup must never break subscriber sync.
+        try:
+            from app.services.crm.referrals import referrals as referrals_service
+
+            referrals_service.qualify_for_subscriber(db, result)
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "referral_qualify_failed subscriber_id=%s",
+                getattr(result, "id", None),
+                exc_info=True,
+            )
+
+        return result
 
     def _emit_plan_migration_event(
         self,
@@ -305,7 +319,7 @@ class SubscriberManager:
         self,
         db: Session,
         *,
-        external_system: str = SPLYNX_EXTERNAL_SYSTEM,
+        external_system: str = SELFCARE_EXTERNAL_SYSTEM,
         clear_duplicate_metadata: bool = True,
         dry_run: bool = False,
     ) -> dict[str, int]:

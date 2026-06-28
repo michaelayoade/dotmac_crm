@@ -22,8 +22,12 @@ void main() {
     expect(groups.last.$2.single.title, 'B');
   });
 
-  Widget app(List<ScheduleEntry> entries) => ProviderScope(
-        overrides: [scheduleProvider.overrideWith((ref) async => entries)],
+  Widget app(List<ScheduleEntry> entries, {bool fromCache = false}) => ProviderScope(
+        overrides: [
+          scheduleProvider.overrideWith(
+            (ref) async => ScheduleData(entries, fromCache: fromCache),
+          ),
+        ],
         child: const MaterialApp(home: ScheduleScreen()),
       );
 
@@ -51,5 +55,22 @@ void main() {
     await tester.pumpAndSettle();
     final tile = tester.widget<ListTile>(find.byType(ListTile));
     expect(tile.onTap, isNull);
+  });
+
+  testWidgets('shows offline banner when served from cache', (tester) async {
+    await tester.pumpWidget(app(
+      [_entry('shift', DateTime.now().add(const Duration(hours: 1)), title: 'Morning shift')],
+      fromCache: true,
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('schedule-offline-banner')), findsOneWidget);
+  });
+
+  testWidgets('no offline banner when fresh from network', (tester) async {
+    await tester.pumpWidget(app([
+      _entry('shift', DateTime.now().add(const Duration(hours: 1)), title: 'Morning shift'),
+    ]));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('schedule-offline-banner')), findsNothing);
   });
 }

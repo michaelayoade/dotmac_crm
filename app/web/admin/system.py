@@ -1,6 +1,5 @@
 """Admin system management web routes."""
 
-import contextlib
 import csv
 import html
 import io
@@ -177,73 +176,76 @@ def _build_changed_person_update_payload(
     return PersonUpdate.model_validate(changed_fields)
 
 
-@router.get("/health", response_class=HTMLResponse)
+@router.get(
+    "/health", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:monitoring:read"))]
+)
 def system_health_page(request: Request, db: Session = Depends(get_db)):
-    from app.models.domain_settings import SettingDomain
-    from app.services import settings_spec
+    from app.services import infrastructure_health as infrastructure_health_service
     from app.services import system_health as system_health_service
     from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
-    health = system_health_service.get_system_health()
-    thresholds: dict[str, float | None] = {
-        "disk_warn_pct": cast(
-            float | None,
-            settings_spec.resolve_value(db, SettingDomain.network_monitoring, "server_health_disk_warn_pct"),
-        ),
-        "disk_crit_pct": cast(
-            float | None,
-            settings_spec.resolve_value(db, SettingDomain.network_monitoring, "server_health_disk_crit_pct"),
-        ),
-        "mem_warn_pct": cast(
-            float | None,
-            settings_spec.resolve_value(db, SettingDomain.network_monitoring, "server_health_mem_warn_pct"),
-        ),
-        "mem_crit_pct": cast(
-            float | None,
-            settings_spec.resolve_value(db, SettingDomain.network_monitoring, "server_health_mem_crit_pct"),
-        ),
-        "load_warn": cast(
-            float | None,
-            settings_spec.resolve_value(db, SettingDomain.network_monitoring, "server_health_load_warn"),
-        ),
-        "load_crit": cast(
-            float | None,
-            settings_spec.resolve_value(db, SettingDomain.network_monitoring, "server_health_load_crit"),
-        ),
-    }
-    for key, value in thresholds.items():
-        if value is None:
-            thresholds[key] = None
-            continue
-        if isinstance(value, int | float):
-            thresholds[key] = float(value)
-            continue
-        if isinstance(value, str):
-            try:
-                thresholds[key] = float(value)
-            except ValueError:
-                thresholds[key] = None
-            continue
-        thresholds[key] = None
-    health_status = system_health_service.evaluate_health(health, thresholds)
-    period_days = 30
-    with contextlib.suppress(Exception):
-        period_days = int(request.query_params.get("period_days", "30"))
-    start_date = request.query_params.get("start_date", "")
-    end_date = request.query_params.get("end_date", "")
+    dashboard = infrastructure_health_service.health_dashboard(db)
+    host_health = system_health_service.system_health_report(db)
     context: dict[str, object] = {
         "request": request,
-        "active_page": "system-health",
+        "active_page": "infrastructure-health",
         "active_menu": "system",
         "current_user": get_current_user(request),
         "sidebar_stats": get_sidebar_stats(db),
-        "health": health,
-        "health_status": health_status,
-        "period_days": period_days if period_days in {7, 30, 90, 180} else 30,
-        "start_date": start_date,
-        "end_date": end_date,
+        "dashboard": dashboard,
+        "host_health": host_health,
+        "host_health_status": host_health.get("evaluation", {}),
     }
-    return templates.TemplateResponse("admin/system/health.html", context)
+    return templates.TemplateResponse("admin/system/infrastructure_health.html", context)
+
+
+@router.get(
+    "/health/alerts",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:monitoring:read"))],
+)
+def infrastructure_alerts_page(
+    request: Request,
+    category: str | None = Query(None),
+    severity: str | None = Query(None),
+    status: str | None = Query("open"),
+    period_days: int = Query(30),
+    db: Session = Depends(get_db),
+):
+    from app.models.infrastructure import (
+        InfrastructureAlertCategory,
+        InfrastructureAlertSeverity,
+        InfrastructureAlertStatus,
+    )
+    from app.services import infrastructure_health as infrastructure_health_service
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+
+    safe_period = period_days if period_days in {1, 7, 30, 90, 180, 365} else 30
+    alerts = infrastructure_health_service.list_alerts(
+        db,
+        category=category or None,
+        severity=severity or None,
+        status=status or None,
+        period_days=safe_period,
+    )
+    return templates.TemplateResponse(
+        "admin/system/infrastructure_alerts.html",
+        {
+            "request": request,
+            "active_page": "infrastructure-alerts",
+            "active_menu": "system",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "alerts": alerts,
+            "category": category or "",
+            "severity": severity or "",
+            "status": status or "",
+            "period_days": safe_period,
+            "categories": [item.value for item in InfrastructureAlertCategory],
+            "severities": [item.value for item in InfrastructureAlertSeverity],
+            "statuses": [item.value for item in InfrastructureAlertStatus],
+        },
+    )
 
 
 def _form_bool(value: object | None) -> bool:
@@ -4022,7 +4024,7 @@ def settings_overview(
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
             "saved": saved,
-            "splynx_test_result": None,
+            "selfcare_test_result": None,
             "csrf_token": get_csrf_token(request),
         },
     )
@@ -4289,7 +4291,7 @@ async def settings_update(
             "sidebar_stats": get_sidebar_stats(db),
             "errors": errors,
             "saved": not errors,
-            "splynx_test_result": None,
+            "selfcare_test_result": None,
             "csrf_token": get_csrf_token(request),
         },
     )
@@ -4322,23 +4324,23 @@ def _render_campaign_settings(
             "sidebar_stats": get_sidebar_stats(db),
             "errors": errors or [],
             "saved": saved,
-            "splynx_test_result": None,
+            "selfcare_test_result": None,
             "csrf_token": get_csrf_token(request),
         },
     )
 
 
 @router.post(
-    "/settings/integration/splynx-test",
+    "/settings/integration/selfcare-test",
     response_class=HTMLResponse,
     dependencies=[Depends(require_permission("system:settings:read"))],
 )
-async def splynx_test_connection(request: Request, db: Session = Depends(get_db)):
+async def selfcare_test_connection(request: Request, db: Session = Depends(get_db)):
     from app.csrf import get_csrf_token
-    from app.services import splynx as splynx_service
+    from app.services import selfcare as selfcare_service
     from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
-    ok, message = splynx_service.test_connection(db)
+    ok, message = selfcare_service.test_connection(db)
     settings_context = _build_settings_context(db, "integration")
     base_url = str(request.base_url).rstrip("/")
     crm_meta_callback_url = base_url + "/webhooks/crm/meta"
@@ -4355,7 +4357,7 @@ async def splynx_test_connection(request: Request, db: Session = Depends(get_db)
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
             "saved": False,
-            "splynx_test_result": {"ok": ok, "message": message},
+            "selfcare_test_result": {"ok": ok, "message": message},
             "csrf_token": get_csrf_token(request),
         },
     )

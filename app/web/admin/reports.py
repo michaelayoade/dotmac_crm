@@ -148,8 +148,8 @@ _ONLINE_LAST_24H_NOTIFICATION_STATE_OPTIONS = [
 ]
 
 _ONLINE_LAST_24H_ACTIVITY_SEGMENT_OPTIONS = [
-    {"value": "last_24h", "label": "Last online within 24h"},
-    {"value": "active_last24_not_online", "label": "Active, last online within 24h, not currently online"},
+    {"value": "last_24h", "label": "Currently online"},
+    {"value": "active_last24_not_online", "label": "Not active in the last 24h"},
 ]
 _ONLINE_LAST_24H_WHATSAPP_TARGET_NAMES = {"dotmac fiber helpdesk"}
 _ONLINE_LAST_24H_EMAIL_TARGET_NAMES = {"sales mail", "noc mail", "support mail"}
@@ -2725,7 +2725,7 @@ def subscriber_billing_risk(
         segment=segment,
         segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
-        source="splynx_live",
+        source="selfcare_live",
         limit=500,
         enrich_visible_rows=False,
     )
@@ -2953,7 +2953,7 @@ def subscriber_billing_risk_export(
         segment=segment,
         segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
-        source="splynx_live",
+        source="selfcare_live",
         limit=2000,
     )
     selected_labels = _segment_labels(selected_segments)

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.models.auth import AuthProvider, UserCredential
 from app.models.domain_settings import SettingValueType
 from app.models.person import Person
-from app.models.rbac import PersonRole, Role
+from app.models.rbac import Permission, PersonRole, Role
 from app.services.auth_flow import hash_password
 from app.services.domain_settings import (
     audit_settings,
@@ -124,7 +124,26 @@ def seed_bootstrap_admin_user(db: Session) -> None:
     db.commit()
 
 
+def _ensure_permission(db: Session, key: str, description: str) -> None:
+    permission = db.scalar(select(Permission).where(Permission.key == key))
+    if permission is None:
+        db.add(Permission(key=key, description=description, is_active=True))
+        db.commit()
+        return
+    changed = False
+    if not permission.is_active:
+        permission.is_active = True
+        changed = True
+    if permission.description != description:
+        permission.description = description
+        changed = True
+    if changed:
+        db.commit()
+
+
 def seed_auth_settings(db: Session) -> None:
+    _ensure_permission(db, "system:monitoring:read", "View infrastructure health and alerts.")
+    _ensure_permission(db, "system:monitoring:write", "Manage infrastructure health and alert settings.")
     auth_settings.ensure_by_key(
         db,
         key="jwt_algorithm",
@@ -652,6 +671,20 @@ def seed_scheduler_settings(db: Session) -> None:
         value_type=SettingValueType.integer,
         value_text=os.getenv("CELERY_BEAT_REFRESH_MINUTES", "5"),
     )
+    scheduler_settings.ensure_by_key(
+        db,
+        key="infrastructure_health_checks_enabled",
+        value_type=SettingValueType.boolean,
+        value_text=os.getenv("INFRASTRUCTURE_HEALTH_CHECKS_ENABLED", "true"),
+        value_json=os.getenv("INFRASTRUCTURE_HEALTH_CHECKS_ENABLED", "true").strip().lower()
+        in {"1", "true", "yes", "on"},
+    )
+    scheduler_settings.ensure_by_key(
+        db,
+        key="infrastructure_health_check_interval_seconds",
+        value_type=SettingValueType.integer,
+        value_text=os.getenv("INFRASTRUCTURE_HEALTH_CHECK_INTERVAL_SECONDS", "300"),
+    )
 
 
 def seed_auth_policy_settings(db: Session) -> None:
@@ -1136,13 +1169,6 @@ def seed_integration_settings(db: Session) -> None:
     )
     integration_settings.ensure_by_key(
         db,
-        key="splynx_customer_sync_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=os.getenv("SPLYNX_CUSTOMER_SYNC_ENABLED", "false"),
-        value_json=os.getenv("SPLYNX_CUSTOMER_SYNC_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
-    )
-    integration_settings.ensure_by_key(
-        db,
         key="selfcare_customer_sync_enabled",
         value_type=SettingValueType.boolean,
         value_text=os.getenv("SELFCARE_CUSTOMER_SYNC_ENABLED", "false"),
@@ -1192,56 +1218,6 @@ def seed_integration_settings(db: Session) -> None:
         key="selfcare_subscriber_sync_interval_hours",
         value_type=SettingValueType.integer,
         value_text=os.getenv("SELFCARE_SUBSCRIBER_SYNC_INTERVAL_HOURS", "24"),
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_auth_type",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_AUTH_TYPE", "basic"),
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_base_url",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_BASE_URL", ""),
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_customer_url",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_CUSTOMER_URL", ""),
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_invoice_url",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_INVOICE_URL", ""),
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_monitoring_url",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_MONITORING_URL", ""),
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_basic_auth_token",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_BASIC_AUTH_TOKEN", ""),
-        is_secret=True,
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_monitoring_basic_auth_token",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_MONITORING_BASIC_AUTH_TOKEN", ""),
-        is_secret=True,
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_timeout_seconds",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("SPLYNX_TIMEOUT_SECONDS", "30"),
     )
     integration_settings.ensure_by_key(
         db,

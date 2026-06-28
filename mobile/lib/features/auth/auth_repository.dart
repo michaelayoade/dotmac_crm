@@ -3,8 +3,11 @@ import 'package:dio/dio.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/token_store.dart';
 
-/// Hardcoded build version; compared against /field/config min_app_version.
-const appVersion = '1.0.0';
+/// Build version, injected at compile time via `--dart-define=APP_VERSION=x.y.z`
+/// (CI passes the pubspec version, e.g. `flutter build --dart-define=APP_VERSION=$VERSION`).
+/// Falls back to the pubspec baseline for local/dev builds. Compared against
+/// /field/config min_app_version for upgrade gating.
+const appVersion = String.fromEnvironment('APP_VERSION', defaultValue: '1.0.0');
 
 sealed class LoginResult {
   const LoginResult();

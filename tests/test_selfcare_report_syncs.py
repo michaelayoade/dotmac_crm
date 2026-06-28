@@ -72,6 +72,7 @@ def test_selfcare_client_uses_bearer_token_and_unwraps_envelope(db_session, monk
     assert calls[0]["headers"]["Authorization"] == "Bearer token-123"
     assert calls[0]["url"] == "https://selfcare.example.test/api/v1/crm/subscribers"
     assert calls[0]["params"]["include"] == "services,billing"
+    assert calls[0]["params"]["per_page"] == 500
 
 
 def test_selfcare_client_raises_provider_error_on_non_2xx(db_session, monkeypatch):
@@ -146,6 +147,69 @@ def test_fetch_customers_paginates(db_session, monkeypatch):
     monkeypatch.setattr("requests.request", _request)
 
     assert selfcare.fetch_customers(db_session) == [{"id": "sc-1"}, {"id": "sc-2"}]
+
+
+def test_fetch_customers_can_omit_include_for_basic_subscriber_rows(db_session, monkeypatch):
+    monkeypatch.setattr(
+        selfcare.settings_spec,
+        "resolve_value",
+        _settings_resolver(
+            {
+                "selfcare_customer_sync_enabled": True,
+                "selfcare_base_url": "https://selfcare.example.test",
+                "selfcare_api_token": "token-123",
+                "selfcare_timeout_seconds": 15,
+            }
+        ),
+    )
+    calls = []
+
+    def _request(method, url, headers, params, json, timeout):
+        calls.append(params)
+        return _Response(200, {"data": [{"id": "sc-basic", "billing_mode": "prepaid"}], "meta": {"total": 1}})
+
+    monkeypatch.setattr("requests.request", _request)
+
+    assert selfcare.fetch_customers(db_session, include=None) == [{"id": "sc-basic", "billing_mode": "prepaid"}]
+    assert calls[0] == {"per_page": 500, "page": 1}
+
+
+def test_fetch_locations_uses_single_locations_request(db_session, monkeypatch):
+    monkeypatch.setattr(
+        selfcare.settings_spec,
+        "resolve_value",
+        _settings_resolver(
+            {
+                "selfcare_customer_sync_enabled": True,
+                "selfcare_base_url": "https://selfcare.example.test",
+                "selfcare_api_token": "token-123",
+                "selfcare_timeout_seconds": 15,
+            }
+        ),
+    )
+    calls = []
+
+    def _request(method, url, headers, params, json, timeout):
+        calls.append({"method": method, "url": url, "params": params})
+        return _Response(
+            200,
+            {
+                "data": [
+                    {"id": "09 Dawaki Model City Abuja, NG", "name": "Gwarimpa"},
+                    {"id": "spdc-key", "name": "SPDC"},
+                ]
+            },
+        )
+
+    monkeypatch.setattr("requests.request", _request)
+
+    assert selfcare.fetch_locations(db_session) == [
+        {"id": "09 Dawaki Model City Abuja, NG", "name": "Gwarimpa"},
+        {"id": "spdc-key", "name": "SPDC"},
+    ]
+    assert len(calls) == 1
+    assert calls[0]["url"] == "https://selfcare.example.test/api/v1/crm/locations"
+    assert calls[0]["params"] == {}
 
 
 def test_sync_subscribers_from_selfcare_skips_bad_record(db_session, monkeypatch):
@@ -236,3 +300,65 @@ def test_retention_writeback_deactivates_suspended_status(db_session, monkeypatc
     assert subscriber.terminated_at.replace(tzinfo=UTC) <= datetime.now(UTC)
     assert subscriber.sync_metadata["splynx_id"] == "legacy"
     assert subscriber.sync_metadata["retention_selfcare_deactivation"]["status"] == "success"
+
+
+def _enable_selfcare(monkeypatch):
+    monkeypatch.setattr(
+        selfcare.settings_spec,
+        "resolve_value",
+        _settings_resolver(
+            {
+                "selfcare_customer_sync_enabled": True,
+                "selfcare_base_url": "https://selfcare.example.test",
+                "selfcare_api_token": "token-123",
+                "selfcare_timeout_seconds": 15,
+            }
+        ),
+    )
+
+
+def test_create_installation_invoice_posts_to_crm_invoices(db_session, monkeypatch):
+    _enable_selfcare(monkeypatch)
+    calls = []
+
+    def _request(method, url, headers, params, json, timeout):
+        calls.append({"method": method, "url": url, "json": json})
+        return _Response(201, {"data": {"id": "inv-9", "total": "25000.00", "status": "issued"}})
+
+    monkeypatch.setattr("requests.request", _request)
+
+    invoice_id = selfcare.create_installation_invoice(
+        db_session,
+        subscriber_id="sub-uuid-1",
+        amount="25000.00",
+        description="Installation cost",
+        external_ref="project:abc",
+    )
+
+    assert invoice_id == "inv-9"
+    assert calls[0]["method"] == "POST"
+    assert calls[0]["url"] == "https://selfcare.example.test/api/v1/crm/invoices"
+    assert calls[0]["json"] == {
+        "subscriber_id": "sub-uuid-1",
+        "amount": "25000.00",
+        "description": "Installation cost",
+        "external_ref": "project:abc",
+        "currency": "NGN",
+    }
+
+
+def test_create_installation_invoice_skips_non_positive_amount(db_session, monkeypatch):
+    _enable_selfcare(monkeypatch)
+    called = []
+    monkeypatch.setattr("requests.request", lambda *a, **k: called.append(1) or _Response(201, {"data": {}}))
+
+    assert selfcare.create_installation_invoice(db_session, subscriber_id="s1", amount="0") is None
+    assert selfcare.create_installation_invoice(db_session, subscriber_id="s1", amount="not-a-number") is None
+    assert called == []  # never hit the network for invalid amounts
+
+
+def test_create_installation_invoice_returns_none_on_provider_error(db_session, monkeypatch):
+    _enable_selfcare(monkeypatch)
+    monkeypatch.setattr("requests.request", lambda *a, **k: _Response(502, {}, text="bad gateway"))
+
+    assert selfcare.create_installation_invoice(db_session, subscriber_id="s1", amount="100") is None

@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/voice/device_transcription_source.dart';
 import '../../core/voice/transcription_source.dart';
 import '../auth/auth_state.dart';
 
@@ -102,7 +103,7 @@ class VoiceCaptureController {
 final voiceCaptureControllerProvider = Provider<VoiceCaptureController>((ref) {
   final api = ref.watch(apiClientProvider);
   return VoiceCaptureController(
-    transcription: const UnavailableTranscription(), // device source wired at device time
+    transcription: DeviceTranscriptionSource(), // real device speech-to-text
     poster: (transcript, {context, asrConfidence}) async {
       final response = await api.dio.post(
         '/api/v1/field/voice/extract',

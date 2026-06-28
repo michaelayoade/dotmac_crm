@@ -35,6 +35,7 @@ from app.web.admin.crm_inbox_status import router as crm_inbox_status_router
 from app.web.admin.crm_leads import router as crm_leads_router
 from app.web.admin.crm_presence import router as crm_presence_router
 from app.web.admin.crm_quotes import router as crm_quotes_router
+from app.web.admin.crm_referrals import router as crm_referrals_router
 from app.web.admin.crm_sales import router as crm_sales_router
 from app.web.admin.crm_widget import router as crm_widget_router
 from app.web.templates import Jinja2Templates
@@ -245,6 +246,7 @@ router.include_router(crm_contacts_router)
 router.include_router(crm_leads_router)
 router.include_router(crm_quotes_router)
 router.include_router(crm_sales_router)
+router.include_router(crm_referrals_router)
 router.include_router(crm_widget_router)
 
 

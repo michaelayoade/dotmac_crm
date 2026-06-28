@@ -248,6 +248,29 @@ def build_beat_schedule() -> dict:
             enabled=webhook_sweep_enabled,
             interval_seconds=webhook_sweep_interval_seconds,
         )
+
+        infrastructure_health_enabled = _effective_bool(
+            session,
+            SettingDomain.scheduler,
+            "infrastructure_health_checks_enabled",
+            "INFRASTRUCTURE_HEALTH_CHECKS_ENABLED",
+            True,
+        )
+        infrastructure_health_interval = _effective_int(
+            session,
+            SettingDomain.scheduler,
+            "infrastructure_health_check_interval_seconds",
+            "INFRASTRUCTURE_HEALTH_CHECK_INTERVAL_SECONDS",
+            300,
+        )
+        _sync_scheduled_task(
+            session,
+            name="infrastructure_health_checks",
+            task_name="app.tasks.infrastructure_health.run_infrastructure_health_checks",
+            enabled=infrastructure_health_enabled,
+            interval_seconds=max(infrastructure_health_interval, 60),
+        )
+
         offline_outreach_enabled = _effective_bool(
             session,
             SettingDomain.notification,
