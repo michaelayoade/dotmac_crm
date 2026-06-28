@@ -73,6 +73,7 @@ from app.api.subscribers import router as subscribers_router
 from app.api.system import router as system_router
 from app.api.tickets import router as tickets_router
 from app.api.timecost import router as timecost_router
+from app.api.track import router as track_api_router
 from app.api.validation import router as validation_router
 from app.api.vendor import router as vendor_portal_router
 from app.api.vendor_auth import router as vendor_auth_router
@@ -509,6 +510,9 @@ _include_api_router(data_quality_router, dependencies=[Depends(require_user_auth
 _include_api_router(system_router, dependencies=[Depends(require_user_auth)])
 # Chat widget public endpoints - no auth required (visitor token-based)
 _include_api_router(widget_public_router)
+# Track My Visit public JSON API — visit-token authorized, no user login.
+# /api/v1 only: the web /track/{token} HTML route owns the root path.
+app.include_router(track_api_router, prefix="/api/v1")
 # Public referral capture - no auth (a prospect using a shared referral link)
 _include_api_router(referral_public_router)
 # Trusted server-to-server chat session mint (authenticated backend asserts identity).
