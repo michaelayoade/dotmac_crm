@@ -22,7 +22,7 @@ from app.models.subscriber import Organization, Subscriber, SubscriberStatus
 from app.services.common import apply_ordering
 from app.services.events import emit_event
 from app.services.events.types import EventType
-from app.services.external_systems import SPLYNX_EXTERNAL_SYSTEM
+from app.services.external_systems import SELFCARE_EXTERNAL_SYSTEM
 
 
 class SubscriberManager:
@@ -319,7 +319,7 @@ class SubscriberManager:
         self,
         db: Session,
         *,
-        external_system: str = SPLYNX_EXTERNAL_SYSTEM,
+        external_system: str = SELFCARE_EXTERNAL_SYSTEM,
         clear_duplicate_metadata: bool = True,
         dry_run: bool = False,
     ) -> dict[str, int]:

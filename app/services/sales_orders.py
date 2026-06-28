@@ -478,7 +478,7 @@ class SalesOrderLines(ListResponseMixin):
         _recalculate_order_totals(db, str(sales_order.id))
         db.commit()
         db.refresh(line)
-        from app.services.events.handlers.splynx_customer import ensure_installation_invoice_for_sales_order
+        from app.services.events.handlers.selfcare_customer import ensure_installation_invoice_for_sales_order
 
         ensure_installation_invoice_for_sales_order(db, sales_order.id)
         return line
@@ -497,7 +497,7 @@ class SalesOrderLines(ListResponseMixin):
         _recalculate_order_totals(db, str(line.sales_order_id))
         db.commit()
         db.refresh(line)
-        from app.services.events.handlers.splynx_customer import ensure_installation_invoice_for_sales_order
+        from app.services.events.handlers.selfcare_customer import ensure_installation_invoice_for_sales_order
 
         ensure_installation_invoice_for_sales_order(db, line.sales_order_id)
         return line

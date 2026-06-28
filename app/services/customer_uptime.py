@@ -217,7 +217,7 @@ def _upsert_period(
     return True
 
 
-def poll_splynx_uptime_once(db: Session, *, observed_at: datetime | None = None) -> dict[str, int]:
+def poll_subscriber_uptime_once(db: Session, *, observed_at: datetime | None = None) -> dict[str, int]:
     observed_at = observed_at or datetime.now(UTC)
     online_rows = selfcare.fetch_online_customers(db)
     online = _online_map(online_rows)
@@ -267,7 +267,7 @@ def _poller_loop() -> None:
     while not _poller_stop.is_set():
         db = SessionLocal()
         try:
-            result = poll_splynx_uptime_once(db)
+            result = poll_subscriber_uptime_once(db)
             logger.info("customer_uptime_poll_complete result=%s", result)
         except Exception as exc:
             db.rollback()

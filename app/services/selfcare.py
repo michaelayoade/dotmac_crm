@@ -234,6 +234,59 @@ def ping(db: Session) -> bool:
     return True
 
 
+def test_connection(db: Session) -> tuple[bool, str]:
+    """Settings 'test connection' helper: (ok, human-readable message)."""
+    try:
+        ping(db)
+    except SelfcareProviderError as exc:
+        return False, str(exc)
+    except Exception as exc:
+        return False, f"Connection failed: {exc}"
+    return True, "Connection to dotmac_sub succeeded."
+
+
+def create_installation_invoice(
+    db: Session,
+    *,
+    subscriber_id: str,
+    amount: Any,
+    description: str = "Installation cost",
+    external_ref: str | None = None,
+    currency: str = "NGN",
+) -> str | None:
+    """Create a one-time installation invoice in dotmac_sub for a subscriber.
+
+    Replaces the old Splynx ``create_installation_invoice``. Returns the new
+    invoice id, or None when the amount is invalid, sync is disabled, or the
+    call fails. Idempotency is enforced server-side on ``external_ref``.
+    """
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        amt = Decimal(str(amount))
+    except (InvalidOperation, TypeError, ValueError):
+        logger.error("selfcare_invoice_invalid_amount value=%s", amount)
+        return None
+    if amt <= 0:
+        return None
+
+    body = {
+        "subscriber_id": str(subscriber_id),
+        "amount": str(amt),
+        "description": description,
+        "external_ref": external_ref,
+        "currency": currency,
+    }
+    try:
+        data = _request_json(db, "POST", "/invoices", json_body=body)
+    except SelfcareProviderError as exc:
+        logger.error("selfcare_create_installation_invoice_failed error=%s", exc)
+        return None
+    row = _unwrap_data(data) or {}
+    invoice_id = str(row.get("id") or "").strip() if isinstance(row, dict) else ""
+    return invoice_id or None
+
+
 def create_account_credit(
     db: Session,
     *,
@@ -486,11 +539,16 @@ def customer_base_station(customer: dict[str, Any] | None) -> str:
         return ""
     raw_attrs = customer.get("metadata")
     attrs: dict[str, Any] = raw_attrs if isinstance(raw_attrs, dict) else {}
+    raw_additional_attrs = customer.get("additional_attributes")
+    additional_attrs: dict[str, Any] = raw_additional_attrs if isinstance(raw_additional_attrs, dict) else {}
     return str(
         customer.get("base_station")
         or customer.get("base_station_name")
         or customer.get("router_name")
         or customer.get("nas_name")
+        or additional_attrs.get("base_station")
+        or additional_attrs.get("base_station_name")
+        or additional_attrs.get("nas_name")
         or attrs.get("base_station")
         or attrs.get("nas_name")
         or ""

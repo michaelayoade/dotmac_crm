@@ -16,7 +16,7 @@ from app.models.subscriber_outreach import SubscriberOfflineOutreachLog, Subscri
 from app.schemas.settings import DomainSettingUpdate
 from app.services import subscriber_offline_outreach as service
 from app.services.domain_settings import notification_settings
-from app.services.splynx import customer_base_station
+from app.services.selfcare import customer_base_station
 
 
 def _set_notification_setting(db_session, key: str, value_text: str, value_type: SettingValueType) -> None:

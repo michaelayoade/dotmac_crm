@@ -2025,6 +2025,7 @@ def get_churn_table(
     enrich_visible_rows: bool = True,
 ) -> list[dict]:
     """Subscribers with non-current Splynx billing state, segmented by due/risk status."""
+    normalized_source = "selfcare_live" if source == "splynx_live" else source
 
     def _normalize_segment(value: str | None) -> str | None:
         normalized_segment = (value or "").strip().lower()
@@ -2078,23 +2079,23 @@ def get_churn_table(
             return True
         return _days_past_due_bucket(value) == selected_days_past_due_category
 
-    if source == "splynx_live":
-        from app.services.splynx import (
+    if normalized_source == "selfcare_live":
+        from app.services.selfcare import (
             fetch_customer_billing,
             fetch_customer_internet_services,
             fetch_customers,
             map_customer_to_subscriber_data,
         )
 
-        def _call_splynx(read_fn, *args):
+        def _call_sub(read_fn, *args):
             """Use a short-lived session so live Splynx reads do not pin the caller's DB connection."""
-            splynx_db = SessionLocal()
+            sub_db = SessionLocal()
             try:
-                return read_fn(splynx_db, *args)
+                return read_fn(sub_db, *args)
             finally:
-                splynx_db.close()
+                sub_db.close()
 
-        customers = _call_splynx(fetch_customers)
+        customers = _call_sub(fetch_customers)
         live_results: list[dict] = []
         today = datetime.now(UTC).date()
         customer_emails = {
@@ -2446,11 +2447,11 @@ def get_churn_table(
                 return {}
 
             try:
-                services_payload = _call_splynx(fetch_customer_internet_services, external_id)
+                services_payload = _call_sub(fetch_customer_internet_services, external_id)
             except Exception:
                 services_payload = []
             try:
-                billing_payload = _call_splynx(fetch_customer_billing, external_id)
+                billing_payload = _call_sub(fetch_customer_billing, external_id)
             except Exception:
                 billing_payload = {}
             detailed_customer = {

@@ -2623,7 +2623,7 @@ def test_get_churn_table_uses_splynx_status_due_date_and_balance(db_session):
 
 
 def test_get_churn_table_splynx_live_uses_crm_contact_phone_fallback(db_session, monkeypatch):
-    from app.services import splynx as splynx_service
+    from app.services import selfcare as splynx_service
 
     now = datetime.now(UTC)
     person = Person(
@@ -2682,7 +2682,7 @@ def test_get_churn_table_splynx_live_uses_crm_contact_phone_fallback(db_session,
 
 
 def test_get_churn_table_splynx_live_uses_short_lived_sessions_for_remote_calls(db_session, monkeypatch):
-    from app.services import splynx as splynx_service
+    from app.services import selfcare as splynx_service
 
     now = datetime.now(UTC)
     session_factory_calls = 0
@@ -2741,7 +2741,7 @@ def test_get_churn_table_splynx_live_uses_short_lived_sessions_for_remote_calls(
 
 
 def test_get_churn_table_splynx_live_enriches_sparse_visible_rows(db_session, monkeypatch):
-    from app.services import splynx as splynx_service
+    from app.services import selfcare as splynx_service
 
     now = datetime.now(UTC)
 
@@ -2807,7 +2807,7 @@ def test_get_churn_table_splynx_live_enriches_sparse_visible_rows(db_session, mo
 
 
 def test_get_churn_table_splynx_live_falls_back_to_local_invoiced_until(db_session, monkeypatch):
-    from app.services import splynx as splynx_service
+    from app.services import selfcare as splynx_service
 
     person = Person(first_name="Invoice", last_name="Fallback", email=f"invoice-{uuid4().hex}@example.com")
     db_session.add(person)
@@ -2861,7 +2861,7 @@ def test_get_churn_table_splynx_live_falls_back_to_local_invoiced_until(db_sessi
 
 
 def test_get_churn_table_splynx_live_falls_back_to_billing_start_date_for_invoiced_until(db_session, monkeypatch):
-    from app.services import splynx as splynx_service
+    from app.services import selfcare as splynx_service
 
     monkeypatch.setattr(
         splynx_service,

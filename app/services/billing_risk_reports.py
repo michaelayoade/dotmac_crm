@@ -33,14 +33,14 @@ _metadata_text = subscriber_reports_service._metadata_text
 _parse_balance_amount = subscriber_reports_service._parse_balance_amount
 _parse_iso_date_text = subscriber_reports_service._parse_iso_date_text
 
-_SPYLNX_LIVE_CACHE_TTLS = {
+_SUB_LIVE_CACHE_TTLS = {
     "fetch_customers": 60.0,
     "fetch_customer_billing": 300.0,
     "fetch_customer_internet_services": 300.0,
     "resolve_customer_segment_mrr": 300.0,
 }
-_SPYLNX_LIVE_CACHE: dict[tuple[str, tuple[object, ...]], tuple[float, Any]] = {}
-_SPYLNX_LIVE_CACHE_LOCK = Lock()
+_SUB_LIVE_CACHE: dict[tuple[str, tuple[object, ...]], tuple[float, Any]] = {}
+_SUB_LIVE_CACHE_LOCK = Lock()
 _BILLING_RISK_SEGMENT_ORDER = ["Due Soon", "Suspended", "Churned", "Pending"]
 _BILLING_RISK_ENRICH_MAX_WORKERS = 2
 ENTERPRISE_MRR_THRESHOLD = 70000.0
@@ -109,9 +109,12 @@ _FINAL_TICKET_STATUSES = (TicketStatus.closed, TicketStatus.canceled, TicketStat
 _EXCLUDED_REPORT_CUSTOMER_NAMES = {"test", "test account"}
 
 
-def clear_live_splynx_cache() -> None:
-    with _SPYLNX_LIVE_CACHE_LOCK:
-        _SPYLNX_LIVE_CACHE.clear()
+def clear_live_subscriber_cache() -> None:
+    with _SUB_LIVE_CACHE_LOCK:
+        _SUB_LIVE_CACHE.clear()
+
+
+clear_live_splynx_cache = clear_live_subscriber_cache
 
 
 def _coerce_nonnegative_int(value: object) -> int | None:
@@ -153,25 +156,28 @@ def _is_excluded_report_customer(name: object) -> bool:
     return bool(normalized) and (normalized in _EXCLUDED_REPORT_CUSTOMER_NAMES or normalized.startswith("test account"))
 
 
-def _cached_live_splynx_read(cache_name: str, loader, *args, cache_scope: object | None = None):
-    ttl_seconds = _SPYLNX_LIVE_CACHE_TTLS.get(cache_name, 0.0)
+def _cached_live_subscriber_read(cache_name: str, loader, *args, cache_scope: object | None = None):
+    ttl_seconds = _SUB_LIVE_CACHE_TTLS.get(cache_name, 0.0)
     if ttl_seconds <= 0:
         return loader()
 
     cache_key = (cache_name, ((cache_scope or ""), *(str(arg) for arg in args)))
     now = monotonic()
-    with _SPYLNX_LIVE_CACHE_LOCK:
-        cached_entry = _SPYLNX_LIVE_CACHE.get(cache_key)
+    with _SUB_LIVE_CACHE_LOCK:
+        cached_entry = _SUB_LIVE_CACHE.get(cache_key)
         if cached_entry is not None:
             expires_at, cached_value = cached_entry
             if expires_at > now:
                 return deepcopy(cached_value)
-            _SPYLNX_LIVE_CACHE.pop(cache_key, None)
+            _SUB_LIVE_CACHE.pop(cache_key, None)
 
     loaded_value = loader()
-    with _SPYLNX_LIVE_CACHE_LOCK:
-        _SPYLNX_LIVE_CACHE[cache_key] = (now + ttl_seconds, deepcopy(loaded_value))
+    with _SUB_LIVE_CACHE_LOCK:
+        _SUB_LIVE_CACHE[cache_key] = (now + ttl_seconds, deepcopy(loaded_value))
     return deepcopy(loaded_value)
+
+
+_cached_live_splynx_read = _cached_live_subscriber_read
 
 
 def _format_phone_display(raw_value: object) -> str:
@@ -385,17 +391,17 @@ def get_billing_risk_table(
             return current_mrr_total
 
         def _loader() -> float:
-            splynx_db = SessionLocal()
+            sub_db = SessionLocal()
             try:
                 try:
-                    services_payload = fetch_customer_internet_services(splynx_db, bound_external_id)
+                    services_payload = fetch_customer_internet_services(sub_db, bound_external_id)
                 except Exception:
                     services_payload = []
                 service_amount = _service_mrr_amount(services_payload)
                 if service_amount > 0:
                     return service_amount
                 try:
-                    billing_payload = fetch_customer_billing(splynx_db, bound_external_id)
+                    billing_payload = fetch_customer_billing(sub_db, bound_external_id)
                 except Exception:
                     billing_payload = {}
                 if isinstance(billing_payload, Mapping):
@@ -404,9 +410,9 @@ def get_billing_risk_table(
                         return billing_amount
                 return current_mrr_total
             finally:
-                splynx_db.close()
+                sub_db.close()
 
-        resolved_amount = _cached_live_splynx_read(
+        resolved_amount = _cached_live_subscriber_read(
             "resolve_customer_segment_mrr",
             _loader,
             bound_external_id,
@@ -431,27 +437,27 @@ def get_billing_risk_table(
         end = start + normalized_page_size
         return rows[start:end]
 
-    def _call_splynx(cache_name: str, read_fn, *args):
+    def _call_sub(cache_name: str, read_fn, *args):
         def _loader():
-            splynx_db = SessionLocal()
+            sub_db = SessionLocal()
             try:
-                return read_fn(splynx_db, *args)
+                return read_fn(sub_db, *args)
             finally:
-                splynx_db.close()
+                sub_db.close()
 
-        return _cached_live_splynx_read(cache_name, _loader, *args, cache_scope=read_fn)
+        return _cached_live_subscriber_read(cache_name, _loader, *args, cache_scope=read_fn)
 
-    def _call_splynx_with_session(cache_name: str, read_fn, splynx_db, *args):
-        return _cached_live_splynx_read(
+    def _call_sub_with_session(cache_name: str, read_fn, sub_db, *args):
+        return _cached_live_subscriber_read(
             cache_name,
-            lambda: read_fn(splynx_db, *args),
+            lambda: read_fn(sub_db, *args),
             *args,
             cache_scope=read_fn,
         )
 
-    customers = _call_splynx("fetch_customers", fetch_customers)
+    customers = _call_sub("fetch_customers", fetch_customers)
     try:
-        locations_payload = _call_splynx("fetch_locations", fetch_locations)
+        locations_payload = _call_sub("fetch_locations", fetch_locations)
     except Exception:
         locations_payload = []
     locations_by_id = {
@@ -1517,14 +1523,14 @@ def get_billing_risk_table(
             str(entry.get("subscriber_status") or "").strip().lower() == "active"
             and str(entry.get("risk_segment") or "").strip() == "Due Soon"
         )
-        splynx_db = SessionLocal()
+        sub_db = SessionLocal()
         try:
             if not str(entry.get("plan") or "").strip() and str(entry.get("risk_segment") or "") == "Suspended":
                 try:
-                    services_payload = _call_splynx_with_session(
+                    services_payload = _call_sub_with_session(
                         "fetch_customer_internet_services",
                         fetch_customer_internet_services,
-                        splynx_db,
+                        sub_db,
                         external_id,
                     )
                 except Exception:
@@ -1533,16 +1539,16 @@ def get_billing_risk_table(
                 if live_plan:
                     updates["plan"] = live_plan
             try:
-                billing_payload = _call_splynx_with_session(
+                billing_payload = _call_sub_with_session(
                     "fetch_customer_billing",
                     fetch_customer_billing,
-                    splynx_db,
+                    sub_db,
                     external_id,
                 )
             except Exception:
                 billing_payload = {}
         finally:
-            splynx_db.close()
+            sub_db.close()
         if is_active_overdue:
             updates["blocked_date"] = ""
             updates["blocked_for_days"] = None
@@ -1740,13 +1746,13 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
             or not str(entry.get("blocked_date") or "").strip()
             or _amount(entry.get("balance")) <= 0
         )
-        splynx_db = SessionLocal()
+        sub_db = SessionLocal()
         try:
             if needs_services:
                 try:
-                    services_payload = _cached_live_splynx_read(
+                    services_payload = _cached_live_subscriber_read(
                         "fetch_customer_internet_services",
-                        lambda: fetch_customer_internet_services(splynx_db, external_id),
+                        lambda: fetch_customer_internet_services(sub_db, external_id),
                         external_id,
                         cache_scope=fetch_customer_internet_services,
                     )
@@ -1766,9 +1772,9 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
                         updates["balance"] = live_service_amount
             if needs_billing:
                 try:
-                    billing_payload = _cached_live_splynx_read(
+                    billing_payload = _cached_live_subscriber_read(
                         "fetch_customer_billing",
-                        lambda: fetch_customer_billing(splynx_db, external_id),
+                        lambda: fetch_customer_billing(sub_db, external_id),
                         external_id,
                         cache_scope=fetch_customer_billing,
                     )
@@ -1777,7 +1783,7 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
             else:
                 billing_payload = {}
         finally:
-            splynx_db.close()
+            sub_db.close()
         if not isinstance(billing_payload, Mapping):
             return updates
         live_month_price = _amount(billing_payload.get("month_price"))
@@ -1885,17 +1891,17 @@ def get_live_blocked_dates(
                 retained_blocked_dates[str(retained_external_id or "").strip()] = retained_date
 
     def _customers_loader():
-        splynx_db = SessionLocal()
+        sub_db = SessionLocal()
         try:
-            return fetch_customers(splynx_db)
+            return fetch_customers(sub_db)
         finally:
-            splynx_db.close()
+            sub_db.close()
 
     try:
         customers_payload = (
             _customers_loader()
             if force_live
-            else _cached_live_splynx_read(
+            else _cached_live_subscriber_read(
                 "fetch_customers",
                 _customers_loader,
                 cache_scope=fetch_customers,
@@ -1921,16 +1927,16 @@ def get_live_blocked_dates(
             continue
 
         def _billing_loader(bound_external_id: str = external_id):
-            splynx_db = SessionLocal()
+            sub_db = SessionLocal()
             try:
-                return fetch_customer_billing(splynx_db, bound_external_id)
+                return fetch_customer_billing(sub_db, bound_external_id)
             finally:
-                splynx_db.close()
+                sub_db.close()
 
         billing_payload = (
             _billing_loader()
             if force_live
-            else _cached_live_splynx_read(
+            else _cached_live_subscriber_read(
                 "fetch_customer_billing",
                 _billing_loader,
                 external_id,
@@ -1961,16 +1967,16 @@ def get_live_blocked_dates(
         if blocked_date is None:
 
             def _services_loader(bound_external_id: str = external_id):
-                splynx_db = SessionLocal()
+                sub_db = SessionLocal()
                 try:
-                    return fetch_customer_internet_services(splynx_db, bound_external_id)
+                    return fetch_customer_internet_services(sub_db, bound_external_id)
                 finally:
-                    splynx_db.close()
+                    sub_db.close()
 
             services_payload = (
                 _services_loader()
                 if force_live
-                else _cached_live_splynx_read(
+                else _cached_live_subscriber_read(
                     "fetch_customer_internet_services",
                     _services_loader,
                     external_id,
@@ -1995,16 +2001,16 @@ def get_live_blocked_dates(
             if customer_payload is None:
 
                 def _customer_loader(bound_external_id: str = external_id):
-                    splynx_db = SessionLocal()
+                    sub_db = SessionLocal()
                     try:
-                        return fetch_customer(splynx_db, bound_external_id)
+                        return fetch_customer(sub_db, bound_external_id)
                     finally:
-                        splynx_db.close()
+                        sub_db.close()
 
                 customer_payload = (
                     _customer_loader()
                     if force_live
-                    else _cached_live_splynx_read(
+                    else _cached_live_subscriber_read(
                         "fetch_customer",
                         _customer_loader,
                         external_id,

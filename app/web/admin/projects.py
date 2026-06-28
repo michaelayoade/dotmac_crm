@@ -986,7 +986,7 @@ async def project_create(request: Request, db: Session = Depends(get_db)):
     if not person and project["owner_person_id"]:
         person = db.get(Person, coerce_uuid(project["owner_person_id"]))
     if person and person.splynx_id:
-        notice = "splynx_exists"
+        notice = "subscriber_exists"
 
     try:
         from app.services import ticket_attachments as ticket_attachment_service

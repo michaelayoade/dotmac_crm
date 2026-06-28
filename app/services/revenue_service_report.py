@@ -36,9 +36,6 @@ class SelfcareReportError(RuntimeError):
     """Raised when live Selfcare report data cannot be loaded."""
 
 
-SplynxReportError = SelfcareReportError
-
-
 def _env_int(name: str, default: int) -> int:
     with contextlib.suppress(TypeError, ValueError):
         value = int(os.getenv(name, ""))
@@ -88,23 +85,23 @@ def _customer_url(config: dict[str, Any]) -> str:
 
 
 def _page_limit() -> int:
-    return _env_int("SPLYNX_PAGE_LIMIT", DEFAULT_PAGE_LIMIT)
+    return _env_int("SUBSCRIBER_REPORT_PAGE_LIMIT", DEFAULT_PAGE_LIMIT)
 
 
 def _transaction_start_offset() -> int:
-    return _env_int("SPLYNX_TRANSACTION_SCAN_START_OFFSET", DEFAULT_TRANSACTION_START_OFFSET)
+    return _env_int("SUBSCRIBER_REPORT_TXN_SCAN_START_OFFSET", DEFAULT_TRANSACTION_START_OFFSET)
 
 
 def _transaction_end_offset() -> int:
-    return _env_int("SPLYNX_TRANSACTION_SCAN_END_OFFSET", DEFAULT_TRANSACTION_END_OFFSET)
+    return _env_int("SUBSCRIBER_REPORT_TXN_SCAN_END_OFFSET", DEFAULT_TRANSACTION_END_OFFSET)
 
 
 def _payment_start_offset() -> int:
-    return _env_int("SPLYNX_PAYMENT_SCAN_START_OFFSET", DEFAULT_PAYMENT_START_OFFSET)
+    return _env_int("SUBSCRIBER_REPORT_PAYMENT_SCAN_START_OFFSET", DEFAULT_PAYMENT_START_OFFSET)
 
 
 def _payment_end_offset() -> int:
-    return _env_int("SPLYNX_PAYMENT_SCAN_END_OFFSET", DEFAULT_PAYMENT_END_OFFSET)
+    return _env_int("SUBSCRIBER_REPORT_PAYMENT_SCAN_END_OFFSET", DEFAULT_PAYMENT_END_OFFSET)
 
 
 def _money(value: Any) -> Decimal:
@@ -703,7 +700,7 @@ def _fetch_customer_map(config: dict[str, Any], customer_ids: set[str]) -> dict[
         return {}
 
     found: dict[str, dict[str, Any]] = {}
-    max_pages = _env_int("SPLYNX_REPORT_CUSTOMER_MAP_MAX_PAGES", 8)
+    max_pages = _env_int("SUBSCRIBER_REPORT_CUSTOMER_MAP_MAX_PAGES", 8)
     limit = _page_limit()
     for page in range(max_pages):
         batch = _fetch_customers_page(config, page * limit, limit)
@@ -849,7 +846,7 @@ def find_customer(db: Session, query: str) -> dict[str, Any] | None:
         if match:
             return match
 
-    max_pages = _env_int("SPLYNX_CUSTOMER_SEARCH_MAX_PAGES", 8)
+    max_pages = _env_int("SUBSCRIBER_REPORT_CUSTOMER_SEARCH_MAX_PAGES", 8)
     limit = _page_limit()
     for page in range(max_pages):
         batch = _fetch_customers_page(config, page * limit, limit)

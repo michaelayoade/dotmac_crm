@@ -27,7 +27,7 @@ class CustomerUptimeSnapshot(Base):
     time_on: Mapped[int | None] = mapped_column(Integer)
     in_bytes: Mapped[int | None] = mapped_column(BigInteger)
     out_bytes: Mapped[int | None] = mapped_column(BigInteger)
-    source: Mapped[str] = mapped_column(String(40), nullable=False, default="splynx_polling")
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="selfcare_polling")
     raw_payload: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
@@ -54,7 +54,7 @@ class CustomerUptimePeriod(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_seconds: Mapped[int | None] = mapped_column(Integer)
-    source: Mapped[str] = mapped_column(String(40), nullable=False, default="splynx_polling")
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="selfcare_polling")
     confidence: Mapped[str] = mapped_column(String(40), nullable=False, default="observed")
     raw_payload: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

@@ -3981,7 +3981,7 @@ def settings_overview(
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
             "saved": saved,
-            "splynx_test_result": None,
+            "selfcare_test_result": None,
             "csrf_token": get_csrf_token(request),
         },
     )
@@ -4248,7 +4248,7 @@ async def settings_update(
             "sidebar_stats": get_sidebar_stats(db),
             "errors": errors,
             "saved": not errors,
-            "splynx_test_result": None,
+            "selfcare_test_result": None,
             "csrf_token": get_csrf_token(request),
         },
     )
@@ -4281,23 +4281,23 @@ def _render_campaign_settings(
             "sidebar_stats": get_sidebar_stats(db),
             "errors": errors or [],
             "saved": saved,
-            "splynx_test_result": None,
+            "selfcare_test_result": None,
             "csrf_token": get_csrf_token(request),
         },
     )
 
 
 @router.post(
-    "/settings/integration/splynx-test",
+    "/settings/integration/selfcare-test",
     response_class=HTMLResponse,
     dependencies=[Depends(require_permission("system:settings:read"))],
 )
-async def splynx_test_connection(request: Request, db: Session = Depends(get_db)):
+async def selfcare_test_connection(request: Request, db: Session = Depends(get_db)):
     from app.csrf import get_csrf_token
-    from app.services import splynx as splynx_service
+    from app.services import selfcare as selfcare_service
     from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
-    ok, message = splynx_service.test_connection(db)
+    ok, message = selfcare_service.test_connection(db)
     settings_context = _build_settings_context(db, "integration")
     base_url = str(request.base_url).rstrip("/")
     crm_meta_callback_url = base_url + "/webhooks/crm/meta"
@@ -4314,7 +4314,7 @@ async def splynx_test_connection(request: Request, db: Session = Depends(get_db)
             "current_user": get_current_user(request),
             "sidebar_stats": get_sidebar_stats(db),
             "saved": False,
-            "splynx_test_result": {"ok": ok, "message": message},
+            "selfcare_test_result": {"ok": ok, "message": message},
             "csrf_token": get_csrf_token(request),
         },
     )

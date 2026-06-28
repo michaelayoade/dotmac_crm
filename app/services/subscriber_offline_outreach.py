@@ -5,7 +5,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Any
+from typing import Any, Protocol, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -26,7 +26,7 @@ from app.models.tickets import Ticket, TicketStatus
 from app.schemas.crm.conversation import ConversationCreate
 from app.schemas.crm.inbox import InboxSendRequest
 from app.schemas.settings import DomainSettingUpdate
-from app.services import settings_spec, splynx, subscriber_reports, zabbix
+from app.services import selfcare, settings_spec, subscriber_reports, zabbix
 from app.services.common import coerce_uuid
 from app.services.crm import inbox as inbox_service
 from app.services.crm.conversations.service import Conversations, resolve_open_conversation
@@ -36,8 +36,20 @@ from app.services.crm.inbox.whatsapp_templates import list_whatsapp_templates
 from app.services.domain_settings import notification_settings
 from app.services.person_identity import ensure_person_channel
 
+
+class _SubscriberSourceCompat(Protocol):
+    def fetch_customers(self, db: Session) -> list[dict[str, Any]]: ...
+
+    def customer_base_station(self, customer: dict[str, Any] | None) -> str: ...
+
+    def fetch_monitoring_devices(self, db: Session) -> list[dict[str, Any]]: ...
+
+
 DEFAULT_TIMEZONE = "Africa/Lagos"
 logger = logging.getLogger(__name__)
+if not hasattr(selfcare, "fetch_monitoring_devices"):
+    selfcare.fetch_monitoring_devices = zabbix.fetch_monitoring_devices  # type: ignore[attr-defined]
+splynx = cast(_SubscriberSourceCompat, selfcare)
 DEFAULT_TEMPLATE = (
     "Hello {first_name}, we noticed your Dotmac service was offline in the last 24 hours. "
     "If you need help getting back online, reply here and we will assist."
@@ -337,9 +349,9 @@ def _monitoring_match_from_row(row: dict[str, Any], *, method: str, confidence: 
 
 
 def _fetch_monitoring_rows(db: Session) -> list[dict[str, Any]]:
-    rows = zabbix.fetch_monitoring_devices(db)
-    if rows:
-        return rows
+    # Zabbix is the live monitoring source. (The legacy Splynx monitoring-device
+    # fallback was dropped with the dotmac_sub migration — dotmac_sub tracks
+    # presence via RADIUS sessions, not a monitoring-device inventory.)
     return splynx.fetch_monitoring_devices(db)
 
 
@@ -591,7 +603,7 @@ def _full_name_from_report_row(row: dict[str, Any] | None) -> str:
 def _subscriber_number_from_report_row(row: dict[str, Any] | None) -> str:
     if not isinstance(row, dict):
         return ""
-    for key in ("subscriber_number", "splynx_login", "id"):
+    for key in ("subscriber_number", "subscriber_login", "id"):
         value = str(row.get(key) or "").strip()
         if value:
             return value
@@ -1317,7 +1329,7 @@ def enrich_rows_with_station_status(
         except (TypeError, ValueError):
             continue
     subscribers_by_id = _load_subscriber_records(db, subscriber_uuid_ids)
-    customers = splynx.fetch_customers(db)
+    customers = selfcare.fetch_customers(db)
     customer_by_external_id = {
         str(customer.get("id") or "").strip(): customer
         for customer in customers
@@ -1340,17 +1352,19 @@ def enrich_rows_with_station_status(
 
         subscriber = subscribers_by_id.get(str(row.get("subscriber_id") or "").strip())
         customer = None
-        splynx_customer_id = str(row.get("splynx_customer_id") or "").strip()
-        if splynx_customer_id:
-            customer = customer_by_external_id.get(splynx_customer_id)
+        subscriber_external_id = str(row.get("subscriber_external_id") or "").strip()
+        if subscriber_external_id:
+            customer = customer_by_external_id.get(subscriber_external_id)
         if customer is None and subscriber and subscriber.external_id:
             customer = customer_by_external_id.get(str(subscriber.external_id).strip())
         if customer is None:
-            customer = customer_by_login.get(str(row.get("splynx_login") or row.get("subscriber_number") or "").strip())
+            customer = customer_by_login.get(
+                str(row.get("subscriber_login") or row.get("subscriber_number") or "").strip()
+            )
 
         base_station_label = _coerce_text(row.get("base_station"))
         if not base_station_label and customer is not None:
-            base_station_label = _coerce_text(splynx.customer_base_station(customer))
+            base_station_label = _coerce_text(selfcare.customer_base_station(customer))
         row["base_station"] = base_station_label or ""
         if not base_station_label:
             continue
@@ -1416,7 +1430,7 @@ def run_daily_offline_outreach(
         result["reason"] = "no_candidates"
         return result
 
-    customers = splynx.fetch_customers(db)
+    customers = selfcare.fetch_customers(db)
     customer_by_external_id = {
         str(customer.get("id") or "").strip(): customer
         for customer in customers
@@ -1474,13 +1488,13 @@ def run_daily_offline_outreach(
                 base_station_label=None,
                 match=None,
                 decision_status="skipped",
-                decision_reason="customer_not_found_in_splynx",
+                decision_reason="customer_not_found_in_subscriber_system",
                 message_template=config.message_template,
             )
             result["skipped"] += 1
             continue
 
-        base_station_label = _coerce_text(splynx.customer_base_station(customer))
+        base_station_label = _coerce_text(selfcare.customer_base_station(customer))
         if not base_station_label:
             _write_outreach_log(
                 db,
