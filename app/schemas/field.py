@@ -216,6 +216,28 @@ class FieldMapAssetNearbyResponse(BaseModel):
     server_time: datetime
 
 
+class FieldSpliceCreate(BaseModel):
+    closure_id: UUID
+    from_strand_id: UUID
+    to_strand_id: UUID
+    tray_id: UUID | None = None
+    position: int | None = Field(default=None, ge=1)
+    splice_type: str | None = Field(default=None, max_length=80)
+    # Splice loss in dB. Fusion splices are typically <0.3 dB; reject values
+    # outside a plausible field band as fat-finger entry.
+    loss_db: float | None = Field(default=None, ge=0, le=5)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class FieldSpliceProposalResponse(BaseModel):
+    change_request_id: UUID
+    status: str
+    replayed: bool
+    closure_id: UUID
+    from_strand_id: UUID
+    to_strand_id: UUID
+
+
 class FieldMapAssetLocationUpdate(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
