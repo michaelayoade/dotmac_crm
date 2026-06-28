@@ -62,9 +62,7 @@ def test_update_discount_recomputes_amount(db_session):
     item = _add_line(db_session, quote, qty="1", price="10000")
     assert item.amount == Decimal("10000.00")
 
-    updated = quote_line_items.update(
-        db_session, str(item.id), QuoteLineItemUpdate(discount_percent=Decimal("25"))
-    )
+    updated = quote_line_items.update(db_session, str(item.id), QuoteLineItemUpdate(discount_percent=Decimal("25")))
     assert updated.amount == Decimal("7500.00")
     db_session.refresh(quote)
     assert quote.subtotal == Decimal("7500.00")

@@ -62,6 +62,64 @@ def reseller_dashboard(
     )
 
 
+@router.get("/commissions", response_class=HTMLResponse)
+def reseller_commissions_view(
+    request: Request,
+    ctx: dict = Depends(require_reseller_portal_context),
+    db: Session = Depends(get_db),
+):
+    from app.services.reseller_commissions import reseller_commissions as rc_svc
+
+    reseller_org = ctx["reseller_org"]
+    rid = str(reseller_org.id)
+    summary = rc_svc.reseller_summary(db, rid)
+    commissions = rc_svc.list_commissions(db, reseller_org_id=rid, limit=200)
+    payouts = rc_svc.list_payouts(db, reseller_org_id=rid, limit=50)
+
+    def _money(value) -> str:
+        return f"₦{value:,.2f}"
+
+    summary_display = {
+        "total": summary["total_commissions"],
+        "pending": _money(summary["pending_amount"]),
+        "approved": _money(summary["approved_amount"]),
+        "paid": _money(summary["paid_amount"]),
+        "unpaid": _money(summary["unpaid_amount"]),
+    }
+    commission_rows = [
+        {
+            "amount": _money(c.amount),
+            "basis": _money(c.basis_amount),
+            "rate": f"{c.rate}%",
+            "status": c.status.value,
+            "earned_at": c.earned_at,
+        }
+        for c in commissions
+    ]
+    payout_rows = [
+        {
+            "amount": _money(p.total_amount),
+            "status": p.status.value,
+            "method": p.method or "—",
+            "reference": p.reference or "—",
+            "paid_at": p.paid_at,
+        }
+        for p in payouts
+    ]
+    return templates.TemplateResponse(
+        "reseller/commissions.html",
+        {
+            "request": request,
+            "active_page": "commissions",
+            "current_user": _current_user_dict(ctx),
+            "reseller_org": reseller_org,
+            "summary": summary_display,
+            "commissions": commission_rows,
+            "payouts": payout_rows,
+        },
+    )
+
+
 @router.get("/accounts", response_class=HTMLResponse)
 def reseller_accounts(
     request: Request,

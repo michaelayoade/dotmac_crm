@@ -65,6 +65,8 @@ from app.api.persons import router as people_router
 from app.api.projects import router as projects_router
 from app.api.qualification import router as qualification_router
 from app.api.rbac import router as rbac_router
+from app.api.reseller_commissions import payout_router as reseller_payouts_router
+from app.api.reseller_commissions import router as reseller_commissions_router
 from app.api.reseller_portal import router as reseller_portal_router
 from app.api.sales import router as sales_router
 from app.api.sales_orders import router as sales_orders_router
@@ -470,6 +472,8 @@ _include_api_router(projects_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(workforce_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(external_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(sales_orders_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(reseller_commissions_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(reseller_payouts_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(auth_router, dependencies=[Depends(require_role("admin"))])
 # Only include auth_flow at /api/v1 to avoid conflict with web /auth/login
 app.include_router(auth_flow_router, prefix="/api/v1")

@@ -1236,9 +1236,7 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
                 continue
 
         if campaign.channel == CampaignChannel.email:
-            body = campaign_tracking.inject_tracking(
-                db, body, recipient_id=recipient.id, campaign_id=campaign.id
-            )
+            body = campaign_tracking.inject_tracking(db, body, recipient_id=recipient.id, campaign_id=campaign.id)
 
         if campaign.channel == CampaignChannel.whatsapp:
             # Store WhatsApp template name in subject for delivery lookup
