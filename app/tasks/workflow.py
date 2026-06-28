@@ -6,10 +6,11 @@ from zoneinfo import ZoneInfo
 
 from app.celery_app import celery_app
 from app.db import SessionLocal
-from app.models.workflow import SlaClock, SlaClockStatus
+from app.models.workflow import SlaClock, SlaClockStatus, WorkflowEntityType
 from app.schemas.workflow import SlaBreachCreate
 from app.services import projects as projects_service
 from app.services import sla_violation_daily_report as sla_violation_daily_report_service
+from app.services import tickets as tickets_service
 from app.services import workflow as workflow_service
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ def detect_sla_breaches() -> dict[str, int]:
                 workflow_service.sla_breaches.create(session, payload)
                 session.refresh(clock)
                 projects_service.notify_project_task_sla_breach(session, clock)
+                tickets_service.notify_ticket_sla_breach(session, clock)
                 session.commit()
                 breached += 1
                 logger.debug(
@@ -72,6 +74,25 @@ def detect_sla_breaches() -> dict[str, int]:
                 )
                 session.rollback()
                 continue
+
+        # Escalate breached *ticket* clocks the loop above skips — those marked
+        # breached synchronously during a ticket update (breached_at already set,
+        # so excluded from the overdue query). notify_ticket_sla_breach is
+        # idempotent, so tickets already escalated are no-ops.
+        breached_ticket_clocks = (
+            session.query(SlaClock)
+            .filter(SlaClock.entity_type == WorkflowEntityType.ticket)
+            .filter(SlaClock.status == SlaClockStatus.breached)
+            .all()
+        )
+        for clock in breached_ticket_clocks:
+            try:
+                tickets_service.notify_ticket_sla_breach(session, clock)
+                session.commit()
+            except Exception:
+                errors += 1
+                session.rollback()
+                logger.exception("Failed to escalate breached ticket clock %s", clock.id)
 
     except Exception:
         session.rollback()

@@ -1,0 +1,562 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header, action_button, dashboard_filter_panel, table_shell, table_row, empty_state %}
+
+{% block title %}Postpaid Customers Dashboard - Admin{% endblock %}
+
+{% block charts_js %}
+<script src="/static/js/vendor/chart.min.js"></script>
+<script src="/static/js/charts.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {% call page_header("Postpaid Customers Dashboard", "Recurring/Postpaid subscribers, revenue owed, and payment exposure from cached Selfcare billing data.", color="purple", color2="indigo") %}
+        {{ action_button(
+            "Export CSV",
+            href="/admin/reports/subscribers/postpaid-customers/export?" ~ export_query,
+            variant="secondary",
+            color="purple",
+            icon='<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>'
+        ) }}
+        {{ action_button(
+            "Billing Risk",
+            href="/admin/reports/subscribers/billing-risk?billing_type=postpaid&customer_status=all",
+            variant="secondary",
+            color="rose",
+            icon='<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 1010 10A10 10 0 0012 2z"/></svg>'
+        ) }}
+    {% endcall %}
+
+    {% call dashboard_filter_panel(color="purple", title="Filters") %}
+    <form method="get" class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5 xl:items-end">
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
+            <input type="search" name="search" value="{{ search }}" placeholder="Customer, phone, plan" class="block h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer Status</label>
+            <select name="customer_status" class="block h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                <option value="all" {% if selected_status == "all" %}selected{% endif %}>All Customers</option>
+                {% for option in customer_status_options %}
+                {% set option_value = option|lower %}
+                <option value="{{ option_value }}" {% if selected_status == option_value %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Plan</label>
+            <select name="plan" class="block h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                <option value="" {% if not selected_plan %}selected{% endif %}>All Plans</option>
+                {% for option in plan_options %}
+                <option value="{{ option }}" {% if selected_plan == option %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date Range</label>
+            <div class="grid grid-cols-2 gap-2">
+                <input type="date" name="date_from" value="{{ date_from }}" class="block h-10 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-900 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+                <input type="date" name="date_to" value="{{ date_to }}" class="block h-10 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-900 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-slate-600 dark:bg-slate-800 dark:text-white">
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="/admin/reports/subscribers/postpaid-customers" class="inline-flex h-10 flex-1 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">Clear Filters</a>
+            <button type="submit" class="inline-flex h-10 items-center justify-center rounded-lg bg-purple-600 px-4 text-sm font-semibold text-white hover:bg-purple-700">Apply</button>
+        </div>
+    </form>
+    {% endcall %}
+
+    <section class="rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div class="flex flex-col gap-1 border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+            <h2 class="text-sm font-semibold text-slate-950 dark:text-white">KPI Cards</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Top metrics for the filtered postpaid customer set.</p>
+        </div>
+        <div class="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+            <article class="min-w-0 rounded-xl border border-purple-100 bg-purple-50/70 p-4 dark:border-purple-900/50 dark:bg-purple-950/20">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-purple-700 dark:text-purple-300">Total Postpaid Customers</p>
+                        <p class="mt-2 text-3xl font-bold leading-none text-slate-950 dark:text-white">{{ kpis.total_customers }}</p>
+                    </div>
+                    <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-purple-600 text-white">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a4 4 0 00-5-3.87M9 20H4v-2a4 4 0 015-3.87m8-4.13a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                    </span>
+                </div>
+                <p class="mt-3 text-xs leading-5 text-slate-600 dark:text-slate-300">Customers classified as Recurring/Postpaid.</p>
+            </article>
+
+            <article class="min-w-0 rounded-xl border border-rose-100 bg-rose-50/70 p-4 dark:border-rose-900/50 dark:bg-rose-950/20">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">Outstanding Balance</p>
+                        <p class="mt-2 break-words text-2xl font-bold leading-tight text-slate-950 dark:text-white">NGN {{ "{:,.2f}".format(kpis.outstanding_balance) }}</p>
+                    </div>
+                    <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-rose-600 text-white">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8V6m0 10v2m8-6a8 8 0 11-16 0 8 8 0 0116 0z"/></svg>
+                    </span>
+                </div>
+                <p class="mt-3 text-xs leading-5 text-slate-600 dark:text-slate-300">Sum of current unpaid customer balances.</p>
+            </article>
+
+            <article class="min-w-0 rounded-xl border border-amber-100 bg-amber-50/70 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">Overdue Balance</p>
+                        <p class="mt-2 break-words text-2xl font-bold leading-tight text-slate-950 dark:text-white">NGN {{ "{:,.2f}".format(kpis.overdue_balance) }}</p>
+                    </div>
+                    <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-white">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </span>
+                </div>
+                <p class="mt-3 text-xs leading-5 text-slate-600 dark:text-slate-300">Balance from customers past their due date.</p>
+            </article>
+
+            <article class="min-w-0 rounded-xl border border-red-100 bg-red-50/70 p-4 dark:border-red-900/50 dark:bg-red-950/20">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-red-700 dark:text-red-300">Customers with Overdue</p>
+                        <p class="mt-2 text-3xl font-bold leading-none text-slate-950 dark:text-white">{{ kpis.customers_with_overdue }}</p>
+                    </div>
+                    <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-600 text-white">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                    </span>
+                </div>
+                <p class="mt-3 text-xs leading-5 text-slate-600 dark:text-slate-300">Postpaid customers with days past due above zero.</p>
+            </article>
+
+            <article class="min-w-0 rounded-xl border border-sky-100 bg-sky-50/70 p-4 dark:border-sky-900/50 dark:bg-sky-950/20">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">Unpaid Invoices</p>
+                        <p class="mt-2 text-3xl font-bold leading-none text-slate-950 dark:text-white">{{ kpis.unpaid_invoices }}</p>
+                    </div>
+                    <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-600 text-white">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14h6m-6-4h6m-7 8h8a2 2 0 002-2V7.5L14.5 4H8a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                    </span>
+                </div>
+                <p class="mt-3 text-xs leading-5 text-slate-600 dark:text-slate-300">Customers with a positive outstanding balance.</p>
+            </article>
+
+            <article class="min-w-0 rounded-xl border border-cyan-100 bg-cyan-50/70 p-4 dark:border-cyan-900/50 dark:bg-cyan-950/20">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-cyan-700 dark:text-cyan-300">Prepaid Customers with Unpaid Balances</p>
+                        <p class="mt-2 text-3xl font-bold leading-none text-slate-950 dark:text-white">{{ kpis.prepaid_customers_with_unpaid_balances }}</p>
+                        <p class="mt-2 break-words text-sm font-semibold text-slate-700 dark:text-slate-200">NGN {{ "{:,.2f}".format(kpis.prepaid_unpaid_invoice_balance or 0) }}</p>
+                    </div>
+                    <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-600 text-white">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a4 4 0 00-8 0v2M5 9h14l-1 11H6L5 9zm4 4h.01M15 13h.01"/></svg>
+                    </span>
+                </div>
+                <p class="mt-3 text-xs leading-5 text-slate-600 dark:text-slate-300">Prepaid customers with active unpaid invoices. Amount is invoice balance due.</p>
+            </article>
+
+            <article class="min-w-0 rounded-xl border border-emerald-100 bg-emerald-50/70 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Average MRR</p>
+                        <p class="mt-2 break-words text-2xl font-bold leading-tight text-slate-950 dark:text-white">NGN {{ "{:,.2f}".format(kpis.average_mrr) }}</p>
+                    </div>
+                    <span class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white">
+                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 17l6-6 4 4 7-7m0 0v5m0-5h-5"/></svg>
+                    </span>
+                </div>
+                <p class="mt-3 text-xs leading-5 text-slate-600 dark:text-slate-300">Average monthly recurring revenue per postpaid customer.</p>
+            </article>
+        </div>
+    </section>
+
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-12">
+        <section class="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 xl:col-span-4">
+            <div class="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+                <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Customer Status</h2>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Active, Suspended, and Blocked postpaid customers.</p>
+            </div>
+            <div class="p-5">
+                {% if customer_status_chart %}
+                <div class="h-64 xl:h-72">
+                    <canvas id="postpaid-customer-status-chart"></canvas>
+                </div>
+                {% else %}
+                <div class="flex h-64 items-center justify-center rounded-xl bg-slate-50 text-sm text-slate-500 dark:bg-slate-800 dark:text-slate-400 xl:h-72">No customer status data found.</div>
+                {% endif %}
+            </div>
+        </section>
+
+        <section class="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 xl:col-span-8">
+            <div class="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+                <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Top Customers By Outstanding Balance</h2>
+            </div>
+            <div class="p-5">
+                {% if top_balance_customers %}
+                <div class="h-64 xl:h-72">
+                    <canvas id="postpaid-top-balance-chart"></canvas>
+                </div>
+                {% else %}
+                <div class="flex h-64 items-center justify-center rounded-xl bg-slate-50 text-sm text-slate-500 dark:bg-slate-800 dark:text-slate-400 xl:h-72">No outstanding balance data found.</div>
+                {% endif %}
+            </div>
+        </section>
+    </div>
+
+    <section class="rounded-2xl border border-slate-200/70 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div class="grid grid-cols-1 gap-6 p-5 xl:grid-cols-2">
+            <section class="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+                <div class="mb-4">
+                    <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Last Payment Recency</h3>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Paid &lt;30, 31-60, 61-90, &gt;90 days, or never paid.</p>
+                </div>
+                {% if payment_recency_chart %}
+                <div class="h-72">
+                    <canvas id="postpaid-payment-recency-chart"></canvas>
+                </div>
+                {% else %}
+                <div class="flex h-72 items-center justify-center rounded-lg bg-white text-sm text-slate-500 dark:bg-slate-900 dark:text-slate-400">No payment recency data found.</div>
+                {% endif %}
+            </section>
+
+            <section class="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+                <div class="mb-4">
+                    <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Last Payment Amount Trend</h3>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Monthly payment amounts from last transaction data.</p>
+                </div>
+                {% if payment_amount_trend %}
+                <div class="h-72">
+                    <canvas id="postpaid-payment-amount-trend-chart"></canvas>
+                </div>
+                {% else %}
+                <div class="flex h-72 items-center justify-center rounded-lg bg-white text-sm text-slate-500 dark:bg-slate-900 dark:text-slate-400">No payment amount trend data found.</div>
+                {% endif %}
+            </section>
+
+            <section class="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+                <div class="mb-4">
+                    <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Unpaid vs Overdue Invoices by Segment</h3>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Stacked unpaid and overdue invoice counts by risk segment.</p>
+                </div>
+                {% if invoice_segment_chart %}
+                <div class="h-72">
+                    <canvas id="postpaid-invoice-segment-chart"></canvas>
+                </div>
+                {% else %}
+                <div class="flex h-72 items-center justify-center rounded-lg bg-white text-sm text-slate-500 dark:bg-slate-900 dark:text-slate-400">No invoice segment data found.</div>
+                {% endif %}
+            </section>
+
+            <section class="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950">
+                <div class="mb-4">
+                    <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Invoice Aging by Overdue Balance</h3>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Current, 1-30, 31-60, 61-90, and 90+ day balance buckets.</p>
+                </div>
+                {% if invoice_aging_chart %}
+                <div class="h-72">
+                    <canvas id="postpaid-invoice-aging-chart"></canvas>
+                </div>
+                {% else %}
+                <div class="flex h-72 items-center justify-center rounded-lg bg-white text-sm text-slate-500 dark:bg-slate-900 dark:text-slate-400">No invoice aging data found.</div>
+                {% endif %}
+            </section>
+        </div>
+    </section>
+
+    {% call table_shell(table_id="postpaid-customers-table", title="Customer Detail Table", color="purple", count=detail_total_rows, bulk_selectable=False) %}
+    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+        <thead class="bg-slate-50 dark:bg-slate-950">
+            <tr>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer Status</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Plan</th>
+                <th class="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">MRR</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Payment Date</th>
+                <th class="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Payment Amount</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Next Due Date</th>
+                <th class="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Unpaid Invoices</th>
+                <th class="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Overdue Invoices</th>
+                <th class="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Outstanding Balance</th>
+                <th class="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Overdue Balance</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Invoice Date</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Online / Last Browsed</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+            {% for row in rows %}
+            {% call table_row(color="purple") %}
+                <td class="px-5 py-3">
+                    <div class="font-semibold text-slate-900 dark:text-white">{{ row.name }}</div>
+                    <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ row.phone or row.email or "-" }}</div>
+                </td>
+                <td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_status or "-" }}</td>
+                <td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan or "-" }}</td>
+                <td class="px-5 py-3 text-right text-sm font-medium text-slate-900 dark:text-white">NGN {{ "{:,.2f}".format(row.mrr_total or 0) }}</td>
+                <td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.detail_last_payment_date or "-" }}</td>
+                <td class="px-5 py-3 text-right text-sm text-slate-600 dark:text-slate-300">NGN {{ "{:,.2f}".format(row.detail_last_payment_amount or 0) }}</td>
+                <td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.detail_next_due_date or "-" }}</td>
+                <td class="px-5 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.detail_unpaid_invoices or 0 }}</td>
+                <td class="px-5 py-3 text-right text-sm text-slate-600 dark:text-slate-300">{{ row.detail_overdue_invoices or 0 }}</td>
+                <td class="px-5 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">NGN {{ "{:,.2f}".format(row.detail_outstanding_balance or 0) }}</td>
+                <td class="px-5 py-3 text-right text-sm text-slate-600 dark:text-slate-300">NGN {{ "{:,.2f}".format(row.detail_overdue_balance or 0) }}</td>
+                <td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.detail_last_invoice_date or "-" }}</td>
+                <td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.detail_last_online or "-" }}</td>
+            {% endcall %}
+            {% else %}
+            {{ empty_state(title="No postpaid customers", message="No Recurring/Postpaid customers matched the current filters.", color="purple", color2="indigo", colspan=13) }}
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endcall %}
+
+    {% if detail_total_rows > rows|length %}
+    <p class="text-sm text-slate-500 dark:text-slate-400">Showing first {{ rows|length }} of {{ detail_total_rows }} matching postpaid customers. Export CSV includes all matching rows.</p>
+    {% endif %}
+
+    {% call table_shell(table_id="prepaid-unpaid-balances-table", title="Prepaid Customers with Unpaid Balances", color="cyan", count=prepaid_unpaid_total_rows, bulk_selectable=False) %}
+    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+        <thead class="bg-slate-50 dark:bg-slate-950">
+            <tr>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer Status</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Plan</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Location</th>
+                <th class="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">MRR</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Payment Date</th>
+                <th class="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Payment Amount</th>
+                <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Next Due Date</th>
+                <th class="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Revenue Owed</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+            {% for row in prepaid_unpaid_rows %}
+            {% call table_row(color="cyan") %}
+                <td class="px-5 py-3">
+                    <div class="font-semibold text-slate-900 dark:text-white">{{ row.name }}</div>
+                    <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ row.phone or row.email or "-" }}</div>
+                </td>
+                <td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_status or "-" }}</td>
+                <td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan or "-" }}</td>
+                <td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.location or row.city or "-" }}</td>
+                <td class="px-5 py-3 text-right text-sm font-medium text-slate-900 dark:text-white">NGN {{ "{:,.2f}".format(row.mrr_total or 0) }}</td>
+                <td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.detail_last_payment_date or "-" }}</td>
+                <td class="px-5 py-3 text-right text-sm text-slate-600 dark:text-slate-300">NGN {{ "{:,.2f}".format(row.detail_last_payment_amount or 0) }}</td>
+                <td class="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.detail_next_due_date or "-" }}</td>
+                <td class="px-5 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">NGN {{ "{:,.2f}".format(row.detail_outstanding_balance or 0) }}</td>
+            {% endcall %}
+            {% else %}
+            {{ empty_state(title="No prepaid unpaid balances", message="No prepaid customers with unpaid balances matched the current filters.", color="cyan", color2="sky", colspan=9) }}
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endcall %}
+
+    {% if prepaid_unpaid_total_rows > prepaid_unpaid_rows|length %}
+    <p class="text-sm text-slate-500 dark:text-slate-400">Showing first {{ prepaid_unpaid_rows|length }} of {{ prepaid_unpaid_total_rows }} matching prepaid customers with unpaid balances.</p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const chartTheme = DotmacCharts.getThemeColors();
+    const chartFont = { family: "'Plus Jakarta Sans', sans-serif", size: 13, weight: 600 };
+    const chartTickFont = { family: "'Plus Jakarta Sans', sans-serif", size: 12, weight: 600 };
+    const visibleLegend = (position = 'top', display = true) => ({
+        display,
+        position,
+        labels: {
+            color: chartTheme.text,
+            font: chartFont,
+            usePointStyle: true,
+            pointStyle: 'circle',
+            padding: 14
+        }
+    });
+    const visibleTooltip = (callbacks = {}) => ({
+        backgroundColor: chartTheme.background,
+        titleColor: chartTheme.text,
+        bodyColor: chartTheme.text,
+        borderColor: chartTheme.border,
+        borderWidth: 1,
+        titleFont: { family: "'Outfit', sans-serif", size: 14, weight: 700 },
+        bodyFont: chartFont,
+        callbacks
+    });
+    const visibleGrid = { color: chartTheme.grid, drawBorder: false };
+    const visibleTicks = (callback = undefined) => ({
+        color: chartTheme.textMuted,
+        font: chartTickFont,
+        ...(callback ? { callback } : {})
+    });
+
+    const statusCanvas = document.getElementById('postpaid-customer-status-chart');
+    const statusRows = {{ customer_status_chart | tojson }};
+    if (statusCanvas && statusRows.length) {
+        const statusChart = DotmacCharts.createDoughnutChart(statusCanvas, {
+            labels: statusRows.map((row) => row.label),
+            values: statusRows.map((row) => row.count),
+            colors: statusRows.map((row) => row.color)
+        }, {
+            legendPosition: 'bottom',
+            plugins: {
+                legend: visibleLegend('bottom'),
+                tooltip: visibleTooltip({
+                        label: (context) => `${context.label}: ${Number(context.raw || 0).toLocaleString()} customers`
+                })
+            }
+        });
+        DotmacCharts.registerChart('postpaid-customer-status-chart', statusChart);
+    }
+
+    const recencyCanvas = document.getElementById('postpaid-payment-recency-chart');
+    const recencyRows = {{ payment_recency_chart | tojson }};
+    if (recencyCanvas && recencyRows.length) {
+        const recencyChart = DotmacCharts.createDoughnutChart(recencyCanvas, {
+            labels: recencyRows.map((row) => row.label),
+            values: recencyRows.map((row) => row.count),
+            colors: recencyRows.map((row) => row.color)
+        }, {
+            legendPosition: 'bottom',
+            plugins: {
+                legend: visibleLegend('bottom'),
+                tooltip: visibleTooltip({
+                        label: (context) => `${context.label}: ${Number(context.raw || 0).toLocaleString()} customers`
+                })
+            }
+        });
+        DotmacCharts.registerChart('postpaid-payment-recency-chart', recencyChart);
+    }
+
+    const trendCanvas = document.getElementById('postpaid-payment-amount-trend-chart');
+    const trendRows = {{ payment_amount_trend | tojson }};
+    if (trendCanvas && trendRows.length) {
+        const trendChart = DotmacCharts.createLineChart(trendCanvas, {
+            labels: trendRows.map((row) => row.month),
+            datasets: [{
+                label: 'Payment Amount',
+                data: trendRows.map((row) => row.amount),
+                color: '#7c3aed',
+                fillColor: '#7c3aed20'
+            }]
+        }, {
+            plugins: {
+                legend: { display: false },
+                tooltip: visibleTooltip({
+                        label: (context) => `NGN ${Number(context.raw || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                })
+            },
+            scales: {
+                x: { grid: visibleGrid, ticks: visibleTicks() },
+                y: {
+                    grid: visibleGrid,
+                    ticks: visibleTicks((value) => `NGN ${Number(value || 0).toLocaleString()}`),
+                    beginAtZero: true
+                }
+            }
+        });
+        DotmacCharts.registerChart('postpaid-payment-amount-trend-chart', trendChart);
+    }
+
+    const invoiceCanvas = document.getElementById('postpaid-invoice-segment-chart');
+    const invoiceRows = {{ invoice_segment_chart | tojson }};
+    if (invoiceCanvas && invoiceRows.length) {
+        const invoiceChart = DotmacCharts.createStackedBarChart(invoiceCanvas, {
+            labels: invoiceRows.map((row) => row.segment),
+            datasets: [
+                {
+                    label: 'Unpaid Invoices',
+                    data: invoiceRows.map((row) => row.unpaid),
+                    colors: ['#0ea5e9']
+                },
+                {
+                    label: 'Overdue Invoices',
+                    data: invoiceRows.map((row) => row.overdue),
+                    colors: ['#ef4444']
+                }
+            ]
+        }, {
+            plugins: {
+                legend: visibleLegend('top'),
+                tooltip: visibleTooltip({
+                        label: (context) => `${context.dataset.label}: ${Number(context.raw || 0).toLocaleString()}`
+                })
+            },
+            scales: {
+                x: { stacked: true, grid: visibleGrid, ticks: visibleTicks() },
+                y: { stacked: true, grid: visibleGrid, ticks: visibleTicks(), beginAtZero: true }
+            }
+        });
+        DotmacCharts.registerChart('postpaid-invoice-segment-chart', invoiceChart);
+    }
+
+    const agingCanvas = document.getElementById('postpaid-invoice-aging-chart');
+    const agingRows = {{ invoice_aging_chart | tojson }};
+    if (agingCanvas && agingRows.length) {
+        const agingChart = DotmacCharts.createHorizontalBarChart(agingCanvas, {
+            labels: agingRows.map((row) => row.bucket),
+            datasets: [{
+                label: 'Balance',
+                data: agingRows.map((row) => row.balance),
+                colors: ['#10b981', '#06b6d4', '#f59e0b', '#f97316', '#ef4444']
+            }]
+        }, {
+            plugins: {
+                legend: { display: false },
+                tooltip: visibleTooltip({
+                        label: (context) => `NGN ${Number(context.raw || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                })
+            },
+            scales: {
+                x: {
+                    grid: visibleGrid,
+                    ticks: {
+                        color: chartTheme.textMuted,
+                        font: chartTickFont,
+                        callback: (value) => `NGN ${Number(value || 0).toLocaleString()}`
+                    }
+                },
+                y: {
+                    grid: visibleGrid,
+                    ticks: visibleTicks()
+                }
+            }
+        });
+        DotmacCharts.registerChart('postpaid-invoice-aging-chart', agingChart);
+    }
+
+    const balanceCanvas = document.getElementById('postpaid-top-balance-chart');
+    const balanceRows = {{ top_balance_customers | tojson }};
+    if (balanceCanvas && balanceRows.length) {
+        const balanceChart = DotmacCharts.createHorizontalBarChart(balanceCanvas, {
+            labels: balanceRows.map((row) => row.name),
+            datasets: [{
+                label: 'Outstanding Balance',
+                data: balanceRows.map((row) => row.balance),
+                colors: ['#7c3aed', '#8b5cf6', '#a78bfa', '#06b6d4', '#10b981', '#f59e0b', '#f97316', '#ef4444', '#64748b', '#0f766e']
+            }]
+        }, {
+            plugins: {
+                legend: { display: false },
+                tooltip: visibleTooltip({
+                        label: (context) => `NGN ${Number(context.raw || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                })
+            },
+            scales: {
+                x: {
+                    grid: visibleGrid,
+                    ticks: {
+                        color: chartTheme.textMuted,
+                        font: chartTickFont,
+                        callback: (value) => `NGN ${Number(value || 0).toLocaleString()}`
+                    }
+                },
+                y: {
+                    grid: visibleGrid,
+                    ticks: visibleTicks()
+                }
+            }
+        });
+        DotmacCharts.registerChart('postpaid-top-balance-chart', balanceChart);
+    }
+});
+</script>
+{% endblock %}

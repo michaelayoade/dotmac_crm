@@ -43,6 +43,19 @@ CORE_LINK_TICKET_TYPES_48H = frozenset(
     }
 )
 
+# Fallback SLA targets (minutes) by ticket priority, applied when a ticket type
+# has no explicit operational window above. This is what gives *every* ticket an
+# SLA clock instead of only the infrastructure types. Overridable via the
+# workflow DomainSetting "ticket_sla_priority_minutes" ({priority: minutes}).
+PRIORITY_DEFAULT_SLA_MINUTES: dict[str, int] = {
+    "urgent": 4 * 60,
+    "high": 8 * 60,
+    "normal": 24 * 60,
+    "medium": 24 * 60,
+    "low": 48 * 60,
+    "lower": 72 * 60,
+}
+
 # Ticket statuses that stop/complete SLA clocks
 SLA_COMPLETE_STATUSES = frozenset(
     {
@@ -128,14 +141,60 @@ def smart_duration_label(started_at: datetime | None, ended_at: datetime | None 
     return f"{days} {day_label} {hours} {hour_label} {minutes} {minute_label}"
 
 
+def _setting_truthy(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"true", "1", "yes", "on"}
+
+
+def priority_default_sla_minutes(db: Session, priority: str | None) -> int | None:
+    """Fallback SLA target minutes for a ticket priority.
+
+    OPT-IN: returns ``None`` unless the workflow DomainSetting
+    ``ticket_sla_priority_defaults_enabled`` is truthy. Historically tickets got
+    an SLA clock only for the explicit infrastructure ticket types; enabling this
+    extends SLA coverage to every ticket via PRIORITY_DEFAULT_SLA_MINUTES (which
+    a ``ticket_sla_priority_minutes`` setting may override).
+    """
+    if not priority:
+        return None
+    try:
+        from app.models.domain_settings import SettingDomain
+        from app.services import settings_spec
+
+        if not _setting_truthy(
+            settings_spec.resolve_value(db, SettingDomain.workflow, "ticket_sla_priority_defaults_enabled")
+        ):
+            return None
+        overrides = settings_spec.resolve_value(db, SettingDomain.workflow, "ticket_sla_priority_minutes")
+    except Exception:  # settings unavailable → preserve the default-off behavior
+        return None
+    table = dict(PRIORITY_DEFAULT_SLA_MINUTES)
+    if isinstance(overrides, dict):
+        for key, value in overrides.items():
+            try:
+                table[str(key).strip().lower()] = int(value)
+            except (TypeError, ValueError):
+                continue
+    return table.get(str(priority).strip().lower())
+
+
 def resolve_ticket_sla_target_minutes(
     db: Session,
     policy_id,
     priority: str | None,
     ticket_type: str | None,
 ) -> int | None:
-    """Resolve ticket SLA target minutes from explicit ticket-type windows only."""
-    return ticket_type_sla_target_minutes(ticket_type)
+    """Resolve ticket SLA target minutes.
+
+    An explicit ticket-type operational window wins; otherwise fall back to a
+    priority-based default so every ticket gets an SLA clock (the ``priority``
+    argument was previously ignored).
+    """
+    type_minutes = ticket_type_sla_target_minutes(ticket_type)
+    if type_minutes is not None:
+        return type_minutes
+    return priority_default_sla_minutes(db, priority)
 
 
 def ticket_sla_status(db: Session, ticket_id) -> dict | None:

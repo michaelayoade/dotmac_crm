@@ -148,8 +148,8 @@ _ONLINE_LAST_24H_NOTIFICATION_STATE_OPTIONS = [
 ]
 
 _ONLINE_LAST_24H_ACTIVITY_SEGMENT_OPTIONS = [
-    {"value": "last_24h", "label": "Last online within 24h"},
-    {"value": "active_last24_not_online", "label": "Active, last online within 24h, not currently online"},
+    {"value": "last_24h", "label": "Currently online"},
+    {"value": "active_last24_not_online", "label": "Not active in the last 24h"},
 ]
 _ONLINE_LAST_24H_WHATSAPP_TARGET_NAMES = {"dotmac fiber helpdesk"}
 _ONLINE_LAST_24H_EMAIL_TARGET_NAMES = {"sales mail", "noc mail", "support mail"}
