@@ -1,6 +1,5 @@
 """Admin system management web routes."""
 
-import contextlib
 import csv
 import html
 import io
@@ -177,32 +176,72 @@ def _build_changed_person_update_payload(
     return PersonUpdate.model_validate(changed_fields)
 
 
-@router.get("/health", response_class=HTMLResponse)
+@router.get(
+    "/health", response_class=HTMLResponse, dependencies=[Depends(require_permission("system:monitoring:read"))]
+)
 def system_health_page(request: Request, db: Session = Depends(get_db)):
-    from app.services import system_health as system_health_service
+    from app.services import infrastructure_health as infrastructure_health_service
     from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
-    health = system_health_service.get_system_health()
-    thresholds = system_health_service.resolve_health_thresholds(db)
-    health_status = system_health_service.evaluate_health(health, thresholds)
-    period_days = 30
-    with contextlib.suppress(Exception):
-        period_days = int(request.query_params.get("period_days", "30"))
-    start_date = request.query_params.get("start_date", "")
-    end_date = request.query_params.get("end_date", "")
+    dashboard = infrastructure_health_service.health_dashboard(db)
     context: dict[str, object] = {
         "request": request,
-        "active_page": "system-health",
+        "active_page": "infrastructure-health",
         "active_menu": "system",
         "current_user": get_current_user(request),
         "sidebar_stats": get_sidebar_stats(db),
-        "health": health,
-        "health_status": health_status,
-        "period_days": period_days if period_days in {7, 30, 90, 180} else 30,
-        "start_date": start_date,
-        "end_date": end_date,
+        "dashboard": dashboard,
     }
-    return templates.TemplateResponse("admin/system/health.html", context)
+    return templates.TemplateResponse("admin/system/infrastructure_health.html", context)
+
+
+@router.get(
+    "/health/alerts",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:monitoring:read"))],
+)
+def infrastructure_alerts_page(
+    request: Request,
+    category: str | None = Query(None),
+    severity: str | None = Query(None),
+    status: str | None = Query("open"),
+    period_days: int = Query(30),
+    db: Session = Depends(get_db),
+):
+    from app.models.infrastructure import (
+        InfrastructureAlertCategory,
+        InfrastructureAlertSeverity,
+        InfrastructureAlertStatus,
+    )
+    from app.services import infrastructure_health as infrastructure_health_service
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+
+    safe_period = period_days if period_days in {1, 7, 30, 90, 180, 365} else 30
+    alerts = infrastructure_health_service.list_alerts(
+        db,
+        category=category or None,
+        severity=severity or None,
+        status=status or None,
+        period_days=safe_period,
+    )
+    return templates.TemplateResponse(
+        "admin/system/infrastructure_alerts.html",
+        {
+            "request": request,
+            "active_page": "infrastructure-alerts",
+            "active_menu": "system",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "alerts": alerts,
+            "category": category or "",
+            "severity": severity or "",
+            "status": status or "",
+            "period_days": safe_period,
+            "categories": [item.value for item in InfrastructureAlertCategory],
+            "severities": [item.value for item in InfrastructureAlertSeverity],
+            "statuses": [item.value for item in InfrastructureAlertStatus],
+        },
+    )
 
 
 def _form_bool(value: object | None) -> bool:

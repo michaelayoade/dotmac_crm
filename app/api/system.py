@@ -11,10 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.services import system_health as system_health_service
+from app.services.auth_dependencies import require_permission
 
 router = APIRouter(prefix="/system", tags=["system"])
 
 
-@router.get("/health")
+@router.get("/health", dependencies=[Depends(require_permission("system:monitoring:read"))])
 def get_system_health(db: Session = Depends(get_db)) -> dict:
     return system_health_service.system_health_report(db)
