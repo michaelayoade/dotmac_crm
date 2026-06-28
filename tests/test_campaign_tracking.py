@@ -43,9 +43,7 @@ def _campaign(db) -> Campaign:
 
 
 def _recipient(db, campaign, person) -> CampaignRecipient:
-    r = CampaignRecipient(
-        campaign_id=campaign.id, person_id=person.id, address=person.email or "x@example.com"
-    )
+    r = CampaignRecipient(campaign_id=campaign.id, person_id=person.id, address=person.email or "x@example.com")
     db.add(r)
     db.commit()
     db.refresh(r)
@@ -99,11 +97,11 @@ def test_inject_rewrites_links_and_appends_pixel(db_session, monkeypatch):
     out = campaign_tracking.inject_tracking(db_session, html, recipient_id=rid)
 
     # Pixel inserted before </body>.
-    assert f'{BASE}/track/email/o/{rid}.gif' in out
+    assert f"{BASE}/track/email/o/{rid}.gif" in out
     assert out.index("/track/email/o/") < out.lower().index("</body>")
     # Link rewritten through the signed click endpoint; raw destination no longer a bare href.
     assert f'href="{url}"' not in out
-    assert f'{BASE}/track/email/c/{rid}?u=' in out
+    assert f"{BASE}/track/email/c/{rid}?u=" in out
     # The signature embedded in the rewritten link verifies for this destination.
     token = campaign_tracking._encode_url(url)
     sig = campaign_tracking.sign(str(rid), url, SECRET)
@@ -114,7 +112,7 @@ def test_inject_pixel_appended_when_no_body_tag(db_session, monkeypatch):
     _configure(monkeypatch)
     rid = uuid.uuid4()
     out = campaign_tracking.inject_tracking(db_session, "plain text only", recipient_id=rid)
-    assert out.endswith(".gif\" width=\"1\" height=\"1\" alt=\"\" style=\"display:none;border:0;width:1px;height:1px\" />")
+    assert out.endswith('.gif" width="1" height="1" alt="" style="display:none;border:0;width:1px;height:1px" />')
 
 
 # --- recording -----------------------------------------------------------
@@ -180,9 +178,7 @@ def test_record_click_invalid_signature_rejected(db_session, monkeypatch):
     campaign = _campaign(db_session)
     recipient = _recipient(db_session, campaign, person)
 
-    result = campaign_tracking.record_click(
-        db_session, recipient.id, "https://evil.example/x", "forged-signature"
-    )
+    result = campaign_tracking.record_click(db_session, recipient.id, "https://evil.example/x", "forged-signature")
 
     assert result is None
     db_session.refresh(recipient)

@@ -25,9 +25,7 @@ def _quote(db, person, *, tax_rate=None):
 def _add_line(db, quote, *, qty="1", price="0"):
     return quote_line_items.create(
         db,
-        QuoteLineItemCreate(
-            quote_id=quote.id, description="Item", quantity=Decimal(qty), unit_price=Decimal(price)
-        ),
+        QuoteLineItemCreate(quote_id=quote.id, description="Item", quantity=Decimal(qty), unit_price=Decimal(price)),
     )
 
 

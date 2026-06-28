@@ -31,9 +31,7 @@ from app.services.common import coerce_uuid
 logger = logging.getLogger(__name__)
 
 # 1x1 transparent GIF (43 bytes) returned by the open pixel endpoint.
-TRACKING_PIXEL_GIF: bytes = base64.b64decode(
-    "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
-)
+TRACKING_PIXEL_GIF: bytes = base64.b64decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
 
 # Matches href="http(s)://..." / href='http(s)://...' in campaign HTML bodies.
 _HREF_RE = re.compile(r"""(href\s*=\s*)(["'])(https?://[^"']+)\2""", re.IGNORECASE)
@@ -44,17 +42,11 @@ class CampaignTracking:
 
     @staticmethod
     def is_enabled(db: Session) -> bool:
-        return bool(
-            settings_spec.resolve_value(
-                db, SettingDomain.notification, "campaign_tracking_enabled"
-            )
-        )
+        return bool(settings_spec.resolve_value(db, SettingDomain.notification, "campaign_tracking_enabled"))
 
     @staticmethod
     def _base_url(db: Session) -> str | None:
-        value = settings_spec.resolve_value(
-            db, SettingDomain.notification, "campaign_tracking_base_url"
-        )
+        value = settings_spec.resolve_value(db, SettingDomain.notification, "campaign_tracking_base_url")
         if not value:
             return None
         return str(value).rstrip("/")
@@ -108,9 +100,7 @@ class CampaignTracking:
         base_url = CampaignTracking._base_url(db)
         secret = CampaignTracking._secret(db)
         if not base_url or not secret:
-            logger.warning(
-                "Campaign tracking enabled but base_url/secret missing; skipping injection"
-            )
+            logger.warning("Campaign tracking enabled but base_url/secret missing; skipping injection")
             return html
 
         rid = str(recipient_id)

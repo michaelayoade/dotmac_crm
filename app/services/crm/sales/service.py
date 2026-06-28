@@ -1081,9 +1081,7 @@ class CrmQuoteLineItems(ListResponseMixin):
         if data.get("inventory_item_id") and not db.get(InventoryItem, data["inventory_item_id"]):
             raise HTTPException(status_code=404, detail="Inventory item not found")
         # Always derive amount server-side (net of any line discount).
-        data["amount"] = _line_amount(
-            data.get("quantity"), data.get("unit_price"), data.get("discount_percent")
-        )
+        data["amount"] = _line_amount(data.get("quantity"), data.get("unit_price"), data.get("discount_percent"))
         item = CrmQuoteLineItem(**data)
         db.add(item)
         db.commit()

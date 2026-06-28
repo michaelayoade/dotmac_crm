@@ -62,7 +62,9 @@ class ResellerPayout(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
-    commissions = relationship("ResellerCommission", back_populates="payout", foreign_keys="ResellerCommission.payout_id")
+    commissions = relationship(
+        "ResellerCommission", back_populates="payout", foreign_keys="ResellerCommission.payout_id"
+    )
 
 
 class ResellerCommission(Base):
