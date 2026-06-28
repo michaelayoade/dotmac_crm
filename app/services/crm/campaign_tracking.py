@@ -46,14 +46,14 @@ class CampaignTracking:
     def is_enabled(db: Session) -> bool:
         return bool(
             settings_spec.resolve_value(
-                db, SettingDomain.notification, "campaign_tracking_enabled", use_cache=False
+                db, SettingDomain.notification, "campaign_tracking_enabled"
             )
         )
 
     @staticmethod
     def _base_url(db: Session) -> str | None:
         value = settings_spec.resolve_value(
-            db, SettingDomain.notification, "campaign_tracking_base_url", use_cache=False
+            db, SettingDomain.notification, "campaign_tracking_base_url"
         )
         if not value:
             return None
@@ -62,7 +62,7 @@ class CampaignTracking:
     @staticmethod
     def _secret(db: Session) -> str | None:
         # Reuse the application JWT secret for HMAC signing of click URLs.
-        value = settings_spec.resolve_value(db, SettingDomain.auth, "jwt_secret", use_cache=False)
+        value = settings_spec.resolve_value(db, SettingDomain.auth, "jwt_secret")
         if not value:
             return None
         return str(value)
@@ -119,13 +119,13 @@ class CampaignTracking:
             prefix, quote, url = match.group(1), match.group(2), match.group(3)
             signature = CampaignTracking.sign(rid, url, secret)
             token = CampaignTracking._encode_url(url)
-            tracked = f"{base_url}/track/c/{rid}?u={token}&s={signature}"
+            tracked = f"{base_url}/track/email/c/{rid}?u={token}&s={signature}"
             return f"{prefix}{quote}{tracked}{quote}"
 
         rewritten = _HREF_RE.sub(_rewrite, html)
 
         pixel = (
-            f'<img src="{base_url}/track/o/{rid}.gif" width="1" height="1" '
+            f'<img src="{base_url}/track/email/o/{rid}.gif" width="1" height="1" '
             'alt="" style="display:none;border:0;width:1px;height:1px" />'
         )
         lower = rewritten.lower()
@@ -138,7 +138,10 @@ class CampaignTracking:
 
     @staticmethod
     def _get_recipient(db: Session, recipient_id) -> CampaignRecipient | None:
-        rid = coerce_uuid(recipient_id)
+        try:
+            rid = coerce_uuid(recipient_id)
+        except (ValueError, AttributeError):
+            return None
         if rid is None:
             return None
         return db.get(CampaignRecipient, rid)

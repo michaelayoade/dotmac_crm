@@ -1,7 +1,7 @@
 """add open/click tracking columns to crm_campaign_recipients
 
 Revision ID: ct2026062800
-Revises: ms2026062800
+Revises: ih2026062800
 Create Date: 2026-06-28
 
 Adds per-recipient engagement columns (opened_at, clicked_at, open_count,
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "ct2026062800"
-down_revision = "ms2026062800"
+down_revision = "ih2026062800"
 branch_labels = None
 depends_on = None
 

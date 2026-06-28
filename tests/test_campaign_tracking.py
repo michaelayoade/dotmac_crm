@@ -99,11 +99,11 @@ def test_inject_rewrites_links_and_appends_pixel(db_session, monkeypatch):
     out = campaign_tracking.inject_tracking(db_session, html, recipient_id=rid)
 
     # Pixel inserted before </body>.
-    assert f'{BASE}/track/o/{rid}.gif' in out
-    assert out.index("/track/o/") < out.lower().index("</body>")
+    assert f'{BASE}/track/email/o/{rid}.gif' in out
+    assert out.index("/track/email/o/") < out.lower().index("</body>")
     # Link rewritten through the signed click endpoint; raw destination no longer a bare href.
     assert f'href="{url}"' not in out
-    assert f'{BASE}/track/c/{rid}?u=' in out
+    assert f'{BASE}/track/email/c/{rid}?u=' in out
     # The signature embedded in the rewritten link verifies for this destination.
     token = campaign_tracking._encode_url(url)
     sig = campaign_tracking.sign(str(rid), url, SECRET)
@@ -144,6 +144,13 @@ def test_record_open_first_then_repeat(db_session):
 
 def test_record_open_unknown_recipient_returns_false(db_session):
     assert campaign_tracking.record_open(db_session, uuid.uuid4()) is False
+
+
+def test_record_open_malformed_recipient_id_is_safe(db_session, monkeypatch):
+    # A forged/garbage id in the pixel URL must not raise (endpoint stays 200).
+    _configure(monkeypatch)
+    assert campaign_tracking.record_open(db_session, "not-a-uuid") is False
+    assert campaign_tracking.record_click(db_session, "not-a-uuid", "https://x.example", "sig") is None
 
 
 def test_record_click_valid_signature(db_session, monkeypatch):

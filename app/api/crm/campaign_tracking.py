@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.services.crm.campaign_tracking import TRACKING_PIXEL_GIF, campaign_tracking
 
-public_router = APIRouter(prefix="/track", tags=["crm-campaign-tracking"])
+public_router = APIRouter(prefix="/track/email", tags=["crm-campaign-tracking"])
 
 _NO_CACHE_HEADERS = {
     "Cache-Control": "no-store, no-cache, must-revalidate, private",
