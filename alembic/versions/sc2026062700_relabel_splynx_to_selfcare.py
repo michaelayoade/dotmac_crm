@@ -15,30 +15,52 @@ intentionally NOT done here — it requires live resolution via the dotmac_sub
 """
 
 from alembic import op
+from sqlalchemy import text
 
 revision = "sc2026062700"
 down_revision = "merge2026062601"
 branch_labels = None
 depends_on = None
 
+BATCH_SIZE = 10_000
+
+
+def _relabel_source(table_name: str, old_source: str, new_source: str) -> None:
+    bind = op.get_bind()
+    statement = text(
+        f"""
+        WITH batch AS (
+            SELECT ctid
+            FROM {table_name}
+            WHERE source = :old_source
+            LIMIT :batch_size
+        )
+        UPDATE {table_name}
+        SET source = :new_source
+        FROM batch
+        WHERE {table_name}.ctid = batch.ctid
+        """
+    )
+    while True:
+        result = bind.execute(
+            statement,
+            {
+                "old_source": old_source,
+                "new_source": new_source,
+                "batch_size": BATCH_SIZE,
+            },
+        )
+        if result.rowcount == 0:
+            break
+
 
 def upgrade() -> None:
-    op.execute(
-        "UPDATE customer_uptime_snapshots SET source = 'selfcare_polling' "
-        "WHERE source = 'splynx_polling'"
-    )
-    op.execute(
-        "UPDATE customer_uptime_periods SET source = 'selfcare_polling' "
-        "WHERE source = 'splynx_polling'"
-    )
+    with op.get_context().autocommit_block():
+        _relabel_source("customer_uptime_snapshots", "splynx_polling", "selfcare_polling")
+        _relabel_source("customer_uptime_periods", "splynx_polling", "selfcare_polling")
 
 
 def downgrade() -> None:
-    op.execute(
-        "UPDATE customer_uptime_snapshots SET source = 'splynx_polling' "
-        "WHERE source = 'selfcare_polling'"
-    )
-    op.execute(
-        "UPDATE customer_uptime_periods SET source = 'splynx_polling' "
-        "WHERE source = 'selfcare_polling'"
-    )
+    with op.get_context().autocommit_block():
+        _relabel_source("customer_uptime_snapshots", "selfcare_polling", "splynx_polling")
+        _relabel_source("customer_uptime_periods", "selfcare_polling", "splynx_polling")
