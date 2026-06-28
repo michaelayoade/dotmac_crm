@@ -39,6 +39,7 @@ from app.api.comms import router as comms_router
 from app.api.connectors import router as connectors_router
 from app.api.contracts import router as contracts_router
 from app.api.crm import router as crm_router
+from app.api.crm.campaign_tracking import public_router as campaign_tracking_public_router
 from app.api.crm.referrals import public_router as referral_public_router
 from app.api.crm.widget_internal import router as widget_internal_router
 from app.api.crm.widget_public import router as widget_public_router
@@ -522,6 +523,8 @@ app.include_router(surveys_api_router, prefix="/api/v1")
 app.include_router(track_api_router, prefix="/api/v1")
 # Public referral capture - no auth (a prospect using a shared referral link)
 _include_api_router(referral_public_router)
+# Public campaign open/click tracking - no auth (recipient UUID + HMAC are the capability)
+_include_api_router(campaign_tracking_public_router)
 # Trusted server-to-server chat session mint (authenticated backend asserts identity).
 _include_api_router(widget_internal_router, dependencies=[Depends(require_user_auth)])
 app.include_router(vendors_router, prefix="/api", dependencies=[Depends(require_user_auth)])

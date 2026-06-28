@@ -127,6 +127,11 @@ class CampaignRecipient(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_reason: Mapped[str | None] = mapped_column(Text)
+    # Per-recipient engagement tracking (email open pixel + click redirect).
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    clicked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    open_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    click_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 

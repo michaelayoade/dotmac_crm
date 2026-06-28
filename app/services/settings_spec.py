@@ -215,6 +215,20 @@ SETTINGS_SPECS: list[SettingSpec] = [
     ),
     SettingSpec(
         domain=SettingDomain.notification,
+        key="campaign_tracking_enabled",
+        env_var="CAMPAIGN_TRACKING_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+    ),
+    SettingSpec(
+        domain=SettingDomain.notification,
+        key="campaign_tracking_base_url",
+        env_var="CAMPAIGN_TRACKING_BASE_URL",
+        value_type=SettingValueType.string,
+        default=None,
+    ),
+    SettingSpec(
+        domain=SettingDomain.notification,
         key="alert_notifications_default_channel",
         env_var="ALERT_NOTIFICATIONS_DEFAULT_CHANNEL",
         value_type=SettingValueType.string,
