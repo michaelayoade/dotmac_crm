@@ -100,6 +100,11 @@ class Lead(Base):
     quotes = relationship("Quote", back_populates="lead")
     campaign = relationship("Campaign", foreign_keys=[campaign_id])
 
+    # Transient (non-persisted) flag set by the dedup path in Leads.create when
+    # an existing open lead is returned instead of a new one being created, so
+    # callers (e.g. the web route) can surface a distinct "existing lead" notice.
+    dedup_returned_existing: bool = False
+
     @hybrid_property
     def contact_id(self):
         return self.person_id

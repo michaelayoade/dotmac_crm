@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.models.crm.enums import LeadStatus
-from app.models.crm.sales import Pipeline, PipelineStage
+from app.models.crm.sales import Lead, Pipeline, PipelineStage
 from app.models.crm.team import CrmAgent
 from app.models.person import Person
 from app.schemas.crm.sales import LeadCreate, LeadUpdate
@@ -356,7 +356,7 @@ def create_lead(
     form: LeadUpsertInput,
     current_person_id: str | None,
     load_pipeline_stages: Callable[[Session, str | None], list[PipelineStage]],
-) -> None:
+) -> Lead:
     lead = _normalize_form(form)
 
     person_id_value = lead["person_id"] if isinstance(lead["person_id"], str) else ""
@@ -427,7 +427,7 @@ def create_lead(
         notes=notes_value or None,
         is_active=bool(lead["is_active"]),
     )
-    crm_service.leads.create(db=db, payload=payload)
+    return crm_service.leads.create(db=db, payload=payload)
 
 
 def update_lead(
