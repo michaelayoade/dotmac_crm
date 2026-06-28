@@ -8,6 +8,15 @@ from decimal import Decimal
 from app.models.person import Person
 from app.schemas.crm.sales import QuoteCreate, QuoteLineItemCreate, QuoteUpdate
 from app.services.crm.sales.service import quote_line_items, quotes
+from app.services.crm.web_quotes import QuoteUpsertInput, update_quote
+
+
+class _StubRate:
+    """Minimal tax-rate object accepted by web_quotes tax computations."""
+
+    def __init__(self, percent: str) -> None:
+        self.id = uuid.uuid4()
+        self.rate = Decimal(percent)
 
 
 def _person(db) -> Person:
@@ -25,9 +34,7 @@ def _quote(db, person, *, tax_rate=None):
 def _add_line(db, quote, *, qty="1", price="0"):
     return quote_line_items.create(
         db,
-        QuoteLineItemCreate(
-            quote_id=quote.id, description="Item", quantity=Decimal(qty), unit_price=Decimal(price)
-        ),
+        QuoteLineItemCreate(quote_id=quote.id, description="Item", quantity=Decimal(qty), unit_price=Decimal(price)),
     )
 
 
@@ -72,3 +79,33 @@ def test_no_rate_keeps_manual_tax(db_session):
     assert quote.tax_rate is None
     assert quote.tax_total == Decimal("999.00")
     assert quote.total == Decimal("100999.00")
+
+
+def test_removing_line_item_recomputes_subtotal_and_tax(db_session):
+    """update_quote must re-derive subtotal AND tax after a line is removed."""
+    person = _person(db_session)
+    quote = _quote(db_session, person, tax_rate=Decimal("10"))
+    _add_line(db_session, quote, qty="1", price="100000")
+    _add_line(db_session, quote, qty="1", price="50000")
+    db_session.refresh(quote)
+    assert quote.subtotal == Decimal("150000.00")
+    assert quote.tax_total == Decimal("15000.00")
+
+    rate = _StubRate("10")
+    form = QuoteUpsertInput(
+        contact_id=str(person.id),
+        tax_rate_id=str(rate.id),
+        status="draft",
+        currency="NGN",
+        is_active="true",
+        item_description=["Item A"],
+        item_quantity=["1"],
+        item_unit_price=["100000"],
+    )
+    update_quote(db_session, quote_id=str(quote.id), form=form, tax_rate_get=lambda db, _id: rate)
+
+    db_session.refresh(quote)
+    # Only the remaining line counts: subtotal drops to 100000 and tax follows it.
+    assert quote.subtotal == Decimal("100000.00")
+    assert quote.tax_total == Decimal("10000.00")  # 10% of the reduced subtotal
+    assert quote.total == Decimal("110000.00")

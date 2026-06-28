@@ -17,7 +17,7 @@ from app.models.projects import Project, ProjectStatus, ProjectTemplate, Project
 from app.schemas.projects import ProjectCreate
 from app.services import projects as projects_service
 from app.services import settings_spec
-from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
+from app.services.common import apply_ordering, apply_pagination, coerce_uuid, round_money, validate_enum
 from app.services.response import ListResponseMixin
 
 LEAD_SOURCE_OPTIONS = (
@@ -361,15 +361,14 @@ def _prepare_quote_ownership(db: Session, data: dict, *, existing: Quote | None 
 
 def _recalculate_quote_totals(db: Session, quote: Quote) -> None:
     items = db.query(CrmQuoteLineItem).filter(CrmQuoteLineItem.quote_id == quote.id).all()
-    subtotal = Decimal("0.00")
-    for item in items:
-        subtotal += Decimal(item.amount or 0)
+    # Subtotal is the sum of net (discounted) line amounts.
+    subtotal = round_money(sum((Decimal(item.amount or 0) for item in items), Decimal("0.00")))
     quote.subtotal = subtotal
     # Auto-derive tax from the applied rate when one is set; otherwise keep the
     # manually entered tax_total. Tax always follows the (discounted) subtotal.
     if quote.tax_rate is not None:
         rate = Decimal(quote.tax_rate or 0)
-        quote.tax_total = (subtotal * rate / Decimal("100")).quantize(Decimal("0.01"))
+        quote.tax_total = round_money(subtotal * rate / Decimal("100"))
     quote.total = subtotal + Decimal(quote.tax_total or 0)
     db.commit()
 

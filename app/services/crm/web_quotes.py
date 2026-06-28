@@ -28,10 +28,11 @@ from app.schemas.crm.conversation import ConversationCreate
 from app.schemas.crm.inbox import InboxSendRequest
 from app.schemas.crm.sales import QuoteCreate, QuoteLineItemCreate, QuoteLineItemUpdate, QuoteUpdate
 from app.services import crm as crm_service
-from app.services.common import coerce_uuid
+from app.services.common import coerce_uuid, round_money
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
 from app.services.crm import inbox as inbox_service
+from app.services.crm.sales.service import _recalculate_quote_totals
 from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
@@ -354,8 +355,8 @@ def create_quote(db: Session, *, form: QuoteUpsertInput, tax_rate_get, owner_per
             rate_value = Decimal(rate.rate or 0)
             if rate_value > 1:
                 rate_value = rate_value / Decimal("100")
-            tax_rate_percent = (rate_value * Decimal("100")).quantize(Decimal("0.01"))
-            tax_val = subtotal_val * rate_value
+            tax_rate_percent = round_money(rate_value * Decimal("100"))
+            tax_val = round_money(subtotal_val * rate_value)
         except Exception as exc:
             raise ValueError("Invalid tax rate") from exc
     total_val = _parse_decimal(total_value, "total") or Decimal("0.00")
@@ -742,8 +743,8 @@ def update_quote(db: Session, *, quote_id: str, form: QuoteUpsertInput, tax_rate
         try:
             rate = tax_rate_get(db, tax_rate_id_value)
             fraction = _tax_rate_fraction(rate)
-            tax_rate_percent = (fraction * Decimal("100")).quantize(Decimal("0.01"))
-            tax_value = subtotal_from_items * fraction
+            tax_rate_percent = round_money(fraction * Decimal("100"))
+            tax_value = round_money(subtotal_from_items * fraction)
         except Exception as exc:
             raise ValueError("Invalid tax rate") from exc
     total_from_items = subtotal_from_items + tax_value
@@ -820,6 +821,14 @@ def update_quote(db: Session, *, quote_id: str, form: QuoteUpsertInput, tax_rate
     for stale_item in existing_items[len(parsed_items) :]:
         db.delete(stale_item)
     db.commit()
+
+    # Re-derive totals from the persisted line items AFTER the sync + deletions,
+    # so removing a line recomputes both subtotal and (rate-derived) tax. The
+    # earlier payload totals are computed before line items are deleted and can
+    # otherwise go stale.
+    refreshed = crm_service.quotes.get(db=db, quote_id=quote_id)
+    _recalculate_quote_totals(db, refreshed)
+    db.refresh(updated)
 
     return before, updated
 
