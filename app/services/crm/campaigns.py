@@ -45,6 +45,7 @@ from app.schemas.crm.inbox import InboxSendRequest
 from app.services import settings_spec
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.crm import conversation as conversation_service
+from app.services.crm.campaign_tracking import campaign_tracking
 from app.services.crm.inbox import outbound as inbox_outbound_service
 from app.services.response import ListResponseMixin
 
@@ -1233,6 +1234,11 @@ def send_campaign_batch(db: Session, campaign_id: str, batch_size: int = 50) -> 
                 campaign.failed_count += 1
                 processed += 1
                 continue
+
+        if campaign.channel == CampaignChannel.email:
+            body = campaign_tracking.inject_tracking(
+                db, body, recipient_id=recipient.id, campaign_id=campaign.id
+            )
 
         if campaign.channel == CampaignChannel.whatsapp:
             # Store WhatsApp template name in subject for delivery lookup
