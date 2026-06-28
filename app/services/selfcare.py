@@ -36,6 +36,10 @@ _HISTORY_MAX_SIZE = 30
 # Retry policy for transient upstream failures (connection errors, read
 # timeouts, 429, 5xx). 4xx are caller errors and never retried.
 _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+# POST is not idempotent — a retry after the server already created the row (lost
+# response / read timeout) would double-create an invoice/credit. Only retry safe
+# methods; let POST failures propagate to the caller (which records/retries).
+_NON_IDEMPOTENT_METHODS = frozenset({"POST"})
 _MAX_ATTEMPTS = 3
 _BACKOFF_BASE_SECONDS = 0.5
 _BACKOFF_CAP_SECONDS = 5.0
@@ -219,6 +223,7 @@ def _request_json(
     read_timeout = int(config.get("timeout_seconds") or 30)
     timeout = (_CONNECT_TIMEOUT_SECONDS, read_timeout)
     method_u = method.upper()
+    retryable_method = method_u not in _NON_IDEMPOTENT_METHODS
     logger.info(
         "SELFCARE_API_REQUEST_START method=%s path=%s timeout=%s params=%s",
         method_u,
@@ -248,7 +253,7 @@ def _request_json(
                 duration,
                 exc,
             )
-            if attempt < _MAX_ATTEMPTS:
+            if retryable_method and attempt < _MAX_ATTEMPTS:
                 _sleep_backoff(attempt)
                 continue
             # Sanitized message (no host/url); full detail stayed in the log.
@@ -256,7 +261,7 @@ def _request_json(
 
         status = response.status_code
         duration = time.monotonic() - request_started
-        if status in _RETRYABLE_STATUS and attempt < _MAX_ATTEMPTS:
+        if retryable_method and status in _RETRYABLE_STATUS and attempt < _MAX_ATTEMPTS:
             logger.warning(
                 "SELFCARE_API_REQUEST_RETRY method=%s path=%s status=%s attempt=%d/%d",
                 method_u,
@@ -786,7 +791,15 @@ def sync_subscribers_from_selfcare_data(
     sync_logger.info("SELFCARE_SYNC_STEP_COMPLETE step=fetch_subscribers count=%d", len(customers_data))
 
     results: dict[str, Any] = {"created": 0, "updated": 0, "orphaned": 0, "errors": []}
-    seen_external_ids: set[str] = set()
+    # Orphan detection must key off what upstream RETURNED, not what synced
+    # successfully — otherwise a per-row sync failure (mapping/DB error) would make
+    # a still-live subscriber look deleted and eligible for termination.
+    seen_external_ids: set[str] = {
+        str(customer.get("id") or customer.get("uuid") or customer.get("subscriber_id") or "").strip()
+        for customer in customers_data
+        if isinstance(customer, dict)
+    }
+    seen_external_ids.discard("")
     if not customers_data:
         sync_logger.info("selfcare_sync_no_data")
         return results
@@ -898,7 +911,6 @@ def sync_subscribers_from_selfcare_data(
             else:
                 subscriber_service.sync_from_external(db, "selfcare", external_id, data)
                 results["created"] += 1
-            seen_external_ids.add(external_id)
             sync_logger.info(
                 "SELFCARE_SYNC_ITEM_COMPLETE index=%d external_id=%s action=%s created=%d updated=%d errors=%d",
                 index,
@@ -930,6 +942,9 @@ def sync_subscribers_from_selfcare_data(
 # terminated in one run — failing safe rather than wiping the subscriber base.
 _ORPHAN_MIN_FETCH_RATIO = 0.5
 _ORPHAN_MAX_TERMINATE_RATIO = 0.2
+# Small absolute floor for tiny bases (so a single legitimate deletion isn't
+# blocked) — kept low so it can't bypass the ratio guard and wipe a small base.
+_ORPHAN_MAX_TERMINATE_FLOOR = 3
 
 
 def _reconcile_selfcare_orphans(
@@ -955,7 +970,7 @@ def _reconcile_selfcare_orphans(
             len(orphans),
         )
         return 0
-    if len(orphans) > max(10, int(active_count * _ORPHAN_MAX_TERMINATE_RATIO)):
+    if len(orphans) > max(_ORPHAN_MAX_TERMINATE_FLOOR, int(active_count * _ORPHAN_MAX_TERMINATE_RATIO)):
         logger.warning(
             "SELFCARE_ORPHAN_RECONCILE_SKIPPED reason=too_many active=%d orphans=%d",
             active_count,
