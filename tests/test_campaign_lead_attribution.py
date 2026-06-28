@@ -9,13 +9,13 @@ from app.models.crm.campaign import Campaign, CampaignRecipient
 from app.models.crm.enums import CampaignRecipientStatus, LeadStatus
 from app.models.crm.sales import Lead
 from app.models.person import Person
-from app.services.crm import campaigns as campaigns_mod
+from app.services import settings_spec
 from app.services.crm.campaigns import attribute_lead_from_reply, campaign_attribution_report
 
 
 def _enable(monkeypatch, enabled: bool = True):
     monkeypatch.setattr(
-        campaigns_mod.settings_spec,
+        settings_spec,
         "resolve_value",
         lambda db, domain, key, use_cache=True: enabled,
     )
