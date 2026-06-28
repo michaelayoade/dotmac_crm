@@ -251,6 +251,9 @@ class FieldMapAssetLocationUpdate(BaseModel):
     accuracy_m: float | None = Field(default=None, ge=0)
     # Offline idempotency key so retried uploads are traceable to one capture.
     client_ref: UUID | None = None
+    # Override the downgrade guard (e.g. knowingly replacing a surveyed point
+    # with a fresh field fix).
+    force: bool = False
 
 
 class FieldJobDetail(BaseModel):

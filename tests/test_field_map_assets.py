@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 from app.models.audit import AuditEvent
-from app.models.field import FieldMapAssetTombstone
+from app.models.field import FieldMapAssetLocationProvenance, FieldMapAssetTombstone
 from app.models.network import FdhCabinet, FiberAccessPoint, FiberSpliceClosure, OLTDevice
 from app.services.field.map_assets import (
     list_deleted_map_assets,
@@ -229,6 +229,92 @@ def test_update_map_asset_location_accepts_matching_expected_updated_at(db_sessi
     )
 
     assert result["latitude"] == 9.5
+
+
+def _provenance(db_session, olt):
+    return (
+        db_session.query(FieldMapAssetLocationProvenance)
+        .filter(
+            FieldMapAssetLocationProvenance.asset_type == "olt",
+            FieldMapAssetLocationProvenance.asset_id == olt.id,
+        )
+        .one()
+    )
+
+
+def test_update_map_asset_location_records_provenance(db_session):
+    olt = OLTDevice(name="OLT Prov", latitude=9.1, longitude=7.4)
+    db_session.add(olt)
+    db_session.commit()
+
+    update_map_asset_location(
+        db_session,
+        asset_type="olt",
+        asset_id=str(olt.id),
+        latitude=9.5,
+        longitude=7.8,
+        source="survey",
+        accuracy_m=2.0,
+    )
+
+    prov = _provenance(db_session, olt)
+    assert prov.source == "survey"
+    assert prov.accuracy_m == 2.0
+
+
+def test_update_map_asset_location_blocks_confidence_downgrade(db_session):
+    olt = OLTDevice(name="OLT Survey", latitude=9.1, longitude=7.4)
+    db_session.add(olt)
+    db_session.commit()
+    # Surveyed-grade coordinate is placed first.
+    update_map_asset_location(
+        db_session, asset_type="olt", asset_id=str(olt.id), latitude=9.5, longitude=7.8, source="survey"
+    )
+
+    # A phone GPS fix must not silently overwrite it.
+    with pytest.raises(HTTPException) as exc:
+        update_map_asset_location(
+            db_session, asset_type="olt", asset_id=str(olt.id), latitude=9.6, longitude=7.9, source="gps"
+        )
+
+    assert exc.value.status_code == 409
+    db_session.refresh(olt)
+    assert olt.latitude == 9.5  # surveyed coordinate preserved
+
+
+def test_update_map_asset_location_allows_forced_downgrade(db_session):
+    olt = OLTDevice(name="OLT Force", latitude=9.1, longitude=7.4)
+    db_session.add(olt)
+    db_session.commit()
+    update_map_asset_location(
+        db_session, asset_type="olt", asset_id=str(olt.id), latitude=9.5, longitude=7.8, source="survey"
+    )
+
+    update_map_asset_location(
+        db_session, asset_type="olt", asset_id=str(olt.id), latitude=9.6, longitude=7.9, source="gps", force=True
+    )
+
+    db_session.refresh(olt)
+    assert olt.latitude == 9.6
+    assert _provenance(db_session, olt).source == "gps"
+
+
+def test_update_map_asset_location_allows_confidence_upgrade(db_session):
+    olt = OLTDevice(name="OLT Upgrade", latitude=9.1, longitude=7.4)
+    db_session.add(olt)
+    db_session.commit()
+    update_map_asset_location(
+        db_session, asset_type="olt", asset_id=str(olt.id), latitude=9.5, longitude=7.8, source="gps"
+    )
+
+    # Same or higher trust always applies without a force flag.
+    update_map_asset_location(
+        db_session, asset_type="olt", asset_id=str(olt.id), latitude=9.6, longitude=7.9, source="manual"
+    )
+
+    db_session.refresh(olt)
+    assert olt.latitude == 9.6
+    assert _provenance(db_session, olt).source == "manual"
 
 
 def test_update_map_asset_location_rejects_inactive_asset(db_session):

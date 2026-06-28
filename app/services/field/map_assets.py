@@ -10,10 +10,21 @@ from geoalchemy2.functions import ST_MakePoint, ST_SetSRID
 from sqlalchemy.orm import Session
 
 from app.models.audit import AuditActorType, AuditEvent
-from app.models.field import FieldMapAssetTombstone
+from app.models.field import FieldMapAssetLocationProvenance, FieldMapAssetTombstone
 from app.models.gis import ServiceBuilding
 from app.models.network import FdhCabinet, FiberAccessPoint, FiberSpliceClosure, OLTDevice
 from app.models.wireless_mast import WirelessMast
+from app.services.common import coerce_uuid
+
+# Trust ranking of how a coordinate was placed. A write may match or improve the
+# stored tier freely, but downgrading it (e.g. a phone GPS fix over a surveyed
+# point) requires an explicit override so a casual edit can't quietly degrade a
+# deliberately-placed coordinate.
+_SOURCE_CONFIDENCE = {"survey": 4, "manual": 3, "gps": 2, "geocoded": 1}
+
+
+def _confidence(source: str | None) -> int:
+    return _SOURCE_CONFIDENCE.get((source or "").strip().lower(), 0)
 
 
 @dataclass(frozen=True)
@@ -210,6 +221,7 @@ def update_map_asset_location(
     source: str | None = None,
     accuracy_m: float | None = None,
     client_ref: str | None = None,
+    force: bool = False,
 ) -> dict:
     config = ASSET_CONFIGS.get(asset_type)
     if config is None:
@@ -228,6 +240,24 @@ def update_map_asset_location(
         current_updated_at = _as_utc(getattr(row, "updated_at", None))
         if current_updated_at is not None and current_updated_at != _as_utc(expected_updated_at):
             raise HTTPException(status_code=409, detail="Map asset was modified since it was loaded")
+
+    provenance = (
+        db.query(FieldMapAssetLocationProvenance)
+        .filter(
+            FieldMapAssetLocationProvenance.asset_type == asset_type,
+            FieldMapAssetLocationProvenance.asset_id == coerce_uuid(asset_id),
+        )
+        .one_or_none()
+    )
+    # Don't let a lower-trust source quietly overwrite a higher-trust coordinate.
+    if not force and provenance is not None and _confidence(source) < _confidence(provenance.source):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Refusing to overwrite a '{provenance.source}' location with a lower-confidence "
+                f"'{source or 'unknown'}' one; pass force=true to override"
+            ),
+        )
 
     previous = {
         "latitude": float(row.latitude) if row.latitude is not None else None,
@@ -259,9 +289,34 @@ def update_map_asset_location(
                 "source": source,
                 "accuracy_m": accuracy_m,
                 "client_ref": client_ref,
+                "forced": bool(force),
             },
         )
     )
+
+    # Record the provenance of the coordinate now in place, so the next write can
+    # apply the downgrade gate above.
+    actor_uuid = None
+    if actor_id:
+        try:
+            actor_uuid = coerce_uuid(actor_id)
+        except ValueError:
+            actor_uuid = None  # non-UUID actor (e.g. an API-key principal)
+    if provenance is None:
+        db.add(
+            FieldMapAssetLocationProvenance(
+                asset_type=asset_type,
+                asset_id=coerce_uuid(asset_id),
+                source=source,
+                accuracy_m=accuracy_m,
+                updated_by_person_id=actor_uuid,
+            )
+        )
+    else:
+        provenance.source = source
+        provenance.accuracy_m = accuracy_m
+        provenance.updated_by_person_id = actor_uuid
+
     db.commit()
     db.refresh(row)
     return _asset_payload(asset_type, config, row)
