@@ -157,3 +157,42 @@ def test_orphans_skipped_on_suspiciously_small_fetch(db_session):
     # fetched only 1 of 4 active → likely partial outage → skip, terminate nothing
     assert selfcare._reconcile_selfcare_orphans(db_session, set(), fetched_count=1, logger=selfcare.logger) == 0
     assert db_session.query(Subscriber).filter(Subscriber.status == SubscriberStatus.active).count() == 4
+
+
+def test_orphans_small_base_respects_ratio_not_flat_floor(db_session):
+    # 10 active, 5 unseen — a plausible fetch, but 5 orphans exceeds the small
+    # absolute floor → skip. (A flat floor of 10 would have wiped half the base.)
+    for i in range(1, 11):
+        _active_sub(db_session, str(i))
+    seen = {str(i) for i in range(1, 6)}  # ids 1-5 returned, 6-10 missing
+    assert selfcare._reconcile_selfcare_orphans(db_session, seen, fetched_count=8, logger=selfcare.logger) == 0
+    assert db_session.query(Subscriber).filter(Subscriber.status == SubscriberStatus.active).count() == 10
+
+
+# ── POST writes are not retried (#87 follow-up: duplicate-write safety) ────────
+
+
+def test_post_not_retried_on_5xx(monkeypatch):
+    calls = {"n": 0}
+
+    def handler(method, url, **kw):
+        calls["n"] += 1
+        return _Resp(502, "boom")
+
+    _patch_request(monkeypatch, handler)
+    with pytest.raises(selfcare.SelfcareProviderError):
+        selfcare._request_json(None, "POST", "/invoices", json_body={"x": 1})
+    assert calls["n"] == 1  # non-idempotent → no retry
+
+
+def test_get_retried_on_5xx(monkeypatch):
+    calls = {"n": 0}
+
+    def handler(method, url, **kw):
+        calls["n"] += 1
+        return _Resp(503, "boom")
+
+    _patch_request(monkeypatch, handler)
+    with pytest.raises(selfcare.SelfcareProviderError):
+        selfcare._request_json(None, "GET", "/x")
+    assert calls["n"] == selfcare._MAX_ATTEMPTS  # idempotent → retried

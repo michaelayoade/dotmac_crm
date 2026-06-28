@@ -269,7 +269,10 @@ def _ensure_installation_invoice(db: Session, project: Project, person: Person) 
     # Serialize concurrent triggers (the project_created event AND sales-order line
     # create/update both call this) so the read-then-create-then-store sequence
     # can't double-create an invoice. Re-read the project state under the lock.
-    locked = db.query(Project).filter(Project.id == project.id).with_for_update().first()
+    # populate_existing() forces the locked row to refresh already-loaded column
+    # attributes, so the existence check below reads committed state under the lock,
+    # not a stale in-session copy.
+    locked = db.query(Project).filter(Project.id == project.id).with_for_update().populate_existing().first()
     if locked is None:
         return
     project = locked
