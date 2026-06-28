@@ -197,6 +197,40 @@ def resolve_ticket_sla_target_minutes(
     return priority_default_sla_minutes(db, priority)
 
 
+def ticket_sla_status(db: Session, ticket_id) -> dict | None:
+    """Live SLA-clock summary for a ticket (or None if it has no clock).
+
+    The read model behind the SLA-status API; time-to-breach is computed from the
+    latest ticket clock rather than the stored breach records.
+    """
+    from app.services.common import coerce_uuid
+
+    clock = (
+        db.query(SlaClock)
+        .filter(SlaClock.entity_type == WorkflowEntityType.ticket)
+        .filter(SlaClock.entity_id == coerce_uuid(ticket_id))
+        .order_by(SlaClock.created_at.desc())
+        .first()
+    )
+    if not clock:
+        return None
+    now = datetime.now(UTC)
+    due_at = clock.due_at
+    if due_at is not None and due_at.tzinfo is None:
+        due_at = due_at.replace(tzinfo=UTC)
+    breached = clock.status == SlaClockStatus.breached or clock.breached_at is not None
+    minutes_remaining = int((due_at - now).total_seconds() // 60) if due_at is not None else None
+    return {
+        "status": clock.status.value if clock.status else None,
+        "priority": clock.priority,
+        "started_at": clock.started_at,
+        "due_at": clock.due_at,
+        "breached": breached,
+        "breached_at": clock.breached_at,
+        "minutes_remaining": minutes_remaining,
+    }
+
+
 def create_sla_clock_for_ticket(db: Session, ticket: Ticket) -> SlaClock | None:
     """Create an SLA clock for a newly created ticket.
 

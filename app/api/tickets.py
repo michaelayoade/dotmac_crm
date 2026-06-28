@@ -18,6 +18,7 @@ from app.schemas.tickets import (
     TicketSlaEventUpdate,
     TicketUpdate,
 )
+from app.services import sla_assignment
 from app.services import tickets as tickets_service
 from app.services.auth_dependencies import require_permission
 from app.services.filter_engine import parse_filter_payload_json
@@ -44,6 +45,20 @@ def create_ticket(payload: TicketCreate, db: Session = Depends(get_db)):
 )
 def get_ticket(ticket_id: str, db: Session = Depends(get_db)):
     return tickets_service.tickets.get(db, ticket_id)
+
+
+@router.get(
+    "/tickets/{ticket_id}/sla",
+    tags=["tickets"],
+    dependencies=[Depends(require_permission("support:ticket:read"))],
+)
+def get_ticket_sla(ticket_id: str, db: Session = Depends(get_db)):
+    """Live SLA-clock status (time-to-breach) for a ticket."""
+    tickets_service.tickets.get(db, ticket_id)  # 404 if the ticket doesn't exist
+    status_data = sla_assignment.ticket_sla_status(db, ticket_id)
+    if status_data is None:
+        raise HTTPException(status_code=404, detail="No SLA clock for this ticket")
+    return status_data
 
 
 @router.get(
