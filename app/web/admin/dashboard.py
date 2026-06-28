@@ -36,7 +36,7 @@ def dashboard_activity_partial(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/dashboard/server-health", response_class=HTMLResponse)
 def dashboard_server_health_partial(request: Request, db: Session = Depends(get_db)):
-    """HTMX partial for server health widget."""
+    """HTMX partial for infrastructure health resource widget."""
     return web_admin_dashboard_service.dashboard_server_health_partial(request, db)
 
 

@@ -1,7 +1,7 @@
 {% extends "layouts/admin.html" %}
 {% from "components/ui/macros.html" import page_header, stats_card, dashboard_kpi_grid, dashboard_filter_panel %}
 
-{% block title %}Server Health - Admin{% endblock %}
+{% block title %}Infrastructure Health - Admin{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
@@ -29,7 +29,7 @@
     {% endset %}
 
     <div id="health-header">
-        {{ page_header("Server Health", "Live resource usage and uptime for this node", color="emerald", color2="green", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>', actions=header_actions) }}
+        {{ page_header("Infrastructure Health", "Live resource usage and uptime for this node", color="emerald", color2="green", icon='<svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>', actions=header_actions) }}
     </div>
 
     {% call dashboard_filter_panel(color="emerald", title="Date Scope") %}
@@ -56,7 +56,7 @@
             <button type="submit" class="inline-flex items-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Apply</button>
         </div>
     </form>
-    <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">Server health is a live snapshot; date scope is saved in URL for dashboard consistency.</p>
+    <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">Infrastructure health is a live snapshot; date scope is saved in URL for dashboard consistency.</p>
     {% endcall %}
 
     {# ── Health Alerts ── #}

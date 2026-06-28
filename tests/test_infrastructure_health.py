@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -125,3 +126,61 @@ def test_admin_role_can_access_monitoring_permission(db_session, person):
     auth = {"person_id": str(person.id), "roles": ["admin"], "scopes": []}
 
     assert guard(auth=auth, db=db_session) == auth
+
+
+def test_health_page_context_includes_host_resource_vitals(monkeypatch):
+    from app.services import system_health as system_health_service
+    from app.web.admin import _auth_helpers
+    from app.web.admin import system as system_web
+
+    captured = {}
+    dashboard = {
+        "overall": "healthy",
+        "open_alert_count": 0,
+        "results": [],
+        "generated_at": datetime.now(UTC),
+        "open_alerts": [],
+    }
+    host_health = {
+        "generated_at": datetime.now(UTC),
+        "uptime_display": "3d 4h",
+        "cpu_count": 8,
+        "load_avg": (0.1, 0.2, 0.3),
+        "process": {"rss": "128.0 MB"},
+        "memory": {
+            "used_pct": "42.0%",
+            "used_pct_value": 42.0,
+            "used": "4.2 GB",
+            "available": "5.8 GB",
+            "total": "10.0 GB",
+        },
+        "disk": {
+            "used_pct": "55.0%",
+            "used_pct_value": 55.0,
+            "used": "55.0 GB",
+            "free": "45.0 GB",
+            "total": "100.0 GB",
+        },
+        "evaluation": {"status": "ok", "issues": []},
+    }
+
+    monkeypatch.setattr(infrastructure_health, "health_dashboard", lambda _db: dashboard)
+    monkeypatch.setattr(system_health_service, "system_health_report", lambda _db: host_health)
+    monkeypatch.setattr(_auth_helpers, "get_current_user", lambda _request: {})
+    monkeypatch.setattr(_auth_helpers, "get_sidebar_stats", lambda _db: {})
+
+    def _capture_template(name, context):
+        captured["name"] = name
+        captured["context"] = context
+        return SimpleNamespace(status_code=200)
+
+    monkeypatch.setattr(system_web.templates, "TemplateResponse", _capture_template)
+    request = SimpleNamespace(state=SimpleNamespace(auth={}, user=None))
+
+    response = system_web.system_health_page(request, db=object())
+
+    assert response.status_code == 200
+    assert captured["name"] == "admin/system/infrastructure_health.html"
+    assert captured["context"]["host_health"]["memory"]["available"] == "5.8 GB"
+    assert captured["context"]["host_health"]["disk"]["free"] == "45.0 GB"
+    assert captured["context"]["host_health"]["load_avg"] == (0.1, 0.2, 0.3)

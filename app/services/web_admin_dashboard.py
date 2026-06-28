@@ -360,7 +360,7 @@ def _build_activity_context(db: Session) -> dict:
 
 
 def _build_server_health_context(db: Session) -> dict:
-    """Build only server health context (system metrics and thresholds)."""
+    """Build only infrastructure resource context (system metrics and thresholds)."""
     server_health = system_health_service.get_system_health()
 
     # Batch load all threshold settings in one query
@@ -455,7 +455,7 @@ def dashboard_live_stats_partial(request: Request, db: Session):
 
 
 def dashboard_server_health_partial(request: Request, db: Session):
-    """HTMX partial for server health section only."""
+    """HTMX partial for infrastructure resource section only."""
     context = web_admin_service.build_admin_context(request, db)
     context.update(_build_server_health_context(db))
     return templates.TemplateResponse(
