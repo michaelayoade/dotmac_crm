@@ -17,6 +17,7 @@ from app.schemas.subscriber import (
     SubscriberStats,
     SubscriberUpdate,
 )
+from app.services.auth_dependencies import require_permission
 from app.services.selfcare import map_customer_to_subscriber_data as map_selfcare_customer_to_subscriber_data
 from app.services.selfcare import map_customer_to_subscriber_data as map_splynx_customer_to_subscriber_data
 from app.services.subscriber import subscriber as subscriber_service
@@ -25,7 +26,11 @@ router = APIRouter(prefix="/subscribers", tags=["subscribers"])
 logger = get_logger(__name__)
 
 
-@router.get("", response_model=SubscriberListResponse)
+@router.get(
+    "",
+    response_model=SubscriberListResponse,
+    dependencies=[Depends(require_permission("subscribers:subscriber:read"))],
+)
 def list_subscribers(
     db: Session = Depends(get_db),
     search: str | None = Query(None, description="Search by number, name, or external ID"),
@@ -64,14 +69,22 @@ def list_subscribers(
     )
 
 
-@router.get("/stats", response_model=SubscriberStats)
+@router.get(
+    "/stats",
+    response_model=SubscriberStats,
+    dependencies=[Depends(require_permission("subscribers:subscriber:read"))],
+)
 def get_subscriber_stats(db: Session = Depends(get_db)):
     """Get subscriber statistics."""
     stats = subscriber_service.get_stats(db)
     return SubscriberStats(**stats)
 
 
-@router.get("/{subscriber_id}", response_model=SubscriberResponse)
+@router.get(
+    "/{subscriber_id}",
+    response_model=SubscriberResponse,
+    dependencies=[Depends(require_permission("subscribers:subscriber:read"))],
+)
 def get_subscriber(
     subscriber_id: UUID,
     db: Session = Depends(get_db),
@@ -83,7 +96,12 @@ def get_subscriber(
     return SubscriberResponse.model_validate(sub)
 
 
-@router.post("", response_model=SubscriberResponse, status_code=201)
+@router.post(
+    "",
+    response_model=SubscriberResponse,
+    status_code=201,
+    dependencies=[Depends(require_permission("subscribers:subscriber:write"))],
+)
 def create_subscriber(
     data: SubscriberCreate,
     db: Session = Depends(get_db),
@@ -93,7 +111,11 @@ def create_subscriber(
     return SubscriberResponse.model_validate(sub)
 
 
-@router.patch("/{subscriber_id}", response_model=SubscriberResponse)
+@router.patch(
+    "/{subscriber_id}",
+    response_model=SubscriberResponse,
+    dependencies=[Depends(require_permission("subscribers:subscriber:write"))],
+)
 def update_subscriber(
     subscriber_id: UUID,
     data: SubscriberUpdate,
@@ -109,7 +131,11 @@ def update_subscriber(
     return SubscriberResponse.model_validate(sub)
 
 
-@router.delete("/{subscriber_id}", status_code=204)
+@router.delete(
+    "/{subscriber_id}",
+    status_code=204,
+    dependencies=[Depends(require_permission("subscribers:subscriber:delete"))],
+)
 def delete_subscriber(
     subscriber_id: UUID,
     db: Session = Depends(get_db),
@@ -121,7 +147,11 @@ def delete_subscriber(
     subscriber_service.delete(db, sub)
 
 
-@router.post("/{subscriber_id}/link-person", response_model=SubscriberResponse)
+@router.post(
+    "/{subscriber_id}/link-person",
+    response_model=SubscriberResponse,
+    dependencies=[Depends(require_permission("subscribers:subscriber:write"))],
+)
 def link_subscriber_to_person(
     subscriber_id: UUID,
     person_id: UUID,
@@ -135,7 +165,11 @@ def link_subscriber_to_person(
     return SubscriberResponse.model_validate(sub)
 
 
-@router.post("/{subscriber_id}/link-organization", response_model=SubscriberResponse)
+@router.post(
+    "/{subscriber_id}/link-organization",
+    response_model=SubscriberResponse,
+    dependencies=[Depends(require_permission("subscribers:subscriber:write"))],
+)
 def link_subscriber_to_organization(
     subscriber_id: UUID,
     organization_id: UUID,
@@ -154,7 +188,11 @@ def link_subscriber_to_organization(
 # ============================================================================
 
 
-@router.post("/sync", response_model=dict)
+@router.post(
+    "/sync",
+    response_model=dict,
+    dependencies=[Depends(require_permission("subscribers:subscriber:write"))],
+)
 def sync_subscribers(
     data: SubscriberBulkSync,
     db: Session = Depends(get_db),
@@ -225,13 +263,20 @@ def sync_subscribers(
     }
 
 
-@router.post("/sync/webhook/{external_system}")
+@router.post(
+    "/sync/webhook/{external_system}",
+    dependencies=[Depends(require_permission("subscribers:subscriber:write"))],
+)
 def sync_webhook(
     external_system: str,
     payload: dict,
     db: Session = Depends(get_db),
 ):
     """
+    Manual/admin sync trigger for external systems (requires the subscriber write
+    permission). Unauthenticated service callers (dotmac_sub) should use the
+    HMAC-signed public webhook at POST /webhooks/crm/subscribers/sync.
+
     Webhook endpoint for real-time sync from external systems.
 
     Each external system may send different payload formats.

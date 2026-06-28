@@ -906,6 +906,16 @@ def build_beat_schedule() -> dict:
             enabled=selfcare_sync_enabled,
             interval_seconds=selfcare_sync_interval_seconds,
         )
+        # Person↔subscriber identity linking + party-status normalization. Runs on
+        # the same cadence as the sync so newly-synced subscribers get linked to
+        # people instead of only when triggered manually.
+        _sync_scheduled_task(
+            session,
+            name="subscriber_identity_reconcile",
+            task_name="app.tasks.subscribers.reconcile_subscriber_identity",
+            enabled=selfcare_sync_enabled,
+            interval_seconds=selfcare_sync_interval_seconds,
+        )
 
         # Performance scoring and review jobs
         performance_scoring_enabled = _effective_bool(
