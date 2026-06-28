@@ -48,19 +48,52 @@ class SelfcareCustomerHandler:
             logger.info("selfcare_skip_no_person project_id=%s", project_id)
             return
 
-        metadata = project.metadata_ if isinstance(project.metadata_, dict) else {}
-        sales_order_id = str(metadata.get("sales_order_id") or "").strip() or None
-        quote_id = str(metadata.get("quote_id") or "").strip() or None
+        # Provision off the request path — sync_person_to_selfcare and the invoice
+        # creation make blocking calls to the sub app, which would otherwise stall
+        # project creation. Fall back to inline only if the task can't be enqueued
+        # (e.g. broker down) so behaviour is never worse than before.
+        if _enqueue_project_provisioning(str(project.id)):
+            return
+        _provision_project(db, project, person)
 
-        sync_person_to_selfcare(
-            db,
-            person,
-            project_id=str(project.id),
-            quote_id=quote_id,
-            sales_order_id=sales_order_id,
-            mode="event",
-        )
-        _ensure_installation_invoice(db, project, person)
+
+def _enqueue_project_provisioning(project_id: str) -> bool:
+    try:
+        from app.tasks.subscribers import provision_selfcare_for_project
+
+        provision_selfcare_for_project.delay(project_id)
+        return True
+    except Exception as exc:
+        logger.warning("selfcare_provision_enqueue_failed project_id=%s error=%s — running inline", project_id, exc)
+        return False
+
+
+def _provision_project(db: Session, project: Project, person: Person) -> dict:
+    metadata = project.metadata_ if isinstance(project.metadata_, dict) else {}
+    sales_order_id = str(metadata.get("sales_order_id") or "").strip() or None
+    quote_id = str(metadata.get("quote_id") or "").strip() or None
+
+    selfcare_id = sync_person_to_selfcare(
+        db,
+        person,
+        project_id=str(project.id),
+        quote_id=quote_id,
+        sales_order_id=sales_order_id,
+        mode="event",
+    )
+    _ensure_installation_invoice(db, project, person)
+    return {"project_id": str(project.id), "person_id": str(person.id), "selfcare_id": selfcare_id}
+
+
+def provision_project_selfcare(db: Session, project_id: str) -> dict:
+    """Celery entry point: (re)load the project + person and provision selfcare."""
+    project = db.get(Project, coerce_uuid(project_id))
+    if not project:
+        return {"skipped": "project_not_found", "project_id": project_id}
+    person = _resolve_person_for_project(db, project)
+    if not person:
+        return {"skipped": "no_person", "project_id": project_id}
+    return _provision_project(db, project, person)
 
 
 def _resolve_person_for_project(db: Session, project: Project) -> Person | None:

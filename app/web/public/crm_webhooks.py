@@ -8,7 +8,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TypedDict
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
@@ -789,6 +789,58 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             status_code=500,
             content={"status": "error", "detail": "Unhandled error"},
         )
+
+
+@router.post("/subscribers/sync", status_code=status.HTTP_200_OK)
+async def subscriber_sync_webhook(request: Request, db: Session = Depends(get_db)):
+    """Inbound subscriber sync from dotmac_sub, authenticated by HMAC signature.
+
+    The raw body is signed with the shared selfcare webhook secret and sent as
+    ``X-Selfcare-Signature: sha256=<hex>``. No user login required — this is the
+    service-to-service entry point (the user-authed /api/v1/subscribers/sync/webhook
+    is for manual/admin triggering).
+    """
+    from app.models.domain_settings import SettingDomain
+    from app.services import settings_spec
+
+    trace_id = str(uuid.uuid4())
+    try:
+        body = await request.body()
+    except ClientDisconnect:
+        logger.warning("subscriber_sync_webhook_client_disconnect trace_id=%s", trace_id)
+        return Response(status_code=500)
+
+    secret = settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_customer_webhook_secret")
+    if not secret:
+        logger.warning("subscriber_sync_webhook_secret_missing trace_id=%s", trace_id)
+        return JSONResponse(status_code=503, content={"status": "error", "detail": "Webhook secret not configured"})
+
+    signature = request.headers.get("X-Selfcare-Signature")
+    if not signature:
+        return JSONResponse(status_code=401, content={"status": "error", "detail": "Signature required"})
+    expected = "sha256=" + hmac.new(str(secret).encode("utf-8"), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        logger.warning("subscriber_sync_webhook_signature_invalid trace_id=%s", trace_id)
+        return JSONResponse(status_code=401, content={"status": "error", "detail": "Invalid signature"})
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JSONResponse(status_code=400, content={"status": "error", "detail": "Invalid payload"})
+    if not isinstance(payload, dict):
+        return JSONResponse(status_code=400, content={"status": "error", "detail": "Invalid payload"})
+
+    from app.api.subscribers import _handle_selfcare_webhook
+
+    try:
+        result = _handle_selfcare_webhook(db, payload)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"status": "error", "detail": exc.detail})
+    except Exception:
+        db.rollback()
+        logger.exception("subscriber_sync_webhook_failed trace_id=%s", trace_id)
+        return JSONResponse(status_code=500, content={"status": "error", "detail": "Sync failed"})
+    return {"status": "ok", **(result if isinstance(result, dict) else {})}
 
 
 @router.post("/email", status_code=status.HTTP_200_OK)

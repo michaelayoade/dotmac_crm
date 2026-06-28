@@ -67,6 +67,33 @@ def sync_subscribers_from_selfcare() -> dict[str, Any]:
     return results
 
 
+@celery_app.task(name="app.tasks.subscribers.provision_selfcare_for_project")
+def provision_selfcare_for_project(project_id: str) -> dict[str, Any]:
+    """Provision a selfcare customer + installation invoice for a created project.
+
+    Runs the sub-app HTTP calls off the project-creation request path (enqueued
+    by the project_created event handler).
+    """
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    results: dict[str, Any] = {}
+    try:
+        from app.services.events.handlers.selfcare_customer import provision_project_selfcare
+
+        results = provision_project_selfcare(session, project_id)
+        session.commit()
+    except Exception:
+        status = "error"
+        session.rollback()
+        logger.exception("SELFCARE_PROVISION_PROJECT_ERROR project_id=%s", project_id)
+        raise
+    finally:
+        session.close()
+        observe_job("provision_selfcare_for_project", status, time.monotonic() - start)
+    return results
+
+
 @celery_app.task(name="app.tasks.subscribers.refresh_billing_risk_cache")
 def refresh_billing_risk_cache() -> dict[str, Any]:
     """Refresh cached subscriber billing-risk report rows from live provider data."""
