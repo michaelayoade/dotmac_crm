@@ -15,6 +15,7 @@ from app.services.field.map_assets import (
     list_deleted_map_assets,
     list_map_assets,
     list_nearby_map_assets,
+    revert_map_asset_location,
     update_map_asset_location,
 )
 
@@ -100,4 +101,19 @@ def update_field_map_asset_location(
         accuracy_m=payload.accuracy_m,
         client_ref=str(payload.client_ref) if payload.client_ref else None,
         force=payload.force,
+    )
+
+
+@router.post("/{asset_type}/{asset_id}/revert-location", response_model=FieldMapAsset)
+def revert_field_map_asset_location(
+    asset_type: str,
+    asset_id: str,
+    auth=Depends(require_user_auth),
+    db: Session = Depends(get_db),
+):
+    return revert_map_asset_location(
+        db,
+        asset_type=asset_type,
+        asset_id=asset_id,
+        actor_id=auth.get("person_id"),
     )

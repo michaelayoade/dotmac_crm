@@ -222,6 +222,7 @@ def update_map_asset_location(
     accuracy_m: float | None = None,
     client_ref: str | None = None,
     force: bool = False,
+    extra_metadata: dict | None = None,
 ) -> dict:
     config = ASSET_CONFIGS.get(asset_type)
     if config is None:
@@ -290,6 +291,7 @@ def update_map_asset_location(
                 "accuracy_m": accuracy_m,
                 "client_ref": client_ref,
                 "forced": bool(force),
+                **(extra_metadata or {}),
             },
         )
     )
@@ -320,3 +322,52 @@ def update_map_asset_location(
     db.commit()
     db.refresh(row)
     return _asset_payload(asset_type, config, row)
+
+
+def revert_map_asset_location(
+    db: Session,
+    *,
+    asset_type: str,
+    asset_id: str,
+    actor_id: str | None = None,
+) -> dict:
+    """Undo an asset's most recent location move, restoring the prior coordinate.
+
+    Reuses the ``from`` already captured on the last move's audit event, so a
+    mistaken pin is a one-tap undo rather than permanent corruption. Applied
+    through the normal update path (geom sync, audit, provenance) with
+    ``force`` so it bypasses the downgrade gate against the bad coordinate.
+    """
+    config = ASSET_CONFIGS.get(asset_type)
+    if config is None:
+        raise HTTPException(status_code=400, detail=f"Unsupported map asset type: {asset_type}")
+    row = db.get(config.model, asset_id)
+    if row is None or getattr(row, "is_active", True) is False:
+        raise HTTPException(status_code=404, detail="Map asset not found")
+
+    last = (
+        db.query(AuditEvent)
+        .filter(AuditEvent.action == "field:map_asset:update_location")
+        .filter(AuditEvent.entity_type == config.model.__name__)
+        .filter(AuditEvent.entity_id == str(asset_id))
+        .order_by(AuditEvent.occurred_at.desc())
+        .first()
+    )
+    if last is None or not last.metadata_:
+        raise HTTPException(status_code=404, detail="No location change to revert")
+    previous = (last.metadata_ or {}).get("from") or {}
+    prev_lat, prev_lng = previous.get("latitude"), previous.get("longitude")
+    if prev_lat is None or prev_lng is None:
+        raise HTTPException(status_code=422, detail="The previous location was empty; nothing to revert to")
+
+    return update_map_asset_location(
+        db,
+        asset_type=asset_type,
+        asset_id=asset_id,
+        latitude=prev_lat,
+        longitude=prev_lng,
+        actor_id=actor_id,
+        source="revert",
+        force=True,
+        extra_metadata={"revert_of": str(last.id)},
+    )

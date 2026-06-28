@@ -13,6 +13,7 @@ from app.services.field.map_assets import (
     list_map_assets,
     list_nearby_map_assets,
     record_map_asset_tombstone,
+    revert_map_asset_location,
     update_map_asset_location,
 )
 from app.services.network_impl import fdh_cabinets
@@ -345,6 +346,55 @@ def test_update_map_asset_location_rejects_unknown_asset(db_session):
         )
 
     assert exc.value.status_code == 400
+
+
+def test_revert_restores_previous_coordinate(db_session):
+    olt = OLTDevice(name="OLT Revert", latitude=9.1, longitude=7.4)
+    db_session.add(olt)
+    db_session.commit()
+    # A surveyed move, then a revert: revert must bypass the downgrade gate.
+    update_map_asset_location(
+        db_session, asset_type="olt", asset_id=str(olt.id), latitude=9.5, longitude=7.8, source="survey"
+    )
+
+    result = revert_map_asset_location(db_session, asset_type="olt", asset_id=str(olt.id), actor_id="tech-9")
+
+    assert result["latitude"] == 9.1
+    assert result["longitude"] == 7.4
+    db_session.refresh(olt)
+    assert olt.latitude == 9.1
+    # The revert is itself an attributable, tagged audit event.
+    revert_event = (
+        db_session.query(AuditEvent)
+        .filter(AuditEvent.action == "field:map_asset:update_location")
+        .filter(AuditEvent.entity_id == str(olt.id))
+        .order_by(AuditEvent.occurred_at.desc())
+        .first()
+    )
+    assert revert_event.metadata_["source"] == "revert"
+    assert revert_event.metadata_.get("revert_of")
+
+
+def test_revert_with_no_prior_move_is_404(db_session):
+    olt = OLTDevice(name="OLT Untouched", latitude=9.1, longitude=7.4)
+    db_session.add(olt)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        revert_map_asset_location(db_session, asset_type="olt", asset_id=str(olt.id))
+    assert exc.value.status_code == 404
+
+
+def test_revert_rejects_when_previous_was_empty(db_session):
+    olt = OLTDevice(name="OLT NoPrev", latitude=None, longitude=None)
+    db_session.add(olt)
+    db_session.commit()
+    # First-ever pin: the move's `from` is empty, so there's nothing to revert to.
+    update_map_asset_location(db_session, asset_type="olt", asset_id=str(olt.id), latitude=9.5, longitude=7.8)
+
+    with pytest.raises(HTTPException) as exc:
+        revert_map_asset_location(db_session, asset_type="olt", asset_id=str(olt.id))
+    assert exc.value.status_code == 422
 
 
 # ---------------------------------------------------------------------------
