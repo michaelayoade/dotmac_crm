@@ -31,7 +31,7 @@ def get_visit_state(token: str, db: Session = Depends(get_db)) -> dict:
     """Current visit state: status, ETA, timeline, technician, destination, live position."""
     token_row = _load_token_or_error(db, token)
     tracking_service.tokens.mark_accessed(db, token_row)
-    return {"available": True, **tracking_service.public_state(db, token_row.work_order)}
+    return {"available": True, **tracking_service.public_state(db, token_row.work_order, geocode=False)}
 
 
 @router.post("/{token}/confirm")
