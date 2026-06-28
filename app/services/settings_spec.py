@@ -1055,6 +1055,13 @@ SETTINGS_SPECS: list[SettingSpec] = [
         default="primary",
         allowed={"primary", "billing", "technical", "support"},
     ),
+    SettingSpec(
+        domain=SettingDomain.subscriber,
+        key="lead_dedup_enabled",
+        env_var="LEAD_DEDUP_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=True,
+    ),
     # --- Referral program ---
     SettingSpec(
         domain=SettingDomain.subscriber,

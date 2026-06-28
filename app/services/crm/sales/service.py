@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -253,6 +254,38 @@ def _infer_lead_source(db: Session, person: Person | None, metadata: dict | None
         if inferred:
             return inferred
     return None
+
+
+_logger = logging.getLogger(__name__)
+
+# Lead statuses that count as an "open" deal (not yet won/lost).
+_OPEN_LEAD_STATUSES = (
+    LeadStatus.new,
+    LeadStatus.contacted,
+    LeadStatus.qualified,
+    LeadStatus.proposal,
+    LeadStatus.negotiation,
+)
+
+
+def _lead_dedup_enabled(db: Session) -> bool:
+    value = settings_spec.resolve_value(db, SettingDomain.subscriber, "lead_dedup_enabled", use_cache=False)
+    if value is None:
+        return True  # default on: one open lead per person
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _find_open_duplicate_lead(db: Session, person_id, *, pipeline_id=None) -> Lead | None:
+    """The person's most recent open lead (optionally scoped to a pipeline)."""
+    query = (
+        db.query(Lead)
+        .filter(Lead.person_id == person_id)
+        .filter(Lead.is_active.is_(True))
+        .filter(Lead.status.in_(_OPEN_LEAD_STATUSES))
+    )
+    if pipeline_id:
+        query = query.filter(Lead.pipeline_id == pipeline_id)
+    return query.order_by(Lead.created_at.desc()).first()
 
 
 def _apply_lead_closed_at(
@@ -600,6 +633,22 @@ class Leads(ListResponseMixin):
         person = db.get(Person, person_id)
         if not person:
             raise HTTPException(status_code=404, detail="Person not found")
+
+        # Dedup: a person shouldn't have two open leads. If one exists, return it
+        # (idempotent) instead of creating a duplicate pipeline entry. Scoped to
+        # the requested pipeline when one is given.
+        if _lead_dedup_enabled(db):
+            duplicate = _find_open_duplicate_lead(db, person_id, pipeline_id=data.get("pipeline_id"))
+            if duplicate is not None:
+                metadata = dict(duplicate.metadata_ or {})
+                metadata["dedup_hits"] = int(metadata.get("dedup_hits") or 0) + 1
+                duplicate.metadata_ = metadata
+                db.commit()
+                db.refresh(duplicate)
+                _logger.info(
+                    "lead_dedup_returned_existing person_id=%s lead_id=%s", person_id, duplicate.id
+                )
+                return duplicate
 
         # Auto-upgrade person to at least 'contact' status if they're a lead
         if person.party_status == PartyStatus.lead:
