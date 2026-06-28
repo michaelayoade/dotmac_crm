@@ -51,6 +51,11 @@
     or 'system:settings' in user_permissions
     or 'system' in user_permissions
 %}
+{% set can_monitoring = is_admin
+    or 'system:monitoring:read' in user_permissions
+    or 'system:settings:read' in user_permissions
+    or 'system:read' in user_permissions
+%}
 {% set can_audit = is_admin or 'audit:read' in user_permissions %}
 
 {% set can_create_work_order = is_admin
@@ -327,6 +332,36 @@
     </div>
 
     <div id="dashboard-failed-outbox-panel" class="animate-fade-in-up" style="animation-delay: 0.16s"></div>
+
+    {% if can_monitoring %}
+    <section class="rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800 animate-fade-in-up" style="animation-delay: 0.18s">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Infrastructure Alerts</h3>
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Application services, workers, queues, database, cache, replication, and integrations</p>
+            </div>
+            <a href="/admin/system/health" class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">Open Health</a>
+        </div>
+        <div class="mt-4 grid gap-3 sm:grid-cols-4">
+            <a href="/admin/system/health/alerts?status=open" class="rounded-xl border border-slate-200 px-4 py-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/40">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Open</p>
+                <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ infrastructure_alerts.open | default(0) }}</p>
+            </a>
+            <a href="/admin/system/health/alerts?status=open&severity=critical" class="rounded-xl border border-red-200 px-4 py-3 hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-900/20">
+                <p class="text-xs font-semibold uppercase tracking-wide text-red-600 dark:text-red-300">Critical</p>
+                <p class="mt-1 text-2xl font-bold text-red-700 dark:text-red-300">{{ infrastructure_alerts.critical | default(0) }}</p>
+            </a>
+            <a href="/admin/system/health/alerts?status=open&severity=warning" class="rounded-xl border border-amber-200 px-4 py-3 hover:bg-amber-50 dark:border-amber-900/50 dark:hover:bg-amber-900/20">
+                <p class="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-300">Warning</p>
+                <p class="mt-1 text-2xl font-bold text-amber-700 dark:text-amber-300">{{ infrastructure_alerts.warning | default(0) }}</p>
+            </a>
+            <a href="/admin/system/health/alerts?status=open&severity=info" class="rounded-xl border border-sky-200 px-4 py-3 hover:bg-sky-50 dark:border-sky-900/50 dark:hover:bg-sky-900/20">
+                <p class="text-xs font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-300">Info</p>
+                <p class="mt-1 text-2xl font-bold text-sky-700 dark:text-sky-300">{{ infrastructure_alerts.info | default(0) }}</p>
+            </a>
+        </div>
+    </section>
+    {% endif %}
 
     <!-- ═══════════════════════════════════════════
          SERVER HEALTH (HTMX lazy-loaded)

@@ -121,6 +121,12 @@ from app.models.gis import (  # noqa: F401
     GeoLocationType,
     ServiceBuilding,
 )
+from app.models.infrastructure import (  # noqa: F401
+    InfrastructureAlert,
+    InfrastructureAlertCategory,
+    InfrastructureAlertSeverity,
+    InfrastructureAlertStatus,
+)
 from app.models.integration import (  # noqa: F401
     IntegrationJob,
     IntegrationJobType,

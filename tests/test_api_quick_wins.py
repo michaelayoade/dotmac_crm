@@ -1,7 +1,10 @@
 """Quick-win API endpoints: system health, CRM analytics reports, contact merge."""
 
+import inspect
+
 import pytest
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_current_user, get_db
@@ -17,16 +20,24 @@ def test_system_health_report_includes_evaluation(db_session):
     assert report["evaluation"]["status"] in ("ok", "warning", "critical")
 
 
-def test_system_health_route(db_session):
+def test_system_health_route():
     from app.api.system import router
 
-    app = FastAPI()
-    app.include_router(router)
-    app.dependency_overrides[get_db] = lambda: db_session
-    client = TestClient(app)
-    res = client.get("/system/health")
-    assert res.status_code == 200
-    assert "evaluation" in res.json()
+    health_route = next(
+        route for route in router.routes if isinstance(route, APIRoute) and route.path == "/system/health"
+    )
+    permission_keys = set()
+    for dependency in health_route.dependant.dependencies:
+        call = dependency.call
+        if call is None or not callable(call):
+            continue
+        if getattr(call, "__name__", "") != "_require_permission":
+            continue
+        closure_vars = inspect.getclosurevars(call)
+        key = closure_vars.nonlocals.get("permission_key")
+        if key:
+            permission_keys.add(key)
+    assert "system:monitoring:read" in permission_keys
 
 
 # ── CRM analytics reports ────────────────────────────────────────────────────

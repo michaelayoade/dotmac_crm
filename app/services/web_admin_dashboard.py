@@ -24,6 +24,9 @@ from app.services import (
     audit as audit_service,
 )
 from app.services import (
+    infrastructure_health as infrastructure_health_service,
+)
+from app.services import (
     settings_spec,
 )
 from app.services import (
@@ -394,6 +397,7 @@ def _build_dashboard_context(db: Session) -> dict:
     context.update(_build_stats_context(db))
     context["now"] = datetime.now()
     context["alarms"] = []
+    context["infrastructure_alerts"] = infrastructure_health_service.alert_summary(db)
     return context
 
 

@@ -1,0 +1,90 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header %}
+
+{% block title %}Infrastructure Alerts - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {{ page_header("Infrastructure Alerts", "Persistent infrastructure issues with deduplication and automatic resolution", color="indigo", color2="violet") }}
+
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-800">
+        <form method="get" class="grid gap-4 md:grid-cols-5 md:items-end">
+            <label class="block">
+                <span class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Category</span>
+                <select name="category" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                    <option value="">All</option>
+                    {% for item in categories %}
+                    <option value="{{ item }}" {% if category == item %}selected{% endif %}>{{ item | replace('_', ' ') | title }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="block">
+                <span class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Severity</span>
+                <select name="severity" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                    <option value="">All</option>
+                    {% for item in severities %}
+                    <option value="{{ item }}" {% if severity == item %}selected{% endif %}>{{ item | title }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="block">
+                <span class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</span>
+                <select name="status" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                    <option value="">All</option>
+                    {% for item in statuses %}
+                    <option value="{{ item }}" {% if status == item %}selected{% endif %}>{{ item | title }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="block">
+                <span class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Period</span>
+                <select name="period_days" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-white">
+                    {% for days in [1, 7, 30, 90, 180, 365] %}
+                    <option value="{{ days }}" {% if period_days == days %}selected{% endif %}>{{ days }} days</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <div class="flex gap-2">
+                <a href="/admin/system/health/alerts" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">Reset</a>
+                <button type="submit" class="inline-flex items-center rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">Apply</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-900/40">
+                    <tr>
+                        <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Alert</th>
+                        <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Category</th>
+                        <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Severity</th>
+                        <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</th>
+                        <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Seen</th>
+                        <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Count</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+                    {% for alert in alerts %}
+                    <tr>
+                        <td class="px-5 py-4">
+                            <p class="text-sm font-semibold text-slate-900 dark:text-white">{{ alert.summary }}</p>
+                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ alert.component }} · {{ alert.fingerprint }}</p>
+                        </td>
+                        <td class="px-5 py-4 text-sm text-slate-700 dark:text-slate-300">{{ alert.category.value | replace('_', ' ') | title }}</td>
+                        <td class="px-5 py-4"><span class="rounded-full px-2 py-1 text-xs font-semibold {% if alert.severity.value == 'critical' %}bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300{% elif alert.severity.value == 'warning' %}bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300{% else %}bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300{% endif %}">{{ alert.severity.value | title }}</span></td>
+                        <td class="px-5 py-4 text-sm text-slate-700 dark:text-slate-300">{{ alert.status.value | title }}</td>
+                        <td class="px-5 py-4 text-sm text-slate-500 dark:text-slate-400">{{ alert.last_seen_at.strftime('%b %d, %H:%M') if alert.last_seen_at else '' }}</td>
+                        <td class="px-5 py-4 text-sm text-slate-700 dark:text-slate-300">{{ alert.occurrence_count }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="px-5 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No infrastructure alerts match these filters.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+{% endblock %}

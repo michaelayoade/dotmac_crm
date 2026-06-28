@@ -1,0 +1,102 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header %}
+
+{% block title %}Infrastructure Health - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    {% set overall = dashboard.overall %}
+    {% set header_actions %}
+    <div class="flex items-center gap-3">
+        <a href="/admin/system/health/alerts?status=open" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">Alerts</a>
+        <span class="inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold
+            {% if overall == 'critical' %}bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300
+            {% elif overall == 'warning' %}bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300
+            {% else %}bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300{% endif %}">
+            <span class="h-2 w-2 rounded-full {% if overall == 'critical' %}bg-red-500{% elif overall == 'warning' %}bg-amber-500{% else %}bg-emerald-500{% endif %}"></span>
+            {{ overall | title }}
+        </span>
+    </div>
+    {% endset %}
+    {{ page_header("Infrastructure Health", "Application services, workers, queues, database, cache, replication, and external monitoring", color="indigo", color2="violet", actions=header_actions) }}
+
+    <section class="grid gap-4 md:grid-cols-4">
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Open Alerts</p>
+            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ dashboard.open_alert_count }}</p>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Checks</p>
+            <p class="mt-2 text-3xl font-bold text-slate-900 dark:text-white">{{ dashboard.results | length }}</p>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Checked</p>
+            <p class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">{{ dashboard.generated_at.strftime('%H:%M:%S') }}</p>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</p>
+            <p class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">{{ overall | title }}</p>
+        </div>
+    </section>
+
+    <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+        <div class="border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+            <h2 class="text-base font-semibold text-slate-900 dark:text-white">Current State</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-900/40">
+                    <tr>
+                        <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Category</th>
+                        <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Component</th>
+                        <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</th>
+                        <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Severity</th>
+                        <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Summary</th>
+                        <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Activity</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+                    {% for item in dashboard.results %}
+                    <tr>
+                        <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ item.category.value | replace('_', ' ') | title }}</td>
+                        <td class="px-5 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ item.component }}</td>
+                        <td class="px-5 py-3">
+                            <span class="inline-flex rounded-full px-2 py-1 text-xs font-semibold {% if item.status == 'unhealthy' %}bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300{% elif item.status == 'degraded' %}bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300{% elif item.status == 'unknown' %}bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200{% else %}bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300{% endif %}">
+                                {{ item.status | replace('_', ' ') | title }}
+                            </span>
+                        </td>
+                        <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ item.severity.value | title }}</td>
+                        <td class="px-5 py-3 text-sm text-slate-700 dark:text-slate-300">{{ item.summary }}</td>
+                        <td class="px-5 py-3 text-sm text-slate-500 dark:text-slate-400">{{ item.last_activity_at.strftime('%b %d, %H:%M') if item.last_activity_at else 'Now' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-800">
+        <div class="mb-4 flex items-center justify-between gap-3">
+            <h2 class="text-base font-semibold text-slate-900 dark:text-white">Open Infrastructure Alerts</h2>
+            <a href="/admin/system/health/alerts?status=open" class="text-sm font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400">View all</a>
+        </div>
+        {% if dashboard.open_alerts %}
+        <div class="space-y-3">
+            {% for alert in dashboard.open_alerts %}
+            <a href="{{ alert.target_url or '/admin/system/health/alerts?status=open' }}" class="block rounded-xl border border-slate-200 px-4 py-3 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-700/40">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-900 dark:text-white">{{ alert.summary }}</p>
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ alert.category.value | replace('_', ' ') | title }} · {{ alert.component }}</p>
+                    </div>
+                    <span class="rounded-full px-2 py-1 text-xs font-semibold {% if alert.severity.value == 'critical' %}bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300{% elif alert.severity.value == 'warning' %}bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300{% else %}bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300{% endif %}">{{ alert.severity.value | title }}</span>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-sm text-slate-500 dark:text-slate-400">No open infrastructure alerts.</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}
