@@ -359,6 +359,22 @@ def _prepare_quote_ownership(db: Session, data: dict, *, existing: Quote | None 
         data["sent_at"] = datetime.now(UTC)
 
 
+def _line_amount(quantity, unit_price, discount_percent) -> Decimal:
+    """Net line amount: quantity * unit_price, less the line discount percent."""
+    qty = Decimal(quantity or 0)
+    price = Decimal(unit_price or 0)
+    discount = Decimal(discount_percent or 0)
+    if discount < 0:
+        discount = Decimal("0")
+    if discount > 100:
+        discount = Decimal("100")
+    gross = qty * price
+    net = gross * (Decimal("100") - discount) / Decimal("100")
+    if net < 0:
+        net = Decimal("0")
+    return net.quantize(Decimal("0.01"))
+
+
 def _recalculate_quote_totals(db: Session, quote: Quote) -> None:
     items = db.query(CrmQuoteLineItem).filter(CrmQuoteLineItem.quote_id == quote.id).all()
     # Subtotal is the sum of net (discounted) line amounts.
@@ -1063,8 +1079,10 @@ class CrmQuoteLineItems(ListResponseMixin):
         data = payload.model_dump()
         if data.get("inventory_item_id") and not db.get(InventoryItem, data["inventory_item_id"]):
             raise HTTPException(status_code=404, detail="Inventory item not found")
-        if not data.get("amount"):
-            data["amount"] = Decimal(data.get("quantity") or 0) * Decimal(data.get("unit_price") or 0)
+        # Always derive amount server-side (net of any line discount).
+        data["amount"] = _line_amount(
+            data.get("quantity"), data.get("unit_price"), data.get("discount_percent")
+        )
         item = CrmQuoteLineItem(**data)
         db.add(item)
         db.commit()
@@ -1082,8 +1100,8 @@ class CrmQuoteLineItems(ListResponseMixin):
             raise HTTPException(status_code=404, detail="Inventory item not found")
         for key, value in data.items():
             setattr(item, key, value)
-        if "quantity" in data or "unit_price" in data:
-            item.amount = Decimal(item.quantity or 0) * Decimal(item.unit_price or 0)
+        if {"quantity", "unit_price", "discount_percent"} & set(data):
+            item.amount = _line_amount(item.quantity, item.unit_price, item.discount_percent)
         db.commit()
         db.refresh(item)
         quote = db.get(Quote, item.quote_id)

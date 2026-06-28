@@ -177,6 +177,8 @@ class CrmQuoteLineItem(Base):
     description: Mapped[str] = mapped_column(String(255), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), default=Decimal("1.000"))
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    # Line discount percent (0-100); amount is net of discount.
+    discount_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"), nullable=False)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
 
