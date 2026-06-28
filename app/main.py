@@ -64,6 +64,7 @@ from app.api.persons import router as people_router
 from app.api.projects import router as projects_router
 from app.api.qualification import router as qualification_router
 from app.api.rbac import router as rbac_router
+from app.api.reseller_portal import router as reseller_portal_router
 from app.api.sales import router as sales_router
 from app.api.sales_orders import router as sales_orders_router
 from app.api.scheduler import router as scheduler_router
@@ -71,6 +72,7 @@ from app.api.search import router as search_router
 from app.api.service_teams import router as service_teams_router
 from app.api.settings import router as settings_router
 from app.api.subscribers import router as subscribers_router
+from app.api.surveys import router as surveys_api_router
 from app.api.system import router as system_router
 from app.api.tickets import router as tickets_router
 from app.api.timecost import router as timecost_router
@@ -475,6 +477,7 @@ app.include_router(vendor_auth_router, prefix="/api/v1")
 # Mobile app config (public: serves the force-upgrade gate before auth).
 app.include_router(field_config_router, prefix="/api/v1")
 _include_api_router(rbac_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(reseller_portal_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(people_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(customers_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(search_router, dependencies=[Depends(require_user_auth)])
@@ -512,6 +515,8 @@ _include_api_router(data_quality_router, dependencies=[Depends(require_user_auth
 _include_api_router(system_router, dependencies=[Depends(require_user_auth)])
 # Chat widget public endpoints - no auth required (visitor token-based)
 _include_api_router(widget_public_router)
+# Public surveys JSON API — anonymous slug / tokenized invitation; /api/v1 only.
+app.include_router(surveys_api_router, prefix="/api/v1")
 # Track My Visit public JSON API — visit-token authorized, no user login.
 # /api/v1 only: the web /track/{token} HTML route owns the root path.
 app.include_router(track_api_router, prefix="/api/v1")
