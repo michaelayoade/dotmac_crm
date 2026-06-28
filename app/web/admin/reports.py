@@ -2725,7 +2725,7 @@ def subscriber_billing_risk(
         segment=segment,
         segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
-        source="splynx_live",
+        source="selfcare_live",
         limit=500,
         enrich_visible_rows=False,
     )
@@ -2953,7 +2953,7 @@ def subscriber_billing_risk_export(
         segment=segment,
         segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
-        source="splynx_live",
+        source="selfcare_live",
         limit=2000,
     )
     selected_labels = _segment_labels(selected_segments)

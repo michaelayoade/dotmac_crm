@@ -57,7 +57,7 @@
     </div>
     {% endif %}
 
-    {# ── Integration: Splynx Test ── #}
+    {# ── Integration: dotmac_sub Test ── #}
     {% if domain == "integration" %}
     <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800 space-y-4" style="animation-delay: 150ms">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -66,18 +66,18 @@
                     <svg class="h-5 w-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                 </div>
                 <div>
-                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Splynx Connection Test</h2>
-                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Verify API credentials can authenticate to Splynx.</p>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">dotmac_sub Connection Test</h2>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Verify API credentials can authenticate to dotmac_sub.</p>
                 </div>
             </div>
-            <form method="POST" action="/admin/system/settings/integration/splynx-test">
+            <form method="POST" action="/admin/system/settings/integration/selfcare-test">
                 {% include "components/forms/csrf_input.html" %}
-                {{ submit_button("Test Splynx Connection", loading_label="Testing...") }}
+                {{ submit_button("Test dotmac_sub Connection", loading_label="Testing...") }}
             </form>
         </div>
-        {% if splynx_test_result %}
-        <div class="rounded-xl border p-3 text-sm {% if splynx_test_result.ok %}border-emerald-200/60 bg-emerald-50 text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:text-emerald-400{% else %}border-red-200/60 bg-red-50 text-red-700 dark:border-red-800/60 dark:bg-red-900/20 dark:text-red-400{% endif %}">
-            {{ splynx_test_result.message }}
+        {% if selfcare_test_result %}
+        <div class="rounded-xl border p-3 text-sm {% if selfcare_test_result.ok %}border-emerald-200/60 bg-emerald-50 text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:text-emerald-400{% else %}border-red-200/60 bg-red-50 text-red-700 dark:border-red-800/60 dark:bg-red-900/20 dark:text-red-400{% endif %}">
+            {{ selfcare_test_result.message }}
         </div>
         {% endif %}
     </div>

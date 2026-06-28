@@ -300,3 +300,65 @@ def test_retention_writeback_deactivates_suspended_status(db_session, monkeypatc
     assert subscriber.terminated_at.replace(tzinfo=UTC) <= datetime.now(UTC)
     assert subscriber.sync_metadata["splynx_id"] == "legacy"
     assert subscriber.sync_metadata["retention_selfcare_deactivation"]["status"] == "success"
+
+
+def _enable_selfcare(monkeypatch):
+    monkeypatch.setattr(
+        selfcare.settings_spec,
+        "resolve_value",
+        _settings_resolver(
+            {
+                "selfcare_customer_sync_enabled": True,
+                "selfcare_base_url": "https://selfcare.example.test",
+                "selfcare_api_token": "token-123",
+                "selfcare_timeout_seconds": 15,
+            }
+        ),
+    )
+
+
+def test_create_installation_invoice_posts_to_crm_invoices(db_session, monkeypatch):
+    _enable_selfcare(monkeypatch)
+    calls = []
+
+    def _request(method, url, headers, params, json, timeout):
+        calls.append({"method": method, "url": url, "json": json})
+        return _Response(201, {"data": {"id": "inv-9", "total": "25000.00", "status": "issued"}})
+
+    monkeypatch.setattr("requests.request", _request)
+
+    invoice_id = selfcare.create_installation_invoice(
+        db_session,
+        subscriber_id="sub-uuid-1",
+        amount="25000.00",
+        description="Installation cost",
+        external_ref="project:abc",
+    )
+
+    assert invoice_id == "inv-9"
+    assert calls[0]["method"] == "POST"
+    assert calls[0]["url"] == "https://selfcare.example.test/api/v1/crm/invoices"
+    assert calls[0]["json"] == {
+        "subscriber_id": "sub-uuid-1",
+        "amount": "25000.00",
+        "description": "Installation cost",
+        "external_ref": "project:abc",
+        "currency": "NGN",
+    }
+
+
+def test_create_installation_invoice_skips_non_positive_amount(db_session, monkeypatch):
+    _enable_selfcare(monkeypatch)
+    called = []
+    monkeypatch.setattr("requests.request", lambda *a, **k: called.append(1) or _Response(201, {"data": {}}))
+
+    assert selfcare.create_installation_invoice(db_session, subscriber_id="s1", amount="0") is None
+    assert selfcare.create_installation_invoice(db_session, subscriber_id="s1", amount="not-a-number") is None
+    assert called == []  # never hit the network for invalid amounts
+
+
+def test_create_installation_invoice_returns_none_on_provider_error(db_session, monkeypatch):
+    _enable_selfcare(monkeypatch)
+    monkeypatch.setattr("requests.request", lambda *a, **k: _Response(502, {}, text="bad gateway"))
+
+    assert selfcare.create_installation_invoice(db_session, subscriber_id="s1", amount="100") is None

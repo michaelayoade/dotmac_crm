@@ -65,6 +65,10 @@ EVENT_TYPE_TO_WEBHOOK = {
     EventType.ticket_created: WebhookEventType.ticket_created,
     EventType.ticket_escalated: WebhookEventType.ticket_escalated,
     EventType.ticket_resolved: WebhookEventType.ticket_resolved,
+    # Work-order (field-visit) lifecycle events
+    EventType.work_order_dispatched: WebhookEventType.work_order_dispatched,
+    EventType.work_order_completed: WebhookEventType.work_order_completed,
+    EventType.work_order_canceled: WebhookEventType.work_order_canceled,
     # CRM message events
     EventType.message_outbound: WebhookEventType.message_outbound,
     # Custom

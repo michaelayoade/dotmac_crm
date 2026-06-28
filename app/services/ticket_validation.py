@@ -51,7 +51,7 @@ _BASE_STATION_REQUIRED_TICKET_TYPES = {
     "multiple cabinet disconnection",
     "multiple customer link disconnection",
     "nextcloud service down",
-    "splynx server issue",
+    "subscriber-system issue",
     "access point outage",
     "multiple cabinet link disconnection",
     "bts outage",

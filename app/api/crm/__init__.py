@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.crm.campaigns import router as campaigns_router
 from app.api.crm.contacts import router as contacts_router
 from app.api.crm.conversations import router as conversations_router
 from app.api.crm.inbox import router as inbox_router
@@ -19,6 +20,7 @@ router.include_router(teams_router)
 router.include_router(inbox_router)
 router.include_router(sales_router)
 router.include_router(reports_router)
+router.include_router(campaigns_router)
 router.include_router(referrals_router)
 
 __all__ = ["router"]

@@ -46,6 +46,16 @@ poetry run pytest tests/ -x -q
 ### Never reference removed domains
 These no longer exist: billing, catalog, NAS/RADIUS, usage, collections, SNMP.
 
+### Subscriber/billing platform: dotmac_sub (not Splynx)
+**Splynx is decommissioned.** The subscriber-management + billing system is now
+the **dotmac_sub** app, reached via the `app/services/selfcare.py` client (the
+dotmac_sub `/api/v1/crm/*` bearer API + a signed customer-create webhook).
+- Customer create/lookup/billing/uptime/status: use `selfcare`, never a `splynx` module (it was deleted).
+- Installation invoices: `selfcare.create_installation_invoice()` → dotmac_sub `POST /crm/invoices`.
+- The active event handler is `events/handlers/selfcare_customer.py` (`SelfcareCustomerHandler`).
+- Identity: `person.selfcare_id` (legacy `person.splynx_id` is a deprecated read-alias).
+- Settings live under the `integration` domain as `selfcare_*` (base_url, api_token, customer webhook).
+
 ## Common Utilities (`app/services/common.py`)
 | Function | Purpose |
 |----------|---------|

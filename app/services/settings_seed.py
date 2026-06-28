@@ -1136,13 +1136,6 @@ def seed_integration_settings(db: Session) -> None:
     )
     integration_settings.ensure_by_key(
         db,
-        key="splynx_customer_sync_enabled",
-        value_type=SettingValueType.boolean,
-        value_text=os.getenv("SPLYNX_CUSTOMER_SYNC_ENABLED", "false"),
-        value_json=os.getenv("SPLYNX_CUSTOMER_SYNC_ENABLED", "false").lower() in {"1", "true", "yes", "on"},
-    )
-    integration_settings.ensure_by_key(
-        db,
         key="selfcare_customer_sync_enabled",
         value_type=SettingValueType.boolean,
         value_text=os.getenv("SELFCARE_CUSTOMER_SYNC_ENABLED", "false"),
@@ -1192,56 +1185,6 @@ def seed_integration_settings(db: Session) -> None:
         key="selfcare_subscriber_sync_interval_hours",
         value_type=SettingValueType.integer,
         value_text=os.getenv("SELFCARE_SUBSCRIBER_SYNC_INTERVAL_HOURS", "24"),
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_auth_type",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_AUTH_TYPE", "basic"),
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_base_url",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_BASE_URL", ""),
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_customer_url",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_CUSTOMER_URL", ""),
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_invoice_url",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_INVOICE_URL", ""),
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_monitoring_url",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_MONITORING_URL", ""),
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_basic_auth_token",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_BASIC_AUTH_TOKEN", ""),
-        is_secret=True,
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_monitoring_basic_auth_token",
-        value_type=SettingValueType.string,
-        value_text=os.getenv("SPLYNX_MONITORING_BASIC_AUTH_TOKEN", ""),
-        is_secret=True,
-    )
-    integration_settings.ensure_by_key(
-        db,
-        key="splynx_timeout_seconds",
-        value_type=SettingValueType.integer,
-        value_text=os.getenv("SPLYNX_TIMEOUT_SECONDS", "30"),
     )
     integration_settings.ensure_by_key(
         db,
