@@ -38,6 +38,7 @@ from app.api.bandwidth import router as bandwidth_router
 from app.api.comms import router as comms_router
 from app.api.connectors import router as connectors_router
 from app.api.crm import router as crm_router
+from app.api.crm.referrals import public_router as referral_public_router
 from app.api.crm.widget_internal import router as widget_internal_router
 from app.api.crm.widget_public import router as widget_public_router
 from app.api.customers import router as customers_router
@@ -46,6 +47,7 @@ from app.api.defaults import router as defaults_router
 from app.api.deps import require_role, require_user_auth
 from app.api.dispatch import router as dispatch_router
 from app.api.external import router as external_router
+from app.api.fiber_change_requests import router as fiber_change_requests_router
 from app.api.fiber_plant import router as fiber_plant_router
 from app.api.field import router as field_router
 from app.api.field.config import router as field_config_router
@@ -68,6 +70,7 @@ from app.api.search import router as search_router
 from app.api.service_teams import router as service_teams_router
 from app.api.settings import router as settings_router
 from app.api.subscribers import router as subscribers_router
+from app.api.system import router as system_router
 from app.api.tickets import router as tickets_router
 from app.api.timecost import router as timecost_router
 from app.api.validation import router as validation_router
@@ -455,6 +458,7 @@ def _include_api_router(router, dependencies=None):
 
 
 _include_api_router(notifications_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(fiber_change_requests_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(tickets_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(projects_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(workforce_router, dependencies=[Depends(require_user_auth)])
@@ -502,8 +506,11 @@ _include_api_router(subscribers_router, dependencies=[Depends(require_user_auth)
 _include_api_router(performance_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(ai_router, dependencies=[Depends(require_user_auth)])
 _include_api_router(data_quality_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(system_router, dependencies=[Depends(require_user_auth)])
 # Chat widget public endpoints - no auth required (visitor token-based)
 _include_api_router(widget_public_router)
+# Public referral capture - no auth (a prospect using a shared referral link)
+_include_api_router(referral_public_router)
 # Trusted server-to-server chat session mint (authenticated backend asserts identity).
 _include_api_router(widget_internal_router, dependencies=[Depends(require_user_auth)])
 app.include_router(vendors_router, prefix="/api", dependencies=[Depends(require_user_auth)])

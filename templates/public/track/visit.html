@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Track your visit · {{ branding.company_name | default('Service', true) }}</title>
+  <link rel="stylesheet" href="/static/css/main.css">
+  <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+</head>
+<body class="h-full bg-slate-100 dark:bg-slate-900 text-slate-900 dark:text-white font-body">
+  <div class="min-h-full flex flex-col">
+    <header class="border-b border-slate-200/70 dark:border-slate-700/60 bg-white dark:bg-slate-800">
+      <div class="mx-auto max-w-2xl px-4 sm:px-6">
+        <div class="flex h-14 items-center gap-2">
+          <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-500/10 text-cyan-600 dark:text-cyan-300" aria-hidden="true">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21c4.97-4.243 7-7.243 7-10a7 7 0 10-14 0c0 2.757 2.03 5.757 7 10z"/><circle cx="12" cy="11" r="2.5"/></svg>
+          </span>
+          <span class="text-lg font-display font-semibold">{{ branding.company_name | default('Service', true) }}</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="flex-1 py-6 sm:py-10">
+      <div class="mx-auto max-w-2xl px-4 sm:px-6 space-y-5">
+
+        {# ── Flash notices (from POST redirects) ── #}
+        {% set q = request.query_params %}
+        {% if q.get('confirmed') %}
+          <div class="rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-400/30 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">Thanks — your appointment is confirmed.</div>
+        {% elif q.get('reschedule') == '1' %}
+          <div class="rounded-xl bg-cyan-50 dark:bg-cyan-500/10 border border-cyan-200 dark:border-cyan-400/30 px-4 py-3 text-sm text-cyan-800 dark:text-cyan-200">Got it — we've sent your reschedule request to our team.</div>
+        {% elif q.get('reschedule') == 'pending' %}
+          <div class="rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-400/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">You already have a reschedule request pending — our team will be in touch.</div>
+        {% elif q.get('reschedule') == 'complete' or q.get('error') == 'closed' %}
+          <div class="rounded-xl bg-slate-100 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600 px-4 py-3 text-sm text-slate-700 dark:text-slate-200">This visit is already closed — there's nothing left to update here.</div>
+        {% elif q.get('error') == 'csrf' %}
+          <div class="rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-400/30 px-4 py-3 text-sm text-rose-800 dark:text-rose-200">Something went wrong — please refresh and try again.</div>
+        {% endif %}
+
+        {# ── Headline / ETA ── #}
+        <div class="rounded-2xl bg-white dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700/60 p-5 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Your service visit</p>
+          <h1 id="track-headline" class="mt-1 font-display text-2xl font-bold">We're getting ready</h1>
+          <p id="track-eta" class="mt-1 text-sm text-slate-600 dark:text-slate-300"></p>
+          <p id="track-updated" class="mt-2 text-xs text-slate-400" aria-live="polite"></p>
+        </div>
+
+        {# ── Map ── #}
+        <div class="rounded-2xl bg-white dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700/60 overflow-hidden shadow-sm">
+          <div id="track-map" class="h-64 w-full bg-slate-100 dark:bg-slate-900"></div>
+          <div id="track-map-fallback" class="hidden px-5 py-4 text-sm text-slate-600 dark:text-slate-300"></div>
+        </div>
+
+        {# ── Timeline ── #}
+        <div class="rounded-2xl bg-white dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700/60 p-5 shadow-sm">
+          <h2 class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-3">Progress</h2>
+          <ol id="track-timeline" class="space-y-0"></ol>
+        </div>
+
+        {# ── Actions ── #}
+        {% set visit_closed = state.status in ['completed', 'canceled'] %}
+        {% set reschedule_blocked = state.reschedule_pending or state.status == 'completed' %}
+        <div id="track-actions" class="rounded-2xl bg-white dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700/60 p-5 shadow-sm space-y-4">
+          <form method="POST" action="/track/{{ token }}/confirm">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            <button type="submit"
+              class="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 transition focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:opacity-50"
+              {% if state.customer_confirmed or visit_closed %}disabled{% endif %}>
+              {% if state.customer_confirmed %}Appointment confirmed{% elif visit_closed %}Visit closed{% else %}Confirm I'll be there{% endif %}
+            </button>
+          </form>
+
+          <details class="group" {% if state.reschedule_pending %}open{% endif %}>
+            <summary class="cursor-pointer text-sm font-medium text-cyan-700 dark:text-cyan-300 select-none">Need a different time?</summary>
+            <form method="POST" action="/track/{{ token }}/reschedule" class="mt-3 space-y-3">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+              <label class="block">
+                <span class="text-xs font-semibold text-slate-500 dark:text-slate-400">Preferred time (optional)</span>
+                <input type="text" name="preferred_window" maxlength="120" placeholder="e.g. Thursday afternoon"
+                  class="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-700/50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+                  {% if reschedule_blocked %}disabled{% endif %}>
+              </label>
+              <label class="block">
+                <span class="text-xs font-semibold text-slate-500 dark:text-slate-400">Anything else? (optional)</span>
+                <textarea name="note" maxlength="500" rows="2"
+                  class="mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-700/50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
+                  {% if reschedule_blocked %}disabled{% endif %}></textarea>
+              </label>
+              <button type="submit"
+                class="w-full rounded-xl border border-cyan-600 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-500/10 font-semibold py-2.5 transition disabled:opacity-50"
+                {% if reschedule_blocked %}disabled{% endif %}>
+                {% if state.reschedule_pending %}Reschedule requested{% elif state.status == 'completed' %}Visit complete{% else %}Request reschedule{% endif %}
+              </button>
+            </form>
+          </details>
+        </div>
+
+        <p class="text-center text-xs text-slate-400 pb-6">This page updates automatically. Powered by {{ branding.company_name | default('our team', true) }}.</p>
+      </div>
+    </main>
+  </div>
+
+  <script type="application/json" id="track-initial-state">{{ state | tojson }}</script>
+  <script src="/static/vendor/leaflet/leaflet.js"></script>
+  <script>
+  (() => {
+    const TOKEN = {{ token | tojson }};
+    const POLL_MS = 10000;
+    let state = {};
+    try { state = JSON.parse(document.getElementById("track-initial-state").textContent || "{}"); } catch (_) { state = {}; }
+
+    const headlineEl = document.getElementById("track-headline");
+    const etaEl = document.getElementById("track-eta");
+    const updatedEl = document.getElementById("track-updated");
+    const timelineEl = document.getElementById("track-timeline");
+    const mapEl = document.getElementById("track-map");
+    const mapFallbackEl = document.getElementById("track-map-fallback");
+
+    const HEADLINES = {
+      scheduled: "Your visit is booked",
+      dispatched: "Your technician is on the way",
+      in_progress: "Your technician has arrived",
+      completed: "Your visit is complete",
+      canceled: "We couldn't complete the visit",
+    };
+
+    const fmtTime = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      return d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+    };
+
+    // ── Map ──
+    let map = null, destMarker = null, techMarker = null, mapReady = false;
+    const dest = state.destination || {};
+    const hasLeaflet = typeof L !== "undefined";
+    const hasDest = dest.latitude != null && dest.longitude != null;
+
+    if (hasLeaflet && hasDest) {
+      try {
+        map = L.map(mapEl, { zoomControl: true, attributionControl: true }).setView([dest.latitude, dest.longitude], 14);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19, attribution: "&copy; OpenStreetMap contributors",
+        }).addTo(map);
+        const destIcon = L.divIcon({
+          className: "track-dest",
+          html: '<span style="display:block;width:16px;height:16px;border-radius:9999px;border:3px solid #fff;background:#f97316;box-shadow:0 0 0 1px rgba(15,23,42,.3)"></span>',
+          iconSize: [16, 16], iconAnchor: [8, 8],
+        });
+        destMarker = L.marker([dest.latitude, dest.longitude], { icon: destIcon }).addTo(map).bindPopup("Service address");
+        mapReady = true;
+      } catch (_) { mapReady = false; }
+    }
+    if (!mapReady) {
+      mapEl.classList.add("hidden");
+      mapFallbackEl.classList.remove("hidden");
+      mapFallbackEl.textContent = hasDest ? "Map unavailable." : (dest.address_text || "We'll share the technician's location once they're on the way.");
+    }
+
+    const techIcon = () => L.divIcon({
+      className: "track-tech",
+      html: '<span style="display:block;width:18px;height:18px;border-radius:9999px;border:3px solid #fff;background:#06b6d4;box-shadow:0 0 0 6px rgba(6,182,212,.25)"></span>',
+      iconSize: [18, 18], iconAnchor: [9, 9],
+    });
+
+    const renderMapTech = (pos) => {
+      if (!mapReady) return;
+      if (pos && pos.latitude != null && pos.longitude != null) {
+        const ll = [pos.latitude, pos.longitude];
+        if (!techMarker) { techMarker = L.marker(ll, { icon: techIcon() }).addTo(map); }
+        else { techMarker.setLatLng(ll); }
+        techMarker.bindPopup((pos.name || "Your technician") + " is on the way");
+        if (destMarker) { map.fitBounds(L.latLngBounds([ll, destMarker.getLatLng()]).pad(0.3)); }
+      } else if (techMarker) {
+        map.removeLayer(techMarker); techMarker = null;
+      }
+    };
+
+    // ── Timeline ──
+    const DOT = {
+      done: '<span class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white"><svg class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.7 5.3a1 1 0 010 1.4l-7.5 7.5a1 1 0 01-1.4 0L3.3 9.7a1 1 0 011.4-1.4l3.1 3.1 6.8-6.8a1 1 0 011.4 0z" clip-rule="evenodd"/></svg></span>',
+      current: '<span class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-500/20"><span class="h-2.5 w-2.5 rounded-full bg-cyan-500 motion-safe:animate-pulse"></span></span>',
+      upcoming: '<span class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-slate-300 dark:border-slate-600"></span>',
+      failed: '<span class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-500 text-white"><svg class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 8.6l3.7-3.7 1.4 1.4L11.4 10l3.7 3.7-1.4 1.4L10 11.4l-3.7 3.7-1.4-1.4L8.6 10 4.9 6.3l1.4-1.4L10 8.6z" clip-rule="evenodd"/></svg></span>',
+    };
+    const renderTimeline = (steps) => {
+      timelineEl.innerHTML = (steps || []).map((s, i, arr) => {
+        const last = i === arr.length - 1;
+        const labelTone = s.state === "upcoming" ? "text-slate-400 dark:text-slate-500"
+          : (s.state === "failed" ? "text-rose-700 dark:text-rose-300 font-medium" : "font-medium");
+        const at = s.at ? '<span class="block text-xs text-slate-400">' + fmtTime(s.at) + '</span>' : "";
+        const connector = last ? "" : '<span class="absolute left-2.5 top-6 -bottom-1 w-px bg-slate-200 dark:bg-slate-700"></span>';
+        return '<li class="relative flex gap-3 pb-4">' + connector + (DOT[s.state] || DOT.upcoming) +
+          '<span class="text-sm ' + labelTone + '">' + s.label + at + '</span></li>';
+      }).join("");
+    };
+
+    const apply = (s) => {
+      if (!s) return;
+      state = s;
+      headlineEl.textContent = HEADLINES[s.status] || "Your service visit";
+      if (s.status === "dispatched" && s.eta) etaEl.textContent = "Estimated arrival around " + fmtTime(s.eta);
+      else if (s.eta && (s.status === "scheduled")) etaEl.textContent = "Scheduled for " + fmtTime(s.eta);
+      else etaEl.textContent = "";
+      renderTimeline(s.timeline);
+      renderMapTech(s.tech_position);
+      updatedEl.textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    };
+
+    apply(state);
+
+    const TERMINAL = new Set(["completed", "canceled"]);
+    const poll = async () => {
+      try {
+        const res = await fetch(`/track/${encodeURIComponent(TOKEN)}/live`, { headers: { "Accept": "application/json" } });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.available) apply(data);
+        }
+      } catch (_) { /* transient network — keep last state */ }
+      if (!TERMINAL.has(state.status)) window.setTimeout(poll, POLL_MS);
+    };
+    if (!TERMINAL.has(state.status)) window.setTimeout(poll, POLL_MS);
+  })();
+  </script>
+</body>
+</html>
