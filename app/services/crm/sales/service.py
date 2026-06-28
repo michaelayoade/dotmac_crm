@@ -365,6 +365,11 @@ def _recalculate_quote_totals(db: Session, quote: Quote) -> None:
     for item in items:
         subtotal += Decimal(item.amount or 0)
     quote.subtotal = subtotal
+    # Auto-derive tax from the applied rate when one is set; otherwise keep the
+    # manually entered tax_total. Tax always follows the (discounted) subtotal.
+    if quote.tax_rate is not None:
+        rate = Decimal(quote.tax_rate or 0)
+        quote.tax_total = (subtotal * rate / Decimal("100")).quantize(Decimal("0.01"))
     quote.total = subtotal + Decimal(quote.tax_total or 0)
     db.commit()
 
@@ -1027,6 +1032,10 @@ class Quotes(ListResponseMixin):
 
         db.commit()
         db.refresh(quote)
+        # Re-derive totals when the tax rate changed, so tax follows immediately.
+        if "tax_rate" in data:
+            _recalculate_quote_totals(db, quote)
+            db.refresh(quote)
         if "status" in data:
             _apply_lead_status_from_quote(db, quote, quote.status)
         transitioned_to_accepted = previous_status != QuoteStatus.accepted and quote.status == QuoteStatus.accepted

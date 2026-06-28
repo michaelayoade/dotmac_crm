@@ -129,6 +129,7 @@ class QuoteBase(BaseModel):
     status: QuoteStatus = QuoteStatus.draft
     currency: str = Field(default="NGN", min_length=3, max_length=3)
     subtotal: Decimal = Decimal("0.00")
+    tax_rate: Decimal | None = Field(default=None, ge=0, le=100)
     tax_total: Decimal = Decimal("0.00")
     total: Decimal = Decimal("0.00")
     expires_at: datetime | None = None
@@ -149,6 +150,7 @@ class QuoteUpdate(BaseModel):
     status: QuoteStatus | None = None
     currency: str | None = Field(default=None, min_length=3, max_length=3)
     subtotal: Decimal | None = None
+    tax_rate: Decimal | None = Field(default=None, ge=0, le=100)
     tax_total: Decimal | None = None
     total: Decimal | None = None
     expires_at: datetime | None = None
