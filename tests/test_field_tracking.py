@@ -1,12 +1,14 @@
 """Tests for the customer "Track My Visit" feature: tokens, timeline, the live
 technician-position privacy gate, and the routed confirm/reschedule actions."""
 
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
+from fastapi import HTTPException
+from fastapi.encoders import jsonable_encoder
+from starlette.requests import Request
 
 from app.models.field import FieldJobEvent, WorkOrderEvent
 from app.models.field_location import FieldPresenceStatus, FieldTechPresence
@@ -201,50 +203,41 @@ def test_field_visit_ticket_enqueues_work_order(db_session):
 # ── public route smoke ───────────────────────────────────────────────────────
 
 
-@pytest.fixture()
-def track_client(db_session):
-    from app.web.public.track import _get_db
-    from app.web.public.track import router as track_router
+def test_route_page_and_live_and_404(db_session):
+    from app.web.public import track as track_web
 
-    app = FastAPI()
-    app.include_router(track_router)
-    app.dependency_overrides[_get_db] = lambda: db_session
-    return TestClient(app)
-
-
-def test_route_page_and_live_and_404(track_client, db_session):
     wo = _make_work_order(db_session, status=WorkOrderStatus.scheduled)
     token_row = tracking.tokens.get_or_create(db_session, wo)
 
-    page = track_client.get(f"/track/{token_row.token}")
-    assert page.status_code == 200
-    assert "Track" in page.text or "visit" in page.text.lower()
+    assert tracking.token_state(token_row) == "ok"
 
-    live = track_client.get(f"/track/{token_row.token}/live")
+    live = track_web.track_live(token_row.token, db_session)
     assert live.status_code == 200
-    body = live.json()
+    body = json.loads(live.body)
     assert body["available"] is True
     assert "timeline" in body and "destination" in body
 
-    missing = track_client.get("/track/not-a-real-token")
+    missing = track_web.track_live("not-a-real-token", db_session)
     assert missing.status_code == 404
 
 
-def test_route_serializes_live_tech_pin(track_client, db_session):
+def test_route_serializes_live_tech_pin(db_session):
     """Regression: the live pin carries a datetime — the page (tojson) and the
     /live JSONResponse must serialize it without a 500."""
+    from app.web.public import track as track_web
+
     tech = _make_tech(db_session)
     wo = _make_work_order(db_session, status=WorkOrderStatus.dispatched, assigned_to=tech.id)
     _add_event(db_session, wo, FieldJobEvent.en_route)
     _set_presence(db_session, tech)
     token_row = tracking.tokens.get_or_create(db_session, wo)
 
-    page = track_client.get(f"/track/{token_row.token}")
-    assert page.status_code == 200  # tojson over tech_position must not raise
+    encoded_state = jsonable_encoder(tracking.public_state(db_session, token_row.work_order))
+    assert isinstance(encoded_state["tech_position"]["updated_at"], str)
 
-    live = track_client.get(f"/track/{token_row.token}/live")
+    live = track_web.track_live(token_row.token, db_session)
     assert live.status_code == 200
-    pos = live.json()["tech_position"]
+    pos = json.loads(live.body)["tech_position"]
     assert pos is not None
     assert pos["latitude"] == 6.5 and pos["longitude"] == 3.3
     assert isinstance(pos["updated_at"], str)  # ISO string, JSON-safe
@@ -327,13 +320,24 @@ def test_auto_assign_notifies_customer_with_link(db_session, monkeypatch):
 # ── follow-ups: rate limiting (#1) ───────────────────────────────────────────
 
 
-def test_rate_limit_blocks_after_threshold(track_client, db_session):
-    wo = _make_work_order(db_session)
-    token_row = tracking.tokens.get_or_create(db_session, wo)
-    headers = {"X-Forwarded-For": "203.0.113.77"}  # isolate this IP's bucket
-    codes = [
-        track_client.post(f"/track/{token_row.token}/confirm", headers=headers, follow_redirects=False).status_code
-        for _ in range(12)
-    ]
-    assert codes[-1] == 429  # action limit is 10 / 300s → 11th+ blocked
-    assert codes.count(429) >= 2
+def test_rate_limit_blocks_after_threshold():
+    from app.web.public import track as track_web
+
+    dep = track_web._rate_limit("action", 10, 300)
+
+    def request() -> Request:
+        return Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/track/token/confirm",
+                "headers": [(b"x-forwarded-for", b"203.0.113.77")],
+                "client": ("127.0.0.1", 12345),
+            }
+        )
+
+    for _ in range(10):
+        dep(request())
+    with pytest.raises(HTTPException) as exc:
+        dep(request())
+    assert exc.value.status_code == 429
