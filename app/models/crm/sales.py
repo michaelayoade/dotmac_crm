@@ -131,6 +131,9 @@ class Quote(Base):
     status: Mapped[QuoteStatus] = mapped_column(Enum(QuoteStatus), default=QuoteStatus.draft)
     currency: Mapped[str] = mapped_column(String(3), default="NGN")
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
+    # Applied tax rate percent (e.g. 7.5). When set, tax_total is auto-derived
+    # from the subtotal on every recalculation; null = manual tax_total.
+    tax_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     tax_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
