@@ -17,8 +17,15 @@ down_revision = "qd2026062800"
 branch_labels = None
 depends_on = None
 
-commission_status = sa.Enum("pending", "approved", "paid", "void", name="commissionstatus")
-payout_status = sa.Enum("draft", "paid", "void", name="payoutstatus")
+commission_status = postgresql.ENUM(
+    "pending",
+    "approved",
+    "paid",
+    "void",
+    name="commissionstatus",
+    create_type=False,
+)
+payout_status = postgresql.ENUM("draft", "paid", "void", name="payoutstatus", create_type=False)
 
 
 def upgrade() -> None:
