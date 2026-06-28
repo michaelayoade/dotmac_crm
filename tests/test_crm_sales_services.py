@@ -384,8 +384,16 @@ def test_get_lead_not_found(db_session):
 
 def test_list_leads(db_session, person):
     """Test listing leads."""
-    sales_service.Leads.create(db_session, LeadCreate(title="List Lead 1", person_id=person.id))
-    sales_service.Leads.create(db_session, LeadCreate(title="List Lead 2", person_id=person.id))
+    # Dedup allows one open lead per (person, pipeline); use distinct pipelines
+    # so both leads are genuinely separate.
+    pipeline_a = sales_service.Pipelines.create(db_session, PipelineCreate(name="List Leads A"))
+    pipeline_b = sales_service.Pipelines.create(db_session, PipelineCreate(name="List Leads B"))
+    sales_service.Leads.create(
+        db_session, LeadCreate(title="List Lead 1", person_id=person.id, pipeline_id=pipeline_a.id)
+    )
+    sales_service.Leads.create(
+        db_session, LeadCreate(title="List Lead 2", person_id=person.id, pipeline_id=pipeline_b.id)
+    )
 
     leads = sales_service.Leads.list(
         db_session,

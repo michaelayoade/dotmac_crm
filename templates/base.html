@@ -244,6 +244,22 @@
         function toastStore() {
             return {
                 toasts: [],
+                init() {
+                    // Surface a flash toast carried across a full-page redirect
+                    // via ?flash=...&flash_type=..., then strip it from the URL.
+                    try {
+                        const params = new URLSearchParams(window.location.search);
+                        const message = params.get('flash');
+                        if (message) {
+                            this.addToast({ message, type: params.get('flash_type') || 'info' });
+                            params.delete('flash');
+                            params.delete('flash_type');
+                            const qs = params.toString();
+                            const url = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
+                            window.history.replaceState({}, '', url);
+                        }
+                    } catch (e) {}
+                },
                 addToast(detail) {
                     const id = Date.now();
                     this.toasts.push({

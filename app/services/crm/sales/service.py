@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import String, cast, func, nullslast, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
@@ -276,14 +277,22 @@ def _lead_dedup_enabled(db: Session) -> bool:
 
 
 def _find_open_duplicate_lead(db: Session, person_id, *, pipeline_id=None) -> Lead | None:
-    """The person's most recent open lead (optionally scoped to a pipeline)."""
+    """The person's most recent open lead within the same pipeline bucket.
+
+    Scope is per-(person, pipeline). A null pipeline is its own bucket (it only
+    collides with other null-pipeline open leads), matching the partial unique
+    index ``uq_crm_leads_one_open_per_person_pipeline`` that COALESCEs a null
+    pipeline to a sentinel UUID.
+    """
     query = (
         db.query(Lead)
         .filter(Lead.person_id == person_id)
         .filter(Lead.is_active.is_(True))
         .filter(Lead.status.in_(_OPEN_LEAD_STATUSES))
     )
-    if pipeline_id:
+    if pipeline_id is None:
+        query = query.filter(Lead.pipeline_id.is_(None))
+    else:
         query = query.filter(Lead.pipeline_id == pipeline_id)
     return query.order_by(Lead.created_at.desc()).first()
 
@@ -637,7 +646,8 @@ class Leads(ListResponseMixin):
         # Dedup: a person shouldn't have two open leads. If one exists, return it
         # (idempotent) instead of creating a duplicate pipeline entry. Scoped to
         # the requested pipeline when one is given.
-        if _lead_dedup_enabled(db):
+        dedup_enabled = _lead_dedup_enabled(db)
+        if dedup_enabled:
             duplicate = _find_open_duplicate_lead(db, person_id, pipeline_id=data.get("pipeline_id"))
             if duplicate is not None:
                 metadata = dict(duplicate.metadata_ or {})
@@ -645,9 +655,10 @@ class Leads(ListResponseMixin):
                 duplicate.metadata_ = metadata
                 db.commit()
                 db.refresh(duplicate)
-                _logger.info(
-                    "lead_dedup_returned_existing person_id=%s lead_id=%s", person_id, duplicate.id
-                )
+                _logger.info("lead_dedup_returned_existing person_id=%s lead_id=%s", person_id, duplicate.id)
+                # Transient signal for callers (e.g. web route) to distinguish a
+                # deduped return from a freshly created lead. Not persisted.
+                duplicate.dedup_returned_existing = True
                 return duplicate
 
         # Auto-upgrade person to at least 'contact' status if they're a lead
@@ -673,7 +684,20 @@ class Leads(ListResponseMixin):
         lead = Lead(**data)
         _apply_lead_closed_at(lead, lead.status)
         db.add(lead)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            # A concurrent create won the partial unique index
+            # (uq_crm_leads_one_open_per_person_pipeline). Resolve the race by
+            # returning the existing open lead instead of surfacing a 500.
+            db.rollback()
+            if dedup_enabled:
+                existing = _find_open_duplicate_lead(db, person_id, pipeline_id=data.get("pipeline_id"))
+                if existing is not None:
+                    _logger.info("lead_dedup_race_resolved person_id=%s lead_id=%s", person_id, existing.id)
+                    existing.dedup_returned_existing = True
+                    return existing
+            raise
         db.refresh(lead)
         return lead
 
