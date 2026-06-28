@@ -1670,7 +1670,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
     SettingSpec(
         domain=SettingDomain.network_monitoring,
         key="server_health_disk_warn_pct",
-        label="Server Health Disk Warning (%)",
+        label="Infrastructure Health Disk Warning (%)",
         env_var="SERVER_HEALTH_DISK_WARN_PCT",
         value_type=SettingValueType.integer,
         default=80,
@@ -1680,7 +1680,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
     SettingSpec(
         domain=SettingDomain.network_monitoring,
         key="server_health_disk_crit_pct",
-        label="Server Health Disk Critical (%)",
+        label="Infrastructure Health Disk Critical (%)",
         env_var="SERVER_HEALTH_DISK_CRIT_PCT",
         value_type=SettingValueType.integer,
         default=90,
@@ -1690,7 +1690,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
     SettingSpec(
         domain=SettingDomain.network_monitoring,
         key="server_health_mem_warn_pct",
-        label="Server Health Memory Warning (%)",
+        label="Infrastructure Health Memory Warning (%)",
         env_var="SERVER_HEALTH_MEM_WARN_PCT",
         value_type=SettingValueType.integer,
         default=80,
@@ -1700,7 +1700,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
     SettingSpec(
         domain=SettingDomain.network_monitoring,
         key="server_health_mem_crit_pct",
-        label="Server Health Memory Critical (%)",
+        label="Infrastructure Health Memory Critical (%)",
         env_var="SERVER_HEALTH_MEM_CRIT_PCT",
         value_type=SettingValueType.integer,
         default=90,
@@ -1710,7 +1710,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
     SettingSpec(
         domain=SettingDomain.network_monitoring,
         key="server_health_load_warn",
-        label="Server Health Load Warning (per core)",
+        label="Infrastructure Health Load Warning (per core)",
         env_var="SERVER_HEALTH_LOAD_WARN",
         value_type=SettingValueType.string,
         default="1.0",
@@ -1718,7 +1718,7 @@ SETTINGS_SPECS: list[SettingSpec] = [
     SettingSpec(
         domain=SettingDomain.network_monitoring,
         key="server_health_load_crit",
-        label="Server Health Load Critical (per core)",
+        label="Infrastructure Health Load Critical (per core)",
         env_var="SERVER_HEALTH_LOAD_CRIT",
         value_type=SettingValueType.string,
         default="1.5",

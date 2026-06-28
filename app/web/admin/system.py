@@ -181,9 +181,11 @@ def _build_changed_person_update_payload(
 )
 def system_health_page(request: Request, db: Session = Depends(get_db)):
     from app.services import infrastructure_health as infrastructure_health_service
+    from app.services import system_health as system_health_service
     from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     dashboard = infrastructure_health_service.health_dashboard(db)
+    host_health = system_health_service.system_health_report(db)
     context: dict[str, object] = {
         "request": request,
         "active_page": "infrastructure-health",
@@ -191,6 +193,8 @@ def system_health_page(request: Request, db: Session = Depends(get_db)):
         "current_user": get_current_user(request),
         "sidebar_stats": get_sidebar_stats(db),
         "dashboard": dashboard,
+        "host_health": host_health,
+        "host_health_status": host_health.get("evaluation", {}),
     }
     return templates.TemplateResponse("admin/system/infrastructure_health.html", context)
 
