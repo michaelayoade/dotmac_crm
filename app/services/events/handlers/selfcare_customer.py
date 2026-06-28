@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import func, or_
@@ -232,6 +233,16 @@ def _ensure_installation_invoice(db: Session, project: Project, person: Person) 
     subscriber_id = identity.external_id if identity else None
     if not subscriber_id:
         return
+    # Serialize concurrent triggers (the project_created event AND sales-order line
+    # create/update both call this) so the read-then-create-then-store sequence
+    # can't double-create an invoice. Re-read the project state under the lock.
+    # populate_existing() forces the locked row to refresh already-loaded column
+    # attributes, so the existence check below reads committed state under the lock,
+    # not a stale in-session copy.
+    locked = db.query(Project).filter(Project.id == project.id).with_for_update().populate_existing().first()
+    if locked is None:
+        return
+    project = locked
     if _has_existing_installation_invoice(project):
         return
 
@@ -254,13 +265,23 @@ def _ensure_installation_invoice(db: Session, project: Project, person: Person) 
         logger.info("selfcare_invoice_skip_no_installation_cost project_id=%s", project.id)
         return
 
-    new_invoice_id = selfcare.create_installation_invoice(
-        db,
-        subscriber_id=subscriber_id,
-        amount=amount,
-        description="Installation cost",
-        external_ref=f"project:{project.id}",
-    )
+    try:
+        new_invoice_id = selfcare.create_installation_invoice(
+            db,
+            subscriber_id=subscriber_id,
+            amount=amount,
+            description="Installation cost",
+            external_ref=f"project:{project.id}",
+        )
+    except selfcare.SelfcareProviderError as exc:
+        # Don't silently drop the invoice — record the failure so it surfaces and
+        # a later trigger (or an operator) can retry. The sub-app external_ref dedup
+        # makes the retry safe.
+        _record_invoice_failure(project, str(exc))
+        db.add(project)
+        db.commit()
+        logger.error("selfcare_installation_invoice_failed project_id=%s error=%s", project.id, exc)
+        return
     if not new_invoice_id:
         return
 
@@ -342,6 +363,16 @@ def _store_invoice_metadata(project: Project, invoice_id: str, amount: Decimal |
     metadata["selfcare_installation_invoice_id"] = str(invoice_id)
     if amount is not None:
         metadata["selfcare_installation_invoice_amount"] = str(amount)
+    metadata.pop("selfcare_installation_invoice_error", None)
+    project.metadata_ = metadata
+
+
+def _record_invoice_failure(project: Project, detail: str) -> None:
+    metadata = dict(project.metadata_ or {})
+    metadata["selfcare_installation_invoice_error"] = {
+        "detail": detail[:500],
+        "at": datetime.now(UTC).isoformat(),
+    }
     project.metadata_ = metadata
 
 
