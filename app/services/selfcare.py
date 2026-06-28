@@ -539,11 +539,16 @@ def customer_base_station(customer: dict[str, Any] | None) -> str:
         return ""
     raw_attrs = customer.get("metadata")
     attrs: dict[str, Any] = raw_attrs if isinstance(raw_attrs, dict) else {}
+    raw_additional_attrs = customer.get("additional_attributes")
+    additional_attrs: dict[str, Any] = raw_additional_attrs if isinstance(raw_additional_attrs, dict) else {}
     return str(
         customer.get("base_station")
         or customer.get("base_station_name")
         or customer.get("router_name")
         or customer.get("nas_name")
+        or additional_attrs.get("base_station")
+        or additional_attrs.get("base_station_name")
+        or additional_attrs.get("nas_name")
         or attrs.get("base_station")
         or attrs.get("nas_name")
         or ""

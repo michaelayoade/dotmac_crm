@@ -114,6 +114,9 @@ def clear_live_subscriber_cache() -> None:
         _SUB_LIVE_CACHE.clear()
 
 
+clear_live_splynx_cache = clear_live_subscriber_cache
+
+
 def _coerce_nonnegative_int(value: object) -> int | None:
     if value is None:
         return None
@@ -172,6 +175,9 @@ def _cached_live_subscriber_read(cache_name: str, loader, *args, cache_scope: ob
     with _SUB_LIVE_CACHE_LOCK:
         _SUB_LIVE_CACHE[cache_key] = (now + ttl_seconds, deepcopy(loaded_value))
     return deepcopy(loaded_value)
+
+
+_cached_live_splynx_read = _cached_live_subscriber_read
 
 
 def _format_phone_display(raw_value: object) -> str:

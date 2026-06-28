@@ -2025,6 +2025,7 @@ def get_churn_table(
     enrich_visible_rows: bool = True,
 ) -> list[dict]:
     """Subscribers with non-current Splynx billing state, segmented by due/risk status."""
+    normalized_source = "selfcare_live" if source == "splynx_live" else source
 
     def _normalize_segment(value: str | None) -> str | None:
         normalized_segment = (value or "").strip().lower()
@@ -2078,7 +2079,7 @@ def get_churn_table(
             return True
         return _days_past_due_bucket(value) == selected_days_past_due_category
 
-    if source == "selfcare_live":
+    if normalized_source == "selfcare_live":
         from app.services.selfcare import (
             fetch_customer_billing,
             fetch_customer_internet_services,
