@@ -54,6 +54,7 @@ class QuoteUpsertInput:
     item_description: list[str] | None = None
     item_quantity: list[str] | None = None
     item_unit_price: list[str] | None = None
+    item_discount_percent: list[str] | None = None
     item_inventory_item_id: list[str] | None = None
 
 
@@ -97,14 +98,16 @@ def _as_quote_items(form: QuoteUpsertInput) -> list[dict[str, str]]:
     descriptions = form.item_description or []
     quantities = form.item_quantity or []
     unit_prices = form.item_unit_price or []
+    discounts = form.item_discount_percent or []
     inventory_ids = form.item_inventory_item_id or []
 
-    max_len = max(len(descriptions), len(quantities), len(unit_prices), len(inventory_ids), 1)
+    max_len = max(len(descriptions), len(quantities), len(unit_prices), len(discounts), len(inventory_ids), 1)
     items: list[dict[str, str]] = []
     for idx in range(max_len):
         description = descriptions[idx].strip() if idx < len(descriptions) and descriptions[idx] else ""
         quantity = quantities[idx].strip() if idx < len(quantities) and quantities[idx] else ""
         unit_price = unit_prices[idx].strip() if idx < len(unit_prices) and unit_prices[idx] else ""
+        discount = discounts[idx].strip() if idx < len(discounts) and discounts[idx] else ""
         inventory_item_id = inventory_ids[idx].strip() if idx < len(inventory_ids) and inventory_ids[idx] else ""
         if not any([description, quantity, unit_price, inventory_item_id]):
             continue
@@ -113,6 +116,7 @@ def _as_quote_items(form: QuoteUpsertInput) -> list[dict[str, str]]:
                 "description": description,
                 "quantity": quantity,
                 "unit_price": unit_price,
+                "discount_percent": discount,
                 "inventory_item_id": inventory_item_id,
             }
         )
@@ -132,16 +136,20 @@ def _parse_quote_line_items(items: list[dict[str, str]]) -> list[dict[str, Any]]
 
         quantity = _parse_decimal(quantity_raw or "1", "quantity")
         unit_price = _parse_decimal(unit_price_raw or "0", "unit_price")
+        discount = _parse_decimal(item.get("discount_percent", "").strip() or "0", "discount") or Decimal("0")
         if quantity is None or quantity <= 0:
             raise ValueError("Quote item quantity must be greater than 0")
         if unit_price is None or unit_price < 0:
             raise ValueError("Quote item unit price must be 0 or greater")
+        if discount < 0 or discount > 100:
+            raise ValueError("Quote item discount must be between 0 and 100")
 
         parsed.append(
             {
                 "description": description,
                 "quantity": quantity,
                 "unit_price": unit_price,
+                "discount_percent": discount,
                 "inventory_item_id": _coerce_uuid_optional(inventory_item_id_raw),
             }
         )
@@ -399,6 +407,7 @@ def create_quote(db: Session, *, form: QuoteUpsertInput, tax_rate_get, owner_per
             description=item["description"],
             quantity=item["quantity"],
             unit_price=item["unit_price"],
+            discount_percent=item.get("discount_percent", Decimal("0")),
             inventory_item_id=item["inventory_item_id"],
         )
         crm_service.quote_line_items.create(db=db, payload=item_payload)
@@ -421,6 +430,7 @@ def edit_quote_form_data(
             "description": item.description or "",
             "quantity": str(item.quantity or Decimal("1.000")),
             "unit_price": str(item.unit_price or Decimal("0.00")),
+            "discount_percent": str(item.discount_percent or Decimal("0.00")),
             "inventory_item_id": str(item.inventory_item_id) if item.inventory_item_id else "",
         }
         for item in items

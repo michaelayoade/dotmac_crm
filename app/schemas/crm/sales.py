@@ -175,6 +175,7 @@ class QuoteLineItemBase(BaseModel):
     description: str = Field(min_length=1, max_length=255)
     quantity: Decimal = Field(default=Decimal("1.000"), gt=0)
     unit_price: Decimal = Field(default=Decimal("0.00"), ge=0)
+    discount_percent: Decimal = Field(default=Decimal("0.00"), ge=0, le=100)
     amount: Decimal = Field(default=Decimal("0.00"), ge=0)
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
@@ -188,6 +189,7 @@ class QuoteLineItemUpdate(BaseModel):
     description: str | None = Field(default=None, min_length=1, max_length=255)
     quantity: Decimal | None = Field(default=None, gt=0)
     unit_price: Decimal | None = Field(default=None, ge=0)
+    discount_percent: Decimal | None = Field(default=None, ge=0, le=100)
     amount: Decimal | None = Field(default=None, ge=0)
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 

@@ -99,6 +99,7 @@
                                 <th class="{{ pad }} text-left">Description</th>
                                 <th class="{{ pad }} text-left">Qty</th>
                                 <th class="{{ pad }} text-left">Unit Price</th>
+                                <th class="{{ pad }} text-left">Disc %</th>
                                 <th class="{{ pad }} text-left">Amount</th>
                                 <th class="{{ pad }} text-right"></th>
                             </tr>
@@ -120,6 +121,10 @@
                                     <td class="{{ pad }}">
                                         <input type="number" step="0.01" min="0" name="item_unit_price" value="{{ item.unit_price }}"
                                                class="w-28 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                    </td>
+                                    <td class="{{ pad }}">
+                                        <input type="number" step="0.01" min="0" max="100" name="item_discount_percent" value="{{ item.discount_percent }}"
+                                               class="w-20 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                                     </td>
                                     <td class="{{ pad }}">
                                         <input type="text" name="item_amount_display" readonly
@@ -145,6 +150,10 @@
                                     <td class="{{ pad }}">
                                         <input type="number" step="0.01" min="0" name="item_unit_price"
                                                class="w-28 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                                    </td>
+                                    <td class="{{ pad }}">
+                                        <input type="number" step="0.01" min="0" max="100" name="item_discount_percent" value="0"
+                                               class="w-20 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                                     </td>
                                     <td class="{{ pad }}">
                                         <input type="text" name="item_amount_display" readonly
@@ -173,6 +182,10 @@
                         <td class="{{ pad }}">
                             <input type="number" step="0.01" min="0" name="item_unit_price"
                                    class="w-28 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                        </td>
+                        <td class="{{ pad }}">
+                            <input type="number" step="0.01" min="0" max="100" name="item_discount_percent" value="0"
+                                   class="w-20 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                         </td>
                         <td class="{{ pad }}">
                             <input type="text" name="item_amount_display" readonly
