@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models.audit import AuditActorType, AuditEvent
 from app.models.field import FieldMapAssetLocationProvenance, FieldMapAssetTombstone
+from app.models.field_location import FieldTechPresence
 from app.models.gis import ServiceBuilding
 from app.models.network import FdhCabinet, FiberAccessPoint, FiberSpliceClosure, OLTDevice
 from app.models.wireless_mast import WirelessMast
@@ -25,6 +26,34 @@ _SOURCE_CONFIDENCE = {"survey": 4, "manual": 3, "gps": 2, "geocoded": 1}
 
 def _confidence(source: str | None) -> int:
     return _SOURCE_CONFIDENCE.get((source or "").strip().lower(), 0)
+
+
+# A move is flagged for async review (never blocked) when the tech pins an asset
+# far from where they actually are, with a low-confidence source — the
+# "armchair edit" signature. Deliberate placements (manual/survey) are exempt.
+_MOVE_REVIEW_DISTANCE_M = 250.0
+_PRESENCE_RECENCY = timedelta(minutes=30)
+
+
+def _location_review_flag(db: Session, actor_id: str | None, latitude: float, longitude: float, source: str | None):
+    if _confidence(source) >= _confidence("manual") or not actor_id:
+        return None
+    try:
+        person_uuid = coerce_uuid(actor_id)
+    except ValueError:
+        return None
+    presence = db.query(FieldTechPresence).filter(FieldTechPresence.person_id == person_uuid).one_or_none()
+    if presence is None or presence.last_latitude is None or presence.last_longitude is None:
+        return None
+    last_at = _as_utc(presence.last_location_at)
+    if last_at is None or last_at < datetime.now(UTC) - _PRESENCE_RECENCY:
+        return None  # no recent fix — can't judge whether the tech is on-site
+    from app.services.field.geofence import haversine_m
+
+    distance = haversine_m(latitude, longitude, float(presence.last_latitude), float(presence.last_longitude))
+    if distance <= _MOVE_REVIEW_DISTANCE_M:
+        return None
+    return {"needs_review": True, "review_reason": "pin_far_from_technician", "tech_distance_m": round(distance, 1)}
 
 
 @dataclass(frozen=True)
@@ -272,6 +301,9 @@ def update_map_asset_location(
     if hasattr(config.model, "geom"):
         row.geom = ST_SetSRID(ST_MakePoint(float(longitude), float(latitude)), 4326)
 
+    # Flag (never block) an off-site, low-confidence pin for async review.
+    review_flag = None if force else _location_review_flag(db, actor_id, float(latitude), float(longitude), source)
+
     # Canonical network assets are shared records of truth — every field edit is
     # attributable, with before/after coordinates and pin provenance.
     db.add(
@@ -292,6 +324,7 @@ def update_map_asset_location(
                 "client_ref": client_ref,
                 "forced": bool(force),
                 **(extra_metadata or {}),
+                **(review_flag or {}),
             },
         )
     )

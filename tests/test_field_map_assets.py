@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 from app.models.audit import AuditEvent
 from app.models.field import FieldMapAssetLocationProvenance, FieldMapAssetTombstone
+from app.models.field_location import FieldTechPresence
 from app.models.network import FdhCabinet, FiberAccessPoint, FiberSpliceClosure, OLTDevice
 from app.services.field.map_assets import (
     list_deleted_map_assets,
@@ -395,6 +396,117 @@ def test_revert_rejects_when_previous_was_empty(db_session):
     with pytest.raises(HTTPException) as exc:
         revert_map_asset_location(db_session, asset_type="olt", asset_id=str(olt.id))
     assert exc.value.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Off-site move review flag
+# ---------------------------------------------------------------------------
+
+
+def _presence(db_session, person, *, lat, lng, at=None):
+    db_session.add(
+        FieldTechPresence(
+            person_id=person.id,
+            last_latitude=lat,
+            last_longitude=lng,
+            last_location_at=at or datetime.now(UTC),
+        )
+    )
+    db_session.commit()
+
+
+def _last_move_metadata(db_session, olt):
+    event = (
+        db_session.query(AuditEvent)
+        .filter(AuditEvent.action == "field:map_asset:update_location")
+        .filter(AuditEvent.entity_id == str(olt.id))
+        .order_by(AuditEvent.occurred_at.desc())
+        .first()
+    )
+    return event.metadata_
+
+
+def test_off_site_low_confidence_move_is_flagged(db_session, person):
+    _presence(db_session, person, lat=6.5, lng=3.4)
+    olt = OLTDevice(name="OLT Far", latitude=6.5, longitude=3.4)
+    db_session.add(olt)
+    db_session.commit()
+
+    # Tech is at (6.5, 3.4) but pins the asset ~11 km away with a GPS source.
+    update_map_asset_location(
+        db_session,
+        asset_type="olt",
+        asset_id=str(olt.id),
+        latitude=6.6,
+        longitude=3.4,
+        source="gps",
+        actor_id=str(person.id),
+    )
+
+    meta = _last_move_metadata(db_session, olt)
+    assert meta["needs_review"] is True
+    assert meta["review_reason"] == "pin_far_from_technician"
+    assert meta["tech_distance_m"] > 250
+
+
+def test_on_site_move_is_not_flagged(db_session, person):
+    _presence(db_session, person, lat=6.5, lng=3.4)
+    olt = OLTDevice(name="OLT Near", latitude=6.5, longitude=3.4)
+    db_session.add(olt)
+    db_session.commit()
+
+    # ~200 m from the tech — within the on-site radius.
+    update_map_asset_location(
+        db_session,
+        asset_type="olt",
+        asset_id=str(olt.id),
+        latitude=6.5018,
+        longitude=3.4,
+        source="gps",
+        actor_id=str(person.id),
+    )
+
+    assert "needs_review" not in _last_move_metadata(db_session, olt)
+
+
+def test_deliberate_manual_move_is_exempt_from_flag(db_session, person):
+    _presence(db_session, person, lat=6.5, lng=3.4)
+    olt = OLTDevice(name="OLT Manual", latitude=6.5, longitude=3.4)
+    db_session.add(olt)
+    db_session.commit()
+
+    # Far from the tech, but a deliberate manual placement is not second-guessed.
+    update_map_asset_location(
+        db_session,
+        asset_type="olt",
+        asset_id=str(olt.id),
+        latitude=6.6,
+        longitude=3.4,
+        source="manual",
+        actor_id=str(person.id),
+    )
+
+    assert "needs_review" not in _last_move_metadata(db_session, olt)
+
+
+def test_stale_presence_does_not_flag(db_session, person):
+    _presence(db_session, person, lat=6.5, lng=3.4, at=datetime.now(UTC) - timedelta(hours=2))
+    olt = OLTDevice(name="OLT Stale", latitude=6.5, longitude=3.4)
+    db_session.add(olt)
+    db_session.commit()
+
+    # The tech's last fix is hours old — we can't claim they're off-site.
+    update_map_asset_location(
+        db_session,
+        asset_type="olt",
+        asset_id=str(olt.id),
+        latitude=6.6,
+        longitude=3.4,
+        source="gps",
+        actor_id=str(person.id),
+    )
+
+    assert "needs_review" not in _last_move_metadata(db_session, olt)
 
 
 # ---------------------------------------------------------------------------
