@@ -72,6 +72,7 @@ def test_selfcare_client_uses_bearer_token_and_unwraps_envelope(db_session, monk
     assert calls[0]["headers"]["Authorization"] == "Bearer token-123"
     assert calls[0]["url"] == "https://selfcare.example.test/api/v1/crm/subscribers"
     assert calls[0]["params"]["include"] == "services,billing"
+    assert calls[0]["params"]["per_page"] == 500
 
 
 def test_selfcare_client_raises_provider_error_on_non_2xx(db_session, monkeypatch):
@@ -146,6 +147,69 @@ def test_fetch_customers_paginates(db_session, monkeypatch):
     monkeypatch.setattr("requests.request", _request)
 
     assert selfcare.fetch_customers(db_session) == [{"id": "sc-1"}, {"id": "sc-2"}]
+
+
+def test_fetch_customers_can_omit_include_for_basic_subscriber_rows(db_session, monkeypatch):
+    monkeypatch.setattr(
+        selfcare.settings_spec,
+        "resolve_value",
+        _settings_resolver(
+            {
+                "selfcare_customer_sync_enabled": True,
+                "selfcare_base_url": "https://selfcare.example.test",
+                "selfcare_api_token": "token-123",
+                "selfcare_timeout_seconds": 15,
+            }
+        ),
+    )
+    calls = []
+
+    def _request(method, url, headers, params, json, timeout):
+        calls.append(params)
+        return _Response(200, {"data": [{"id": "sc-basic", "billing_mode": "prepaid"}], "meta": {"total": 1}})
+
+    monkeypatch.setattr("requests.request", _request)
+
+    assert selfcare.fetch_customers(db_session, include=None) == [{"id": "sc-basic", "billing_mode": "prepaid"}]
+    assert calls[0] == {"per_page": 500, "page": 1}
+
+
+def test_fetch_locations_uses_single_locations_request(db_session, monkeypatch):
+    monkeypatch.setattr(
+        selfcare.settings_spec,
+        "resolve_value",
+        _settings_resolver(
+            {
+                "selfcare_customer_sync_enabled": True,
+                "selfcare_base_url": "https://selfcare.example.test",
+                "selfcare_api_token": "token-123",
+                "selfcare_timeout_seconds": 15,
+            }
+        ),
+    )
+    calls = []
+
+    def _request(method, url, headers, params, json, timeout):
+        calls.append({"method": method, "url": url, "params": params})
+        return _Response(
+            200,
+            {
+                "data": [
+                    {"id": "09 Dawaki Model City Abuja, NG", "name": "Gwarimpa"},
+                    {"id": "spdc-key", "name": "SPDC"},
+                ]
+            },
+        )
+
+    monkeypatch.setattr("requests.request", _request)
+
+    assert selfcare.fetch_locations(db_session) == [
+        {"id": "09 Dawaki Model City Abuja, NG", "name": "Gwarimpa"},
+        {"id": "spdc-key", "name": "SPDC"},
+    ]
+    assert len(calls) == 1
+    assert calls[0]["url"] == "https://selfcare.example.test/api/v1/crm/locations"
+    assert calls[0]["params"] == {}
 
 
 def test_sync_subscribers_from_selfcare_skips_bad_record(db_session, monkeypatch):

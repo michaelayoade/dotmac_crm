@@ -1079,14 +1079,83 @@ def get_billing_risk_table(
             return street
         return ""
 
-    def _live_location_from_customer(customer_payload: Mapping[str, Any], locations_by_id: Mapping[str, str]) -> str:
-        for key in ("location", "location_name", "location_title"):
-            text = str(customer_payload.get(key) or "").strip()
-            if text:
-                return text
+    def _usable_location_text(value: object) -> str:
+        text = str(value or "").strip().strip(",")
+        if not text:
+            return ""
+        for suffix in (", NG", ", NGA", ", Nigeria"):
+            if text.casefold().endswith(suffix.casefold()):
+                text = text[: -len(suffix)].strip().strip(",")
+                break
+        normalized = text.casefold().replace(".", "").strip()
+        if normalized in {"ng", "nga", "nigeria", "unknown", "none", "null", "n/a", "na", "-"}:
+            return ""
+        compact = text.replace(" ", "")
+        first_token = text.split(maxsplit=1)[0].strip(".,#")
+        if (
+            compact.isdigit()
+            or (first_token and first_token[0].isdigit())
+            or (len(first_token) <= 5 and any(character.isdigit() for character in first_token))
+        ):
+            return ""
+        lowered = f" {text.casefold()} "
+        address_keywords = (
+            " avenue",
+            " building",
+            " center",
+            " centre",
+            " close",
+            " court",
+            " crescent",
+            " drive",
+            " estate",
+            " expressway",
+            " floor",
+            " hotel",
+            " layout",
+            " road",
+            " street",
+            " terrace",
+            " unit",
+        )
+        if any(keyword in lowered for keyword in address_keywords):
+            return ""
+        return text
+
+    def _live_location_from_customer(
+        customer_payload: Mapping[str, Any],
+        locations_by_id: Mapping[str, str],
+        *fallback_values: object,
+    ) -> str:
+        def _location_name_for_key(value: object) -> str:
+            key = str(value or "").strip()
+            if not key:
+                return ""
+            return _usable_location_text(locations_by_id.get(key))
+
+        for key in ("location", "location_name", "location_title", "service_region", "region", "state"):
+            raw_value = customer_payload.get(key)
+            if location_text := _location_name_for_key(raw_value):
+                return location_text
+            if location_text := _usable_location_text(raw_value):
+                return location_text
+        for key in ("city", "service_city"):
+            raw_value = customer_payload.get(key)
+            if location_text := _location_name_for_key(raw_value):
+                return location_text
+            if location_text := _usable_location_text(raw_value):
+                return location_text
         location_id = str(customer_payload.get("location_id") or customer_payload.get("locationId") or "").strip()
         if location_id:
-            return locations_by_id.get(location_id) or location_id
+            return _location_name_for_key(location_id) or _usable_location_text(location_id)
+        for value in fallback_values:
+            if location_text := _location_name_for_key(value):
+                return location_text
+            if location_text := _usable_location_text(value):
+                return location_text
+        for key in ("country", "country_code"):
+            if location_text := _usable_location_text(customer_payload.get(key)):
+                return location_text
         return ""
 
     def _live_billing_text(payload: Mapping[str, Any] | None, *keys: str) -> str:
@@ -1103,6 +1172,43 @@ def get_billing_risk_table(
             if candidate_text:
                 return candidate_text
         return ""
+
+    def _live_billing_type(
+        customer_payload: Mapping[str, Any],
+        mapped_payload: Mapping[str, Any],
+        billing_payload: Mapping[str, Any] | None,
+        cached_subscriber: Mapping[str, Any],
+    ) -> str:
+        del mapped_payload, cached_subscriber
+
+        def _field_value(*keys: str) -> str:
+            for key in keys:
+                text = str(customer_payload.get(key) or "").strip()
+                if text:
+                    return text
+                if isinstance(billing_payload, Mapping):
+                    text = str(billing_payload.get(key) or "").strip()
+                    if text:
+                        return text
+            return ""
+
+        mode = _field_value("billing_mode", "billingMode")
+        subscription_mode = _field_value("subscription_billing_mode", "subscriptionBillingMode")
+        billing_type = _field_value("billing_type", "billingType")
+
+        for candidate in (mode, subscription_mode):
+            normalized = candidate.casefold().replace("-", "_").replace(" ", "_")
+            if normalized == "prepaid":
+                return "prepaid"
+            if normalized == "postpaid":
+                return "postpaid"
+
+        normalized_type = billing_type.casefold().replace("-", "_").replace(" ", "_")
+        if normalized_type.startswith("prepaid"):
+            return "prepaid"
+        if normalized_type in {"postpaid", "post_paid", "recurring"}:
+            return "postpaid"
+        return "unknown"
 
     def _live_invoiced_until_date(billing_payload: Mapping[str, Any] | None) -> str:
         return _live_billing_text(
@@ -1155,9 +1261,9 @@ def get_billing_risk_table(
         cached_suspended_at = _coerce_datetime_utc(cached_subscriber.get("suspended_at"))
         status_raw = str(mapped.get("status") or "unknown").strip().lower()
         status_value = status_raw.removeprefix("subscriberstatus.")
-        billing_type_value = str(customer.get("billing_type") or "").strip()
         plan_value = str(mapped.get("service_plan") or "").strip() or str(cached_subscriber.get("service_plan") or "")
         embedded_billing = customer.get("billing") if isinstance(customer.get("billing"), Mapping) else None
+        billing_type_value = _live_billing_type(customer, mapped, embedded_billing, cached_subscriber)
         billing_start_date = _live_billing_start_date(customer, mapped, embedded_billing)
         if not billing_start_date:
             cached_activated_at = _coerce_datetime_utc(cached_subscriber.get("activated_at"))
@@ -1248,7 +1354,14 @@ def get_billing_risk_table(
             )
         )
         street_value = _live_street_address(customer, cached_subscriber)
-        location_value = _live_location_from_customer(customer, locations_by_id)
+        location_value = _live_location_from_customer(
+            customer,
+            locations_by_id,
+            cached_subscriber.get("service_region"),
+            city_value,
+            cached_subscriber.get("service_city"),
+            area_value,
+        )
         subscriber_id_key = str(cached_subscriber.get("id") or "").strip()
         person_id_key = str(cached_subscriber.get("person_id") or "").strip()
         if not person_id_key and email_value:
@@ -1279,6 +1392,26 @@ def get_billing_risk_table(
                 "balance": balance_amount,
                 "account_balance_deposit": account_balance_deposit,
                 "billing_type": billing_type_value,
+                "billing_mode": str(
+                    customer.get("billing_mode")
+                    or customer.get("billingMode")
+                    or (embedded_billing.get("billing_mode") if isinstance(embedded_billing, Mapping) else "")
+                    or (embedded_billing.get("billingMode") if isinstance(embedded_billing, Mapping) else "")
+                    or ""
+                ),
+                "subscription_billing_mode": str(
+                    customer.get("subscription_billing_mode")
+                    or customer.get("subscriptionBillingMode")
+                    or (
+                        embedded_billing.get("subscription_billing_mode")
+                        if isinstance(embedded_billing, Mapping)
+                        else ""
+                    )
+                    or (
+                        embedded_billing.get("subscriptionBillingMode") if isinstance(embedded_billing, Mapping) else ""
+                    )
+                    or ""
+                ),
                 "billing_cycle": str(mapped.get("billing_cycle") or cached_subscriber.get("billing_cycle") or ""),
                 "blocked_date": blocked_date_text,
                 "blocked_for_days": blocked_for_days,

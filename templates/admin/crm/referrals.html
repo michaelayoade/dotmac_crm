@@ -1,0 +1,106 @@
+{% extends "layouts/admin.html" %}
+
+{% from "components/ui/macros.html" import table_shell, table_row, status_badge %}
+{% block title %}Referrals - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Referrals</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Customer-refers-customer attributions and reward status.</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Total</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ stats.total }}</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Pending</p>
+            <p class="mt-1 text-2xl font-bold text-amber-600 dark:text-amber-400">{{ stats.pending }}</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Qualified</p>
+            <p class="mt-1 text-2xl font-bold text-primary-600 dark:text-primary-400">{{ stats.qualified }}</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-sm font-medium text-slate-500 dark:text-slate-400">Rewarded</p>
+            <p class="mt-1 text-2xl font-bold text-green-600 dark:text-green-400">{{ stats.rewarded }}</p>
+        </div>
+    </div>
+
+    <form method="get" class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div class="sm:w-64">
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</label>
+                <select name="status" class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All</option>
+                    {% for item in referral_statuses %}
+                    <option value="{{ item }}" {% if status == item %}selected{% endif %}>{{ item | replace('_', ' ') | title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="/admin/crm/referrals" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">Reset</a>
+                <button type="submit" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">Filter</button>
+            </div>
+        </div>
+    </form>
+
+    {% set pad = 'px-6 py-3' %}
+    {% call table_shell(table_id="referrals-table", color="primary") %}
+        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+            <thead>
+                <tr class="border-b border-slate-100 dark:border-slate-700/50">
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Referrer</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Referred</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Status</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Reward</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Reward status</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-300">Source</th>
+                    <th class="{{ pad }}"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">
+                {% for row in referrals %}
+                {% call table_row(color="primary") %}
+                    <td class="{{ pad }} text-sm font-medium text-slate-900 dark:text-white">{{ row.referrer }}</td>
+                    <td class="{{ pad }} text-sm text-slate-600 dark:text-slate-300">{{ row.referred }}</td>
+                    <td class="{{ pad }}">{{ status_badge(row.status) }}</td>
+                    <td class="{{ pad }} text-sm text-slate-900 dark:text-white">{{ row.reward }}</td>
+                    <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ row.reward_status | replace('_', ' ') | title }}</td>
+                    <td class="{{ pad }} text-sm text-slate-500 dark:text-slate-400">{{ row.source }}</td>
+                    <td class="{{ pad }} text-right">
+                        {% if can_write %}
+                        <div class="flex items-center justify-end gap-2">
+                            {% if row.can_issue %}
+                            <form method="post" action="/admin/crm/referrals/{{ row.id }}/issue-reward">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                                <button type="submit" class="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700">Issue reward</button>
+                            </form>
+                            {% endif %}
+                            {% if row.can_reject %}
+                            <form method="post" action="/admin/crm/referrals/{{ row.id }}/reject" onsubmit="return confirm('Reject this referral? The reward will be voided.');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+                                <input type="hidden" name="reason" value="Rejected by admin" />
+                                <button type="submit" class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700">Reject</button>
+                            </form>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </td>
+                {% endcall %}
+                {% else %}
+                <tr>
+                    <td colspan="7" class="px-6 py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                        No referrals yet. Enable the program in Settings → Subscriber and share referral codes.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endcall %}
+</div>
+{% endblock %}

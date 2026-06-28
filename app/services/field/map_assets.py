@@ -5,8 +5,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import HTTPException
+from geoalchemy2.functions import ST_MakePoint, ST_SetSRID
 from sqlalchemy.orm import Session
 
+from app.models.audit import AuditActorType, AuditEvent
 from app.models.field import FieldMapAssetTombstone
 from app.models.gis import ServiceBuilding
 from app.models.network import FdhCabinet, FiberAccessPoint, FiberSpliceClosure, OLTDevice
@@ -127,6 +129,14 @@ def record_map_asset_tombstone(db: Session, *, asset_type: str, asset_id) -> Non
         row.deleted_at = deleted_at
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def update_map_asset_location(
     db: Session,
     *,
@@ -134,6 +144,11 @@ def update_map_asset_location(
     asset_id: str,
     latitude: float,
     longitude: float,
+    actor_id: str | None = None,
+    expected_updated_at: datetime | None = None,
+    source: str | None = None,
+    accuracy_m: float | None = None,
+    client_ref: str | None = None,
 ) -> dict:
     config = ASSET_CONFIGS.get(asset_type)
     if config is None:
@@ -141,8 +156,51 @@ def update_map_asset_location(
     row = db.get(config.model, asset_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Map asset not found")
+    # A tombstoned asset may still be sitting in a device's offline cache; editing
+    # it would resurrect a record dispatch has retired. Treat as gone.
+    if getattr(row, "is_active", True) is False:
+        raise HTTPException(status_code=404, detail="Map asset not found")
+    # Optimistic concurrency: when the caller tells us which version it edited,
+    # refuse if the asset has moved on since — last-write-wins silently loses a
+    # newer correction when two techs (or an offline replay) race.
+    if expected_updated_at is not None:
+        current_updated_at = _as_utc(getattr(row, "updated_at", None))
+        if current_updated_at is not None and current_updated_at != _as_utc(expected_updated_at):
+            raise HTTPException(status_code=409, detail="Map asset was modified since it was loaded")
+
+    previous = {
+        "latitude": float(row.latitude) if row.latitude is not None else None,
+        "longitude": float(row.longitude) if row.longitude is not None else None,
+    }
     row.latitude = float(latitude)
     row.longitude = float(longitude)
+    # Keep the PostGIS geometry in lockstep with the float columns. Map rendering
+    # and ST_DWithin proximity queries read ``geom``; writing only lat/lng leaves
+    # the asset showing in two places depending on which column you read.
+    if hasattr(config.model, "geom"):
+        row.geom = ST_SetSRID(ST_MakePoint(float(longitude), float(latitude)), 4326)
+
+    # Canonical network assets are shared records of truth — every field edit is
+    # attributable, with before/after coordinates and pin provenance.
+    db.add(
+        AuditEvent(
+            actor_type=AuditActorType.user if actor_id else AuditActorType.system,
+            actor_id=actor_id,
+            action="field:map_asset:update_location",
+            entity_type=config.model.__name__,
+            entity_id=str(asset_id),
+            status_code=200,
+            is_success=True,
+            metadata_={
+                "asset_type": asset_type,
+                "from": previous,
+                "to": {"latitude": float(latitude), "longitude": float(longitude)},
+                "source": source,
+                "accuracy_m": accuracy_m,
+                "client_ref": client_ref,
+            },
+        )
+    )
     db.commit()
     db.refresh(row)
     return _asset_payload(asset_type, config, row)

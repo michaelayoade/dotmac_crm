@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, TypedDict
-from uuid import UUID
 
 from sqlalchemy import Date, DateTime, Integer, Numeric, String, and_, case, cast, false, func, or_, select, text, true
 from sqlalchemy.orm import Session
@@ -137,19 +136,10 @@ def online_customers_last_24h_rows(
     activity_segment: str | None = None,
     limit: int | None = 200,
 ) -> list[dict]:
-    """Return active Selfcare customers by recent/offline activity segment."""
-    now = datetime.now(UTC)
-    start = now - timedelta(hours=24)
+    """Return active Selfcare customers by current online membership."""
     selected_activity_segment = (activity_segment or "active_last24_not_online").strip().lower()
 
-    # Selfcare's online endpoint is inferred from open RADIUS accounting sessions,
-    # so "currently_online" is a session-state signal rather than authoritative polling.
-    from app.services.selfcare import (
-        SelfcareProviderError,
-        customer_base_station,
-        fetch_customers,
-        fetch_online_customers,
-    )
+    from app.services.selfcare import SelfcareProviderError, fetch_online_customers
 
     def _parse_online_dt(value: object) -> datetime | None:
         text = str(value or "").strip()
@@ -169,22 +159,45 @@ def online_customers_last_24h_rows(
                 continue
         return None
 
-    clauses = [
-        EventStore.is_active.is_(True),
-        EventStore.subscriber_id.isnot(None),
-        EventStore.created_at >= start,
-        EventStore.created_at <= now,
-        EventStore.event_type.in_(["session.started", "device.online", "usage.recorded"]),
-    ]
-    if subscriber_ids is not None:
-        clauses.append(EventStore.subscriber_id.in_(subscriber_ids))
+    try:
+        online_customers = fetch_online_customers(db)
+    except SelfcareProviderError as exc:
+        logger.warning("online_last_24h_selfcare_unavailable error=%s", exc)
+        return []
+
+    online_external_ids: set[str] = set()
+    online_subscriber_numbers: set[str] = set()
+    online_last_seen_by_external: dict[str, datetime] = {}
+    online_last_seen_by_number: dict[str, datetime] = {}
+    for customer in online_customers:
+        if not isinstance(customer, Mapping):
+            continue
+        external_id = str(
+            customer.get("id") or customer.get("customer_id") or customer.get("subscriber_id") or ""
+        ).strip()
+        subscriber_number = str(customer.get("subscriber_number") or customer.get("login") or "").strip()
+        last_seen = _parse_online_dt(
+            customer.get("last_seen") or customer.get("last_online") or customer.get("updated_at")
+        )
+        if external_id:
+            online_external_ids.add(external_id)
+            if last_seen:
+                online_last_seen_by_external[external_id] = last_seen
+        if subscriber_number:
+            online_subscriber_numbers.add(subscriber_number)
+            if last_seen:
+                online_last_seen_by_number[subscriber_number] = last_seen
 
     latest_by_subscriber = (
         select(
             EventStore.subscriber_id.label("subscriber_id"),
             func.max(EventStore.created_at).label("last_seen_at"),
         )
-        .where(*clauses)
+        .where(
+            EventStore.is_active.is_(True),
+            EventStore.subscriber_id.isnot(None),
+            EventStore.event_type.in_(["session.started", "device.online", "usage.recorded"]),
+        )
         .group_by(EventStore.subscriber_id)
         .subquery()
     )
@@ -252,8 +265,10 @@ def online_customers_last_24h_rows(
     query = (
         select(
             Subscriber.id,
+            Subscriber.external_id,
             Subscriber.subscriber_number,
             Subscriber.status,
+            Subscriber.service_name,
             Subscriber.service_plan,
             Subscriber.service_city,
             Subscriber.service_region,
@@ -276,6 +291,7 @@ def online_customers_last_24h_rows(
         .join(
             latest_by_subscriber,
             latest_by_subscriber.c.subscriber_id == Subscriber.id,
+            isouter=True,
         )
         .join(
             latest_ticket,
@@ -286,6 +302,11 @@ def online_customers_last_24h_rows(
             latest_notification,
             latest_notification.c.subscriber_id == Subscriber.id,
             isouter=True,
+        )
+        .where(
+            Subscriber.is_active.is_(True),
+            Subscriber.status == SubscriberStatus.active,
+            Subscriber.external_system == "selfcare",
         )
     )
     if subscriber_ids is not None:
@@ -324,295 +345,63 @@ def online_customers_last_24h_rows(
     elif notification_filter == "unnotified":
         query = query.where(latest_notification.c.notification_status.is_(None))
 
-    query = query.order_by(latest_by_subscriber.c.last_seen_at.desc())
-    if limit is not None:
-        query = query.limit(limit)
+    query = query.order_by(func.coalesce(latest_by_subscriber.c.last_seen_at, Subscriber.updated_at).desc())
 
     rows = db.execute(query).all()
-
-    def _serialize_rows(raw_rows: Any) -> list[dict[str, Any]]:
-        serialized: list[dict[str, Any]] = []
-        for row in raw_rows:
-            raw_name = (
-                row.display_name or f"{row.first_name or ''} {row.last_name or ''}".strip() or row.subscriber_number
-            )
-            ticket_status_value = row.ticket_status.value if row.ticket_status else ""
-            notification_status_value = row.notification_status.value if row.notification_status else ""
-            notification_channel = row.notification_channel or ""
-            last_seen_value = _coerce_datetime_utc(row.last_seen_at)
-            notification_sent_at_value = _coerce_datetime_utc(row.notification_sent_at)
-            last_seen_text = _format_datetime_value(last_seen_value)
-            serialized.append(
-                {
-                    "subscriber_id": str(row.id),
-                    "can_notify": True,
-                    "id": row.subscriber_number or str(row.id),
-                    "name": _clean_report_name(raw_name),
-                    "subscriber_number": row.subscriber_number or "",
-                    "plan": row.service_plan or "",
-                    "status": row.status.value if row.status else "unknown",
-                    "region": _first_nonempty_text(row.service_region, row.service_city),
-                    "email": row.email or "",
-                    "phone": row.phone or "",
-                    "avatar_url": row.avatar_url or "",
-                    "timezone": row.timezone or "UTC",
-                    "last_seen_at": last_seen_text,
-                    "last_seen_at_iso": last_seen_value.isoformat() if last_seen_value else "",
-                    "last_activity": last_seen_text,
-                    "ticket_id": str(row.ticket_id) if row.ticket_id else "",
-                    "ticket_title": row.ticket_title or "",
-                    "ticket_status": ticket_status_value,
-                    "notification_channel": notification_channel,
-                    "notification_status": notification_status_value,
-                    "notification_state": "notified" if notification_status_value else "unnotified",
-                    "notification_sent_at": _format_datetime_value(notification_sent_at_value),
-                }
-            )
-        return serialized
-
-    _serialize_rows(rows)
-
-    try:
-        customers = fetch_customers(db)
-        online_customers = fetch_online_customers(db)
-    except SelfcareProviderError as exc:
-        logger.warning("online_last_24h_selfcare_unavailable error=%s", exc)
-        return []
-    if not isinstance(customers, list) or not customers:
-        return []
-    online_customer_ids = {
-        str(row.get("customer_id") or "").strip()
-        for row in online_customers
-        if isinstance(row, Mapping) and str(row.get("customer_id") or "").strip()
-    }
-    online_customer_logins = {
-        str(row.get("login") or "").strip()
-        for row in online_customers
-        if isinstance(row, Mapping) and str(row.get("login") or "").strip()
-    }
-
-    customer_online_map: dict[tuple[str, str], datetime] = {}
-    customer_by_external: dict[str, dict[str, Any]] = {}
-    customer_by_login: dict[str, dict[str, Any]] = {}
-    customer_by_email: dict[str, dict[str, Any]] = {}
-    for customer in customers:
-        if not isinstance(customer, Mapping):
-            continue
-        last_online = _parse_online_dt(
-            customer.get("last_online") or customer.get("last_seen") or customer.get("updated_at")
-        )
-        if last_online is None or last_online > now:
-            continue
-        if selected_activity_segment == "inactive_24h_not_online":
-            if last_online > start:
-                continue
-        elif last_online < start:
-            continue
-        external_id = str(customer.get("id") or "").strip()
-        login = str(customer.get("login") or "").strip()
-        email = str(customer.get("email") or "").strip().lower()
-        currently_online = bool(
-            (external_id and external_id in online_customer_ids) or (login and login in online_customer_logins)
-        )
-        status_value = str(customer.get("status") or "").strip().lower()
-        if status_value != "active" or currently_online:
-            continue
-        customer_payload = {
-            "external_id": external_id,
-            "login": login,
-            "email": email,
-            "name": str(customer.get("name") or "").strip(),
-            "status": status_value,
-            "currently_online": currently_online,
-            "last_seen_at": last_online,
-            "base_station": customer_base_station(customer),
-        }
-        if external_id:
-            customer_online_map[("external_id", external_id)] = max(
-                last_online,
-                customer_online_map.get(("external_id", external_id), datetime.min.replace(tzinfo=UTC)),
-            )
-            existing = customer_by_external.get(external_id)
-            if existing is None or customer_payload["last_seen_at"] > existing["last_seen_at"]:
-                customer_by_external[external_id] = customer_payload
-        if login:
-            customer_online_map[("subscriber_number", login)] = max(
-                last_online,
-                customer_online_map.get(("subscriber_number", login), datetime.min.replace(tzinfo=UTC)),
-            )
-            existing = customer_by_login.get(login)
-            if existing is None or customer_payload["last_seen_at"] > existing["last_seen_at"]:
-                customer_by_login[login] = customer_payload
-        if email:
-            customer_online_map[("email", email)] = max(
-                last_online,
-                customer_online_map.get(("email", email), datetime.min.replace(tzinfo=UTC)),
-            )
-            existing = customer_by_email.get(email)
-            if existing is None or customer_payload["last_seen_at"] > existing["last_seen_at"]:
-                customer_by_email[email] = customer_payload
-
-    external_ids = [key for key in customer_by_external if key]
-    logins = [key for key in customer_by_login if key]
-    emails = [key for key in customer_by_email if key]
-
-    match_rows = db.execute(
-        select(
-            Subscriber.id,
-            Subscriber.external_id,
-            Subscriber.subscriber_number,
-            Subscriber.person_id,
-            Person.email,
-        )
-        .select_from(Subscriber)
-        .join(Person, Person.id == Subscriber.person_id, isouter=True)
-        .where(
-            or_(
-                Subscriber.external_id.in_(external_ids) if external_ids else false(),
-                Subscriber.subscriber_number.in_(logins) if logins else false(),
-                func.lower(Person.email).in_(emails) if emails else false(),
-            )
-        )
-    ).all()
-
-    external_to_match: dict[str, tuple[str, str]] = {}
-    login_to_match: dict[str, tuple[str, str]] = {}
-    email_to_match: dict[str, tuple[str, str]] = {}
-    for subscriber_id, external_id, subscriber_number, person_id, person_email in match_rows:
-        subscriber_id_text = str(subscriber_id or "").strip()
-        person_id_text = str(person_id or "").strip()
-        if not subscriber_id_text:
-            continue
-        if external_id:
-            external_to_match[str(external_id).strip()] = (subscriber_id_text, person_id_text)
-        if subscriber_number:
-            login_to_match[str(subscriber_number).strip()] = (subscriber_id_text, person_id_text)
-        if person_email:
-            email_to_match[str(person_email).strip().lower()] = (subscriber_id_text, person_id_text)
-
-    email_to_person_id: dict[str, str] = {}
-    if emails:
-        person_rows = db.execute(select(Person.id, Person.email).where(func.lower(Person.email).in_(emails))).all()
-        for person_id, person_email in person_rows:
-            person_key = str(person_id or "").strip()
-            email_key = str(person_email or "").strip().lower()
-            if person_key and email_key:
-                email_to_person_id[email_key] = person_key
-
-    matched_subscriber_ids = sorted(
-        {
-            match[0]
-            for match in [*external_to_match.values(), *login_to_match.values(), *email_to_match.values()]
-            if match[0]
-        }
-    )
-    matched_person_ids = sorted(
-        {
-            match[1]
-            for match in [*external_to_match.values(), *login_to_match.values(), *email_to_match.values()]
-            if match[1]
-        }
-    )
-    for person_id in email_to_person_id.values():
-        if person_id and person_id not in matched_person_ids:
-            matched_person_ids.append(person_id)
-    matched_person_ids = sorted(set(matched_person_ids))
-    matched_subscriber_uuid_ids: list[UUID] = []
-    for value in matched_subscriber_ids:
-        try:
-            matched_subscriber_uuid_ids.append(UUID(value))
-        except (TypeError, ValueError):
-            continue
-    matched_person_uuid_ids: list[UUID] = []
-    for value in matched_person_ids:
-        try:
-            matched_person_uuid_ids.append(UUID(value))
-        except (TypeError, ValueError):
-            continue
-
-    latest_ticket_by_subscriber: dict[str, tuple[str, str]] = {}
-    if matched_subscriber_uuid_ids:
-        latest_subscriber_status_rows = db.execute(
-            select(Ticket.subscriber_id, Ticket.id, Ticket.status)
-            .where(
-                Ticket.is_active.is_(True),
-                Ticket.subscriber_id.in_(matched_subscriber_uuid_ids),
-            )
-            .order_by(Ticket.subscriber_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
-        ).all()
-        for subscriber_id, ticket_id, status in latest_subscriber_status_rows:
-            subscriber_key = str(subscriber_id or "").strip()
-            if not subscriber_key or subscriber_key in latest_ticket_by_subscriber:
-                continue
-            latest_ticket_by_subscriber[subscriber_key] = (
-                str(ticket_id or "").strip(),
-                str(status.value if isinstance(status, TicketStatus) else status or ""),
-            )
-
-    latest_ticket_by_person: dict[str, tuple[str, str]] = {}
-    if matched_person_uuid_ids:
-        latest_person_status_rows = db.execute(
-            select(Ticket.customer_person_id, Ticket.id, Ticket.status)
-            .where(
-                Ticket.is_active.is_(True),
-                Ticket.customer_person_id.in_(matched_person_uuid_ids),
-            )
-            .order_by(Ticket.customer_person_id.asc(), Ticket.created_at.desc(), Ticket.id.desc())
-        ).all()
-        for person_id, ticket_id, status in latest_person_status_rows:
-            person_key = str(person_id or "").strip()
-            if not person_key or person_key in latest_ticket_by_person:
-                continue
-            latest_ticket_by_person[person_key] = (
-                str(ticket_id or "").strip(),
-                str(status.value if isinstance(status, TicketStatus) else status or ""),
-            )
-
     live_rows: list[dict[str, Any]] = []
-    for customer in customer_by_external.values():
-        last_seen_value = customer["last_seen_at"]
-        matched = (
-            external_to_match.get(str(customer.get("external_id") or "").strip())
-            or login_to_match.get(str(customer.get("login") or "").strip())
-            or email_to_match.get(str(customer.get("email") or "").strip().lower())
-            or ("", email_to_person_id.get(str(customer.get("email") or "").strip().lower(), ""))
+    for row in rows:
+        external_id = str(row.external_id or "").strip()
+        subscriber_number = str(row.subscriber_number or "").strip()
+        currently_online = bool(
+            (external_id and external_id in online_external_ids)
+            or (subscriber_number and subscriber_number in online_subscriber_numbers)
         )
-        matched_subscriber_id, matched_person_id = matched
-        ticket_match = (
-            latest_ticket_by_subscriber.get(matched_subscriber_id)
-            or latest_ticket_by_person.get(matched_person_id)
-            or ("", "")
+        if selected_activity_segment == "last_24h" and not currently_online:
+            continue
+        if selected_activity_segment != "last_24h" and currently_online:
+            continue
+
+        raw_name = row.display_name or f"{row.first_name or ''} {row.last_name or ''}".strip() or subscriber_number
+        ticket_status_value = row.ticket_status.value if row.ticket_status else ""
+        notification_status_value = row.notification_status.value if row.notification_status else ""
+        notification_channel = row.notification_channel or ""
+        last_seen_value = (
+            online_last_seen_by_external.get(external_id)
+            or online_last_seen_by_number.get(subscriber_number)
+            or _coerce_datetime_utc(row.last_seen_at)
         )
-        ticket_id_value, raw_ticket_status = ticket_match
-        row = {
-            "subscriber_id": matched_subscriber_id or str(customer.get("external_id") or customer.get("login") or ""),
-            "can_notify": bool(matched_subscriber_id),
-            "id": str(customer.get("external_id") or customer.get("login") or ""),
-            "subscriber_external_id": str(customer.get("external_id") or ""),
-            "subscriber_login": str(customer.get("login") or ""),
-            "name": _clean_report_name(str(customer.get("name") or "").strip() or "Unknown"),
-            "subscriber_number": str(customer.get("login") or ""),
-            "plan": "",
-            "status": str(customer.get("status") or ""),
-            "region": "",
-            "email": str(customer.get("email") or ""),
-            "phone": "",
-            "avatar_url": "",
-            "timezone": "UTC",
-            "base_station": str(customer.get("base_station") or "").strip(),
-            "last_seen_at": _format_datetime_value(last_seen_value),
-            "last_seen_at_iso": last_seen_value.isoformat(),
-            "last_activity": _format_datetime_value(last_seen_value),
-            "currently_online": bool(customer.get("currently_online")),
-            "ticket_id": ticket_id_value,
-            "ticket_title": "",
-            "ticket_status": raw_ticket_status.replace("_", " ").title() if raw_ticket_status else "",
-            "notification_channel": "",
-            "notification_status": "",
-            "notification_state": "unnotified",
-            "notification_sent_at": "",
-        }
-        live_rows.append(row)
+        notification_sent_at_value = _coerce_datetime_utc(row.notification_sent_at)
+        last_seen_text = _format_datetime_value(last_seen_value)
+        live_rows.append(
+            {
+                "subscriber_id": str(row.id),
+                "can_notify": True,
+                "id": subscriber_number or str(row.id),
+                "splynx_customer_id": external_id,
+                "splynx_login": subscriber_number,
+                "name": _clean_report_name(raw_name),
+                "subscriber_number": subscriber_number,
+                "plan": row.service_plan or row.service_name or "",
+                "status": row.status.value if row.status else "unknown",
+                "region": _first_nonempty_text(row.service_region, row.service_city),
+                "email": row.email or "",
+                "phone": row.phone or "",
+                "avatar_url": row.avatar_url or "",
+                "timezone": row.timezone or "UTC",
+                "base_station": "",
+                "last_seen_at": last_seen_text,
+                "last_seen_at_iso": last_seen_value.isoformat() if last_seen_value else "",
+                "last_activity": last_seen_text,
+                "currently_online": currently_online,
+                "ticket_id": str(row.ticket_id) if row.ticket_id else "",
+                "ticket_title": row.ticket_title or "",
+                "ticket_status": ticket_status_value,
+                "notification_channel": notification_channel,
+                "notification_status": notification_status_value,
+                "notification_state": "notified" if notification_status_value else "unnotified",
+                "notification_sent_at": _format_datetime_value(notification_sent_at_value),
+            }
+        )
 
     search_text = (search or "").strip().lower()
     if search_text:

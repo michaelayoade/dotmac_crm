@@ -179,52 +179,11 @@ def _build_changed_person_update_payload(
 
 @router.get("/health", response_class=HTMLResponse)
 def system_health_page(request: Request, db: Session = Depends(get_db)):
-    from app.models.domain_settings import SettingDomain
-    from app.services import settings_spec
     from app.services import system_health as system_health_service
     from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     health = system_health_service.get_system_health()
-    thresholds: dict[str, float | None] = {
-        "disk_warn_pct": cast(
-            float | None,
-            settings_spec.resolve_value(db, SettingDomain.network_monitoring, "server_health_disk_warn_pct"),
-        ),
-        "disk_crit_pct": cast(
-            float | None,
-            settings_spec.resolve_value(db, SettingDomain.network_monitoring, "server_health_disk_crit_pct"),
-        ),
-        "mem_warn_pct": cast(
-            float | None,
-            settings_spec.resolve_value(db, SettingDomain.network_monitoring, "server_health_mem_warn_pct"),
-        ),
-        "mem_crit_pct": cast(
-            float | None,
-            settings_spec.resolve_value(db, SettingDomain.network_monitoring, "server_health_mem_crit_pct"),
-        ),
-        "load_warn": cast(
-            float | None,
-            settings_spec.resolve_value(db, SettingDomain.network_monitoring, "server_health_load_warn"),
-        ),
-        "load_crit": cast(
-            float | None,
-            settings_spec.resolve_value(db, SettingDomain.network_monitoring, "server_health_load_crit"),
-        ),
-    }
-    for key, value in thresholds.items():
-        if value is None:
-            thresholds[key] = None
-            continue
-        if isinstance(value, int | float):
-            thresholds[key] = float(value)
-            continue
-        if isinstance(value, str):
-            try:
-                thresholds[key] = float(value)
-            except ValueError:
-                thresholds[key] = None
-            continue
-        thresholds[key] = None
+    thresholds = system_health_service.resolve_health_thresholds(db)
     health_status = system_health_service.evaluate_health(health, thresholds)
     period_days = 30
     with contextlib.suppress(Exception):

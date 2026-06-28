@@ -287,6 +287,46 @@ def create_installation_invoice(
     return invoice_id or None
 
 
+def create_account_credit(
+    db: Session,
+    *,
+    subscriber_id: str,
+    amount: Any,
+    reason: str = "Referral reward",
+    external_ref: str | None = None,
+    currency: str = "NGN",
+) -> str:
+    """Issue an account credit on a subscriber's dotmac_sub billing account
+    (used to pay out referral rewards). Returns the new credit id.
+
+    Raises ``SelfcareProviderError`` when sync is disabled or the call fails, so
+    the caller can decide whether to mark the reward issued. Idempotent on
+    ``external_ref`` server-side.
+    """
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        amt = Decimal(str(amount))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise SelfcareProviderError(f"Invalid credit amount: {amount!r}") from exc
+    if amt <= 0:
+        raise SelfcareProviderError("Credit amount must be greater than 0.")
+
+    body = {
+        "subscriber_id": str(subscriber_id),
+        "amount": str(amt),
+        "reason": reason,
+        "external_ref": external_ref,
+        "currency": currency,
+    }
+    data = _request_json(db, "POST", "/credits", json_body=body)
+    row = _unwrap_data(data) or {}
+    credit_id = str(row.get("id") or "").strip() if isinstance(row, dict) else ""
+    if not credit_id:
+        raise SelfcareProviderError("Credit response did not include an id.")
+    return credit_id
+
+
 def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     page = 1
     rows: list[dict[str, Any]] = []
@@ -322,9 +362,14 @@ def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None
     return rows
 
 
-def fetch_customers(db: Session, *, include: str = "services,billing") -> list[dict[str, Any]]:
+def fetch_customers(
+    db: Session, *, include: str | None = "services,billing", per_page: int = 500
+) -> list[dict[str, Any]]:
     """Fetch all Selfcare subscribers using the CRM API envelope."""
-    return _list_paginated(db, "/subscribers", {"include": include})
+    params: dict[str, Any] = {"per_page": max(1, min(int(per_page or 500), 1000))}
+    if include:
+        params["include"] = include
+    return _list_paginated(db, "/subscribers", params)
 
 
 def fetch_customer(db: Session, subscriber_id: str) -> dict[str, Any] | None:
@@ -345,7 +390,8 @@ def fetch_customer_billing(db: Session, subscriber_id: str) -> dict[str, Any] | 
 
 
 def fetch_locations(db: Session) -> list[dict[str, Any]]:
-    return _list_paginated(db, "/locations")
+    payload = _request_json(db, "GET", "/locations")
+    return _rows(payload)
 
 
 def fetch_billing_risk_source(db: Session) -> list[dict[str, Any]]:
@@ -362,6 +408,23 @@ def fetch_transactions(db: Session, *, offset: int = 0, limit: int = 5000) -> li
 
 def fetch_payments(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
     return _rows(_request_json(db, "GET", "/finance/payments", params={"offset": offset, "limit": limit}))
+
+
+def fetch_customer_payments(
+    db: Session,
+    customer_id: str,
+    *,
+    page: int = 1,
+    per_page: int = 1,
+) -> list[dict[str, Any]]:
+    return _rows(
+        _request_json(
+            db,
+            "GET",
+            "/finance/payments",
+            params={"customer_id": customer_id, "page": page, "per_page": per_page},
+        )
+    )
 
 
 def fetch_customer_sessions(db: Session, subscriber_id: str, *, limit: int = 10000) -> list[dict[str, Any]]:
