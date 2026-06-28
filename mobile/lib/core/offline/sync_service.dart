@@ -127,6 +127,45 @@ class SyncService {
     return (jsonDecode(row!.detailJson!) as Map).cast<String, dynamic>();
   }
 
+  Future<int> downSyncSchedule() async {
+    final response = await api.dio.get('/api/v1/field/schedule');
+    final items = (response.data as List).cast<Map>();
+    await cacheSchedule(items);
+    return items.length;
+  }
+
+  /// Replace the cached schedule with the latest fetch. A full replace (rather
+  /// than upsert) ensures entries dropped server-side don't linger offline.
+  Future<void> cacheSchedule(List<Map> items) async {
+    await db.transaction(() async {
+      await db.delete(db.cachedScheduleEntries).go();
+      await db.batch((batch) {
+        for (final item in items) {
+          batch.insert(
+            db.cachedScheduleEntries,
+            CachedScheduleEntriesCompanion.insert(
+              referenceId: item['reference_id'] as String,
+              type: item['type'] as String,
+              startAt: DateTime.parse(item['start_at'] as String),
+              endAt: Value(
+                item['end_at'] != null ? DateTime.parse(item['end_at'] as String) : null,
+              ),
+              title: item['title'] as String? ?? '',
+            ),
+            mode: InsertMode.insertOrReplace,
+          );
+        }
+      });
+    });
+  }
+
+  /// Cached schedule entries, earliest first.
+  Future<List<CachedScheduleEntry>> readCachedSchedule() async {
+    final query = db.select(db.cachedScheduleEntries)
+      ..orderBy([(row) => OrderingTerm.asc(row.startAt)]);
+    return query.get();
+  }
+
   // ---- Outbox ------------------------------------------------------------
 
   Future<void> enqueue({

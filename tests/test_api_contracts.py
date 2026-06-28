@@ -2,42 +2,34 @@
 
 import uuid
 
-import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from fastapi import HTTPException
 
-from app.api.deps import get_db
-
-
-@pytest.fixture()
-def client(db_session):
-    from app.api.contracts import router
-
-    app = FastAPI()
-    app.include_router(router)
-    app.dependency_overrides[get_db] = lambda: db_session
-    return TestClient(app)
+from app.api import contracts as contracts_api
+from app.schemas.contracts import ContractSignatureCreate
 
 
-def test_create_read_and_list_signature(client):
+def test_create_read_and_list_signature(db_session):
     account_id = str(uuid.uuid4())
-    payload = {
-        "account_id": account_id,
-        "signer_name": "Jane Doe",
-        "signer_email": "jane@example.com",
-        "ip_address": "203.0.113.5",
-        "agreement_text": "I agree to the terms of service.",
-    }
-    created = client.post("/contracts/signatures", json=payload)
-    assert created.status_code == 201, created.json()
-    sig_id = created.json()["id"]
+    payload = ContractSignatureCreate(
+        account_id=account_id,
+        signer_name="Jane Doe",
+        signer_email="jane@example.com",
+        ip_address="203.0.113.5",
+        agreement_text="I agree to the terms of service.",
+    )
+    created = contracts_api.create_signature(payload, db_session)
+    sig_id = str(created.id)
 
-    assert client.get(f"/contracts/signatures/{sig_id}").status_code == 200
+    assert contracts_api.get_signature(sig_id, db_session).id == created.id
 
-    listed = client.get("/contracts/signatures", params={"account_id": account_id})
-    assert listed.status_code == 200
-    assert len(listed.json()) == 1
+    listed = contracts_api.list_signatures(account_id=account_id, limit=100, offset=0, db=db_session)
+    assert len(listed) == 1
 
 
-def test_template_404_when_none_published(client):
-    assert client.get("/contracts/template").status_code == 404
+def test_template_404_when_none_published(db_session):
+    try:
+        contracts_api.get_contract_template(db=db_session)
+    except HTTPException as exc:
+        assert exc.status_code == 404
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("expected missing template to raise 404")

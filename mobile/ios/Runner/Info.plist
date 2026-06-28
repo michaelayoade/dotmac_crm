@@ -76,5 +76,9 @@
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Photos document completed installations and site conditions.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Dictate job notes hands-free so details are captured accurately on site.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Spoken job notes are transcribed into structured updates for your work orders.</string>
 </dict>
 </plist>

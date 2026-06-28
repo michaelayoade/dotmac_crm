@@ -183,6 +183,51 @@ def test_hold_stops_open_worklog(db_session, dispatched_job, person):
     assert closed.minutes >= 44
 
 
+def test_double_hold_is_idempotent(db_session, dispatched_job, person):
+    """A second hold tap (fresh client_event_id) collapses to a no-op."""
+    _apply(db_session, person, dispatched_job, "start")
+    first = _apply(db_session, person, dispatched_job, "hold", note="lunch")
+    assert first["replayed"] is False
+
+    second = _apply(db_session, person, dispatched_job, "hold", note="still lunch")
+    assert second["replayed"] is True
+    assert second["event"].id == first["event"].id
+
+    hold_events = (
+        db_session.query(WorkOrderEvent)
+        .filter(WorkOrderEvent.work_order_id == dispatched_job.id)
+        .filter(WorkOrderEvent.event == FieldJobEvent.hold)
+        .count()
+    )
+    assert hold_events == 1
+
+
+def test_resume_after_hold_then_double_resume_is_idempotent(db_session, dispatched_job, person):
+    _apply(db_session, person, dispatched_job, "start")
+    _apply(db_session, person, dispatched_job, "hold")
+    first_resume = _apply(db_session, person, dispatched_job, "resume")
+    assert first_resume["replayed"] is False
+
+    # A second resume (already running) is a no-op; a fresh hold is recorded.
+    second_resume = _apply(db_session, person, dispatched_job, "resume")
+    assert second_resume["replayed"] is True
+    again_hold = _apply(db_session, person, dispatched_job, "hold")
+    assert again_hold["replayed"] is False
+
+    counts = {
+        FieldJobEvent.hold: 2,  # original + the re-hold after resume
+        FieldJobEvent.resume: 1,
+    }
+    for event, expected in counts.items():
+        got = (
+            db_session.query(WorkOrderEvent)
+            .filter(WorkOrderEvent.work_order_id == dispatched_job.id)
+            .filter(WorkOrderEvent.event == event)
+            .count()
+        )
+        assert got == expected, f"{event}: expected {expected}, got {got}"
+
+
 def test_unassigned_caller_gets_404(db_session, dispatched_job):
     stranger = Person(first_name="S", last_name="T", email=f"s-{uuid.uuid4().hex}@example.com")
     db_session.add(stranger)

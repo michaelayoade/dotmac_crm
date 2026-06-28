@@ -24,11 +24,11 @@ server FCM sender lives in `app/services/push.py`.
    `FcmPushSource.tryCreate()` calls `Firebase.initializeApp()` with no options,
    so it resolves from these native files — no code change needed after this.
 
-2. **Android minSdk**: ensure ≥ 23 (firebase_core 3.x). The app currently uses
+2. **Android minSdk**: ensure >= 23 (firebase_core 3.x). The app currently uses
    `flutter.minSdkVersion`; bump in `android/app/build.gradle.kts` if needed.
 
-3. **iOS**: upload your APNs auth key (`.p8`) to Firebase → Project Settings →
-   Cloud Messaging, and enable **Push Notifications** + **Background Modes →
+3. **iOS**: upload your APNs auth key (`.p8`) to Firebase -> Project Settings ->
+   Cloud Messaging, and enable **Push Notifications** + **Background Modes ->
    Remote notifications** capabilities in Xcode. (Deployment target is already
    iOS 13.)
 
@@ -44,6 +44,6 @@ top-level `@pragma('vm:entry-point')` handler and register it with
 already display without it.
 
 ## Verifying
-- `flutter run`, log in → confirm a `DeviceToken` row server-side.
-- Assign a work order to the logged-in tech → `queue_work_order_assignment_push`
-  → device receives "New job assigned" → tapping it deep-links to `/jobs/{id}`.
+- `flutter run`, log in -> confirm a `DeviceToken` row server-side.
+- Assign a work order to the logged-in tech -> `queue_work_order_assignment_push`
+  -> device receives "New job assigned" -> tapping it deep-links to `/jobs/{id}`.

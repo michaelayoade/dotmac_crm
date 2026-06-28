@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'app/app.dart';
 import 'core/offline/connectivity.dart';
@@ -14,9 +15,15 @@ import 'core/offline/sync_service.dart';
 import 'core/photos/photo_queue.dart';
 import 'core/push/fcm_push_source.dart';
 import 'core/push/push_registrar.dart';
+import 'features/auth/auth_repository.dart' show appVersion;
 import 'features/auth/auth_state.dart';
 import 'features/execution/completion_wizard.dart';
 import 'features/execution/execution_controller.dart';
+
+/// Crash/error telemetry DSN, injected via `--dart-define=SENTRY_DSN=...`.
+/// Empty (the default) disables telemetry entirely — local/dev builds run
+/// untouched. Sentry auto-captures uncaught Flutter + async errors once init'd.
+const _sentryDsn = String.fromEnvironment('SENTRY_DSN');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,7 +38,7 @@ Future<void> main() async {
   // FCM push, when Firebase is configured (else null → NoopPushSource).
   final fcm = await FcmPushSource.tryCreate();
 
-  runApp(
+  void runTheApp() => runApp(
     ProviderScope(
       overrides: [
         if (fcm != null) pushSourceProvider.overrideWithValue(fcm),
@@ -78,5 +85,20 @@ Future<void> main() async {
       ],
       child: const DotmacFieldApp(),
     ),
+  );
+
+  if (_sentryDsn.isEmpty) {
+    // No DSN configured (local/dev): run without telemetry.
+    runTheApp();
+    return;
+  }
+
+  await SentryFlutter.init(
+    (options) {
+      options.dsn = _sentryDsn;
+      options.tracesSampleRate = 0.2;
+      options.release = 'dotmac_field@$appVersion';
+    },
+    appRunner: runTheApp,
   );
 }

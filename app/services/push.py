@@ -26,6 +26,7 @@ from jose import jwt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.models.audit import AuditActorType, AuditEvent
 from app.models.field import DevicePlatform, DeviceToken
 from app.models.notification import (
     DeliveryStatus,
@@ -206,6 +207,50 @@ class PushDevices(ListResponseMixin):
             .filter(DeviceToken.is_active.is_(True))
             .all()
         )
+
+    @staticmethod
+    def list_for_person(db: Session, person_id: str) -> list[DeviceToken]:
+        """The caller's own active devices, most-recently-seen first."""
+        return (
+            db.query(DeviceToken)
+            .filter(DeviceToken.person_id == coerce_uuid(person_id))
+            .filter(DeviceToken.is_active.is_(True))
+            .order_by(DeviceToken.last_seen_at.desc().nullslast(), DeviceToken.created_at.desc())
+            .all()
+        )
+
+    @staticmethod
+    def deregister(db: Session, *, device_id: str, person_id: str) -> None:
+        """Soft-deactivate one of the caller's own devices (logout / lost phone).
+
+        Scoped to the caller: a device owned by someone else yields a uniform
+        404 so an id probe can't enumerate or remove others' devices. An audit
+        row records the removal.
+        """
+        device = (
+            db.query(DeviceToken)
+            .filter(DeviceToken.id == coerce_uuid(device_id))
+            .filter(DeviceToken.person_id == coerce_uuid(person_id))
+            .filter(DeviceToken.is_active.is_(True))
+            .first()
+        )
+        if device is None:
+            raise HTTPException(status_code=404, detail="Device not found")
+        device.is_active = False
+        db.add(
+            AuditEvent(
+                actor_type=AuditActorType.user,
+                actor_id=str(person_id),
+                action="field:device:deregister",
+                entity_type="DeviceToken",
+                entity_id=str(device.id),
+                status_code=200,
+                is_success=True,
+                metadata_={"platform": device.platform.value},
+            )
+        )
+        db.commit()
+        logger.info("push_device_deregistered device_id=%s person_id=%s", device.id, person_id)
 
 
 class PushSender:

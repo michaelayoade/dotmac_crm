@@ -146,6 +146,22 @@ class FieldTransitions:
                 detail=f"Cannot {event_value.value} a job in status {work_order.status.value}",
             )
 
+        # hold/resume are event-only (no status change), so the allowed-from
+        # check above can't catch a redundant repeat (hold→hold, resume→resume)
+        # from a double-tap with a fresh client_event_id. Collapse those to an
+        # idempotent no-op against the latest pause fact so they don't litter
+        # the event stream or skew duration reporting.
+        if event_value in (FieldJobEvent.hold, FieldJobEvent.resume):
+            latest_pause = (
+                db.query(WorkOrderEvent)
+                .filter(WorkOrderEvent.work_order_id == work_order.id)
+                .filter(WorkOrderEvent.event.in_([FieldJobEvent.hold, FieldJobEvent.resume]))
+                .order_by(WorkOrderEvent.occurred_at.desc(), WorkOrderEvent.received_at.desc())
+                .first()
+            )
+            if latest_pause is not None and latest_pause.event == event_value:
+                return {"work_order": work_order, "event": latest_pause, "replayed": True}
+
         now = datetime.now(UTC)
         occurred = _coerce_occurred_at(occurred_at) or now
         event_payload = dict(payload or {})
