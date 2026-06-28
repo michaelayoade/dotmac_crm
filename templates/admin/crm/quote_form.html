@@ -349,6 +349,19 @@
     searchTimer = setTimeout(() => fetchSuggestions(value), 200);
   };
 
+  // Net line amount: qty * price less the line discount percent (clamped 0-100).
+  // Mirrors _line_amount() on the server so the preview matches what gets saved.
+  const netLineAmount = (qty, price, discount) => {
+    if (!Number.isFinite(qty) || !Number.isFinite(price)) {
+      return 0;
+    }
+    let disc = Number.isFinite(discount) ? discount : 0;
+    if (disc < 0) disc = 0;
+    if (disc > 100) disc = 100;
+    const net = qty * price * (100 - disc) / 100;
+    return net > 0 ? net : 0;
+  };
+
   const recalcTotals = () => {
     if (!subtotalInput || !totalInput) {
       return;
@@ -357,9 +370,8 @@
     body.querySelectorAll("[data-line-item-row]").forEach((row) => {
       const qty = parseFloat(row.querySelector('input[name="item_quantity"]')?.value || "0");
       const price = parseFloat(row.querySelector('input[name="item_unit_price"]')?.value || "0");
-      if (Number.isFinite(qty) && Number.isFinite(price)) {
-        subtotal += qty * price;
-      }
+      const discount = parseFloat(row.querySelector('input[name="item_discount_percent"]')?.value || "0");
+      subtotal += netLineAmount(qty, price, discount);
     });
     subtotalInput.value = subtotal.toFixed(2);
     if (taxInput) {
@@ -379,6 +391,7 @@
   const bindRow = (row) => {
     const qtyInput = row.querySelector('input[name="item_quantity"]');
     const priceInput = row.querySelector('input[name="item_unit_price"]');
+    const discountInput = row.querySelector('input[name="item_discount_percent"]');
     const amountInput = row.querySelector('input[name="item_amount_display"]');
     const descInput = row.querySelector('[data-inventory-item-input]');
     const inventoryIdInput = row.querySelector('[data-inventory-item-id]');
@@ -398,8 +411,9 @@
       }
       const qty = parseFloat(qtyInput?.value || "0");
       const price = parseFloat(priceInput?.value || "0");
+      const discount = parseFloat(discountInput?.value || "0");
       if (Number.isFinite(qty) && Number.isFinite(price)) {
-        amountInput.value = (qty * price).toFixed(2);
+        amountInput.value = netLineAmount(qty, price, discount).toFixed(2);
       } else {
         amountInput.value = "";
       }
@@ -408,6 +422,7 @@
 
     qtyInput?.addEventListener("input", updateAmount);
     priceInput?.addEventListener("input", updateAmount);
+    discountInput?.addEventListener("input", updateAmount);
     descInput?.addEventListener("input", (event) => {
       scheduleSearch(event.target.value);
     });

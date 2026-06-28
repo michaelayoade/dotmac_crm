@@ -93,3 +93,17 @@ def test_mixed_lines_subtotal(db_session):
     _add_line(db_session, quote, qty="1", price="10000", discount="50")
     db_session.refresh(quote)
     assert quote.subtotal == Decimal("15000.00")  # 10000 + 5000
+
+
+def test_tax_is_computed_on_discounted_subtotal(db_session):
+    """With a discount AND a tax rate, tax follows the net (discounted) subtotal."""
+    quote = quotes.create(
+        db_session,
+        QuoteCreate(person_id=_person(db_session).id, tax_rate=Decimal("10")),
+    )
+    _add_line(db_session, quote, qty="1", price="10000", discount="20")
+    db_session.refresh(quote)
+    # Net subtotal: 10000 * 0.80 = 8000. Tax: 10% of 8000 = 800 (not 1000).
+    assert quote.subtotal == Decimal("8000.00")
+    assert quote.tax_total == Decimal("800.00")
+    assert quote.total == Decimal("8800.00")  # discounted_subtotal + tax
