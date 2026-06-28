@@ -146,12 +146,13 @@ def upgrade() -> None:
     contact_write = _perm_id(conn, permissions, "crm:contact:write")
     sub_read = _perm_id(conn, permissions, "subscribers:subscriber:read")
     sub_write = _perm_id(conn, permissions, "subscribers:subscriber:write")
-    sub_delete = _perm_id(conn, permissions, "subscribers:subscriber:delete")
 
     # contact:read holders → subscriber read
     _grant_from_source(conn, role_permissions, person_permissions, source_perm_id=contact_read, target_perm_id=sub_read)
-    # contact:write holders → subscriber read + write + delete
-    for target in (sub_read, sub_write, sub_delete):
+    # contact:write holders → subscriber read + write (NOT delete — deletion is a
+    # destructive op left to admins, who bypass require_permission entirely, or to
+    # explicit grants of subscribers:subscriber:delete).
+    for target in (sub_read, sub_write):
         _grant_from_source(
             conn, role_permissions, person_permissions, source_perm_id=contact_write, target_perm_id=target
         )
