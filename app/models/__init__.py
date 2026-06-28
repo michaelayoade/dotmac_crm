@@ -259,6 +259,12 @@ from app.models.rbac import (  # noqa: F401
     Role,
     RolePermission,
 )
+from app.models.reseller_commission import (  # noqa: F401
+    CommissionStatus,
+    PayoutStatus,
+    ResellerCommission,
+    ResellerPayout,
+)
 from app.models.sales_order import (  # noqa: F401
     SalesOrder,
     SalesOrderLine,

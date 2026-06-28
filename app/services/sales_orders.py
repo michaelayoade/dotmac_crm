@@ -124,6 +124,23 @@ def _ensure_fulfillment(db: Session, sales_order: SalesOrder) -> None:
     return None
 
 
+def _accrue_reseller_commission(db: Session, sales_order: SalesOrder) -> None:
+    """Accrue a reseller commission when the order is paid (best-effort: a
+    commission hiccup must never break sales-order processing)."""
+    try:
+        from app.services.reseller_commissions import reseller_commissions
+
+        reseller_commissions.accrue_for_sales_order(db, sales_order)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "reseller_commission_accrual_failed sales_order_id=%s",
+            getattr(sales_order, "id", None),
+            exc_info=True,
+        )
+
+
 def _resolve_project_type(value: str | None) -> ProjectType | None:
     if not value:
         return None
@@ -268,6 +285,7 @@ class SalesOrders(ListResponseMixin):
         _ensure_project_for_manual_sales_order(db, sales_order)
         db.commit()
         db.refresh(sales_order)
+        _accrue_reseller_commission(db, sales_order)
         return sales_order
 
     @staticmethod

@@ -1106,6 +1106,21 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.boolean,
         default=False,
     ),
+    # --- Reseller commissions ---
+    SettingSpec(
+        domain=SettingDomain.subscriber,
+        key="reseller_commissions_enabled",
+        env_var="RESELLER_COMMISSIONS_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+    ),
+    SettingSpec(
+        domain=SettingDomain.subscriber,
+        key="reseller_commission_default_rate",
+        env_var="RESELLER_COMMISSION_DEFAULT_RATE",
+        value_type=SettingValueType.decimal,
+        default=0,
+    ),
     SettingSpec(
         domain=SettingDomain.subscriber,
         key="subscriber_number_enabled",
