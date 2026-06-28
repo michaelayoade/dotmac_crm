@@ -65,10 +65,10 @@ from app.api.persons import router as people_router
 from app.api.projects import router as projects_router
 from app.api.qualification import router as qualification_router
 from app.api.rbac import router as rbac_router
-from app.api.reseller_portal import router as reseller_portal_router
-from app.api.sales import router as sales_router
 from app.api.reseller_commissions import payout_router as reseller_payouts_router
 from app.api.reseller_commissions import router as reseller_commissions_router
+from app.api.reseller_portal import router as reseller_portal_router
+from app.api.sales import router as sales_router
 from app.api.sales_orders import router as sales_orders_router
 from app.api.scheduler import router as scheduler_router
 from app.api.search import router as search_router

@@ -66,7 +66,7 @@ def _reseller_customer_order(db, *, rate=None, total="100000"):
 
 def test_accrue_uses_per_reseller_rate(db_session, monkeypatch):
     _enable(monkeypatch)
-    reseller, _person_, order = _reseller_customer_order(db_session, rate=Decimal("10"))
+    reseller, _, order = _reseller_customer_order(db_session, rate=Decimal("10"))
     commission = svc.accrue_for_sales_order(db_session, order)
     assert commission is not None
     assert commission.reseller_org_id == reseller.id
@@ -77,7 +77,7 @@ def test_accrue_uses_per_reseller_rate(db_session, monkeypatch):
 
 def test_accrue_falls_back_to_default_rate(db_session, monkeypatch):
     _enable(monkeypatch, default_rate="5")
-    _reseller, _person_, order = _reseller_customer_order(db_session, rate=None, total="200000")
+    _reseller, _, order = _reseller_customer_order(db_session, rate=None, total="200000")
     commission = svc.accrue_for_sales_order(db_session, order)
     assert commission.rate == Decimal("5")
     assert commission.amount == Decimal("10000.00")
@@ -85,7 +85,7 @@ def test_accrue_falls_back_to_default_rate(db_session, monkeypatch):
 
 def test_accrue_is_idempotent(db_session, monkeypatch):
     _enable(monkeypatch)
-    _reseller, _person_, order = _reseller_customer_order(db_session, rate=Decimal("10"))
+    _reseller, _, order = _reseller_customer_order(db_session, rate=Decimal("10"))
     first = svc.accrue_for_sales_order(db_session, order)
     second = svc.accrue_for_sales_order(db_session, order)
     assert first.id == second.id
@@ -102,7 +102,7 @@ def test_no_commission_when_not_reseller_sourced(db_session, monkeypatch):
 
 def test_disabled_accrues_nothing(db_session, monkeypatch):
     _enable(monkeypatch, enabled=False, default_rate="10")
-    _reseller, _person_, order = _reseller_customer_order(db_session, rate=Decimal("10"))
+    _reseller, _, order = _reseller_customer_order(db_session, rate=Decimal("10"))
     assert svc.accrue_for_sales_order(db_session, order) is None
     assert db_session.query(ResellerCommission).count() == 0
 
@@ -120,7 +120,7 @@ def test_unpaid_order_accrues_nothing(db_session, monkeypatch):
 
 def test_approve_payout_and_mark_paid(db_session, monkeypatch):
     _enable(monkeypatch)
-    reseller, _person_, order = _reseller_customer_order(db_session, rate=Decimal("10"))
+    reseller, _, order = _reseller_customer_order(db_session, rate=Decimal("10"))
     commission = svc.accrue_for_sales_order(db_session, order)
 
     svc.approve(db_session, str(commission.id))
@@ -143,7 +143,7 @@ def test_approve_payout_and_mark_paid(db_session, monkeypatch):
 
 def test_create_payout_without_approved_is_409(db_session, monkeypatch):
     _enable(monkeypatch)
-    reseller, _person_, order = _reseller_customer_order(db_session, rate=Decimal("10"))
+    reseller, _, order = _reseller_customer_order(db_session, rate=Decimal("10"))
     svc.accrue_for_sales_order(db_session, order)  # pending, not approved
     with pytest.raises(HTTPException) as exc:
         svc.create_payout(db_session, str(reseller.id))
@@ -188,7 +188,7 @@ def test_accrue_on_paid_transition_via_update(db_session, monkeypatch):
 def test_create_payout_does_not_double_claim_commissions(db_session, monkeypatch):
     """Two payouts for the same reseller must not both claim the same commission."""
     _enable(monkeypatch)
-    reseller, _person_, order = _reseller_customer_order(db_session, rate=Decimal("10"))
+    reseller, _, order = _reseller_customer_order(db_session, rate=Decimal("10"))
     commission = svc.accrue_for_sales_order(db_session, order)
     svc.approve(db_session, str(commission.id))
 
@@ -207,7 +207,7 @@ def test_create_payout_does_not_double_claim_commissions(db_session, monkeypatch
 def test_void_attached_commission_refused(db_session, monkeypatch):
     """An approved commission already in a draft payout cannot be voided in place."""
     _enable(monkeypatch)
-    reseller, _person_, order = _reseller_customer_order(db_session, rate=Decimal("10"))
+    reseller, _, order = _reseller_customer_order(db_session, rate=Decimal("10"))
     commission = svc.accrue_for_sales_order(db_session, order)
     svc.approve(db_session, str(commission.id))
     svc.create_payout(db_session, str(reseller.id))
@@ -275,7 +275,7 @@ def test_create_payout_rejects_mixed_currencies(db_session, monkeypatch):
 def test_mark_payout_paid_preserves_existing_method_on_remark(db_session, monkeypatch):
     """A second mark-paid with no args must not clobber recorded method/reference."""
     _enable(monkeypatch)
-    reseller, _person_, order = _reseller_customer_order(db_session, rate=Decimal("10"))
+    reseller, _, order = _reseller_customer_order(db_session, rate=Decimal("10"))
     commission = svc.accrue_for_sales_order(db_session, order)
     svc.approve(db_session, str(commission.id))
     payout = svc.create_payout(db_session, str(reseller.id))
@@ -289,7 +289,7 @@ def test_mark_payout_paid_preserves_existing_method_on_remark(db_session, monkey
 
 def test_summary_aggregates_by_status(db_session, monkeypatch):
     _enable(monkeypatch)
-    reseller, _person_, order = _reseller_customer_order(db_session, rate=Decimal("10"))
+    reseller, _, order = _reseller_customer_order(db_session, rate=Decimal("10"))
     commission = svc.accrue_for_sales_order(db_session, order)
     summary = svc.reseller_summary(db_session, str(reseller.id))
     assert summary["total_commissions"] == 1
