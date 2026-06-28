@@ -8,12 +8,14 @@ import hmac
 import json
 import logging
 import os
+import random
 import re
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import quote, urlparse
 
 from sqlalchemy.orm import Session
 
@@ -30,6 +32,36 @@ _CUSTOMER_LAST_SYNC_KEY = "selfcare_sync:customer:last"
 _CUSTOMER_HISTORY_KEY = "selfcare_sync:customer:history"
 _CUSTOMER_DAILY_STATS_PREFIX = "selfcare_sync:customer:stats:"
 _HISTORY_MAX_SIZE = 30
+
+# Retry policy for transient upstream failures (connection errors, read
+# timeouts, 429, 5xx). 4xx are caller errors and never retried.
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_ATTEMPTS = 3
+_BACKOFF_BASE_SECONDS = 0.5
+_BACKOFF_CAP_SECONDS = 5.0
+_CONNECT_TIMEOUT_SECONDS = 10
+# Query-param keys that may carry PII (customer email/phone/search terms) — kept
+# out of request logs.
+_SENSITIVE_PARAM_KEYS = frozenset({"q", "query", "search", "email", "phone", "login"})
+
+
+def _redact_params(params: dict[str, Any] | None) -> dict[str, Any]:
+    if not params:
+        return {}
+    return {k: ("***" if k.lower() in _SENSITIVE_PARAM_KEYS else v) for k, v in params.items()}
+
+
+def _sleep_backoff(attempt: int) -> None:
+    delay = min(_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)), _BACKOFF_CAP_SECONDS)
+    time.sleep(delay + random.uniform(0, 0.25))  # nosec B311 - jitter, not security
+
+
+def _validate_base_url(base_url: str) -> str:
+    parsed = urlparse(base_url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise SelfcareProviderError("Selfcare base URL must be a valid http(s) URL.")
+    return base_url
+
 
 if TYPE_CHECKING:
     from redis import Redis
@@ -104,7 +136,7 @@ def _get_config(db: Session) -> dict[str, Any] | None:
         timeout_seconds = 30
 
     return {
-        "base_url": str(base_url).rstrip("/"),
+        "base_url": _validate_base_url(str(base_url).rstrip("/")),
         "webhook_path": str(webhook_path or DEFAULT_CUSTOMER_WEBHOOK_PATH),
         "webhook_secret": str(webhook_secret),
         "timeout_seconds": timeout_seconds,
@@ -132,7 +164,7 @@ def _get_api_config(db: Session) -> dict[str, Any]:
     except (TypeError, ValueError):
         timeout_seconds = 30
     return {
-        "base_url": str(base_url).rstrip("/"),
+        "base_url": _validate_base_url(str(base_url).rstrip("/")),
         "api_token": str(api_token),
         "timeout_seconds": timeout_seconds,
     }
@@ -184,49 +216,81 @@ def _request_json(
     import requests
 
     url = _crm_url(config, path)
-    timeout_seconds = int(config.get("timeout_seconds") or 30)
-    request_started = time.monotonic()
+    read_timeout = int(config.get("timeout_seconds") or 30)
+    timeout = (_CONNECT_TIMEOUT_SECONDS, read_timeout)
+    method_u = method.upper()
     logger.info(
         "SELFCARE_API_REQUEST_START method=%s path=%s timeout=%s params=%s",
-        method.upper(),
+        method_u,
         path,
-        timeout_seconds,
-        params or {},
+        timeout,
+        _redact_params(params),
     )
-    try:
-        response = requests.request(  # nosec B113 - timeout is config-driven.
-            method.upper(),
-            url,
-            headers=_api_headers(config),
-            params=params or {},
-            json=json_body,
-            timeout=timeout_seconds,
-        )
-    except requests.RequestException as exc:
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        request_started = time.monotonic()
+        try:
+            response = requests.request(  # nosec B113 - timeout is config-driven.
+                method_u,
+                url,
+                headers=_api_headers(config),
+                params=params or {},
+                json=json_body,
+                timeout=timeout,
+            )
+        except requests.RequestException as exc:
+            duration = time.monotonic() - request_started
+            logger.warning(
+                "SELFCARE_API_REQUEST_ERROR method=%s path=%s attempt=%d/%d duration=%.3fs error=%s",
+                method_u,
+                path,
+                attempt,
+                _MAX_ATTEMPTS,
+                duration,
+                exc,
+            )
+            if attempt < _MAX_ATTEMPTS:
+                _sleep_backoff(attempt)
+                continue
+            # Sanitized message (no host/url); full detail stayed in the log.
+            raise SelfcareProviderError(f"Selfcare request failed for {path} after {attempt} attempts") from exc
+
+        status = response.status_code
         duration = time.monotonic() - request_started
-        logger.exception(
-            "SELFCARE_API_REQUEST_ERROR method=%s path=%s duration=%.3fs error=%s",
-            method.upper(),
+        if status in _RETRYABLE_STATUS and attempt < _MAX_ATTEMPTS:
+            logger.warning(
+                "SELFCARE_API_REQUEST_RETRY method=%s path=%s status=%s attempt=%d/%d",
+                method_u,
+                path,
+                status,
+                attempt,
+                _MAX_ATTEMPTS,
+            )
+            _sleep_backoff(attempt)
+            continue
+        logger.info(
+            "SELFCARE_API_REQUEST_COMPLETE method=%s path=%s status_code=%s duration=%.3fs",
+            method_u,
             path,
+            status,
             duration,
-            exc,
         )
-        raise SelfcareProviderError(f"Selfcare request failed for {url}: {exc}") from exc
-    duration = time.monotonic() - request_started
-    logger.info(
-        "SELFCARE_API_REQUEST_COMPLETE method=%s path=%s status_code=%s duration=%.3fs",
-        method.upper(),
-        path,
-        response.status_code,
-        duration,
-    )
-    if response.status_code < 200 or response.status_code >= 300:
-        body = response.text[:500]
-        raise SelfcareProviderError(f"Selfcare request failed for {url}: HTTP {response.status_code} {body}")
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise SelfcareProviderError(f"Selfcare returned invalid JSON for {url}") from exc
+        if status < 200 or status >= 300:
+            # Log the full body for diagnostics; raise only status (no body/url) so
+            # upstream error detail can't leak into a CRM-operator-facing message.
+            logger.error(
+                "SELFCARE_API_REQUEST_FAILED method=%s path=%s status=%s body=%s",
+                method_u,
+                path,
+                status,
+                response.text[:500],
+            )
+            raise SelfcareProviderError(f"Selfcare request failed for {path}: HTTP {status}")
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise SelfcareProviderError(f"Selfcare returned invalid JSON for {path}") from exc
+    # Loop always returns or raises; this satisfies type checkers.
+    raise SelfcareProviderError(f"Selfcare request failed for {path}")
 
 
 def ping(db: Session) -> bool:
@@ -277,11 +341,10 @@ def create_installation_invoice(
         "external_ref": external_ref,
         "currency": currency,
     }
-    try:
-        data = _request_json(db, "POST", "/invoices", json_body=body)
-    except SelfcareProviderError as exc:
-        logger.error("selfcare_create_installation_invoice_failed error=%s", exc)
-        return None
+    # Let SelfcareProviderError propagate so the caller can record a failure marker
+    # and retry — previously a transient outage silently produced no invoice and no
+    # signal. None is now returned ONLY for the legitimate "no invoice" cases above.
+    data = _request_json(db, "POST", "/invoices", json_body=body)
     row = _unwrap_data(data) or {}
     invoice_id = str(row.get("id") or "").strip() if isinstance(row, dict) else ""
     return invoice_id or None
@@ -327,36 +390,56 @@ def create_account_credit(
     return credit_id
 
 
+_PAGINATION_MAX_PAGES = 500
+_PAGINATION_MAX_ROWS = 200_000
+
+
 def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Page through a Selfcare list endpoint.
+
+    Termination is driven off response metadata (``meta.total`` / ``meta.last_page``)
+    when present; without metadata it stops on a short page (the last page).
+    Hard caps on pages and accumulated rows prevent a misbehaving upstream from
+    causing an unbounded loop / memory blow-up.
+    """
     page = 1
     rows: list[dict[str, Any]] = []
     base_params = dict(params or {})
-    max_pages = 10000
+    per_page = int(base_params.get("per_page") or 0)
     while True:
-        logger.info("SELFCARE_API_PAGE_START path=%s page=%d params=%s", path, page, base_params)
         payload = _request_json(db, "GET", path, params={**base_params, "page": page})
         batch = _rows(payload)
         rows.extend(batch)
         meta = payload.get("meta") if isinstance(payload, dict) else {}
-        total = int((meta or {}).get("total") or 0)
-        meta_page = (meta or {}).get("page") if isinstance(meta, dict) else None
+        meta = meta if isinstance(meta, dict) else {}
+        total = int(meta.get("total") or 0)
+        last_page = meta.get("last_page")
         logger.info(
-            "SELFCARE_API_PAGE_COMPLETE path=%s requested_page=%d meta_page=%s batch=%d accumulated=%d total=%d",
+            "SELFCARE_API_PAGE path=%s page=%d batch=%d accumulated=%d total=%d last_page=%s",
             path,
             page,
-            meta_page,
             len(batch),
             len(rows),
             total,
+            last_page,
         )
         if not batch:
             break
         if total and len(rows) >= total:
             break
-        if len(batch) == 1 and not total:
+        if last_page is not None and page >= int(last_page):
             break
-        if page >= max_pages:
-            raise SelfcareProviderError(f"Selfcare pagination exceeded {max_pages} pages for {path}")
+        # No trustworthy metadata: a short page is the last page. (Replaces the old
+        # len(batch)==1 heuristic, which silently dropped data on a legit 1-row page.)
+        if not total and last_page is None and per_page and len(batch) < per_page:
+            break
+        if len(rows) >= _PAGINATION_MAX_ROWS:
+            logger.error(
+                "SELFCARE_API_PAGINATION_ROW_CAP path=%s rows=%d cap=%d", path, len(rows), _PAGINATION_MAX_ROWS
+            )
+            break
+        if page >= _PAGINATION_MAX_PAGES:
+            raise SelfcareProviderError(f"Selfcare pagination exceeded {_PAGINATION_MAX_PAGES} pages for {path}")
         page += 1
     logger.info("SELFCARE_API_PAGINATION_COMPLETE path=%s pages=%d rows=%d", path, page, len(rows))
     return rows
@@ -372,19 +455,35 @@ def fetch_customers(
     return _list_paginated(db, "/subscribers", params)
 
 
+def _enc(value: str) -> str:
+    """URL-encode an id before interpolating it into a request path."""
+    return quote(str(value), safe="")
+
+
+def _warn_if_truncated(rows: list, limit: int, path: str) -> list:
+    if len(rows) >= limit:
+        logger.warning(
+            "SELFCARE_API_RESULT_TRUNCATED path=%s returned=%d limit=%d (results likely incomplete)",
+            path,
+            len(rows),
+            limit,
+        )
+    return rows
+
+
 def fetch_customer(db: Session, subscriber_id: str) -> dict[str, Any] | None:
-    payload = _request_json(db, "GET", f"/subscribers/{subscriber_id}")
+    payload = _request_json(db, "GET", f"/subscribers/{_enc(subscriber_id)}")
     data = _unwrap_data(payload)
     return data if isinstance(data, dict) else None
 
 
 def fetch_customer_internet_services(db: Session, subscriber_id: str) -> list[dict[str, Any]]:
-    payload = _request_json(db, "GET", f"/subscribers/{subscriber_id}/services")
+    payload = _request_json(db, "GET", f"/subscribers/{_enc(subscriber_id)}/services")
     return _rows(payload)
 
 
 def fetch_customer_billing(db: Session, subscriber_id: str) -> dict[str, Any] | None:
-    payload = _request_json(db, "GET", f"/subscribers/{subscriber_id}/billing")
+    payload = _request_json(db, "GET", f"/subscribers/{_enc(subscriber_id)}/billing")
     data = _unwrap_data(payload)
     return data if isinstance(data, dict) else None
 
@@ -403,11 +502,13 @@ def fetch_online_customers(db: Session) -> list[dict[str, Any]]:
 
 
 def fetch_transactions(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
-    return _rows(_request_json(db, "GET", "/finance/transactions", params={"offset": offset, "limit": limit}))
+    rows = _rows(_request_json(db, "GET", "/finance/transactions", params={"offset": offset, "limit": limit}))
+    return _warn_if_truncated(rows, limit, "/finance/transactions")
 
 
 def fetch_payments(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
-    return _rows(_request_json(db, "GET", "/finance/payments", params={"offset": offset, "limit": limit}))
+    rows = _rows(_request_json(db, "GET", "/finance/payments", params={"offset": offset, "limit": limit}))
+    return _warn_if_truncated(rows, limit, "/finance/payments")
 
 
 def fetch_customer_payments(
@@ -428,7 +529,8 @@ def fetch_customer_payments(
 
 
 def fetch_customer_sessions(db: Session, subscriber_id: str, *, limit: int = 10000) -> list[dict[str, Any]]:
-    return _rows(_request_json(db, "GET", f"/subscribers/{subscriber_id}/sessions", params={"limit": limit}))
+    rows = _rows(_request_json(db, "GET", f"/subscribers/{_enc(subscriber_id)}/sessions", params={"limit": limit}))
+    return _warn_if_truncated(rows, limit, "/subscribers/{id}/sessions")
 
 
 def search_subscribers(db: Session, query: str, *, limit: int = 50) -> list[dict[str, Any]]:
@@ -436,7 +538,7 @@ def search_subscribers(db: Session, query: str, *, limit: int = 50) -> list[dict
 
 
 def patch_subscriber_status(db: Session, subscriber_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    data = _unwrap_data(_request_json(db, "PATCH", f"/subscribers/{subscriber_id}/status", json_body=payload))
+    data = _unwrap_data(_request_json(db, "PATCH", f"/subscribers/{_enc(subscriber_id)}/status", json_body=payload))
     return data if isinstance(data, dict) else {}
 
 
@@ -489,7 +591,13 @@ def _map_selfcare_status(status: str | int | None) -> str:
         "new": SubscriberStatus.pending.value,
         "pending": SubscriberStatus.pending.value,
     }
-    return status_map.get(normalized, SubscriberStatus.active.value)
+    mapped = status_map.get(normalized)
+    if mapped is None:
+        # Don't launder an unknown/missing upstream status into "active" — that
+        # hides terminated/suspended accounts from churn and billing-risk logic.
+        logger.warning("SELFCARE_UNKNOWN_STATUS value=%r -> pending", status)
+        return SubscriberStatus.pending.value
+    return mapped
 
 
 def _status_rank(status: object) -> int:
@@ -677,7 +785,8 @@ def sync_subscribers_from_selfcare_data(
         raise TypeError(f"Selfcare subscribers response must be a list, got {type(customers_data).__name__}")
     sync_logger.info("SELFCARE_SYNC_STEP_COMPLETE step=fetch_subscribers count=%d", len(customers_data))
 
-    results: dict[str, Any] = {"created": 0, "updated": 0, "errors": []}
+    results: dict[str, Any] = {"created": 0, "updated": 0, "orphaned": 0, "errors": []}
+    seen_external_ids: set[str] = set()
     if not customers_data:
         sync_logger.info("selfcare_sync_no_data")
         return results
@@ -718,7 +827,23 @@ def sync_subscribers_from_selfcare_data(
                 subscriber_service.get_by_subscriber_number(db, subscriber_number) if subscriber_number else None
             )
             existing_by_external_id = subscriber_service.get_by_external_id(db, "selfcare", external_id)
-            existing = existing_by_number or existing_by_external_id
+            # Prefer the external_id match. Only adopt a bare subscriber_number match
+            # when that row is unowned or owned by selfcare/splynx (legacy re-key) —
+            # never re-key a row owned by a different live external system.
+            existing = existing_by_external_id
+            if existing is None and existing_by_number is not None:
+                owner = str(existing_by_number.external_system or "").lower()
+                if owner in ("", "selfcare", "splynx"):
+                    existing = existing_by_number
+                else:
+                    sync_logger.warning(
+                        "SELFCARE_SYNC_NUMBER_OWNED_BY_OTHER_SYSTEM index=%d external_id=%s "
+                        "subscriber_number=%s owner=%s",
+                        index,
+                        external_id,
+                        subscriber_number,
+                        owner,
+                    )
             if existing_by_number is not None:
                 if existing_by_external_id is not None and existing_by_external_id.id != existing_by_number.id:
                     sync_logger.warning(
@@ -763,6 +888,9 @@ def sync_subscribers_from_selfcare_data(
                         "external_system": "selfcare",
                         "external_id": external_id,
                         "sync_error": None,
+                        # Selfcare returning the row is authoritative that it exists →
+                        # un-hide a previously soft-deleted subscriber that reappeared.
+                        "is_active": True,
                         **data,
                     },
                 )
@@ -770,6 +898,7 @@ def sync_subscribers_from_selfcare_data(
             else:
                 subscriber_service.sync_from_external(db, "selfcare", external_id, data)
                 results["created"] += 1
+            seen_external_ids.add(external_id)
             sync_logger.info(
                 "SELFCARE_SYNC_ITEM_COMPLETE index=%d external_id=%s action=%s created=%d updated=%d errors=%d",
                 index,
@@ -790,7 +919,62 @@ def sync_subscribers_from_selfcare_data(
                 exc,
             )
 
+    results["orphaned"] = _reconcile_selfcare_orphans(
+        db, seen_external_ids, fetched_count=len(customers_data), logger=sync_logger
+    )
     return results
+
+
+# Orphan-reconciliation guards: skip if the fetch looks suspiciously small (likely
+# a partial outage) or if too large a fraction of the active base would be
+# terminated in one run — failing safe rather than wiping the subscriber base.
+_ORPHAN_MIN_FETCH_RATIO = 0.5
+_ORPHAN_MAX_TERMINATE_RATIO = 0.2
+
+
+def _reconcile_selfcare_orphans(
+    db: Session, seen_external_ids: set[str], *, fetched_count: int, logger: logging.Logger
+) -> int:
+    """Soft-terminate selfcare subscribers active locally but no longer returned upstream."""
+    active = (
+        db.query(Subscriber)
+        .filter(Subscriber.external_system == "selfcare")
+        .filter(Subscriber.is_active.is_(True))
+        .filter(Subscriber.status != SubscriberStatus.terminated)
+        .all()
+    )
+    active_count = len(active)
+    orphans = [s for s in active if str(s.external_id or "").strip() not in seen_external_ids]
+    if not orphans:
+        return 0
+    if fetched_count < active_count * _ORPHAN_MIN_FETCH_RATIO:
+        logger.warning(
+            "SELFCARE_ORPHAN_RECONCILE_SKIPPED reason=small_fetch fetched=%d active=%d orphans=%d",
+            fetched_count,
+            active_count,
+            len(orphans),
+        )
+        return 0
+    if len(orphans) > max(10, int(active_count * _ORPHAN_MAX_TERMINATE_RATIO)):
+        logger.warning(
+            "SELFCARE_ORPHAN_RECONCILE_SKIPPED reason=too_many active=%d orphans=%d",
+            active_count,
+            len(orphans),
+        )
+        return 0
+    now = datetime.now(UTC)
+    terminated = 0
+    for sub in orphans:
+        try:
+            sub.status = SubscriberStatus.terminated
+            sub.terminated_at = now
+            db.commit()
+            terminated += 1
+        except Exception:
+            db.rollback()
+            logger.exception("SELFCARE_ORPHAN_TERMINATE_FAILED subscriber_id=%s", sub.id)
+    logger.info("SELFCARE_ORPHAN_RECONCILE_COMPLETE active=%d terminated=%d", active_count, terminated)
+    return terminated
 
 
 def deactivate_customer_if_blocked(

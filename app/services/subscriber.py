@@ -523,22 +523,28 @@ class SubscriberManager:
         bind = db.get_bind()
         is_sqlite = bind is not None and bind.dialect.name == "sqlite"
 
-        # Business rule: any person with a Splynx ID is considered a subscriber.
+        # Business rule: any person with an external customer id (legacy splynx_id
+        # OR the current selfcare_id) is considered a subscriber.
         if is_sqlite:
-            splynx_person_ids = {
+            external_person_ids = {
                 person.id
                 for person in db.query(Person).all()
-                if isinstance(person.metadata_, dict) and str(person.metadata_.get("splynx_id") or "").strip()
+                if isinstance(person.metadata_, dict)
+                and (
+                    str(person.metadata_.get("splynx_id") or "").strip()
+                    or str(person.metadata_.get("selfcare_id") or "").strip()
+                )
             }
         else:
-            splynx_people_rows = (
-                db.query(Person.id)
-                .filter(func.json_extract_path_text(Person.metadata_, "splynx_id").isnot(None))
-                .filter(func.json_extract_path_text(Person.metadata_, "splynx_id") != "")
-                .all()
+            external_id_expr = func.coalesce(
+                func.json_extract_path_text(Person.metadata_, "splynx_id"),
+                func.json_extract_path_text(Person.metadata_, "selfcare_id"),
             )
-            splynx_person_ids = {person_id for (person_id,) in splynx_people_rows if person_id}
-        subscriber_person_ids = linked_person_ids | splynx_person_ids
+            external_people_rows = (
+                db.query(Person.id).filter(external_id_expr.isnot(None)).filter(external_id_expr != "").all()
+            )
+            external_person_ids = {person_id for (person_id,) in external_people_rows if person_id}
+        subscriber_person_ids = linked_person_ids | external_person_ids
 
         def normalize_email(value: str | None) -> str | None:
             if not value:

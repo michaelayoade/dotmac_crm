@@ -315,40 +315,55 @@ class Referrals:
         referral stays qualified for retry)."""
         from app.services import selfcare
 
-        referral = get_or_404(db, Referral, str(referral_id), "Referral not found")
+        # Lock the referral row so two concurrent calls can't both pass the status
+        # check and double-credit (serializes the read-then-write).
+        referral = db.query(Referral).filter(Referral.id == coerce_uuid(str(referral_id))).with_for_update().first()
+        if referral is None:
+            raise HTTPException(status_code=404, detail="Referral not found")
         if referral.status not in (ReferralStatus.qualified, ReferralStatus.rewarded):
             raise HTTPException(
                 status_code=409,
                 detail=f"Cannot issue a reward for a referral in status {referral.status.value}",
             )
 
+        # Already credited → idempotent: normalize status, never re-credit.
+        if referral.reward_status == ReferralRewardStatus.issued:
+            referral.status = ReferralStatus.rewarded
+            db.commit()
+            db.refresh(referral)
+            return referral
+
         amount = referral.reward_amount or Decimal("0")
-        if amount > 0 and referral.reward_status != ReferralRewardStatus.issued:
-            subscriber_id = _referrer_subscriber_id(db, referral.referrer_person_id)
-            if not subscriber_id:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Referrer has no linked dotmac_sub subscriber account to credit.",
-                )
-            try:
-                credit_id = selfcare.create_account_credit(
-                    db,
-                    subscriber_id=subscriber_id,
-                    amount=amount,
-                    reason=f"Referral reward (referral {referral.id})",
-                    external_ref=f"referral:{referral.id}",
-                    currency=referral.reward_currency,
-                )
-            except selfcare.SelfcareProviderError as exc:
-                logger.warning("referral_credit_push_failed referral_id=%s error=%s", referral.id, exc)
-                raise HTTPException(
-                    status_code=502,
-                    detail="Could not apply the account credit in dotmac_sub. Try again.",
-                ) from exc
-            meta = dict(referral.metadata_ or {})
-            meta["reward_credit_id"] = credit_id
-            meta["reward_subscriber_id"] = subscriber_id
-            referral.metadata_ = meta
+        if amount <= 0:
+            # Never mark a referral "rewarded" with no credit behind it.
+            raise HTTPException(status_code=400, detail="Referral has no positive reward amount to issue.")
+
+        subscriber_id = _referrer_subscriber_id(db, referral.referrer_person_id)
+        if not subscriber_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Referrer has no linked dotmac_sub subscriber account to credit.",
+            )
+        currency = (referral.reward_currency or "NGN").strip() or "NGN"
+        try:
+            credit_id = selfcare.create_account_credit(
+                db,
+                subscriber_id=subscriber_id,
+                amount=amount,
+                reason=f"Referral reward (referral {referral.id})",
+                external_ref=f"referral:{referral.id}",
+                currency=currency,
+            )
+        except selfcare.SelfcareProviderError as exc:
+            logger.warning("referral_credit_push_failed referral_id=%s error=%s", referral.id, exc)
+            raise HTTPException(
+                status_code=502,
+                detail="Could not apply the account credit in dotmac_sub. Try again.",
+            ) from exc
+        meta = dict(referral.metadata_ or {})
+        meta["reward_credit_id"] = credit_id
+        meta["reward_subscriber_id"] = subscriber_id
+        referral.metadata_ = meta
 
         referral.reward_status = ReferralRewardStatus.issued
         referral.reward_issued_at = datetime.now(UTC)

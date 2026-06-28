@@ -304,7 +304,7 @@ class SubscriberBillingRiskSnapshot(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    external_system: Mapped[str] = mapped_column(String(60), default="splynx", nullable=False)
+    external_system: Mapped[str] = mapped_column(String(60), default="selfcare", nullable=False)
     external_id: Mapped[str] = mapped_column(String(120), nullable=False)
     subscriber_number: Mapped[str | None] = mapped_column(String(60))
 
