@@ -21,7 +21,7 @@ class WorkEntityType(enum.Enum):
     internal = "internal"
 
 
-class WorkLinkRelationship(enum.Enum):
+class WorkLinkType(enum.Enum):
     originated = "originated"
     fulfills = "fulfills"
     blocks = "blocks"
@@ -54,8 +54,8 @@ class WorkLink(Base):
             "source_id",
             "target_type",
             "target_id",
-            "relationship",
-            name="uq_work_links_source_target_relationship",
+            "link_type",
+            name="uq_work_links_source_target_link_type",
         ),
         Index("ix_work_links_source", "source_type", "source_id"),
         Index("ix_work_links_target", "target_type", "target_id"),
@@ -67,7 +67,7 @@ class WorkLink(Base):
     source_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     target_type: Mapped[WorkEntityType] = mapped_column(Enum(WorkEntityType), nullable=False)
     target_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    relationship: Mapped[WorkLinkRelationship] = mapped_column(Enum(WorkLinkRelationship), nullable=False)
+    link_type: Mapped[WorkLinkType] = mapped_column(Enum(WorkLinkType), nullable=False)
     contract_name: Mapped[str | None] = mapped_column(String(120))
     created_by_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)

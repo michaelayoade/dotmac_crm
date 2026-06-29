@@ -349,7 +349,7 @@ from app.models.wireless_survey import (  # noqa: F401
 from app.models.work_lifecycle import (  # noqa: F401
     WorkEntityType,
     WorkLink,
-    WorkLinkRelationship,
+    WorkLinkType,
     WorkOutcome,
     WorkOutcomeStatus,
     WorkOutcomeType,

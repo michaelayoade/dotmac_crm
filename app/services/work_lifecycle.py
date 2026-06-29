@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.models.work_lifecycle import (
     WorkEntityType,
     WorkLink,
-    WorkLinkRelationship,
+    WorkLinkType,
     WorkOutcome,
     WorkOutcomeStatus,
     WorkOutcomeType,
@@ -26,13 +26,13 @@ def _coerce_entity_type(value: WorkEntityType | str, label: str) -> WorkEntityTy
         raise HTTPException(status_code=400, detail=f"Invalid {label}") from exc
 
 
-def _coerce_relationship(value: WorkLinkRelationship | str) -> WorkLinkRelationship:
-    if isinstance(value, WorkLinkRelationship):
+def _coerce_link_type(value: WorkLinkType | str) -> WorkLinkType:
+    if isinstance(value, WorkLinkType):
         return value
     try:
-        return WorkLinkRelationship(value)
+        return WorkLinkType(value)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid relationship") from exc
+        raise HTTPException(status_code=400, detail="Invalid link type") from exc
 
 
 def _coerce_outcome_type(value: WorkOutcomeType | str) -> WorkOutcomeType:
@@ -62,14 +62,14 @@ class WorkLifecycle:
         source_id: UUID | str,
         target_type: WorkEntityType | str,
         target_id: UUID | str,
-        relationship: WorkLinkRelationship | str,
+        link_type: WorkLinkType | str,
         contract_name: str | None = None,
         created_by_person_id: UUID | str | None = None,
         metadata: dict | None = None,
     ) -> WorkLink:
         source_type_value = _coerce_entity_type(source_type, "source type")
         target_type_value = _coerce_entity_type(target_type, "target type")
-        relationship_value = _coerce_relationship(relationship)
+        link_type_value = _coerce_link_type(link_type)
         source_uuid = coerce_uuid(source_id)
         target_uuid = coerce_uuid(target_id)
 
@@ -79,7 +79,7 @@ class WorkLifecycle:
             .filter(WorkLink.source_id == source_uuid)
             .filter(WorkLink.target_type == target_type_value)
             .filter(WorkLink.target_id == target_uuid)
-            .filter(WorkLink.relationship == relationship_value)
+            .filter(WorkLink.link_type == link_type_value)
             .one_or_none()
         )
         if existing:
@@ -94,7 +94,7 @@ class WorkLifecycle:
             source_id=source_uuid,
             target_type=target_type_value,
             target_id=target_uuid,
-            relationship=relationship_value,
+            link_type=link_type_value,
             contract_name=contract_name,
             created_by_person_id=coerce_uuid(created_by_person_id) if created_by_person_id else None,
             metadata_=metadata,
@@ -120,7 +120,7 @@ class WorkLifecycle:
             source_id=origin_id,
             target_type=WorkEntityType.work_order,
             target_id=work_order_id,
-            relationship=WorkLinkRelationship.originated,
+            link_type=WorkLinkType.originated,
             contract_name=contract_name,
             created_by_person_id=created_by_person_id,
             metadata=metadata,

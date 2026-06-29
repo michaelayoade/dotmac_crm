@@ -26,7 +26,7 @@ Cross-stage relationships use `WorkLink`:
 
 - `source_type` / `source_id`: what demanded or caused the next stage.
 - `target_type` / `target_id`: what was created or satisfied.
-- `relationship`: `originated`, `fulfills`, `blocks`, `related`, or `resulted_in`.
+- `link_type`: `originated`, `fulfills`, `blocks`, `related`, or `resulted_in`.
 - `contract_name`: the named automation or handoff that created the link.
 
 Existing direct foreign keys such as `work_orders.ticket_id` remain compatibility fields while reads and automations move toward `WorkLink`.

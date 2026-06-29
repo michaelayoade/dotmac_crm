@@ -31,13 +31,13 @@ def upgrade() -> None:
         name="workentitytype",
         create_type=False,
     )
-    work_link_relationship = postgresql.ENUM(
+    work_link_type = postgresql.ENUM(
         "originated",
         "fulfills",
         "blocks",
         "related",
         "resulted_in",
-        name="worklinkrelationship",
+        name="worklinktype",
         create_type=False,
     )
     work_outcome_type = postgresql.ENUM(
@@ -61,7 +61,7 @@ def upgrade() -> None:
     )
 
     work_entity_type.create(bind, checkfirst=True)
-    work_link_relationship.create(bind, checkfirst=True)
+    work_link_type.create(bind, checkfirst=True)
     work_outcome_type.create(bind, checkfirst=True)
     work_outcome_status.create(bind, checkfirst=True)
 
@@ -73,7 +73,7 @@ def upgrade() -> None:
             sa.Column("source_id", postgresql.UUID(as_uuid=True), nullable=False),
             sa.Column("target_type", work_entity_type, nullable=False),
             sa.Column("target_id", postgresql.UUID(as_uuid=True), nullable=False),
-            sa.Column("relationship", work_link_relationship, nullable=False),
+            sa.Column("link_type", work_link_type, nullable=False),
             sa.Column("contract_name", sa.String(length=120), nullable=True),
             sa.Column("created_by_person_id", postgresql.UUID(as_uuid=True), nullable=True),
             sa.Column("metadata", sa.JSON(), nullable=True),
@@ -85,8 +85,8 @@ def upgrade() -> None:
                 "source_id",
                 "target_type",
                 "target_id",
-                "relationship",
-                name="uq_work_links_source_target_relationship",
+                "link_type",
+                name="uq_work_links_source_target_link_type",
             ),
         )
         op.create_index("ix_work_links_source", "work_links", ["source_type", "source_id"])
@@ -136,5 +136,5 @@ def downgrade() -> None:
 
     sa.Enum(name="workoutcomestatus").drop(bind, checkfirst=True)
     sa.Enum(name="workoutcometype").drop(bind, checkfirst=True)
-    sa.Enum(name="worklinkrelationship").drop(bind, checkfirst=True)
+    sa.Enum(name="worklinktype").drop(bind, checkfirst=True)
     sa.Enum(name="workentitytype").drop(bind, checkfirst=True)

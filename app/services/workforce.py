@@ -340,8 +340,7 @@ class WorkOrders(ListResponseMixin):
             _ensure_person(db, str(payload.assigned_to_person_id))
         work_order = WorkOrder(**payload.model_dump())
         db.add(work_order)
-        db.commit()
-        db.refresh(work_order)
+        db.flush()
 
         if work_order.ticket_id:
             work_lifecycle.link_work_order_origin(
@@ -359,8 +358,8 @@ class WorkOrders(ListResponseMixin):
                 origin_id=work_order.project_id,
                 contract_name="work_order.created_from_project",
             )
-        if work_order.ticket_id or work_order.project_id:
-            db.commit()
+        db.commit()
+        db.refresh(work_order)
 
         # Emit work order created event
         emit_event(

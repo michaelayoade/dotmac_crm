@@ -1,12 +1,14 @@
 from app.models.work_lifecycle import (
     WorkEntityType,
     WorkLink,
-    WorkLinkRelationship,
+    WorkLinkType,
     WorkOutcomeStatus,
     WorkOutcomeType,
 )
 from app.models.workforce import WorkOrder
+from app.schemas.projects import ProjectTaskCreate, ProjectTaskUpdate
 from app.schemas.workforce import WorkOrderCreate
+from app.services import projects as projects_service
 from app.services import workforce as workforce_service
 from app.services.work_lifecycle import work_lifecycle
 
@@ -23,12 +25,57 @@ def test_work_order_create_records_ticket_origin(db_session, ticket):
         .filter(WorkLink.source_id == ticket.id)
         .filter(WorkLink.target_type == WorkEntityType.work_order)
         .filter(WorkLink.target_id == work_order.id)
-        .filter(WorkLink.relationship == WorkLinkRelationship.originated)
+        .filter(WorkLink.link_type == WorkLinkType.originated)
         .one_or_none()
     )
 
     assert link is not None
     assert link.contract_name == "work_order.created_from_ticket"
+
+
+def test_project_task_create_records_work_order_origin(db_session, project, work_order):
+    task = projects_service.project_tasks.create(
+        db_session,
+        ProjectTaskCreate(
+            project_id=project.id,
+            title="Complete field splice",
+            work_order_id=work_order.id,
+        ),
+    )
+
+    link = (
+        db_session.query(WorkLink)
+        .filter(WorkLink.source_type == WorkEntityType.project_task)
+        .filter(WorkLink.source_id == task.id)
+        .filter(WorkLink.target_type == WorkEntityType.work_order)
+        .filter(WorkLink.target_id == work_order.id)
+        .filter(WorkLink.link_type == WorkLinkType.originated)
+        .one_or_none()
+    )
+
+    assert link is not None
+    assert link.contract_name == "project_task.linked_work_order"
+
+
+def test_project_task_update_records_work_order_origin(db_session, project_task, work_order):
+    task = projects_service.project_tasks.update(
+        db_session,
+        str(project_task.id),
+        ProjectTaskUpdate(work_order_id=work_order.id),
+    )
+
+    link = (
+        db_session.query(WorkLink)
+        .filter(WorkLink.source_type == WorkEntityType.project_task)
+        .filter(WorkLink.source_id == task.id)
+        .filter(WorkLink.target_type == WorkEntityType.work_order)
+        .filter(WorkLink.target_id == work_order.id)
+        .filter(WorkLink.link_type == WorkLinkType.originated)
+        .one_or_none()
+    )
+
+    assert link is not None
+    assert link.contract_name == "project_task.linked_work_order"
 
 
 def test_work_lifecycle_link_is_idempotent(db_session, ticket):

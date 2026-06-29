@@ -58,6 +58,7 @@ from app.services.events import emit_event
 from app.services.events.types import EventType
 from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
+from app.services.work_lifecycle import work_lifecycle
 
 logger = logging.getLogger(__name__)
 
@@ -1895,6 +1896,14 @@ class ProjectTasks(ListResponseMixin):
             task.completed_at = datetime.now(UTC)
         _sync_task_sla_clock(db, task)
         _sync_project_task_assignees(db, task, assignee_ids)
+        if task.work_order_id:
+            work_lifecycle.link_work_order_origin(
+                db,
+                work_order_id=task.work_order_id,
+                origin_type="project_task",
+                origin_id=task.id,
+                contract_name="project_task.linked_work_order",
+            )
         db.commit()
         db.refresh(task)
         if task.assigned_to_person_id:
@@ -1995,6 +2004,7 @@ class ProjectTasks(ListResponseMixin):
         if not task:
             raise HTTPException(status_code=404, detail="Project task not found")
         previous_status = task.status
+        previous_work_order_id = task.work_order_id
         changed_fields: list[str] = []
         data = payload.model_dump(exclude_unset=True)
         assignee_ids: list[str] | None = None
@@ -2034,6 +2044,14 @@ class ProjectTasks(ListResponseMixin):
             task.completed_at = datetime.now(UTC)
         _sync_task_sla_clock(db, task)
         _sync_project_task_assignees(db, task, assignee_ids)
+        if task.work_order_id and task.work_order_id != previous_work_order_id:
+            work_lifecycle.link_work_order_origin(
+                db,
+                work_order_id=task.work_order_id,
+                origin_type="project_task",
+                origin_id=task.id,
+                contract_name="project_task.linked_work_order",
+            )
         db.commit()
         db.refresh(task)
         if (

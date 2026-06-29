@@ -189,7 +189,7 @@ def test_reschedule_request_single_open_guard(db_session):
 
 def test_field_visit_ticket_enqueues_work_order(db_session):
     from app.models.dispatch import DispatchQueueStatus, WorkOrderAssignmentQueue
-    from app.models.work_lifecycle import WorkEntityType, WorkLink, WorkLinkRelationship
+    from app.models.work_lifecycle import WorkEntityType, WorkLink, WorkLinkType
 
     ticket = tickets_service.create(db_session, TicketCreate(title="No signal", tags=["field_visit"]))
     wo = db_session.query(WorkOrder).filter(WorkOrder.ticket_id == ticket.id).first()
@@ -205,7 +205,7 @@ def test_field_visit_ticket_enqueues_work_order(db_session):
         .filter(WorkLink.source_id == ticket.id)
         .filter(WorkLink.target_type == WorkEntityType.work_order)
         .filter(WorkLink.target_id == wo.id)
-        .filter(WorkLink.relationship == WorkLinkRelationship.originated)
+        .filter(WorkLink.link_type == WorkLinkType.originated)
         .one_or_none()
     )
     assert link is not None
