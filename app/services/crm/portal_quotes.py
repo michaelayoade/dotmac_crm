@@ -51,6 +51,10 @@ def _money(value) -> Decimal:
     return Decimal(str(value or "0")).quantize(_TWOPLACES, rounding=ROUND_HALF_UP)
 
 
+def _as_dict(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
 def _settings(db: Session) -> dict:
     """Resolved, typed self-serve quote settings (with placeholder defaults)."""
 
@@ -60,7 +64,7 @@ def _settings(db: Session) -> dict:
     def _int(key: str, fallback: int) -> int:
         raw = settings_spec.resolve_value(db, SettingDomain.projects, key)
         try:
-            return int(raw)
+            return int(str(raw))
         except (TypeError, ValueError):
             return fallback
 
@@ -129,20 +133,29 @@ def compute_estimate(db: Session, feasibility: dict, currency: str) -> dict:
     """
     cfg = _settings(db)
     base_fee = _money(cfg["base_fee"])
-    distance = feasibility.get("distance_meters")
     coverage = feasibility.get("coverage")
+    free_radius_m = float(cfg["free_radius_m"])
+
+    distance_m: float | None = None
+    raw_distance = feasibility.get("distance_meters")
+    if raw_distance is not None:
+        try:
+            distance_m = float(str(raw_distance))
+        except (TypeError, ValueError):
+            distance_m = None
 
     distance_fee = Decimal("0.00")
+    billable_m = 0.0
     provisional = coverage != "covered"
-    if coverage == "covered" and distance is not None:
-        billable_m = max(0.0, float(distance) - cfg["free_radius_m"])
+    if coverage == "covered" and distance_m is not None:
+        billable_m = max(0.0, distance_m - free_radius_m)
         if billable_m > 0:
             km = Decimal(str(billable_m)) / Decimal("1000")
             distance_fee = _money(km * cfg["fee_per_km"])
 
     line_items = [{"description": "Fiber installation (base)", "unit_price": base_fee}]
     if distance_fee > 0:
-        over_km = round(max(0.0, float(distance) - cfg["free_radius_m"]) / 1000, 2)
+        over_km = round(billable_m / 1000, 2)
         line_items.append(
             {"description": f"Distance surcharge ({over_km} km beyond free radius)", "unit_price": distance_fee}
         )
@@ -326,10 +339,10 @@ def _record_deposit_on_sales_order(db: Session, quote: Quote, deposit_amount: De
 
 def build_portal_quote_payload(db: Session, quote: Quote, *, already_accepted: bool = False) -> dict:
     """Serialize a quote for the portal API / sub mirror."""
-    meta = quote.metadata_ if isinstance(quote.metadata_, dict) else {}
-    install = meta.get("install") if isinstance(meta.get("install"), dict) else {}
-    feasibility = meta.get("feasibility") if isinstance(meta.get("feasibility"), dict) else {}
-    deposit_meta = meta.get("deposit") if isinstance(meta.get("deposit"), dict) else {}
+    meta = _as_dict(quote.metadata_)
+    install = _as_dict(meta.get("install"))
+    feasibility = _as_dict(meta.get("feasibility"))
+    deposit_meta = _as_dict(meta.get("deposit"))
 
     total = _money(quote.total)
     deposit_percent = int(meta.get("deposit_percent") or 0)
