@@ -26,6 +26,7 @@ from app.models.person import Person
 from app.models.subscriber import Subscriber
 from app.schemas.crm.portal import (
     PortalMeResponse,
+    PortalProjectsResponse,
     PortalReferralItem,
     PortalReferralProgram,
     PortalReferralsResponse,
@@ -40,6 +41,7 @@ from app.services.auth_flow import create_portal_token
 from app.services.common import coerce_uuid
 from app.services.crm.referrals import referrals as referrals_service
 from app.services.portal_auth import PortalPrincipal, require_portal_auth
+from app.services.projects import Projects as projects_service
 
 logger = get_logger(__name__)
 
@@ -207,3 +209,16 @@ def portal_refer_a_friend(
         status=referral.status.value,
         created_at=referral.created_at.isoformat(),
     )
+
+
+@router.get("/projects", response_model=PortalProjectsResponse)
+def portal_list_projects(
+    principal: PortalPrincipal = Depends(require_portal_auth),
+    db: Session = Depends(get_db),
+) -> PortalProjectsResponse:
+    """The subscriber's installations/projects with stage timeline + progress %
+    (Installation tracker; consumed by the dotmac_sub mirror)."""
+    principal.require_scope("projects:read")
+    projects = projects_service.portal_list(db, principal.subject_id)
+    payload = {"projects": projects, "total": len(projects)}
+    return PortalProjectsResponse.model_validate(payload)

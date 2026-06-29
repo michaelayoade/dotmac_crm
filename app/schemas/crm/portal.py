@@ -78,3 +78,31 @@ class PortalReferResponse(BaseModel):
     status: str
     created_at: str
     message: str = "Referral submitted"
+
+
+class PortalProjectStage(BaseModel):
+    key: str | None = None
+    title: str
+    status: str = "pending"
+    completed_at: str | None = None
+
+
+class PortalProjectItem(BaseModel):
+    id: str
+    name: str
+    status: str
+    project_type: str | None = None
+    progress_pct: int = 0
+    current_stage: str | None = None
+    stages: list[PortalProjectStage] = Field(default_factory=list)
+    customer_address: str | None = None
+    region: str | None = None
+    start_at: str | None = None
+    due_at: str | None = None
+    completed_at: str | None = None
+    created_at: str | None = None
+
+
+class PortalProjectsResponse(BaseModel):
+    projects: list[PortalProjectItem] = Field(default_factory=list)
+    total: int = 0
