@@ -122,6 +122,32 @@ def push_selfcare_contact_update(person_id: str) -> dict[str, Any]:
     return results
 
 
+@celery_app.task(name="app.tasks.subscribers.reconcile_selfcare_contacts")
+def reconcile_selfcare_contacts(limit: int | None = None) -> dict[str, Any]:
+    """Backfill contact details to the sub app for every linked customer.
+
+    Aligns the existing customer base (push-on-edit only covers future changes).
+    Admin/manually triggered; commits per person inside the reconcile loop.
+    """
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    results: dict[str, Any] = {}
+    try:
+        from app.services.events.handlers.selfcare_customer import reconcile_person_contacts
+
+        results = reconcile_person_contacts(session, limit=limit)
+    except Exception:
+        status = "error"
+        session.rollback()
+        logger.exception("SELFCARE_CONTACT_RECONCILE_ERROR")
+        raise
+    finally:
+        session.close()
+        observe_job("reconcile_selfcare_contacts", status, time.monotonic() - start)
+    return results
+
+
 @celery_app.task(name="app.tasks.subscribers.refresh_billing_risk_cache")
 def refresh_billing_risk_cache() -> dict[str, Any]:
     """Refresh cached subscriber billing-risk report rows from live provider data."""

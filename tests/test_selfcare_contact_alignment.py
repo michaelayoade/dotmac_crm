@@ -133,3 +133,37 @@ def test_enqueue_inline_fallback_when_broker_down(db_session):
     ):
         sc.enqueue_person_contact_resync(db_session, str(person.id), {"phone"})
         create.assert_called_once()  # fell back to inline resync
+
+
+# --- reconcile_person_contacts (backfill) ----------------------------------
+
+
+def test_reconcile_backfills_only_linked_customers(db_session):
+    from app.models.person import PartyStatus
+
+    linked = _person(db_session, linked=True)
+    linked.party_status = PartyStatus.customer
+    unlinked = _person(db_session, linked=False)
+    unlinked.party_status = PartyStatus.customer
+    db_session.commit()
+
+    pushed_ids = []
+    with (
+        patch.object(sc, "_customer_sync_enabled", return_value=True),
+        patch.object(
+            sc,
+            "resync_person_contact",
+            side_effect=lambda db, pid, **k: (pushed_ids.append(pid), "SUB")[1],
+        ),
+    ):
+        result = sc.reconcile_person_contacts(db_session)
+
+    assert str(linked.id) in pushed_ids
+    assert str(unlinked.id) not in pushed_ids  # filtered by _selfcare_identity
+    assert result["pushed"] == 1
+
+
+def test_reconcile_noop_when_disabled(db_session):
+    with patch.object(sc, "_customer_sync_enabled", return_value=False):
+        result = sc.reconcile_person_contacts(db_session)
+    assert result.get("skipped") == "sync_disabled"

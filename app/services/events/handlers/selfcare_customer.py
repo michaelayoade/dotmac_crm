@@ -11,7 +11,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.crm.sales import CrmQuoteLineItem, Lead
-from app.models.person import Person
+from app.models.person import PartyStatus, Person
 from app.models.projects import Project
 from app.models.sales_order import SalesOrderLine
 from app.services import selfcare
@@ -189,6 +189,46 @@ def enqueue_person_contact_resync(db: Session, person_id: str, changed_fields: s
             exc,
         )
         resync_person_contact(db, str(person_id))
+
+
+def reconcile_person_contacts(db: Session, *, limit: int | None = None) -> dict:
+    """Backfill: re-push current contact details for every already-linked customer.
+
+    enqueue_person_contact_resync only catches future edits, so the existing base
+    can already be divergent. This aligns it. Scoped to customer/subscriber parties
+    (an indexed enum filter, SQLite/Postgres portable); the precise linkage check
+    is left to resync_person_contact. Commits per person so one failure doesn't
+    lose the batch. No-op when sync is disabled.
+    """
+    if not _customer_sync_enabled(db):
+        return {"skipped": "sync_disabled", "processed": 0, "pushed": 0, "errors": 0}
+
+    query = (
+        db.query(Person)
+        .filter(Person.is_active.is_(True))
+        .filter(Person.party_status.in_([PartyStatus.customer, PartyStatus.subscriber]))
+        .order_by(Person.created_at)
+    )
+    if limit:
+        query = query.limit(limit)
+
+    processed = pushed = errors = 0
+    for person in query.all():
+        if _selfcare_identity(person) is None:
+            continue
+        processed += 1
+        try:
+            if resync_person_contact(db, str(person.id)):
+                pushed += 1
+            db.commit()
+        except Exception:
+            db.rollback()
+            errors += 1
+            logger.exception("selfcare_contact_reconcile_error person_id=%s", person.id)
+    logger.info(
+        "selfcare_contact_reconcile_done processed=%s pushed=%s errors=%s", processed, pushed, errors
+    )
+    return {"processed": processed, "pushed": pushed, "errors": errors}
 
 
 def _resolve_person_for_project(db: Session, project: Project) -> Person | None:
