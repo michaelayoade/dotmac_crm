@@ -11,7 +11,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.crm.sales import CrmQuoteLineItem, Lead
-from app.models.person import Person
+from app.models.person import PartyStatus, Person
 from app.models.projects import Project
 from app.models.sales_order import SalesOrderLine
 from app.services import selfcare
@@ -94,6 +94,137 @@ def provision_project_selfcare(db: Session, project_id: str) -> dict:
     if not person:
         return {"skipped": "no_person", "project_id": project_id}
     return _provision_project(db, project, person)
+
+
+# Person contact fields that, when edited on an already-linked customer, must be
+# re-pushed to the sub app so contact details stay aligned across both systems.
+SELFCARE_CONTACT_FIELDS = frozenset(
+    {
+        "first_name",
+        "last_name",
+        "display_name",
+        "email",
+        "phone",
+        "address_line1",
+        "address_line2",
+        "city",
+        "region",
+        "postal_code",
+        "country_code",
+    }
+)
+
+
+def _customer_sync_enabled(db: Session) -> bool:
+    from app.models.domain_settings import SettingDomain
+    from app.services import settings_spec
+
+    return bool(settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_customer_sync_enabled"))
+
+
+def resync_person_contact(db: Session, person_id: str, *, mode: str = "contact_update") -> str | None:
+    """Re-push an already-linked person's contact details to the sub app.
+
+    No-op when sync is disabled or the person is not yet linked to a selfcare
+    customer (those are created lazily on project provisioning, not on edit).
+    The webhook upserts server-side on ``crm_person_id``, so this only updates
+    the existing subscriber's name/email/phone/address — it never creates one.
+    """
+    if not _customer_sync_enabled(db):
+        return None
+    person = db.get(Person, coerce_uuid(person_id))
+    if person is None:
+        return None
+    if _selfcare_identity(person) is None:
+        return None
+
+    identity = create_customer(db, person)
+    if not identity:
+        record_customer_sync_result(
+            success=False,
+            mode=mode,
+            person_id=str(person.id),
+            action="contact_update_failed",
+            error="Selfcare contact update failed.",
+        )
+        return None
+
+    ensure_person_customer(db, person, identity)
+    record_customer_sync_result(
+        success=True,
+        mode=mode,
+        person_id=str(person.id),
+        selfcare_id=identity.selfcare_id,
+        selfcare_subscriber_id=identity.subscriber_number,
+        action="contact_updated",
+    )
+    logger.info("selfcare_contact_resynced person_id=%s", person.id)
+    return identity.subscriber_number
+
+
+def enqueue_person_contact_resync(db: Session, person_id: str, changed_fields: set[str]) -> None:
+    """Off-request re-push of contact changes for an already-linked customer.
+
+    Cheap-exits before touching the broker when there's nothing to align: sync
+    disabled, no contact field changed, or the person isn't a selfcare customer.
+    Falls back to inline execution if the task can't be enqueued (broker down).
+    """
+    if not changed_fields & SELFCARE_CONTACT_FIELDS:
+        return
+    if not _customer_sync_enabled(db):
+        return
+    person = db.get(Person, coerce_uuid(person_id))
+    if person is None or _selfcare_identity(person) is None:
+        return
+    try:
+        from app.tasks.subscribers import push_selfcare_contact_update
+
+        push_selfcare_contact_update.delay(str(person_id))
+    except Exception as exc:
+        logger.warning(
+            "selfcare_contact_resync_enqueue_failed person_id=%s error=%s — running inline",
+            person_id,
+            exc,
+        )
+        resync_person_contact(db, str(person_id))
+
+
+def reconcile_person_contacts(db: Session, *, limit: int | None = None) -> dict:
+    """Backfill: re-push current contact details for every already-linked customer.
+
+    enqueue_person_contact_resync only catches future edits, so the existing base
+    can already be divergent. This aligns it. Scoped to customer/subscriber parties
+    (an indexed enum filter, SQLite/Postgres portable); the precise linkage check
+    is left to resync_person_contact. Commits per person so one failure doesn't
+    lose the batch. No-op when sync is disabled.
+    """
+    if not _customer_sync_enabled(db):
+        return {"skipped": "sync_disabled", "processed": 0, "pushed": 0, "errors": 0}
+
+    query = (
+        db.query(Person)
+        .filter(Person.is_active.is_(True))
+        .filter(Person.party_status.in_([PartyStatus.customer, PartyStatus.subscriber]))
+        .order_by(Person.created_at)
+    )
+    if limit:
+        query = query.limit(limit)
+
+    processed = pushed = errors = 0
+    for person in query.all():
+        if _selfcare_identity(person) is None:
+            continue
+        processed += 1
+        try:
+            if resync_person_contact(db, str(person.id)):
+                pushed += 1
+            db.commit()
+        except Exception:
+            db.rollback()
+            errors += 1
+            logger.exception("selfcare_contact_reconcile_error person_id=%s", person.id)
+    logger.info("selfcare_contact_reconcile_done processed=%s pushed=%s errors=%s", processed, pushed, errors)
+    return {"processed": processed, "pushed": pushed, "errors": errors}
 
 
 def _resolve_person_for_project(db: Session, project: Project) -> Person | None:

@@ -257,6 +257,11 @@ class People(ListResponseMixin):
             from app.services.auth_flow import revoke_sessions_for_person
 
             revoke_sessions_for_person(db, person.id)
+        # Keep the sub app's contact details aligned when an already-linked
+        # customer's contact fields change (no-op if unlinked or sync disabled).
+        from app.services.events.handlers.selfcare_customer import enqueue_person_contact_resync
+
+        enqueue_person_contact_resync(db, str(person.id), set(data.keys()))
         return person
 
     @staticmethod
