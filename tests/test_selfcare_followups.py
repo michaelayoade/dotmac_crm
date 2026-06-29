@@ -83,7 +83,9 @@ def test_subscriber_sync_webhook_routes_by_external_system(db_session, monkeypat
         subs, "_handle_splynx_webhook", lambda db, p: routed.setdefault("system", "splynx") or {"subscriber_id": "s"}
     )
     monkeypatch.setattr(
-        subs, "_handle_selfcare_webhook", lambda db, p: routed.setdefault("system", "selfcare") or {"subscriber_id": "x"}
+        subs,
+        "_handle_selfcare_webhook",
+        lambda db, p: routed.setdefault("system", "selfcare") or {"subscriber_id": "x"},
     )
 
     client = _webhook_client(db_session)
