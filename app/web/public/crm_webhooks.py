@@ -830,10 +830,14 @@ async def subscriber_sync_webhook(request: Request, db: Session = Depends(get_db
     if not isinstance(payload, dict):
         return JSONResponse(status_code=400, content={"status": "error", "detail": "Invalid payload"})
 
-    from app.api.subscribers import _handle_selfcare_webhook
+    from app.api.subscribers import dispatch_subscriber_sync
 
+    # Default to "selfcare" for backward compatibility; service callers (the sub
+    # app) set external_system so migrated ("splynx") and native ("dotmac")
+    # records stay keyed under the right system instead of all becoming selfcare.
+    external_system = str(payload.get("external_system") or "selfcare").strip().lower() or "selfcare"
     try:
-        result = _handle_selfcare_webhook(db, payload)
+        result = dispatch_subscriber_sync(db, external_system, payload)
     except HTTPException as exc:
         return JSONResponse(status_code=exc.status_code, content={"status": "error", "detail": exc.detail})
     except Exception:

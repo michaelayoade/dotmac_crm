@@ -282,6 +282,15 @@ def sync_webhook(
     Each external system may send different payload formats.
     This endpoint normalizes the data and syncs.
     """
+    return dispatch_subscriber_sync(db, external_system, payload)
+
+
+def dispatch_subscriber_sync(db: Session, external_system: str, payload: dict) -> dict:
+    """Route an inbound subscriber-sync payload to the right per-system handler.
+
+    Shared by the permission-gated admin endpoint and the HMAC public webhook so
+    both authenticate differently but normalize identically.
+    """
     logger.info(
         "subscriber_sync_webhook_received external_system=%s payload_keys=%s",
         external_system,
