@@ -220,4 +220,6 @@ def portal_list_projects(
     (Installation tracker; consumed by the dotmac_sub mirror)."""
     principal.require_scope("projects:read")
     projects = projects_service.portal_list(db, principal.subject_id)
-    return PortalProjectsResponse(projects=projects, total=len(projects))
+    return PortalProjectsResponse.model_validate(
+        {"projects": projects, "total": len(projects)}
+    )
