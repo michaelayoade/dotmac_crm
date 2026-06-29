@@ -67,7 +67,12 @@ RETENTION_REP_TEAM_OVERRIDES = {
 RETENTION_REP_LABEL_ONLY_NAMES = {"ejiro onovwiona"}
 RETENTION_EXCLUDED_CUSTOMER_NAMES = {"test", "test account"}
 ACTIVE_OFFLINE_LAST_SEEN_START = date(2026, 3, 1)
-REPORTS_POSTPAID_CUSTOMERS_READ_PERMISSIONS = ("reports:postpaid-customers:read",)
+REPORTS_POSTPAID_CUSTOMERS_READ_PERMISSIONS = (
+    "reports:postpaid-customers:read",
+    "reports:billing",
+    "reports:subscribers",
+    "reports",
+)
 
 
 def _normalize_customer_name_for_exclusion(name: object) -> str:

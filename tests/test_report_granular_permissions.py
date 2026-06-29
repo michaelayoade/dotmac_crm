@@ -19,3 +19,6 @@ def test_report_routes_use_granular_permission_keys():
     assert "reports:online-last-24h:read" in reports.REPORTS_ONLINE_LAST_24H_READ_PERMISSIONS
     assert "reports:online-last-24h:write" in reports.REPORTS_ONLINE_LAST_24H_WRITE_PERMISSIONS
     assert "reports:postpaid-customers:read" in billing_risk.REPORTS_POSTPAID_CUSTOMERS_READ_PERMISSIONS
+    assert "reports:billing" in billing_risk.REPORTS_POSTPAID_CUSTOMERS_READ_PERMISSIONS
+    assert "reports:subscribers" in billing_risk.REPORTS_POSTPAID_CUSTOMERS_READ_PERMISSIONS
+    assert "reports" in billing_risk.REPORTS_POSTPAID_CUSTOMERS_READ_PERMISSIONS

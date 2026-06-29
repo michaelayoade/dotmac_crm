@@ -132,12 +132,13 @@
 {% set can_reports_network = is_admin or 'reports:network' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_subscribers = is_admin or 'reports:subscribers' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_billing = is_admin or 'reports:billing' in user_permissions or 'reports' in user_permissions %}
+{% set can_reports_postpaid_customers = can_reports_billing or 'reports:postpaid-customers:read' in user_permissions %}
 {% set can_reports_technician = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_crm = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_ai_insights = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_my_performance = can_inbox %}
 {% set can_reports_team_performance = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
-{% set reports_section_visible = can_reports_network or can_reports_subscribers or can_reports_billing or can_reports_technician or can_reports_crm or can_reports_ai_insights or can_reports_my_performance or can_reports_team_performance %}
+{% set reports_section_visible = can_reports_network or can_reports_subscribers or can_reports_billing or can_reports_postpaid_customers or can_reports_technician or can_reports_crm or can_reports_ai_insights or can_reports_my_performance or can_reports_team_performance %}
 
 {% set can_admin_hub = is_admin
     or 'rbac:roles:read' in user_permissions
@@ -550,8 +551,10 @@
             {% endif %}
             {% if can_reports_billing %}
             <a href="/admin/reports/subscribers/billing-risk" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-billing-risk' else '' }}">Billing Risk</a>
-            <a href="/admin/reports/subscribers/postpaid-customers" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'postpaid-customers-dashboard' else '' }}">Postpaid Customers</a>
             <a href="/admin/reports/revenue-service" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'revenue-service-report' else '' }}">Revenue & Service</a>
+            {% endif %}
+            {% if can_reports_postpaid_customers %}
+            <a href="/admin/reports/subscribers/postpaid-customers" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'postpaid-customers-dashboard' else '' }}">Postpaid Customers</a>
             {% endif %}
             {% if can_reports_network %}
             <a href="/admin/reports/network" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'network-report' else '' }}">Network Infrastructure</a>
