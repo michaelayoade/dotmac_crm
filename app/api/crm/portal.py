@@ -35,6 +35,7 @@ from app.schemas.crm.portal import (
     PortalReferResponse,
     PortalSessionMintRequest,
     PortalSessionMintResponse,
+    PortalWorkOrdersResponse,
 )
 from app.services.auth_dependencies import require_user_auth
 from app.services.auth_flow import create_portal_token
@@ -42,6 +43,7 @@ from app.services.common import coerce_uuid
 from app.services.crm.referrals import referrals as referrals_service
 from app.services.portal_auth import PortalPrincipal, require_portal_auth
 from app.services.projects import Projects as projects_service
+from app.services.workforce import WorkOrders as work_orders_service
 
 logger = get_logger(__name__)
 
@@ -222,3 +224,16 @@ def portal_list_projects(
     projects = projects_service.portal_list(db, principal.subject_id)
     payload = {"projects": projects, "total": len(projects)}
     return PortalProjectsResponse.model_validate(payload)
+
+
+@router.get("/work-orders", response_model=PortalWorkOrdersResponse)
+def portal_list_work_orders(
+    principal: PortalPrincipal = Depends(require_portal_auth),
+    db: Session = Depends(get_db),
+) -> PortalWorkOrdersResponse:
+    """The subscriber's field-service work orders (status, schedule, ETA,
+    technician; consumed by the dotmac_sub mirror)."""
+    principal.require_scope("work_orders:read")
+    work_orders = work_orders_service.portal_list(db, principal.subject_id)
+    payload = {"work_orders": work_orders, "total": len(work_orders)}
+    return PortalWorkOrdersResponse.model_validate(payload)

@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_CUSTOMER_WEBHOOK_PATH = "/api/v1/webhooks/crm/customers"
 DEFAULT_REFERRAL_WEBHOOK_PATH = "/api/v1/webhooks/crm/referrals"
 DEFAULT_PROJECT_WEBHOOK_PATH = "/api/v1/webhooks/crm/projects"
+DEFAULT_WORK_ORDER_WEBHOOK_PATH = "/api/v1/webhooks/crm/work-orders"
 _CUSTOMER_LAST_SYNC_KEY = "selfcare_sync:customer:last"
 _CUSTOMER_HISTORY_KEY = "selfcare_sync:customer:history"
 _CUSTOMER_DAILY_STATS_PREFIX = "selfcare_sync:customer:stats:"
@@ -1249,6 +1250,46 @@ def notify_project_event(db: Session, event_type: str, payload: dict[str, Any]) 
         return True
     except Exception as exc:  # - best-effort; reconcile is the backstop
         logger.warning("selfcare_project_notify_failed event=%s error=%s", event_type, str(exc))
+        return False
+
+
+def _work_order_url(config: dict[str, Any]) -> str:
+    base = str(config["base_url"]).rstrip("/")
+    return f"{base}{DEFAULT_WORK_ORDER_WEBHOOK_PATH}"
+
+
+def notify_work_order_event(db: Session, event_type: str, payload: dict[str, Any]) -> bool:
+    """Push a work-order lifecycle event to dotmac_sub (best-effort).
+
+    Hydrates the sub's field-service mirror in near-real-time
+    (``work_order.created/updated/dispatched/completed/canceled``). The sub's
+    periodic reconcile is the backstop, so a failed push is logged, not raised.
+    Signed with the same selfcare webhook secret as customer events.
+    """
+    config = _get_config(db)
+    if not config:
+        return False
+
+    raw_body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "X-Webhook-Event": event_type,
+        "X-Webhook-Signature-256": _sign_payload(config["webhook_secret"], raw_body),
+    }
+
+    import requests
+
+    try:
+        response = requests.post(  # nosec B113 - timeout is config-driven.
+            _work_order_url(config),
+            data=raw_body,
+            headers=headers,
+            timeout=config["timeout_seconds"],
+        )
+        response.raise_for_status()
+        return True
+    except Exception as exc:  # - best-effort; reconcile is the backstop
+        logger.warning("selfcare_work_order_notify_failed event=%s error=%s", event_type, str(exc))
         return False
 
 
