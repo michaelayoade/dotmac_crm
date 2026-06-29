@@ -24,6 +24,7 @@ from app.models.service_team import ServiceTeam, ServiceTeamMember
 from app.models.subscriber import Subscriber, SubscriberBillingRiskSnapshot
 from app.services import billing_risk_cache, selfcare
 from app.services import billing_risk_reports as billing_risk_service
+from app.services.auth_dependencies import require_any_permission
 from app.services.common import coerce_uuid
 from app.services.crm.web_campaigns import create_billing_risk_outreach_campaign, outreach_channel_target_options
 from app.services.customer_retention import create_retention_engagement_and_sync
@@ -38,6 +39,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reports", tags=["admin-reports"])
 customer_retention_router = APIRouter(tags=["admin-customer-retention"])
 templates = Jinja2Templates(directory="templates")
+
+REPORTS_POSTPAID_CUSTOMERS_READ_PERMISSIONS = (
+    "reports:postpaid-customers:read",
+    "reports:billing",
+    "reports:subscribers",
+    "reports",
+)
 
 RETENTION_PIPELINE_STEPS = ("Contacted", "Follow-up Pending", "Promised to Pay", "Resolved", "Lost")
 ENTERPRISE_MRR_THRESHOLD = int(billing_risk_service.ENTERPRISE_MRR_THRESHOLD)
@@ -2755,7 +2763,11 @@ def subscriber_billing_risk(
     )
 
 
-@router.get("/subscribers/postpaid-customers", response_class=HTMLResponse)
+@router.get(
+    "/subscribers/postpaid-customers",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission(*REPORTS_POSTPAID_CUSTOMERS_READ_PERMISSIONS))],
+)
 def postpaid_customers_dashboard(
     request: Request,
     db: Session = Depends(get_db),
@@ -2889,7 +2901,10 @@ def postpaid_customers_dashboard(
     )
 
 
-@router.get("/subscribers/postpaid-customers/export")
+@router.get(
+    "/subscribers/postpaid-customers/export",
+    dependencies=[Depends(require_any_permission(*REPORTS_POSTPAID_CUSTOMERS_READ_PERMISSIONS))],
+)
 def postpaid_customers_dashboard_export(
     request: Request,
     db: Session = Depends(get_db),

@@ -8,6 +8,7 @@ def test_report_granular_permissions_are_seeded():
 
     assert "reports:billing-risk:read" in permission_keys
     assert "reports:billing-risk:write" in permission_keys
+    assert "reports:postpaid-customers:read" in permission_keys
     assert "reports:online-last-24h:read" in permission_keys
     assert "reports:online-last-24h:write" in permission_keys
 

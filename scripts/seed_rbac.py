@@ -139,6 +139,7 @@ DEFAULT_PERMISSIONS = [
     ("reports:billing", "View billing reports"),
     ("reports:billing-risk:read", "View billing risk report"),
     ("reports:billing-risk:write", "Run billing risk report actions"),
+    ("reports:postpaid-customers:read", "View postpaid customers dashboard"),
     ("reports:network", "View network reports"),
     ("reports:online-last-24h:read", "View active/online last 24h subscriber report"),
     ("reports:online-last-24h:write", "Run active/online last 24h subscriber report actions"),
