@@ -1001,7 +1001,7 @@ def build_portal_project_payload(project: Project) -> dict:
     total = len(stages)
     done = sum(1 for s in stages if s["status"] == "done")
     completed = project.status == ProjectStatus.completed
-    progress_pct = 100 if completed else (int(round(done / total * 100)) if total else 0)
+    progress_pct = 100 if completed else (round(done / total * 100) if total else 0)
     current_stage = None if completed else next((s["title"] for s in stages if s["status"] != "done"), None)
 
     return {
