@@ -94,6 +94,34 @@ def provision_selfcare_for_project(project_id: str) -> dict[str, Any]:
     return results
 
 
+@celery_app.task(name="app.tasks.subscribers.push_selfcare_contact_update")
+def push_selfcare_contact_update(person_id: str) -> dict[str, Any]:
+    """Re-push an already-linked person's contact details to the sub app.
+
+    Runs the sub-app webhook call off the person-edit request path (enqueued by
+    Person.update when contact fields change for a linked selfcare customer).
+    """
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    results: dict[str, Any] = {}
+    try:
+        from app.services.events.handlers.selfcare_customer import resync_person_contact
+
+        subscriber_number = resync_person_contact(session, person_id)
+        session.commit()
+        results = {"person_id": person_id, "selfcare_subscriber_id": subscriber_number}
+    except Exception:
+        status = "error"
+        session.rollback()
+        logger.exception("SELFCARE_CONTACT_RESYNC_ERROR person_id=%s", person_id)
+        raise
+    finally:
+        session.close()
+        observe_job("push_selfcare_contact_update", status, time.monotonic() - start)
+    return results
+
+
 @celery_app.task(name="app.tasks.subscribers.refresh_billing_risk_cache")
 def refresh_billing_risk_cache() -> dict[str, Any]:
     """Refresh cached subscriber billing-risk report rows from live provider data."""
