@@ -44,6 +44,32 @@ def test_subscriber_sync_webhook_hmac(db_session, monkeypatch):
     assert res.json()["status"] == "ok"
 
 
+def test_splynx_webhook_does_not_enrich_remotely(db_session, monkeypatch):
+    """Migrated (splynx) pushes must trust the payload, not call back to selfcare.
+
+    Regression: a billing-snapshot payload carries no nested services/billing, so
+    include_remote_details=True triggered a selfcare callback keyed on the legacy
+    Splynx id, which 404s and dead-letters the push.
+    """
+    from unittest.mock import MagicMock
+
+    import app.api.subscribers as subs
+
+    mapper = MagicMock(return_value={})
+    monkeypatch.setattr(subs, "map_splynx_customer_to_subscriber_data", mapper)
+    monkeypatch.setattr(
+        subs.subscriber_service,
+        "sync_from_external",
+        lambda db, system, ext_id, data: type("S", (), {"id": "sub-uuid"})(),
+    )
+
+    payload = {"id": "10291", "balance": "83622.50", "currency": "NGN"}
+    result = subs._handle_splynx_webhook(db_session, payload)
+
+    assert result["status"] == "ok"
+    assert mapper.call_args.kwargs["include_remote_details"] is False
+
+
 def test_subscriber_sync_webhook_no_secret_503(db_session, monkeypatch):
     from app.services import settings_spec
 

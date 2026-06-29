@@ -302,7 +302,13 @@ def sync_webhook(
 def _handle_splynx_webhook(db: Session, payload: dict) -> dict:
     """Handle Splynx webhook payload."""
     external_id = str(payload.get("id"))
-    data = map_splynx_customer_to_subscriber_data(db, payload, include_remote_details=True)
+    # Splynx is decommissioned: the remote-detail fetch hits the selfcare API
+    # keyed on `external_id`, but a migrated record's id is a legacy Splynx
+    # customer id, not a selfcare subscriber id — so the callback always 404s
+    # and the whole push dead-letters (notably every billing snapshot, which
+    # carries no nested services/billing). Trust the pushed payload instead,
+    # like the selfcare handler does.
+    data = map_splynx_customer_to_subscriber_data(db, payload, include_remote_details=False)
 
     sub = subscriber_service.sync_from_external(db, "splynx", external_id, data)
     logger.info(
