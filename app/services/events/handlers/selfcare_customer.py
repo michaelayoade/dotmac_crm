@@ -119,9 +119,7 @@ def _customer_sync_enabled(db: Session) -> bool:
     from app.models.domain_settings import SettingDomain
     from app.services import settings_spec
 
-    return bool(
-        settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_customer_sync_enabled")
-    )
+    return bool(settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_customer_sync_enabled"))
 
 
 def resync_person_contact(db: Session, person_id: str, *, mode: str = "contact_update") -> str | None:
@@ -225,9 +223,7 @@ def reconcile_person_contacts(db: Session, *, limit: int | None = None) -> dict:
             db.rollback()
             errors += 1
             logger.exception("selfcare_contact_reconcile_error person_id=%s", person.id)
-    logger.info(
-        "selfcare_contact_reconcile_done processed=%s pushed=%s errors=%s", processed, pushed, errors
-    )
+    logger.info("selfcare_contact_reconcile_done processed=%s pushed=%s errors=%s", processed, pushed, errors)
     return {"processed": processed, "pushed": pushed, "errors": errors}
 
 
