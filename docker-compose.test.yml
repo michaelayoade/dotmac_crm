@@ -26,9 +26,11 @@ services:
     volumes:
       - ./app:/app/app
       - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./poetry.lock:/app/poetry.lock:ro
       - ./templates:/app/templates
       - ./static:/app/static
       - ./alembic:/app/alembic
+      - ./tests:/app/tests
     command:
       - /bin/sh
       - -c
@@ -47,6 +49,35 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+
+  backend_tests:
+    image: ghcr.io/michaelayoade/dotmac_crm:latest
+    container_name: dotmac_omni_backend_tests
+    profiles:
+      - test
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://dotmac_omni_app:RchMmBvcAEsfWhMMROldZTIOnOssPu@db:5432/crm_test
+      REDIS_URL: redis://:x4qeiXfoyI6Lf3cj91VtlemWh6oUC06mOfkSti_9H-s@redis:6379/5
+      WIREGUARD_USE_NSENTER: "0"
+    volumes:
+      - ./app:/app/app
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./poetry.lock:/app/poetry.lock:ro
+      - ./templates:/app/templates
+      - ./static:/app/static
+      - ./alembic:/app/alembic
+      - ./tests:/app/tests
+      - ./pytest.ini:/app/pytest.ini:ro
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        poetry install --with dev --no-root --no-interaction --no-ansi
+        exec poetry run pytest "$$@"
+      - pytest-runner
+    command: []
 
 networks:
   default:

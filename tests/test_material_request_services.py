@@ -65,7 +65,7 @@ class TestMaterialRequestCRUD:
             material_requests.create(db_session, payload)
 
         assert exc.value.status_code == 400
-        assert "ticket or" in str(exc.value.detail).lower()
+        assert "ticket, project, or work order" in str(exc.value.detail).lower()
 
     def test_create_rejects_same_source_and_destination(
         self,

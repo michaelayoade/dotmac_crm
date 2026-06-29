@@ -7,6 +7,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.models.field import DevicePlatform, FieldAttachmentKind
+from app.models.material_request import MaterialRequestPriority
+from app.schemas.material_request import MaterialRequestItemCreate
 
 
 class FieldAttachmentRead(BaseModel):
@@ -153,6 +155,18 @@ class FieldMaterialConsumeItem(BaseModel):
 
 class FieldMaterialConsumeRequest(BaseModel):
     items: list[FieldMaterialConsumeItem] = Field(min_length=1, max_length=100)
+
+
+class FieldMaterialRequestCreate(BaseModel):
+    ticket_id: UUID | None = None
+    project_id: UUID | None = None
+    work_order_id: UUID | None = None
+    priority: MaterialRequestPriority = MaterialRequestPriority.medium
+    notes: str | None = Field(default=None, max_length=5000)
+    source_location_id: UUID | None = None
+    destination_location_id: UUID | None = None
+    items: list[MaterialRequestItemCreate] = Field(default_factory=list, max_length=100)
+    submit: bool = True
 
 
 class FieldWorkLogRead(BaseModel):

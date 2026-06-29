@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/theme.dart';
@@ -50,6 +51,13 @@ class _JobDetailView extends ConsumerWidget {
       appBar: AppBar(
         title: Text(job.workType.toUpperCase()),
         actions: [
+          IconButton(
+            tooltip: 'Request materials',
+            onPressed: () => context.push(
+              '/materials/new?workOrderId=${Uri.encodeComponent(job.id)}',
+            ),
+            icon: const Icon(Icons.inventory_2_outlined),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Center(
@@ -192,7 +200,8 @@ class _JobDetailView extends ConsumerWidget {
                     ),
                     TextButton(
                       key: const Key('unable-action'),
-                      onPressed: () => promptUnableToComplete(context, ref, job.id),
+                      onPressed: () =>
+                          promptUnableToComplete(context, ref, job.id),
                       child: const Text("Can't complete this job"),
                     ),
                   ],
@@ -216,7 +225,11 @@ const List<({String key, String label})> kUnableReasons = [
 
 /// Ask why the job can't be completed, then record the failed visit (which
 /// cancels the job server-side with the chosen reason).
-Future<void> promptUnableToComplete(BuildContext context, WidgetRef ref, String jobId) async {
+Future<void> promptUnableToComplete(
+  BuildContext context,
+  WidgetRef ref,
+  String jobId,
+) async {
   final reason = await showModalBottomSheet<String>(
     context: context,
     builder: (sheetContext) => SafeArea(
@@ -241,7 +254,9 @@ Future<void> promptUnableToComplete(BuildContext context, WidgetRef ref, String 
     ),
   );
   if (reason == null) return;
-  await ref.read(executionControllerProvider.notifier).unableToComplete(jobId, reason: reason);
+  await ref
+      .read(executionControllerProvider.notifier)
+      .unableToComplete(jobId, reason: reason);
   ref.invalidate(jobDetailProvider(jobId));
   if (context.mounted) Navigator.of(context).maybePop();
 }

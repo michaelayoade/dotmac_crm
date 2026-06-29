@@ -263,10 +263,10 @@ class MaterialRequests(ListResponseMixin):
     def create(db: Session, payload: MaterialRequestCreate) -> MaterialRequest:
         get_or_404(db, Person, str(payload.requested_by_person_id), detail="Person not found")
 
-        if not (payload.ticket_id or payload.project_id):
+        if not (payload.ticket_id or payload.project_id or payload.work_order_id):
             raise HTTPException(
                 status_code=400,
-                detail="Material request must be linked to a ticket or project",
+                detail="Material request must be linked to a ticket, project, or work order",
             )
 
         if payload.source_location_id:
