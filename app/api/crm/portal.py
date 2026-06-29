@@ -47,8 +47,10 @@ def require_portal_mint(
     caller's account email must be in ``PORTAL_MINT_SERVICE_ACCOUNTS`` (falls
     back to ``CHAT_MINT_SERVICE_ACCOUNTS`` / the sub self-care sync account).
     """
-    raw = os.getenv("PORTAL_MINT_SERVICE_ACCOUNTS") or os.getenv(
-        "CHAT_MINT_SERVICE_ACCOUNTS", "selfcare-sync@dotmac.io"
+    raw = (
+        os.getenv("PORTAL_MINT_SERVICE_ACCOUNTS")
+        or os.getenv("CHAT_MINT_SERVICE_ACCOUNTS")
+        or "selfcare-sync@dotmac.io"
     )
     allowed = {e.strip().lower() for e in raw.split(",") if e.strip()}
     person = db.get(Person, coerce_uuid(auth.get("person_id")))
