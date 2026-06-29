@@ -951,6 +951,12 @@ def transition_work_order(db: Session, work_order_id: str, payload: StatusTransi
         work_order.completed_at = work_order.completed_at or now
     db.commit()
     db.refresh(work_order)
+    if to_status == WorkOrderStatus.completed:
+        from app.services.work_lifecycle import work_lifecycle
+
+        work_lifecycle.record_work_order_completion(db, work_order)
+        db.commit()
+        db.refresh(work_order)
     return work_order
 
 

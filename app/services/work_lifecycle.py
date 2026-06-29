@@ -5,6 +5,11 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.models.crm.sales import Lead
+from app.models.projects import Project, ProjectTask
+from app.models.sales_order import SalesOrder
+from app.models.subscriber import Subscriber
+from app.models.tickets import Ticket
 from app.models.work_lifecycle import (
     WorkEntityType,
     WorkLink,
@@ -13,8 +18,24 @@ from app.models.work_lifecycle import (
     WorkOutcomeStatus,
     WorkOutcomeType,
 )
-from app.models.workforce import WorkOrder
+from app.models.workforce import WorkOrder, WorkOrderType
 from app.services.common import coerce_uuid
+
+_ENTITY_MODELS = {
+    WorkEntityType.ticket: Ticket,
+    WorkEntityType.project: Project,
+    WorkEntityType.project_task: ProjectTask,
+    WorkEntityType.work_order: WorkOrder,
+    WorkEntityType.lead: Lead,
+    WorkEntityType.sales_order: SalesOrder,
+    WorkEntityType.subscriber: Subscriber,
+}
+
+_COMPLETION_OUTCOME_BY_WORK_TYPE = {
+    WorkOrderType.install: WorkOutcomeType.activation_requested,
+    WorkOrderType.repair: WorkOutcomeType.repair_completed,
+    WorkOrderType.disconnect: WorkOutcomeType.disconnect_completed,
+}
 
 
 def _coerce_entity_type(value: WorkEntityType | str, label: str) -> WorkEntityType:
@@ -127,6 +148,27 @@ class WorkLifecycle:
         )
 
     @staticmethod
+    def work_order_origin_ids(
+        db: Session,
+        *,
+        origin_type: WorkEntityType | str,
+        origin_id: UUID | str,
+        link_type: WorkLinkType | str = WorkLinkType.originated,
+    ) -> list[UUID]:
+        origin_type_value = _coerce_entity_type(origin_type, "origin type")
+        link_type_value = _coerce_link_type(link_type)
+        origin_uuid = coerce_uuid(origin_id)
+        rows = (
+            db.query(WorkLink.target_id)
+            .filter(WorkLink.source_type == origin_type_value)
+            .filter(WorkLink.source_id == origin_uuid)
+            .filter(WorkLink.target_type == WorkEntityType.work_order)
+            .filter(WorkLink.link_type == link_type_value)
+            .all()
+        )
+        return [target_id for (target_id,) in rows]
+
+    @staticmethod
     def create_outcome(
         db: Session,
         *,
@@ -163,6 +205,89 @@ class WorkLifecycle:
         db.add(outcome)
         db.flush()
         return outcome
+
+    @staticmethod
+    def record_work_order_completion(
+        db: Session,
+        work_order: WorkOrder,
+        *,
+        selfcare_notified: bool | None = None,
+    ) -> WorkOutcome:
+        subscriber = work_order.subscriber
+        if subscriber is None and work_order.subscriber_id:
+            subscriber = db.get(Subscriber, work_order.subscriber_id)
+
+        external_system = None
+        external_reference = None
+        if subscriber and subscriber.external_system == "selfcare" and subscriber.external_id:
+            external_system = "selfcare"
+            external_reference = str(subscriber.external_id)
+
+        outcome_type = _COMPLETION_OUTCOME_BY_WORK_TYPE.get(work_order.work_type, WorkOutcomeType.no_billing_change)
+        if outcome_type == WorkOutcomeType.activation_requested and not external_reference:
+            outcome_type = WorkOutcomeType.no_billing_change
+
+        status = WorkOutcomeStatus.succeeded
+        if external_system == "selfcare" and outcome_type != WorkOutcomeType.no_billing_change:
+            status = WorkOutcomeStatus.succeeded if selfcare_notified else WorkOutcomeStatus.pending
+
+        idempotency_key = f"work-order:{work_order.id}:completion"
+        payload = {
+            "work_order_id": str(work_order.id),
+            "work_type": work_order.work_type.value if work_order.work_type else None,
+            "completed_at": work_order.completed_at.isoformat() if work_order.completed_at else None,
+            "selfcare_notified": selfcare_notified,
+        }
+        existing = db.query(WorkOutcome).filter(WorkOutcome.idempotency_key == idempotency_key).one_or_none()
+        if existing:
+            existing.outcome_type = outcome_type
+            if existing.status != WorkOutcomeStatus.reconciled:
+                existing.status = status
+            existing.subscriber_id = work_order.subscriber_id
+            existing.external_system = external_system
+            existing.external_reference = external_reference
+            existing.payload = {**(existing.payload or {}), **payload}
+            existing.error = None if status == WorkOutcomeStatus.succeeded else existing.error
+            return existing
+
+        outcome = WorkOutcome(
+            work_order_id=work_order.id,
+            outcome_type=outcome_type,
+            status=status,
+            subscriber_id=work_order.subscriber_id,
+            external_system=external_system,
+            external_reference=external_reference,
+            idempotency_key=idempotency_key,
+            payload=payload,
+        )
+        db.add(outcome)
+        db.flush()
+        return outcome
+
+    @staticmethod
+    def dangling_links(db: Session, *, limit: int = 100) -> list[dict[str, str]]:
+        findings: list[dict[str, str]] = []
+        links = db.query(WorkLink).order_by(WorkLink.created_at.desc()).limit(limit).all()
+        for link in links:
+            for side, entity_type, entity_id in (
+                ("source", link.source_type, link.source_id),
+                ("target", link.target_type, link.target_id),
+            ):
+                model = _ENTITY_MODELS.get(entity_type)
+                if model is None:
+                    continue
+                entity = db.get(model, entity_id)
+                if entity is None or getattr(entity, "is_active", True) is False:
+                    findings.append(
+                        {
+                            "link_id": str(link.id),
+                            "side": side,
+                            "entity_type": entity_type.value,
+                            "entity_id": str(entity_id),
+                            "reason": "missing" if entity is None else "inactive",
+                        }
+                    )
+        return findings
 
 
 work_lifecycle = WorkLifecycle()

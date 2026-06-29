@@ -31,6 +31,8 @@ Cross-stage relationships use `WorkLink`:
 
 Existing direct foreign keys such as `work_orders.ticket_id` remain compatibility fields while reads and automations move toward `WorkLink`.
 
+Work-order ticket/project filters read both legacy direct foreign keys and `WorkLink` origin records during the migration period.
+
 ## Outcomes
 
 Execution results use `WorkOutcome`:
@@ -40,3 +42,9 @@ Execution results use `WorkOutcome`:
 - `repair_completed` and `disconnect_completed` for operational closure.
 
 External handoffs must use an idempotency key when possible so retries do not duplicate outcomes.
+
+Work-order completion records one idempotent `WorkOutcome` using `work-order:{id}:completion`. Internal/non-billing work records `no_billing_change`; subscriber-backed installs, repairs, and disconnects record the corresponding operational outcome and carry the dotmac_sub external reference when available.
+
+## Link Audits
+
+Because `WorkLink` is polymorphic, `source_id` and `target_id` cannot have ordinary database foreign keys. Use `work_lifecycle.dangling_links()` for periodic checks that identify missing or inactive source/target records.
