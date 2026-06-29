@@ -339,6 +339,41 @@ def decode_access_token(db: Session | None, token: str) -> dict:
     return _decode_jwt(db, token, "access")
 
 
+def _portal_ttl_minutes(db: Session | None) -> int:
+    return _env_int("PORTAL_TOKEN_TTL_MINUTES") or 15
+
+
+def create_portal_token(
+    db: Session | None,
+    *,
+    subject_id: str,
+    actor: str,
+    scopes: list[str] | None = None,
+    ttl_minutes: int | None = None,
+) -> tuple[str, int]:
+    """Mint a short-lived, subject-scoped Portal token (RFC #73).
+
+    Returns ``(token, exp_epoch_seconds)``. ``typ=portal`` keeps it distinct from
+    access/mfa/reset tokens (enforced by ``decode_portal_token``).
+    """
+    now = _now()
+    exp = now + timedelta(minutes=ttl_minutes or _portal_ttl_minutes(db))
+    payload = {
+        "sub": str(subject_id),
+        "actor": actor,
+        "scopes": list(scopes or []),
+        "typ": "portal",
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
+    }
+    token = jwt.encode(payload, _jwt_secret(db), algorithm=_jwt_algorithm(db))
+    return token, int(exp.timestamp())
+
+
+def decode_portal_token(db: Session | None, token: str) -> dict:
+    return _decode_jwt(db, token, "portal")
+
+
 def _person_or_404(db: Session, person_id: str) -> Person:
     person = db.get(Person, coerce_uuid(person_id))
     if not person:

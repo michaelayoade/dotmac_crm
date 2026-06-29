@@ -40,6 +40,8 @@ from app.api.connectors import router as connectors_router
 from app.api.contracts import router as contracts_router
 from app.api.crm import router as crm_router
 from app.api.crm.campaign_tracking import public_router as campaign_tracking_public_router
+from app.api.crm.portal import internal_router as portal_internal_router
+from app.api.crm.portal import router as portal_router
 from app.api.crm.referrals import public_router as referral_public_router
 from app.api.crm.widget_internal import router as widget_internal_router
 from app.api.crm.widget_public import router as widget_public_router
@@ -531,6 +533,10 @@ _include_api_router(referral_public_router)
 _include_api_router(campaign_tracking_public_router)
 # Trusted server-to-server chat session mint (authenticated backend asserts identity).
 _include_api_router(widget_internal_router, dependencies=[Depends(require_user_auth)])
+# Customer Portal API (RFC #73): trusted mint behind require_user_auth; the
+# /portal/* data routes self-authorize via the minted portal token.
+_include_api_router(portal_internal_router, dependencies=[Depends(require_user_auth)])
+_include_api_router(portal_router)
 app.include_router(vendors_router, prefix="/api", dependencies=[Depends(require_user_auth)])
 app.include_router(vendors_router, prefix="/api/v1", dependencies=[Depends(require_user_auth)])
 app.include_router(vendor_portal_router, prefix="/api")
