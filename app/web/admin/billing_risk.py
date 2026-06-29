@@ -129,18 +129,558 @@ def _normalize_billing_type_filter(value: str | None) -> str:
 
 def _billing_type_category(value: object) -> str:
     normalized = str(value or "").strip().lower()
-    if normalized.startswith("prepaid"):
+    normalized = normalized.replace("-", "_").replace(" ", "_")
+    if normalized == "unknown":
+        return ""
+    if normalized == "prepaid" or normalized.startswith("prepaid"):
         return "prepaid"
-    if normalized in {"recurring", "postpaid"}:
+    if normalized in {"recurring", "postpaid", "post_paid"}:
         return "postpaid"
     return ""
+
+
+def _billing_row_type_category(row: dict) -> str:
+    for key in ("billing_mode", "subscription_billing_mode"):
+        normalized = str(row.get(key) or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if normalized == "prepaid":
+            return "prepaid"
+        if normalized == "postpaid":
+            return "postpaid"
+    return _billing_type_category(row.get("billing_type"))
 
 
 def _billing_risk_billing_type_rows(rows: list[dict], billing_type: str) -> list[dict]:
     normalized = _normalize_billing_type_filter(billing_type)
     if normalized == "all":
         return rows
-    return [row for row in rows if _billing_type_category(row.get("billing_type")) == normalized]
+    return [row for row in rows if _billing_row_type_category(row) == normalized]
+
+
+def _billing_type_display_label(row: dict) -> str:
+    category = _billing_row_type_category(row)
+    if category == "prepaid":
+        return "Prepaid"
+    if category == "postpaid":
+        return "Recurring/Postpaid"
+    return "Unknown"
+
+
+def _money(value: object) -> float:
+    coerced = _coerce_money_value(value)
+    return float(coerced or 0)
+
+
+def _postpaid_dashboard_rows(
+    db: Session,
+    *,
+    search: str | None = None,
+    location: str | None = None,
+    status: str | None = None,
+    service_status: str | None = None,
+    plan: str | None = None,
+    billing_type: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 5000,
+) -> list[dict]:
+    rows = billing_risk_cache.all_cached_rows(
+        db,
+        selected_segments=["active", "due_soon", "suspended"],
+        search=search,
+        location=(location or "").strip(),
+        limit=max(1, int(limit)),
+    )
+    normalized_status = str(status or "all").strip().lower()
+    normalized_service_status = str(service_status or "all").strip().lower()
+    normalized_plan = str(plan or "").strip()
+    normalized_billing_type = _normalize_billing_type_filter(billing_type or "postpaid")
+    start_date = _parse_report_date(date_from)
+    end_date = _parse_report_date(date_to)
+    postpaid_rows: list[dict] = []
+    for source_row in rows:
+        row = dict(source_row)
+        if _billing_row_type_category(row) != "postpaid":
+            continue
+        if normalized_billing_type != "all" and _billing_row_type_category(row) != normalized_billing_type:
+            continue
+        row_status = str(row.get("subscriber_status") or "").strip().lower()
+        if normalized_status != "all" and row_status != normalized_status:
+            continue
+        row_service_status = str(row.get("risk_segment") or "").strip().lower()
+        if normalized_service_status != "all" and row_service_status != normalized_service_status:
+            continue
+        row_plan = str(row.get("plan") or "").strip()
+        if normalized_plan and row_plan.casefold() != normalized_plan.casefold():
+            continue
+        _enrich_expiration_fields([row])
+        row_expiration_date = _parse_report_date(row.get("service_expiration_date") or row.get("expiration_date"))
+        if start_date is not None and (row_expiration_date is None or row_expiration_date < start_date):
+            continue
+        if end_date is not None and (row_expiration_date is None or row_expiration_date > end_date):
+            continue
+        row["revenue_owed"] = _money(row.get("revenue_owed"))
+        row["balance"] = _money(row.get("balance"))
+        row["mrr_total"] = _money(row.get("mrr_total"))
+        row["billing_type_label"] = _billing_type_display_label(row)
+        postpaid_rows.append(row)
+    return postpaid_rows
+
+
+def _postpaid_dashboard_kpis(
+    rows: list[dict], *, all_customer_rows: list[dict] | None = None
+) -> dict[str, int | float]:
+    total_customers = len(rows)
+    outstanding_balance = round(sum(_money(row.get("balance")) for row in rows), 2)
+    overdue_balance = round(
+        sum(_money(row.get("balance")) for row in rows if int(row.get("days_past_due") or 0) > 0),
+        2,
+    )
+    customers_with_overdue = sum(1 for row in rows if int(row.get("days_past_due") or 0) > 0)
+    unpaid_invoices = sum(1 for row in rows if _money(row.get("balance")) > 0)
+    total_revenue_owed = round(sum(_money(row.get("revenue_owed")) for row in rows), 2)
+    total_mrr = round(sum(_money(row.get("mrr_total")) for row in rows), 2)
+    return {
+        "total_customers": total_customers,
+        "outstanding_balance": outstanding_balance,
+        "overdue_balance": overdue_balance,
+        "customers_with_overdue": customers_with_overdue,
+        "unpaid_invoices": unpaid_invoices,
+        "prepaid_customers_with_unpaid_balances": 0,
+        "prepaid_unpaid_invoice_balance": 0,
+        "average_mrr": round(total_mrr / total_customers, 2) if total_customers else 0,
+        "total_revenue_owed": total_revenue_owed,
+        "total_mrr": total_mrr,
+        "avg_revenue_owed": round(total_revenue_owed / total_customers, 2) if total_customers else 0,
+    }
+
+
+def _postpaid_location_breakdown(rows: list[dict], *, limit: int = 10) -> list[dict[str, int | float | str]]:
+    grouped: dict[str, dict[str, int | float | str]] = {}
+    for row in rows:
+        label = str(row.get("location") or row.get("city") or "Unknown").strip() or "Unknown"
+        entry = grouped.setdefault(label, {"location": label, "customers": 0, "revenue_owed": 0.0})
+        entry["customers"] = int(entry["customers"]) + 1
+        entry["revenue_owed"] = round(float(entry["revenue_owed"]) + _money(row.get("revenue_owed")), 2)
+    return sorted(
+        grouped.values(), key=lambda item: (float(item["revenue_owed"]), int(item["customers"])), reverse=True
+    )[:limit]
+
+
+def _postpaid_top_customer_balance_chart(rows: list[dict], *, limit: int = 10) -> list[dict[str, float | str]]:
+    sorted_rows = sorted(rows, key=lambda row: _money(row.get("balance")), reverse=True)
+    return [
+        {
+            "name": str(row.get("name") or "Unknown"),
+            "balance": _money(row.get("balance")),
+        }
+        for row in sorted_rows[:limit]
+        if _money(row.get("balance")) > 0
+    ]
+
+
+def _postpaid_customer_status_chart(rows: list[dict]) -> list[dict[str, int | str]]:
+    buckets = {"active": 0, "suspended": 0, "blocked": 0}
+    for row in rows:
+        status = str(row.get("subscriber_status") or "").strip().lower()
+        if status in {"active", "suspended", "blocked"}:
+            buckets[status] += 1
+    return [
+        {"label": "Active", "count": buckets["active"], "color": "#10b981"},
+        {"label": "Suspended", "count": buckets["suspended"], "color": "#f59e0b"},
+        {"label": "Blocked", "count": buckets["blocked"], "color": "#ef4444"},
+    ]
+
+
+def _postpaid_payment_recency_chart(rows: list[dict]) -> list[dict[str, int | str]]:
+    buckets = {
+        "Paid <30 Days": 0,
+        "Paid 31-60 Days": 0,
+        "Paid 61-90 Days": 0,
+        "Paid >90 Days": 0,
+        "Never Paid": 0,
+    }
+    today = datetime.now(UTC).date()
+    for row in rows:
+        days_value = row.get("days_since_last_payment")
+        days_since_payment: int | None = None
+        if isinstance(days_value, int):
+            days_since_payment = days_value
+        elif isinstance(days_value, str) and days_value.strip().isdigit():
+            days_since_payment = int(days_value.strip())
+        else:
+            payment_date = _parse_report_date(row.get("last_transaction_date"))
+            if payment_date is not None:
+                days_since_payment = max(0, (today - payment_date).days)
+        if days_since_payment is None:
+            buckets["Never Paid"] += 1
+        elif days_since_payment <= 30:
+            buckets["Paid <30 Days"] += 1
+        elif days_since_payment <= 60:
+            buckets["Paid 31-60 Days"] += 1
+        elif days_since_payment <= 90:
+            buckets["Paid 61-90 Days"] += 1
+        else:
+            buckets["Paid >90 Days"] += 1
+    colors = {
+        "Paid <30 Days": "#10b981",
+        "Paid 31-60 Days": "#06b6d4",
+        "Paid 61-90 Days": "#f59e0b",
+        "Paid >90 Days": "#ef4444",
+        "Never Paid": "#64748b",
+    }
+    return [{"label": label, "count": count, "color": colors[label]} for label, count in buckets.items()]
+
+
+def _postpaid_payment_amount_trend(rows: list[dict], *, limit: int = 12) -> list[dict[str, float | str]]:
+    grouped: dict[str, float] = {}
+    for row in rows:
+        payment_date = _parse_report_date(row.get("last_transaction_date"))
+        payment_amount = _money(row.get("total_paid"))
+        if payment_date is None or payment_amount <= 0:
+            continue
+        month_key = payment_date.strftime("%Y-%m")
+        grouped[month_key] = grouped.get(month_key, 0.0) + payment_amount
+    return [
+        {"month": month, "amount": round(amount, 2)}
+        for month, amount in sorted(grouped.items(), key=lambda item: item[0])[-limit:]
+    ]
+
+
+def _postpaid_invoice_segment_chart(rows: list[dict]) -> list[dict[str, int | str]]:
+    grouped: dict[str, dict[str, int | str]] = {}
+    for row in rows:
+        segment = str(row.get("risk_segment") or "Unknown").strip() or "Unknown"
+        entry = grouped.setdefault(segment, {"segment": segment, "unpaid": 0, "overdue": 0})
+        if _money(row.get("balance")) > 0:
+            entry["unpaid"] = int(entry["unpaid"]) + 1
+        if int(row.get("days_past_due") or 0) > 0:
+            entry["overdue"] = int(entry["overdue"]) + 1
+    return [
+        grouped[segment] for segment in ("Active", "Due Soon", "Suspended", "Blocked", "Unknown") if segment in grouped
+    ] + [
+        value
+        for segment, value in sorted(grouped.items(), key=lambda item: item[0])
+        if segment not in {"Active", "Due Soon", "Suspended", "Blocked", "Unknown"}
+    ]
+
+
+def _postpaid_invoice_aging_chart(rows: list[dict]) -> list[dict[str, float | str]]:
+    buckets = {
+        "Current": 0.0,
+        "1-30 Days": 0.0,
+        "31-60 Days": 0.0,
+        "61-90 Days": 0.0,
+        "90+ Days": 0.0,
+    }
+    for row in rows:
+        balance = _money(row.get("balance"))
+        days_past_due = int(row.get("days_past_due") or 0)
+        if days_past_due <= 0:
+            buckets["Current"] += balance
+        elif days_past_due <= 30:
+            buckets["1-30 Days"] += balance
+        elif days_past_due <= 60:
+            buckets["31-60 Days"] += balance
+        elif days_past_due <= 90:
+            buckets["61-90 Days"] += balance
+        else:
+            buckets["90+ Days"] += balance
+    return [{"bucket": bucket, "balance": round(balance, 2)} for bucket, balance in buckets.items()]
+
+
+def _postpaid_detail_table_rows(rows: list[dict]) -> list[dict]:
+    blocked_terms = ("dotmac", "test")
+    return [row for row in rows if not any(term in str(row.get("name") or "").casefold() for term in blocked_terms)]
+
+
+def _billing_invoice_rows(payload: dict | None) -> list[dict]:
+    if not isinstance(payload, dict):
+        return []
+    invoice_rows: list[dict] = []
+    for key in ("invoices", "active_invoices", "unpaid_invoices", "open_invoices"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            invoice_rows.extend(row for row in value if isinstance(row, dict))
+    for key in ("billing", "account", "customer"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            invoice_rows.extend(_billing_invoice_rows(nested))
+    return invoice_rows
+
+
+def _invoice_balance_due(invoice: dict) -> float:
+    return _money(
+        invoice.get("balance_due")
+        or invoice.get("balanceDue")
+        or invoice.get("due_balance")
+        or invoice.get("amount_due")
+        or invoice.get("outstanding_balance")
+        or invoice.get("balance")
+    )
+
+
+def _is_active_unpaid_invoice(invoice: dict) -> bool:
+    if _invoice_balance_due(invoice) <= 0:
+        return False
+    if invoice.get("is_active") is False or invoice.get("active") is False:
+        return False
+    status = str(invoice.get("status") or invoice.get("invoice_status") or "").strip().casefold()
+    payment_status = str(invoice.get("payment_status") or invoice.get("paid_status") or "").strip().casefold()
+    excluded = {"paid", "cancelled", "canceled", "void", "voided", "deleted", "draft", "refunded"}
+    return not (status in excluded or payment_status in excluded)
+
+
+def _active_unpaid_invoice_summary(billing_payload: dict | None) -> dict[str, object]:
+    invoices = [invoice for invoice in _billing_invoice_rows(billing_payload) if _is_active_unpaid_invoice(invoice)]
+    balance_due = round(sum(_invoice_balance_due(invoice) for invoice in invoices), 2)
+    last_invoice_date = _first_text(
+        *[
+            _first_text(
+                invoice.get("invoice_date"),
+                invoice.get("date"),
+                invoice.get("created_at"),
+                invoice.get("issued_at"),
+            )
+            for invoice in invoices
+        ]
+    )
+    next_due_date = _first_text(
+        *[
+            _first_text(
+                invoice.get("due_date"),
+                invoice.get("dueDate"),
+                invoice.get("payment_due_date"),
+            )
+            for invoice in invoices
+        ]
+    )
+    return {
+        "count": len(invoices),
+        "balance_due": balance_due,
+        "last_invoice_date": last_invoice_date,
+        "next_due_date": next_due_date,
+    }
+
+
+def _apply_prepaid_unpaid_invoice_summary(rows: list[dict]) -> None:
+    for row in rows:
+        summary = row.get("_prepaid_unpaid_invoice_summary")
+        if not isinstance(summary, dict):
+            continue
+        row["detail_unpaid_invoices"] = int(summary.get("count") or 0)
+        row["detail_overdue_invoices"] = 0
+        row["detail_outstanding_balance"] = _money(summary.get("balance_due"))
+        row["detail_overdue_balance"] = 0
+        row["detail_last_invoice_date"] = _first_text(
+            summary.get("last_invoice_date"), row.get("detail_last_invoice_date")
+        )
+        row["detail_next_due_date"] = _first_text(summary.get("next_due_date"), row.get("detail_next_due_date"))
+
+
+def _prepaid_unpaid_balance_table_rows(
+    rows: list[dict],
+    *,
+    status: str | None = None,
+    plan: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[dict]:
+    normalized_status = str(status or "all").strip().lower()
+    normalized_plan = str(plan or "").strip()
+    start_date = _parse_report_date(date_from)
+    end_date = _parse_report_date(date_to)
+    table_rows: list[dict] = []
+    for source_row in rows:
+        row = dict(source_row)
+        if _billing_row_type_category(row) != "prepaid":
+            continue
+        invoice_balance_due = _money(row.get("prepaid_unpaid_invoice_balance_due"))
+        invoice_count = int(row.get("prepaid_unpaid_invoice_count") or 0)
+        if invoice_balance_due <= 0 or invoice_count <= 0:
+            continue
+        if any(term in str(row.get("name") or "").casefold() for term in ("dotmac", "test")):
+            continue
+        row_status = str(row.get("subscriber_status") or "").strip().lower()
+        if normalized_status != "all" and row_status != normalized_status:
+            continue
+        row_plan = str(row.get("plan") or "").strip()
+        if normalized_plan and row_plan.casefold() != normalized_plan.casefold():
+            continue
+        _enrich_expiration_fields([row])
+        row_expiration_date = _parse_report_date(row.get("service_expiration_date") or row.get("expiration_date"))
+        if start_date is not None and (row_expiration_date is None or row_expiration_date < start_date):
+            continue
+        if end_date is not None and (row_expiration_date is None or row_expiration_date > end_date):
+            continue
+        row["billing_type_label"] = _billing_type_display_label(row)
+        row["_prepaid_unpaid_invoice_summary"] = {
+            "count": invoice_count,
+            "balance_due": invoice_balance_due,
+            "last_invoice_date": row.get("prepaid_unpaid_last_invoice_date"),
+            "next_due_date": row.get("prepaid_unpaid_next_due_date"),
+        }
+        _apply_prepaid_unpaid_invoice_summary([row])
+        table_rows.append(row)
+    return sorted(table_rows, key=lambda item: _money(item.get("detail_outstanding_balance")), reverse=True)
+
+
+def _first_text(*values: object) -> str:
+    for value in values:
+        text_value = str(value or "").strip()
+        if text_value and text_value != "0000-00-00":
+            return text_value
+    return ""
+
+
+def _billing_payload_count(payload: dict | None, *keys: str) -> int | None:
+    if not isinstance(payload, dict):
+        return None
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return max(0, value)
+        if isinstance(value, str) and value.strip().isdigit():
+            return max(0, int(value.strip()))
+        if isinstance(value, list):
+            return len(value)
+    return None
+
+
+def _latest_payment_by_customer(payments: list[dict]) -> dict[str, dict]:
+    latest: dict[str, dict] = {}
+    for payment in payments:
+        if not isinstance(payment, dict):
+            continue
+        customer_id = str(
+            payment.get("customer_id")
+            or payment.get("subscriber_id")
+            or payment.get("customerId")
+            or payment.get("subscriberId")
+            or ""
+        ).strip()
+        if not customer_id:
+            continue
+        payment_date = _first_text(
+            payment.get("date"),
+            payment.get("paid_at"),
+            payment.get("payment_date"),
+            payment.get("created_at"),
+        )
+        if customer_id not in latest or payment_date > str(latest[customer_id].get("date") or ""):
+            latest[customer_id] = {
+                "date": payment_date,
+                "amount": _money(payment.get("amount") or payment.get("paid_amount") or payment.get("total")),
+            }
+    return latest
+
+
+def _latest_payment_for_customer(db: Session, customer_id: str) -> dict[str, object] | None:
+    normalized_customer_id = str(customer_id or "").strip()
+    if not normalized_customer_id:
+        return None
+    try:
+        payments = selfcare.fetch_customer_payments(db, normalized_customer_id, page=1, per_page=1)
+    except Exception:
+        return None
+    latest_by_customer = _latest_payment_by_customer(payments)
+    if normalized_customer_id in latest_by_customer:
+        return latest_by_customer[normalized_customer_id]
+    if not payments:
+        return None
+    payment = payments[0]
+    if not isinstance(payment, dict):
+        return None
+    payment_date = _first_text(
+        payment.get("date"),
+        payment.get("paid_at"),
+        payment.get("payment_date"),
+        payment.get("created_at"),
+    )
+    if not payment_date:
+        return None
+    return {
+        "date": payment_date,
+        "amount": _money(payment.get("amount") or payment.get("paid_amount") or payment.get("total")),
+    }
+
+
+def _postpaid_last_seen_by_customer(db: Session, customer_ids: list[str]) -> dict[str, str]:
+    if not customer_ids:
+        return {}
+    statement = text(
+        """
+        select
+            customer_id,
+            max(coalesce(last_change, observed_at)) as last_seen_at
+        from customer_uptime_snapshots
+        where customer_id in :customer_ids
+          and is_online = true
+        group by customer_id
+        """
+    ).bindparams(bindparam("customer_ids", expanding=True))
+    try:
+        return {
+            str(row.customer_id): row.last_seen_at.isoformat() if row.last_seen_at else ""
+            for row in db.execute(statement, {"customer_ids": customer_ids})
+        }
+    except Exception:
+        return {}
+
+
+def _postpaid_enrich_detail_fields(
+    db: Session,
+    rows: list[dict],
+    *,
+    latest_payments_by_customer: dict[str, dict] | None = None,
+) -> None:
+    latest_payments_by_customer = latest_payments_by_customer or {}
+    customer_ids = sorted({_billing_risk_row_customer_id(row) for row in rows if _billing_risk_row_customer_id(row)})
+    last_seen_by_customer = _postpaid_last_seen_by_customer(db, customer_ids)
+    for row in rows:
+        customer_id = _billing_risk_row_customer_id(row)
+        latest_payment = latest_payments_by_customer.get(customer_id) if customer_id else None
+
+        last_payment_date = _first_text(
+            (latest_payment or {}).get("date"),
+            row.get("last_payment_date"),
+            row.get("last_transaction_date"),
+        )
+        last_payment_amount = _money((latest_payment or {}).get("amount") or row.get("last_payment_amount"))
+        next_due_date = _first_text(
+            row.get("next_due_date"),
+            row.get("next_bill_date"),
+            row.get("service_expiration_date"),
+        )
+        last_invoice_date = _first_text(
+            row.get("last_invoice_date"),
+            row.get("invoiced_until"),
+            row.get("billing_end_date"),
+        )
+        last_online = _first_text(
+            row.get("_customer_last_online"),
+            row.get("_network_last_seen_at"),
+            last_seen_by_customer.get(customer_id or ""),
+            row.get("last_online"),
+            row.get("last_seen"),
+        )
+        outstanding_balance = _money(row.get("outstanding_balance") or row.get("balance"))
+        days_past_due = int(row.get("days_past_due") or 0)
+        overdue_balance = _money(row.get("overdue_balance"))
+        if overdue_balance <= 0 and days_past_due > 0:
+            overdue_balance = outstanding_balance
+        unpaid_invoices = _billing_payload_count(row, "unpaid_invoices", "unpaid_invoice_count", "open_invoices")
+        overdue_invoices = _billing_payload_count(row, "overdue_invoices", "overdue_invoice_count", "past_due_invoices")
+        row["detail_last_payment_date"] = last_payment_date
+        row["detail_last_payment_amount"] = last_payment_amount
+        row["detail_next_due_date"] = next_due_date
+        row["detail_unpaid_invoices"] = unpaid_invoices if unpaid_invoices is not None else int(outstanding_balance > 0)
+        row["detail_overdue_invoices"] = overdue_invoices if overdue_invoices is not None else int(days_past_due > 0)
+        row["detail_outstanding_balance"] = outstanding_balance
+        row["detail_overdue_balance"] = overdue_balance
+        row["detail_last_invoice_date"] = last_invoice_date
+        row["detail_last_online"] = last_online
 
 
 def _billing_risk_segments_for_customer_status(customer_status: str) -> list[str]:
@@ -189,13 +729,23 @@ def _service_plan_text(services_payload: object) -> str:
     return ""
 
 
+# Cap per-request synchronous sub-app lookups so a slow/hung sub app can't pin a
+# request worker for one round-trip per row. Rows beyond the cap render un-enriched.
+_MAX_ENRICH_LOOKUPS = 25
+
+
 def _enrich_missing_plan_fields(db: Session, rows: list[dict]) -> None:
+    looked_up = 0
     for row in rows:
         if str(row.get("plan") or "").strip():
             continue
         customer_id = _billing_risk_row_customer_id(row)
         if not customer_id:
             continue
+        if looked_up >= _MAX_ENRICH_LOOKUPS:
+            logger.info("billing_risk_enrich_capped fn=plan cap=%d", _MAX_ENRICH_LOOKUPS)
+            break
+        looked_up += 1
         try:
             services_payload = selfcare.fetch_customer_internet_services(db, customer_id)
         except Exception:
@@ -205,10 +755,63 @@ def _enrich_missing_plan_fields(db: Session, rows: list[dict]) -> None:
             row["plan"] = plan
 
 
+def _enrich_unknown_billing_type_fields(db: Session, rows: list[dict]) -> None:
+    looked_up = 0
+    for row in rows:
+        if _billing_row_type_category(row):
+            continue
+        customer_id = _billing_risk_row_customer_id(row)
+        if not customer_id:
+            continue
+        if looked_up >= _MAX_ENRICH_LOOKUPS:
+            logger.info("billing_risk_enrich_capped fn=billing_type cap=%d", _MAX_ENRICH_LOOKUPS)
+            break
+        looked_up += 1
+        try:
+            customer = selfcare.fetch_customer(db, customer_id)
+        except Exception as exc:
+            logger.debug("billing_risk_billing_type_lookup_failed customer_id=%s error=%s", customer_id, exc)
+            customer = None
+        if not isinstance(customer, dict):
+            continue
+        raw_billing = customer.get("billing")
+        billing: dict = raw_billing if isinstance(raw_billing, dict) else {}
+        billing_mode = str(
+            customer.get("billing_mode")
+            or customer.get("billingMode")
+            or billing.get("billing_mode")
+            or billing.get("billingMode")
+            or ""
+        ).strip()
+        subscription_billing_mode = str(
+            customer.get("subscription_billing_mode")
+            or customer.get("subscriptionBillingMode")
+            or billing.get("subscription_billing_mode")
+            or billing.get("subscriptionBillingMode")
+            or ""
+        ).strip()
+        billing_type = str(
+            customer.get("billing_type")
+            or customer.get("billingType")
+            or billing.get("billing_type")
+            or billing.get("billingType")
+            or ""
+        ).strip()
+        normalized = billing_risk_cache._display_billing_type(
+            billing_mode,
+            subscription_billing_mode,
+            billing_type,
+        )
+        row["billing_mode"] = billing_mode
+        row["subscription_billing_mode"] = subscription_billing_mode
+        row["billing_type"] = normalized
+
+
 def _enrich_account_balance_deposit(db: Session, rows: list[dict]) -> None:
+    looked_up = 0
     for row in rows:
         subscriber_status = str(row.get("subscriber_status") or row.get("status") or "").strip().lower()
-        is_postpaid = _billing_type_category(row.get("billing_type")) == "postpaid"
+        is_postpaid = _billing_row_type_category(row) == "postpaid"
         cached_account_balance_deposit = _coerce_money_value(row.get("account_balance_deposit"))
         needs_account_balance_deposit = is_postpaid and cached_account_balance_deposit in (None, 0)
         needs_service_expiration_date = subscriber_status == "active" or not any(
@@ -219,6 +822,10 @@ def _enrich_account_balance_deposit(db: Session, rows: list[dict]) -> None:
         customer_id = _billing_risk_row_customer_id(row)
         if not customer_id:
             continue
+        if looked_up >= _MAX_ENRICH_LOOKUPS:
+            logger.info("billing_risk_enrich_capped fn=balance_deposit cap=%d", _MAX_ENRICH_LOOKUPS)
+            break
+        looked_up += 1
         try:
             billing_payload = selfcare.fetch_customer_billing(db, customer_id)
         except Exception:
@@ -337,7 +944,7 @@ def _enrich_expiration_fields(rows: list[dict]) -> None:
     for row in rows:
         subscriber_status = str(row.get("subscriber_status") or row.get("status") or "").strip().lower()
         uses_billing_cutoff = subscriber_status in {"active", "suspended"}
-        is_postpaid = _billing_type_category(row.get("billing_type")) == "postpaid"
+        is_postpaid = _billing_row_type_category(row) == "postpaid"
         expiration_date = _parse_report_date(
             row.get("blocked_date") or row.get("next_bill_date") or row.get("billing_end_date")
         )
@@ -400,15 +1007,7 @@ def _latest_subscriber_sync_at(db: Session) -> datetime | None:
 
 
 def _billing_risk_cache_available(db: Session | object) -> bool:
-    if not hasattr(db, "query"):
-        return False
-    if not isinstance(db, Session):
-        return True
-    try:
-        return int(billing_risk_cache.cache_metadata(db).get("row_count") or 0) > 0
-    except Exception:
-        logger.exception("Failed to inspect billing risk cache metadata")
-        return False
+    return hasattr(db, "query")
 
 
 def _billing_risk_page_metrics(churn_rows: list[dict]) -> dict[str, int | float]:
@@ -544,6 +1143,34 @@ def _billing_risk_location_options(
     segment: str | None,
     selected_location: str | None = None,
 ) -> list[str]:
+    def _location_key_text(value: object) -> str:
+        text_value = str(value or "").strip()
+        if text_value.casefold().startswith("address:"):
+            text_value = text_value.split(":", 1)[1].strip()
+        return billing_risk_cache._display_location(text_value)
+
+    try:
+        selfcare_locations = selfcare.fetch_locations(db)
+    except Exception:
+        logger.exception("Failed to load Selfcare billing-risk location options")
+        selfcare_locations = []
+    locations = []
+    for location in selfcare_locations:
+        if not isinstance(location, dict):
+            continue
+        location_name = billing_risk_cache._display_location(location.get("name"))
+        if not location_name:
+            continue
+        location_key = _location_key_text(location.get("id"))
+        if location_key and location_key.casefold() == location_name.casefold():
+            continue
+        locations.append(location_name)
+    if locations:
+        normalized_locations = {location for location in locations if location}
+        if selected_location:
+            normalized_locations.add(str(selected_location).strip())
+        return sorted(normalized_locations, key=str.casefold)
+
     selected_segments = ["active", "due_soon", "suspended"]
     if settings.billing_risk_route_use_cache and _billing_risk_cache_available(db):
         locations = billing_risk_cache.location_options_cached(
@@ -613,6 +1240,7 @@ def _billing_risk_cached_page_rows(
     end = start + requested_page_size
     visible_rows = filtered_rows[start:end]
     _enrich_missing_plan_fields(db, visible_rows)
+    _enrich_unknown_billing_type_fields(db, visible_rows)
     _enrich_missing_blocked_fields(visible_rows, force_live=False)
     _enrich_account_balance_deposit(db, visible_rows)
     _enrich_expiration_fields(visible_rows)
@@ -634,6 +1262,7 @@ def _billing_risk_initial_rows(
     visible_rows = [dict(row) for row in churn_rows[:page_size]]
     billing_risk_service.enrich_billing_risk_rows(visible_rows)
     _enrich_missing_plan_fields(db, visible_rows)
+    _enrich_unknown_billing_type_fields(db, visible_rows)
     _enrich_missing_blocked_fields(visible_rows, force_live=False)
     _enrich_account_balance_deposit(db, visible_rows)
     _enrich_expiration_fields(visible_rows)
@@ -1288,7 +1917,7 @@ def _billing_risk_visible_export_rows(
                 "Status": _export_text(row.get("subscriber_status")),
                 "Risk Segment": _export_text(row.get("risk_segment")),
                 "Billing Start Date": _export_text(row.get("billing_start_date")),
-                "Billing Type": _export_text(row.get("billing_type")),
+                "Billing Type": _billing_type_display_label(row),
                 "Expiration Date": _export_text(row.get("expiration_date")),
                 "Remaining Days": _export_text(row.get("remaining_days")),
                 "Revenue Owed": _export_currency(row.get("revenue_owed")),
@@ -1594,7 +2223,13 @@ def _retention_snapshot_row(row: SubscriberBillingRiskSnapshot) -> dict:
         "next_bill_date": _retention_date_text(row.next_bill_date),
         "balance": float(row.balance or 0),
         "account_balance_deposit": source_metadata.get("account_balance_deposit"),
-        "billing_type": str(source_metadata.get("billing_type") or ""),
+        "billing_type": billing_risk_cache._display_billing_type(
+            source_metadata.get("billing_mode"),
+            source_metadata.get("subscription_billing_mode"),
+            source_metadata.get("billing_type"),
+        ),
+        "billing_mode": str(source_metadata.get("billing_mode") or ""),
+        "subscription_billing_mode": str(source_metadata.get("subscription_billing_mode") or ""),
         "billing_cycle": row.billing_cycle or "",
         "blocked_date": _retention_date_text(row.blocked_date),
         "blocked_for_days": row.blocked_for_days,
@@ -1642,7 +2277,9 @@ def _retention_subscriber_row(subscriber: Subscriber, latest_engagement: dict[st
         "next_bill_date": _retention_date_text(subscriber.next_bill_date),
         "balance": _coerce_money_value(subscriber.balance) or 0,
         "account_balance_deposit": None,
-        "billing_type": subscriber.billing_cycle or "",
+        "billing_type": "unknown",
+        "billing_mode": "",
+        "subscription_billing_mode": "",
         "billing_cycle": subscriber.billing_cycle or "",
         "blocked_date": _retention_date_text(subscriber.suspended_at),
         "blocked_for_days": days_past_due,
@@ -1817,6 +2454,7 @@ def subscriber_billing_risk(
         full_metric_rows = _active_toggle_uptime_rows(db, full_metric_rows, normalized_customer_status)
         page_rows = [dict(row) for row in full_metric_rows[:50]]
         _enrich_missing_plan_fields(db, page_rows)
+        _enrich_unknown_billing_type_fields(db, page_rows)
         _enrich_missing_blocked_fields(page_rows, force_live=False)
         _enrich_account_balance_deposit(db, page_rows)
         _enrich_expiration_fields(page_rows)
@@ -1873,6 +2511,7 @@ def subscriber_billing_risk(
         full_metric_rows = _active_toggle_uptime_rows(db, full_metric_rows, normalized_customer_status)
         full_metric_rows = _billing_risk_billing_type_rows(full_metric_rows, normalized_billing_type)
         _enrich_missing_plan_fields(db, full_metric_rows)
+        _enrich_unknown_billing_type_fields(db, full_metric_rows[:50])
         _enrich_account_balance_deposit(db, full_metric_rows)
         _enrich_expiration_fields(full_metric_rows)
         page_rows, page_metrics, has_next = _billing_risk_initial_rows(
@@ -2106,6 +2745,188 @@ def subscriber_billing_risk(
             "outreach_channel_targets": outreach_targets,
         },
     )
+
+
+@router.get("/subscribers/postpaid-customers", response_class=HTMLResponse)
+def postpaid_customers_dashboard(
+    request: Request,
+    db: Session = Depends(get_db),
+    search: str | None = Query(None),
+    location: str | None = Query(None),
+    status: str | None = Query("all"),
+    customer_status: str | None = Query(None),
+    plan: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+):
+    user = get_current_user(request)
+    normalized_search = (request.query_params.get("search") or (search if isinstance(search, str) else "")).strip()
+    normalized_location = (
+        request.query_params.get("location") or (location if isinstance(location, str) else "")
+    ).strip()
+    normalized_status = (
+        request.query_params.get("customer_status")
+        or request.query_params.get("status")
+        or (customer_status if isinstance(customer_status, str) else "")
+        or (status if isinstance(status, str) else "all")
+    ).strip()
+    if normalized_status.lower() not in {"all", "active", "suspended"}:
+        normalized_status = "all"
+    normalized_plan = (request.query_params.get("plan") or (plan if isinstance(plan, str) else "")).strip()
+    normalized_date_from = (
+        request.query_params.get("date_from") or (date_from if isinstance(date_from, str) else "")
+    ).strip()
+    normalized_date_to = (request.query_params.get("date_to") or (date_to if isinstance(date_to, str) else "")).strip()
+
+    rows = _postpaid_dashboard_rows(
+        db,
+        search=normalized_search,
+        location=normalized_location,
+        status=normalized_status,
+        plan=normalized_plan,
+        date_from=normalized_date_from,
+        date_to=normalized_date_to,
+        limit=10000,
+    )
+    all_customer_rows = billing_risk_cache.all_cached_rows(
+        db,
+        selected_segments=["active", "due_soon", "suspended"],
+        search=normalized_search,
+        location=normalized_location,
+        limit=10000,
+    )
+    all_postpaid_rows = _postpaid_dashboard_rows(db, limit=10000)
+    location_options = sorted(
+        {
+            str(row.get("location") or row.get("city") or "").strip()
+            for row in all_postpaid_rows
+            if str(row.get("location") or row.get("city") or "").strip()
+        },
+        key=str.casefold,
+    )
+    plan_options = sorted(
+        {str(row.get("plan") or "").strip() for row in all_postpaid_rows if str(row.get("plan") or "").strip()},
+        key=str.casefold,
+    )
+    customer_status_options = sorted(
+        {
+            str(row.get("subscriber_status") or "").strip()
+            for row in all_postpaid_rows
+            if str(row.get("subscriber_status") or "").strip()
+        },
+        key=str.casefold,
+    )
+    rows = sorted(rows, key=lambda row: (_money(row.get("revenue_owed")), _money(row.get("mrr_total"))), reverse=True)
+    export_query = urlencode(
+        {
+            "search": normalized_search,
+            "location": normalized_location,
+            "customer_status": normalized_status,
+            "plan": normalized_plan,
+            "date_from": normalized_date_from,
+            "date_to": normalized_date_to,
+        }
+    )
+    table_rows = _postpaid_detail_table_rows(rows)[:250]
+    all_prepaid_unpaid_rows = _prepaid_unpaid_balance_table_rows(
+        all_customer_rows,
+        status=normalized_status,
+        plan=normalized_plan,
+        date_from=normalized_date_from,
+        date_to=normalized_date_to,
+    )
+    prepaid_unpaid_rows = all_prepaid_unpaid_rows[:250]
+    latest_payments_by_customer: dict[str, dict] = {}
+    _postpaid_enrich_detail_fields(db, table_rows, latest_payments_by_customer=latest_payments_by_customer)
+    _postpaid_enrich_detail_fields(db, prepaid_unpaid_rows, latest_payments_by_customer=latest_payments_by_customer)
+    _apply_prepaid_unpaid_invoice_summary(prepaid_unpaid_rows)
+    kpis = _postpaid_dashboard_kpis(rows, all_customer_rows=all_customer_rows)
+    kpis["prepaid_customers_with_unpaid_balances"] = len(all_prepaid_unpaid_rows)
+    kpis["prepaid_unpaid_invoice_balance"] = round(
+        sum(_money(row.get("detail_outstanding_balance")) for row in all_prepaid_unpaid_rows),
+        2,
+    )
+    return templates.TemplateResponse(
+        "admin/reports/postpaid_customers_dashboard.html",
+        {
+            "request": request,
+            "current_user": user,
+            "active_page": "postpaid-customers-dashboard",
+            "active_menu": "reports",
+            "sidebar_stats": get_sidebar_stats(db),
+            "rows": table_rows,
+            "total_rows": len(rows),
+            "detail_total_rows": len(_postpaid_detail_table_rows(rows)),
+            "prepaid_unpaid_rows": prepaid_unpaid_rows,
+            "prepaid_unpaid_total_rows": len(all_prepaid_unpaid_rows),
+            "kpis": kpis,
+            "top_balance_customers": _postpaid_top_customer_balance_chart(rows),
+            "customer_status_chart": _postpaid_customer_status_chart(rows),
+            "payment_recency_chart": _postpaid_payment_recency_chart(rows),
+            "payment_amount_trend": _postpaid_payment_amount_trend(rows),
+            "invoice_segment_chart": _postpaid_invoice_segment_chart(rows),
+            "invoice_aging_chart": _postpaid_invoice_aging_chart(rows),
+            "location_options": location_options,
+            "plan_options": plan_options,
+            "customer_status_options": customer_status_options,
+            "search": normalized_search,
+            "selected_location": normalized_location,
+            "selected_status": normalized_status.lower(),
+            "selected_plan": normalized_plan,
+            "date_from": normalized_date_from,
+            "date_to": normalized_date_to,
+            "export_query": export_query,
+            "cache_metadata": billing_risk_cache.cache_metadata(db),
+        },
+    )
+
+
+@router.get("/subscribers/postpaid-customers/export")
+def postpaid_customers_dashboard_export(
+    request: Request,
+    db: Session = Depends(get_db),
+    search: str | None = Query(None),
+    location: str | None = Query(None),
+    status: str | None = Query("all"),
+    customer_status: str | None = Query(None),
+    plan: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+):
+    get_current_user(request)
+    rows = _postpaid_dashboard_rows(
+        db,
+        search=(request.query_params.get("search") or (search if isinstance(search, str) else "")).strip(),
+        location=(request.query_params.get("location") or (location if isinstance(location, str) else "")).strip(),
+        status=(
+            request.query_params.get("customer_status")
+            or request.query_params.get("status")
+            or (customer_status if isinstance(customer_status, str) else "")
+            or (status if isinstance(status, str) else "all")
+        ).strip(),
+        plan=(request.query_params.get("plan") or (plan if isinstance(plan, str) else "")).strip(),
+        date_from=(request.query_params.get("date_from") or (date_from if isinstance(date_from, str) else "")).strip(),
+        date_to=(request.query_params.get("date_to") or (date_to if isinstance(date_to, str) else "")).strip(),
+        limit=10000,
+    )
+    export_rows = [
+        {
+            "Name": row.get("name") or "",
+            "Phone": row.get("phone") or "",
+            "Email": row.get("email") or "",
+            "Location": row.get("location") or row.get("city") or "",
+            "Status": row.get("subscriber_status") or "",
+            "Plan": row.get("plan") or "",
+            "MRR": _money(row.get("mrr_total")),
+            "Balance": _money(row.get("balance")),
+            "Revenue Owed": _money(row.get("revenue_owed")),
+            "Service Expiration Date": row.get("service_expiration_date") or "",
+            "Days Past Due": row.get("days_past_due") or 0,
+            "External ID": row.get("_external_id") or row.get("subscriber_id") or "",
+        }
+        for row in sorted(rows, key=lambda item: _money(item.get("revenue_owed")), reverse=True)
+    ]
+    return _csv_response(export_rows, f"postpaid_customers_{datetime.now(UTC).strftime('%Y%m%d')}.csv")
 
 
 @customer_retention_router.get("/customer-retention", response_class=HTMLResponse)
@@ -2769,6 +3590,7 @@ def subscriber_billing_risk_export(
     churn_rows = _active_toggle_uptime_rows(db, churn_rows, normalized_customer_status)
     churn_rows = _billing_risk_billing_type_rows(churn_rows, normalized_billing_type)
     _enrich_missing_plan_fields(db, churn_rows)
+    _enrich_unknown_billing_type_fields(db, churn_rows)
     _enrich_missing_blocked_fields(churn_rows, force_live=False)
     _enrich_account_balance_deposit(db, churn_rows)
     _enrich_expiration_fields(churn_rows)

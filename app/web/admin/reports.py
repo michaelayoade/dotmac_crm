@@ -148,8 +148,8 @@ _ONLINE_LAST_24H_NOTIFICATION_STATE_OPTIONS = [
 ]
 
 _ONLINE_LAST_24H_ACTIVITY_SEGMENT_OPTIONS = [
-    {"value": "last_24h", "label": "Last online within 24h"},
-    {"value": "active_last24_not_online", "label": "Active, last online within 24h, not currently online"},
+    {"value": "last_24h", "label": "Currently online"},
+    {"value": "active_last24_not_online", "label": "Not active in the last 24h"},
 ]
 _ONLINE_LAST_24H_WHATSAPP_TARGET_NAMES = {"dotmac fiber helpdesk"}
 _ONLINE_LAST_24H_EMAIL_TARGET_NAMES = {"sales mail", "noc mail", "support mail"}
@@ -1711,6 +1711,46 @@ def churn_report_redirect():
 
 
 # =============================================================================
+# Chat Queue & Classification Report
+# =============================================================================
+
+
+@router.get("/queue", response_class=HTMLResponse)
+def queue_classification_report(
+    request: Request,
+    db: Session = Depends(get_db),
+    period_days: int = Query(7, ge=1, le=365),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Queue-wait statistics and issue-classification breakdown for chat conversations."""
+    from app.services.crm import reports as crm_reports
+
+    user = get_current_user(request)
+    start_dt, end_dt = _parse_date_range(period_days, start_date, end_date)
+
+    queue = crm_reports.queue_wait_metrics(db, start_dt, end_dt)
+    classification = crm_reports.issue_classification_breakdown(db, start_dt, end_dt)
+
+    return templates.TemplateResponse(
+        "admin/reports/queue_classification.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "queue-report",
+            "active_menu": "reports",
+            "queue": queue,
+            "classification": classification,
+            "period_days": period_days,
+            "start_date": start_date or "",
+            "end_date": end_date or "",
+        },
+    )
+
+
+# =============================================================================
 # Network Infrastructure Report (real data)
 # =============================================================================
 
@@ -2685,7 +2725,7 @@ def subscriber_billing_risk(
         segment=segment,
         segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
-        source="splynx_live",
+        source="selfcare_live",
         limit=500,
         enrich_visible_rows=False,
     )
@@ -2913,7 +2953,7 @@ def subscriber_billing_risk_export(
         segment=segment,
         segments=selected_segments,
         days_past_due=query_days_past_due or days_past_due,
-        source="splynx_live",
+        source="selfcare_live",
         limit=2000,
     )
     selected_labels = _segment_labels(selected_segments)
@@ -3188,7 +3228,7 @@ def revenue_service_log(
     month: int | None = Query(None, ge=1, le=12),
     db: Session = Depends(get_db),
 ):
-    """Return all downtime incidents derived from Selfcare service extensions."""
+    """Return all downtime incidents derived from extension transactions."""
     from app.services import revenue_service_report as revenue_service_report_service
 
     try:
@@ -3220,7 +3260,7 @@ def revenue_service_compensation(
     search: str = Query(..., min_length=1),
     db: Session = Depends(get_db),
 ):
-    """Look up the latest Selfcare service-extension compensation for a customer."""
+    """Look up the latest extension compensation for a Splynx customer."""
     from app.services import revenue_service_report as revenue_service_report_service
 
     try:
@@ -3240,7 +3280,7 @@ def revenue_service_payment_classification(
     month: int | None = Query(None, ge=1, le=12),
     db: Session = Depends(get_db),
 ):
-    """Return Selfcare customer payment behaviour classification."""
+    """Return Splynx customer payment behaviour classification."""
     from app.services import revenue_service_report as revenue_service_report_service
 
     try:

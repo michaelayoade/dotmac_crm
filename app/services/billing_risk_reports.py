@@ -33,14 +33,14 @@ _metadata_text = subscriber_reports_service._metadata_text
 _parse_balance_amount = subscriber_reports_service._parse_balance_amount
 _parse_iso_date_text = subscriber_reports_service._parse_iso_date_text
 
-_SPYLNX_LIVE_CACHE_TTLS = {
+_SUB_LIVE_CACHE_TTLS = {
     "fetch_customers": 60.0,
     "fetch_customer_billing": 300.0,
     "fetch_customer_internet_services": 300.0,
     "resolve_customer_segment_mrr": 300.0,
 }
-_SPYLNX_LIVE_CACHE: dict[tuple[str, tuple[object, ...]], tuple[float, Any]] = {}
-_SPYLNX_LIVE_CACHE_LOCK = Lock()
+_SUB_LIVE_CACHE: dict[tuple[str, tuple[object, ...]], tuple[float, Any]] = {}
+_SUB_LIVE_CACHE_LOCK = Lock()
 _BILLING_RISK_SEGMENT_ORDER = ["Due Soon", "Suspended", "Churned", "Pending"]
 _BILLING_RISK_ENRICH_MAX_WORKERS = 2
 ENTERPRISE_MRR_THRESHOLD = 70000.0
@@ -109,9 +109,12 @@ _FINAL_TICKET_STATUSES = (TicketStatus.closed, TicketStatus.canceled, TicketStat
 _EXCLUDED_REPORT_CUSTOMER_NAMES = {"test", "test account"}
 
 
-def clear_live_splynx_cache() -> None:
-    with _SPYLNX_LIVE_CACHE_LOCK:
-        _SPYLNX_LIVE_CACHE.clear()
+def clear_live_subscriber_cache() -> None:
+    with _SUB_LIVE_CACHE_LOCK:
+        _SUB_LIVE_CACHE.clear()
+
+
+clear_live_splynx_cache = clear_live_subscriber_cache
 
 
 def _coerce_nonnegative_int(value: object) -> int | None:
@@ -136,7 +139,7 @@ def _normalize_customer_name_for_exclusion(name: object) -> str:
 def _retained_blocked_last_update_from_metadata(sync_metadata: object) -> str:
     if not isinstance(sync_metadata, Mapping):
         return ""
-    marker = sync_metadata.get("retention_splynx_deactivation")
+    marker = sync_metadata.get("retention_selfcare_deactivation") or sync_metadata.get("retention_splynx_deactivation")
     if not isinstance(marker, Mapping):
         return ""
     for key in ("retained_blocked_last_update", "retained_blocked_date"):
@@ -153,25 +156,28 @@ def _is_excluded_report_customer(name: object) -> bool:
     return bool(normalized) and (normalized in _EXCLUDED_REPORT_CUSTOMER_NAMES or normalized.startswith("test account"))
 
 
-def _cached_live_splynx_read(cache_name: str, loader, *args, cache_scope: object | None = None):
-    ttl_seconds = _SPYLNX_LIVE_CACHE_TTLS.get(cache_name, 0.0)
+def _cached_live_subscriber_read(cache_name: str, loader, *args, cache_scope: object | None = None):
+    ttl_seconds = _SUB_LIVE_CACHE_TTLS.get(cache_name, 0.0)
     if ttl_seconds <= 0:
         return loader()
 
     cache_key = (cache_name, ((cache_scope or ""), *(str(arg) for arg in args)))
     now = monotonic()
-    with _SPYLNX_LIVE_CACHE_LOCK:
-        cached_entry = _SPYLNX_LIVE_CACHE.get(cache_key)
+    with _SUB_LIVE_CACHE_LOCK:
+        cached_entry = _SUB_LIVE_CACHE.get(cache_key)
         if cached_entry is not None:
             expires_at, cached_value = cached_entry
             if expires_at > now:
                 return deepcopy(cached_value)
-            _SPYLNX_LIVE_CACHE.pop(cache_key, None)
+            _SUB_LIVE_CACHE.pop(cache_key, None)
 
     loaded_value = loader()
-    with _SPYLNX_LIVE_CACHE_LOCK:
-        _SPYLNX_LIVE_CACHE[cache_key] = (now + ttl_seconds, deepcopy(loaded_value))
+    with _SUB_LIVE_CACHE_LOCK:
+        _SUB_LIVE_CACHE[cache_key] = (now + ttl_seconds, deepcopy(loaded_value))
     return deepcopy(loaded_value)
+
+
+_cached_live_splynx_read = _cached_live_subscriber_read
 
 
 def _format_phone_display(raw_value: object) -> str:
@@ -207,37 +213,6 @@ def _format_phone_display(raw_value: object) -> str:
         seen.add(normalized_part)
         deduped_parts.append(normalized_part)
     return ", ".join(deduped_parts)
-
-
-def normalize_street_display(raw_value: object) -> str:
-    text = str(raw_value or "").replace("\r", " ").replace("\n", " ")
-    if not text.strip():
-        return ""
-    text = (
-        text.replace("\u2018", "'")
-        .replace("\u2019", "'")
-        .replace("\u201c", '"')
-        .replace("\u201d", '"')
-        .replace("\u2013", "-")
-        .replace("\u2014", "-")
-    )
-    text = re.sub(r"\s+", " ", text).strip()
-    text = re.sub(r"\s*,\s*", ", ", text)
-    text = re.sub(r"(?:,\s*){2,}", ", ", text)
-    text = re.sub(r"\s*;\s*", "; ", text)
-    text = re.sub(r"(?:;\s*){2,}", "; ", text)
-    text = re.sub(r"\s*/\s*", " / ", text)
-    text = re.sub(r"(?:/\s*){2,}", " / ", text)
-    text = re.sub(r"\s{2,}", " ", text)
-    text = text.strip(" ,;/-")
-    if not text:
-        return ""
-
-    def _capitalize_word(match: re.Match[str]) -> str:
-        word = match.group(0)
-        return word[:1].upper() + word[1:].lower()
-
-    return re.sub(r"[A-Za-z]+", _capitalize_word, text)
 
 
 def get_billing_risk_table(
@@ -416,17 +391,17 @@ def get_billing_risk_table(
             return current_mrr_total
 
         def _loader() -> float:
-            splynx_db = SessionLocal()
+            sub_db = SessionLocal()
             try:
                 try:
-                    services_payload = fetch_customer_internet_services(splynx_db, bound_external_id)
+                    services_payload = fetch_customer_internet_services(sub_db, bound_external_id)
                 except Exception:
                     services_payload = []
                 service_amount = _service_mrr_amount(services_payload)
                 if service_amount > 0:
                     return service_amount
                 try:
-                    billing_payload = fetch_customer_billing(splynx_db, bound_external_id)
+                    billing_payload = fetch_customer_billing(sub_db, bound_external_id)
                 except Exception:
                     billing_payload = {}
                 if isinstance(billing_payload, Mapping):
@@ -435,9 +410,9 @@ def get_billing_risk_table(
                         return billing_amount
                 return current_mrr_total
             finally:
-                splynx_db.close()
+                sub_db.close()
 
-        resolved_amount = _cached_live_splynx_read(
+        resolved_amount = _cached_live_subscriber_read(
             "resolve_customer_segment_mrr",
             _loader,
             bound_external_id,
@@ -462,27 +437,27 @@ def get_billing_risk_table(
         end = start + normalized_page_size
         return rows[start:end]
 
-    def _call_splynx(cache_name: str, read_fn, *args):
+    def _call_sub(cache_name: str, read_fn, *args):
         def _loader():
-            splynx_db = SessionLocal()
+            sub_db = SessionLocal()
             try:
-                return read_fn(splynx_db, *args)
+                return read_fn(sub_db, *args)
             finally:
-                splynx_db.close()
+                sub_db.close()
 
-        return _cached_live_splynx_read(cache_name, _loader, *args, cache_scope=read_fn)
+        return _cached_live_subscriber_read(cache_name, _loader, *args, cache_scope=read_fn)
 
-    def _call_splynx_with_session(cache_name: str, read_fn, splynx_db, *args):
-        return _cached_live_splynx_read(
+    def _call_sub_with_session(cache_name: str, read_fn, sub_db, *args):
+        return _cached_live_subscriber_read(
             cache_name,
-            lambda: read_fn(splynx_db, *args),
+            lambda: read_fn(sub_db, *args),
             *args,
             cache_scope=read_fn,
         )
 
-    customers = _call_splynx("fetch_customers", fetch_customers)
+    customers = _call_sub("fetch_customers", fetch_customers)
     try:
-        locations_payload = _call_splynx("fetch_locations", fetch_locations)
+        locations_payload = _call_sub("fetch_locations", fetch_locations)
     except Exception:
         locations_payload = []
     locations_by_id = {
@@ -1067,6 +1042,28 @@ def get_billing_risk_table(
         return ""
 
     def _live_street_address(customer_payload: Mapping[str, Any], cached_subscriber: Mapping[str, Any]) -> str:
+        def _normalize_street_text(raw_value: object) -> str:
+            text = str(raw_value or "").replace("\r", " ").replace("\n", " ")
+            if not text.strip():
+                return ""
+            text = (
+                text.replace("\u2018", "'")
+                .replace("\u2019", "'")
+                .replace("\u201c", '"')
+                .replace("\u201d", '"')
+                .replace("\u2013", "-")
+                .replace("\u2014", "-")
+            )
+            text = re.sub(r"\s+", " ", text).strip()
+            text = re.sub(r"\s*,\s*", ", ", text)
+            text = re.sub(r"(?:,\s*){2,}", ", ", text)
+            text = re.sub(r"\s*;\s*", "; ", text)
+            text = re.sub(r"(?:;\s*){2,}", "; ", text)
+            text = re.sub(r"\s*/\s*", " / ", text)
+            text = re.sub(r"(?:/\s*){2,}", " / ", text)
+            text = re.sub(r"\s{2,}", " ", text)
+            return text.strip(" ,;/-")
+
         ignored_values = {"", "-", "n/a", "na", "none", "null", "unknown"}
         street_parts: list[str] = []
         seen_parts: set[str] = set()
@@ -1075,7 +1072,7 @@ def get_billing_risk_table(
             customer_payload.get("street_2"),
             cached_subscriber.get("service_address_line1"),
         ):
-            part = normalize_street_display(candidate)
+            part = _normalize_street_text(candidate)
             if part.casefold() in ignored_values:
                 continue
             dedupe_key = part.casefold().strip(" ,")
@@ -1088,14 +1085,83 @@ def get_billing_risk_table(
             return street
         return ""
 
-    def _live_location_from_customer(customer_payload: Mapping[str, Any], locations_by_id: Mapping[str, str]) -> str:
-        for key in ("location", "location_name", "location_title"):
-            text = str(customer_payload.get(key) or "").strip()
-            if text:
-                return text
+    def _usable_location_text(value: object) -> str:
+        text = str(value or "").strip().strip(",")
+        if not text:
+            return ""
+        for suffix in (", NG", ", NGA", ", Nigeria"):
+            if text.casefold().endswith(suffix.casefold()):
+                text = text[: -len(suffix)].strip().strip(",")
+                break
+        normalized = text.casefold().replace(".", "").strip()
+        if normalized in {"ng", "nga", "nigeria", "unknown", "none", "null", "n/a", "na", "-"}:
+            return ""
+        compact = text.replace(" ", "")
+        first_token = text.split(maxsplit=1)[0].strip(".,#")
+        if (
+            compact.isdigit()
+            or (first_token and first_token[0].isdigit())
+            or (len(first_token) <= 5 and any(character.isdigit() for character in first_token))
+        ):
+            return ""
+        lowered = f" {text.casefold()} "
+        address_keywords = (
+            " avenue",
+            " building",
+            " center",
+            " centre",
+            " close",
+            " court",
+            " crescent",
+            " drive",
+            " estate",
+            " expressway",
+            " floor",
+            " hotel",
+            " layout",
+            " road",
+            " street",
+            " terrace",
+            " unit",
+        )
+        if any(keyword in lowered for keyword in address_keywords):
+            return ""
+        return text
+
+    def _live_location_from_customer(
+        customer_payload: Mapping[str, Any],
+        locations_by_id: Mapping[str, str],
+        *fallback_values: object,
+    ) -> str:
+        def _location_name_for_key(value: object) -> str:
+            key = str(value or "").strip()
+            if not key:
+                return ""
+            return _usable_location_text(locations_by_id.get(key))
+
+        for key in ("location", "location_name", "location_title", "service_region", "region", "state"):
+            raw_value = customer_payload.get(key)
+            if location_text := _location_name_for_key(raw_value):
+                return location_text
+            if location_text := _usable_location_text(raw_value):
+                return location_text
+        for key in ("city", "service_city"):
+            raw_value = customer_payload.get(key)
+            if location_text := _location_name_for_key(raw_value):
+                return location_text
+            if location_text := _usable_location_text(raw_value):
+                return location_text
         location_id = str(customer_payload.get("location_id") or customer_payload.get("locationId") or "").strip()
         if location_id:
-            return locations_by_id.get(location_id) or location_id
+            return _location_name_for_key(location_id) or _usable_location_text(location_id)
+        for value in fallback_values:
+            if location_text := _location_name_for_key(value):
+                return location_text
+            if location_text := _usable_location_text(value):
+                return location_text
+        for key in ("country", "country_code"):
+            if location_text := _usable_location_text(customer_payload.get(key)):
+                return location_text
         return ""
 
     def _live_billing_text(payload: Mapping[str, Any] | None, *keys: str) -> str:
@@ -1112,6 +1178,43 @@ def get_billing_risk_table(
             if candidate_text:
                 return candidate_text
         return ""
+
+    def _live_billing_type(
+        customer_payload: Mapping[str, Any],
+        mapped_payload: Mapping[str, Any],
+        billing_payload: Mapping[str, Any] | None,
+        cached_subscriber: Mapping[str, Any],
+    ) -> str:
+        del mapped_payload, cached_subscriber
+
+        def _field_value(*keys: str) -> str:
+            for key in keys:
+                text = str(customer_payload.get(key) or "").strip()
+                if text:
+                    return text
+                if isinstance(billing_payload, Mapping):
+                    text = str(billing_payload.get(key) or "").strip()
+                    if text:
+                        return text
+            return ""
+
+        mode = _field_value("billing_mode", "billingMode")
+        subscription_mode = _field_value("subscription_billing_mode", "subscriptionBillingMode")
+        billing_type = _field_value("billing_type", "billingType")
+
+        for candidate in (mode, subscription_mode):
+            normalized = candidate.casefold().replace("-", "_").replace(" ", "_")
+            if normalized == "prepaid":
+                return "prepaid"
+            if normalized == "postpaid":
+                return "postpaid"
+
+        normalized_type = billing_type.casefold().replace("-", "_").replace(" ", "_")
+        if normalized_type.startswith("prepaid"):
+            return "prepaid"
+        if normalized_type in {"postpaid", "post_paid", "recurring"}:
+            return "postpaid"
+        return "unknown"
 
     def _live_invoiced_until_date(billing_payload: Mapping[str, Any] | None) -> str:
         return _live_billing_text(
@@ -1156,22 +1259,17 @@ def get_billing_risk_table(
             continue
         mapped = map_customer_to_subscriber_data(db, dict(customer), include_remote_details=False)
         cached_subscriber = _cached_subscriber_row(customer)
-        cached_sync_metadata_raw = cached_subscriber.get("sync_metadata")
-        cached_sync_metadata = dict(cached_sync_metadata_raw) if isinstance(cached_sync_metadata_raw, Mapping) else {}
+        cached_sync_metadata = (
+            cached_subscriber.get("sync_metadata")
+            if isinstance(cached_subscriber.get("sync_metadata"), Mapping)
+            else {}
+        )
         cached_suspended_at = _coerce_datetime_utc(cached_subscriber.get("suspended_at"))
         status_raw = str(mapped.get("status") or "unknown").strip().lower()
         status_value = status_raw.removeprefix("subscriberstatus.")
         plan_value = str(mapped.get("service_plan") or "").strip() or str(cached_subscriber.get("service_plan") or "")
         embedded_billing = customer.get("billing") if isinstance(customer.get("billing"), Mapping) else None
-        billing_type_value = str(
-            customer.get("billing_mode")
-            or (embedded_billing or {}).get("billing_mode")
-            or customer.get("billing_type")
-            or (embedded_billing or {}).get("billing_type")
-            or cached_sync_metadata.get("billing_mode")
-            or cached_sync_metadata.get("billing_type")
-            or ""
-        ).strip()
+        billing_type_value = _live_billing_type(customer, mapped, embedded_billing, cached_subscriber)
         billing_start_date = _live_billing_start_date(customer, mapped, embedded_billing)
         if not billing_start_date:
             cached_activated_at = _coerce_datetime_utc(cached_subscriber.get("activated_at"))
@@ -1262,7 +1360,14 @@ def get_billing_risk_table(
             )
         )
         street_value = _live_street_address(customer, cached_subscriber)
-        location_value = _live_location_from_customer(customer, locations_by_id)
+        location_value = _live_location_from_customer(
+            customer,
+            locations_by_id,
+            cached_subscriber.get("service_region"),
+            city_value,
+            cached_subscriber.get("service_city"),
+            area_value,
+        )
         subscriber_id_key = str(cached_subscriber.get("id") or "").strip()
         person_id_key = str(cached_subscriber.get("person_id") or "").strip()
         if not person_id_key and email_value:
@@ -1293,6 +1398,26 @@ def get_billing_risk_table(
                 "balance": balance_amount,
                 "account_balance_deposit": account_balance_deposit,
                 "billing_type": billing_type_value,
+                "billing_mode": str(
+                    customer.get("billing_mode")
+                    or customer.get("billingMode")
+                    or (embedded_billing.get("billing_mode") if isinstance(embedded_billing, Mapping) else "")
+                    or (embedded_billing.get("billingMode") if isinstance(embedded_billing, Mapping) else "")
+                    or ""
+                ),
+                "subscription_billing_mode": str(
+                    customer.get("subscription_billing_mode")
+                    or customer.get("subscriptionBillingMode")
+                    or (
+                        embedded_billing.get("subscription_billing_mode")
+                        if isinstance(embedded_billing, Mapping)
+                        else ""
+                    )
+                    or (
+                        embedded_billing.get("subscriptionBillingMode") if isinstance(embedded_billing, Mapping) else ""
+                    )
+                    or ""
+                ),
                 "billing_cycle": str(mapped.get("billing_cycle") or cached_subscriber.get("billing_cycle") or ""),
                 "blocked_date": blocked_date_text,
                 "blocked_for_days": blocked_for_days,
@@ -1398,14 +1523,14 @@ def get_billing_risk_table(
             str(entry.get("subscriber_status") or "").strip().lower() == "active"
             and str(entry.get("risk_segment") or "").strip() == "Due Soon"
         )
-        splynx_db = SessionLocal()
+        sub_db = SessionLocal()
         try:
             if not str(entry.get("plan") or "").strip() and str(entry.get("risk_segment") or "") == "Suspended":
                 try:
-                    services_payload = _call_splynx_with_session(
+                    services_payload = _call_sub_with_session(
                         "fetch_customer_internet_services",
                         fetch_customer_internet_services,
-                        splynx_db,
+                        sub_db,
                         external_id,
                     )
                 except Exception:
@@ -1414,16 +1539,16 @@ def get_billing_risk_table(
                 if live_plan:
                     updates["plan"] = live_plan
             try:
-                billing_payload = _call_splynx_with_session(
+                billing_payload = _call_sub_with_session(
                     "fetch_customer_billing",
                     fetch_customer_billing,
-                    splynx_db,
+                    sub_db,
                     external_id,
                 )
             except Exception:
                 billing_payload = {}
         finally:
-            splynx_db.close()
+            sub_db.close()
         if is_active_overdue:
             updates["blocked_date"] = ""
             updates["blocked_for_days"] = None
@@ -1621,13 +1746,13 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
             or not str(entry.get("blocked_date") or "").strip()
             or _amount(entry.get("balance")) <= 0
         )
-        splynx_db = SessionLocal()
+        sub_db = SessionLocal()
         try:
             if needs_services:
                 try:
-                    services_payload = _cached_live_splynx_read(
+                    services_payload = _cached_live_subscriber_read(
                         "fetch_customer_internet_services",
-                        lambda: fetch_customer_internet_services(splynx_db, external_id),
+                        lambda: fetch_customer_internet_services(sub_db, external_id),
                         external_id,
                         cache_scope=fetch_customer_internet_services,
                     )
@@ -1647,9 +1772,9 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
                         updates["balance"] = live_service_amount
             if needs_billing:
                 try:
-                    billing_payload = _cached_live_splynx_read(
+                    billing_payload = _cached_live_subscriber_read(
                         "fetch_customer_billing",
-                        lambda: fetch_customer_billing(splynx_db, external_id),
+                        lambda: fetch_customer_billing(sub_db, external_id),
                         external_id,
                         cache_scope=fetch_customer_billing,
                     )
@@ -1658,7 +1783,7 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
             else:
                 billing_payload = {}
         finally:
-            splynx_db.close()
+            sub_db.close()
         if not isinstance(billing_payload, Mapping):
             return updates
         live_month_price = _amount(billing_payload.get("month_price"))
@@ -1766,17 +1891,17 @@ def get_live_blocked_dates(
                 retained_blocked_dates[str(retained_external_id or "").strip()] = retained_date
 
     def _customers_loader():
-        splynx_db = SessionLocal()
+        sub_db = SessionLocal()
         try:
-            return fetch_customers(splynx_db)
+            return fetch_customers(sub_db)
         finally:
-            splynx_db.close()
+            sub_db.close()
 
     try:
         customers_payload = (
             _customers_loader()
             if force_live
-            else _cached_live_splynx_read(
+            else _cached_live_subscriber_read(
                 "fetch_customers",
                 _customers_loader,
                 cache_scope=fetch_customers,
@@ -1802,16 +1927,16 @@ def get_live_blocked_dates(
             continue
 
         def _billing_loader(bound_external_id: str = external_id):
-            splynx_db = SessionLocal()
+            sub_db = SessionLocal()
             try:
-                return fetch_customer_billing(splynx_db, bound_external_id)
+                return fetch_customer_billing(sub_db, bound_external_id)
             finally:
-                splynx_db.close()
+                sub_db.close()
 
         billing_payload = (
             _billing_loader()
             if force_live
-            else _cached_live_splynx_read(
+            else _cached_live_subscriber_read(
                 "fetch_customer_billing",
                 _billing_loader,
                 external_id,
@@ -1842,16 +1967,16 @@ def get_live_blocked_dates(
         if blocked_date is None:
 
             def _services_loader(bound_external_id: str = external_id):
-                splynx_db = SessionLocal()
+                sub_db = SessionLocal()
                 try:
-                    return fetch_customer_internet_services(splynx_db, bound_external_id)
+                    return fetch_customer_internet_services(sub_db, bound_external_id)
                 finally:
-                    splynx_db.close()
+                    sub_db.close()
 
             services_payload = (
                 _services_loader()
                 if force_live
-                else _cached_live_splynx_read(
+                else _cached_live_subscriber_read(
                     "fetch_customer_internet_services",
                     _services_loader,
                     external_id,
@@ -1876,16 +2001,16 @@ def get_live_blocked_dates(
             if customer_payload is None:
 
                 def _customer_loader(bound_external_id: str = external_id):
-                    splynx_db = SessionLocal()
+                    sub_db = SessionLocal()
                     try:
-                        return fetch_customer(splynx_db, bound_external_id)
+                        return fetch_customer(sub_db, bound_external_id)
                     finally:
-                        splynx_db.close()
+                        sub_db.close()
 
                 customer_payload = (
                     _customer_loader()
                     if force_live
-                    else _cached_live_splynx_read(
+                    else _cached_live_subscriber_read(
                         "fetch_customer",
                         _customer_loader,
                         external_id,
