@@ -19,6 +19,7 @@ so the numbers are tunable per market without code changes.
 
 from __future__ import annotations
 
+import logging
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import HTTPException
@@ -43,8 +44,32 @@ from app.services.crm.sales.service import (
 )
 from app.services.portal_auth import PortalPrincipal
 
+logger = logging.getLogger(__name__)
+
 _TWOPLACES = Decimal("0.01")
 _PROJECT_TYPE = ProjectType.fiber_optics_installation.value
+
+
+def _emit_quote_to_sub(db: Session, quote: Quote, event_type: str) -> None:
+    """Push a quote lifecycle event to dotmac_sub to hydrate its quote mirror.
+    Best-effort: a failed push never breaks the flow (reconcile is the backstop)."""
+    try:
+        from app.services import selfcare
+
+        payload = build_portal_quote_payload(db, quote)
+        sub_subscriber_id = payload.get("subscriber_external_id")
+        if not sub_subscriber_id:
+            return
+        payload["subscriber_id"] = sub_subscriber_id
+        payload["quote_id"] = payload["id"]
+        selfcare.notify_quote_event(db, event_type, payload)
+    except Exception as exc:  # best-effort
+        logger.warning(
+            "quote_event_emit_failed quote_id=%s event=%s error=%s",
+            getattr(quote, "id", None),
+            event_type,
+            exc,
+        )
 
 
 def _money(value) -> Decimal:
@@ -255,6 +280,7 @@ class PortalQuotes:
                 ),
             )
         db.refresh(quote)
+        _emit_quote_to_sub(db, quote, "quote.created")
         return quote
 
     @staticmethod
@@ -314,6 +340,8 @@ class PortalQuotes:
             db.refresh(quote)
 
         _record_deposit_on_sales_order(db, quote, amount)
+        if not already_accepted:
+            _emit_quote_to_sub(db, quote, "quote.accepted")
         return build_portal_quote_payload(db, quote, already_accepted=already_accepted)
 
 
