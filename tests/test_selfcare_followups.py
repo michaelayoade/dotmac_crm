@@ -70,6 +70,37 @@ def test_splynx_webhook_does_not_enrich_remotely(db_session, monkeypatch):
     assert mapper.call_args.kwargs["include_remote_details"] is False
 
 
+def test_subscriber_sync_webhook_routes_by_external_system(db_session, monkeypatch):
+    """HMAC webhook honors payload external_system so splynx/dotmac stay keyed
+    correctly instead of all being treated as selfcare."""
+    from app.services import settings_spec
+
+    monkeypatch.setattr(settings_spec, "resolve_value", lambda *a, **k: "testsecret")
+    import app.api.subscribers as subs
+
+    routed = {}
+    monkeypatch.setattr(
+        subs, "_handle_splynx_webhook", lambda db, p: routed.setdefault("system", "splynx") or {"subscriber_id": "s"}
+    )
+    monkeypatch.setattr(
+        subs,
+        "_handle_selfcare_webhook",
+        lambda db, p: routed.setdefault("system", "selfcare") or {"subscriber_id": "x"},
+    )
+
+    client = _webhook_client(db_session)
+    body = json.dumps({"id": "10291", "external_system": "splynx", "balance": "10.00"}).encode()
+    sig = "sha256=" + hmac.new(b"testsecret", body, hashlib.sha256).hexdigest()
+    res = client.post(
+        "/webhooks/crm/subscribers/sync",
+        content=body,
+        headers={"X-Selfcare-Signature": sig, "Content-Type": "application/json"},
+    )
+
+    assert res.status_code == 200
+    assert routed["system"] == "splynx"  # not selfcare
+
+
 def test_subscriber_sync_webhook_no_secret_503(db_session, monkeypatch):
     from app.services import settings_spec
 
