@@ -97,6 +97,17 @@ def _render_thread_or_error(
         current_roles,
     )
     from app.logic import private_note_logic
+    from app.services.crm.inbox.agent_introduction import get_introduction_template, render_introduction_template
+    from app.services.crm.inbox.agents import list_active_agents_for_mentions
+    from app.services.crm.inbox.templates import message_templates
+
+    template_list = message_templates.list(
+        db,
+        channel_type=None,
+        is_active=True,
+        limit=200,
+        offset=0,
+    )
 
     return templates.TemplateResponse(
         "admin/crm/_message_thread.html",
@@ -108,6 +119,10 @@ def _render_thread_or_error(
             "current_roles": current_roles,
             "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
             "talk_escalation_recipients": _load_talk_escalation_recipients(db),
+            "message_templates": template_list,
+            "mention_agents": list_active_agents_for_mentions(db),
+            "introduction_template": get_introduction_template(db, current_user),
+            "rendered_introduction_template": render_introduction_template(db, current_user),
             **(extra_context or {}),
         },
     )

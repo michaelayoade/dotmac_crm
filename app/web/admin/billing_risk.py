@@ -24,6 +24,7 @@ from app.models.service_team import ServiceTeam, ServiceTeamMember
 from app.models.subscriber import Subscriber, SubscriberBillingRiskSnapshot
 from app.services import billing_risk_cache, selfcare
 from app.services import billing_risk_reports as billing_risk_service
+from app.services.auth_dependencies import require_any_permission
 from app.services.common import coerce_uuid
 from app.services.crm.web_campaigns import create_billing_risk_outreach_campaign, outreach_channel_target_options
 from app.services.customer_retention import create_retention_engagement_and_sync
@@ -66,6 +67,7 @@ RETENTION_REP_TEAM_OVERRIDES = {
 RETENTION_REP_LABEL_ONLY_NAMES = {"ejiro onovwiona"}
 RETENTION_EXCLUDED_CUSTOMER_NAMES = {"test", "test account"}
 ACTIVE_OFFLINE_LAST_SEEN_START = date(2026, 3, 1)
+REPORTS_POSTPAID_CUSTOMERS_READ_PERMISSIONS = ("reports:postpaid-customers:read",)
 
 
 def _normalize_customer_name_for_exclusion(name: object) -> str:
@@ -462,6 +464,71 @@ def _active_unpaid_invoice_summary(billing_payload: dict | None) -> dict[str, ob
     }
 
 
+def _invoice_date_text(invoice: dict, *keys: str) -> str:
+    return _date_only_text(_first_text(*(invoice.get(key) for key in keys)))
+
+
+def _invoice_is_overdue(invoice: dict, *, today: date | None = None) -> bool:
+    status = str(invoice.get("status") or invoice.get("invoice_status") or "").strip().casefold()
+    payment_status = str(invoice.get("payment_status") or invoice.get("paid_status") or "").strip().casefold()
+    if status in {"overdue", "past_due"} or payment_status in {"overdue", "past_due"}:
+        return True
+    due_date = billing_risk_service._parse_iso_date_text(
+        _first_text(invoice.get("due_date"), invoice.get("dueDate"), invoice.get("payment_due_date"))
+    )
+    return due_date is not None and due_date < (today or datetime.now(UTC).date())
+
+
+def _postpaid_invoice_summary(invoices: list[dict]) -> dict[str, object]:
+    today = datetime.now(UTC).date()
+    active_unpaid = [invoice for invoice in invoices if _is_active_unpaid_invoice(invoice)]
+    overdue = [invoice for invoice in active_unpaid if _invoice_is_overdue(invoice, today=today)]
+    invoice_dates = sorted(
+        {
+            invoice_date
+            for invoice in invoices
+            if (invoice_date := _invoice_date_text(invoice, "invoice_date", "date", "created_at", "issued_at"))
+        },
+        reverse=True,
+    )
+    due_dates = sorted(
+        {
+            due_date
+            for invoice in active_unpaid
+            if (due_date := _invoice_date_text(invoice, "due_date", "dueDate", "payment_due_date"))
+        }
+    )
+    return {
+        "unpaid_invoices": len(active_unpaid),
+        "overdue_invoices": len(overdue),
+        "outstanding_balance": round(sum(_invoice_balance_due(invoice) for invoice in active_unpaid), 2),
+        "overdue_balance": round(sum(_invoice_balance_due(invoice) for invoice in overdue), 2),
+        "last_invoice_date": invoice_dates[0] if invoice_dates else "",
+        "next_due_date": due_dates[0] if due_dates else "",
+    }
+
+
+def _postpaid_invoice_summaries_by_customer(db: Session, rows: list[dict]) -> dict[str, dict[str, object]]:
+    customer_ids = sorted(
+        {
+            _billing_risk_row_customer_id(row)
+            for row in rows
+            if _billing_risk_row_customer_id(row) and _billing_row_type_category(row) == "postpaid"
+        }
+    )
+    summaries: dict[str, dict[str, object]] = {}
+    for customer_id in customer_ids:
+        try:
+            invoices = selfcare.fetch_customer_invoices(db, customer_id, page=1, per_page=100)
+        except Exception as exc:
+            logger.warning("Failed to load invoices for postpaid customer %s: %s", customer_id, exc)
+            if "HTTP 404" in str(exc):
+                break
+            continue
+        summaries[customer_id] = _postpaid_invoice_summary(invoices)
+    return summaries
+
+
 def _apply_prepaid_unpaid_invoice_summary(rows: list[dict]) -> None:
     for row in rows:
         summary = row.get("_prepaid_unpaid_invoice_summary")
@@ -532,6 +599,23 @@ def _first_text(*values: object) -> str:
     return ""
 
 
+def _date_only_text(value: object) -> str:
+    text_value = _first_text(value)
+    if not text_value:
+        return ""
+    parsed_date = billing_risk_service._parse_iso_date_text(text_value)
+    if parsed_date is not None:
+        return parsed_date.strftime("%Y-%m-%d")
+    if len(text_value) >= 10:
+        candidate = text_value[:10]
+        try:
+            date.fromisoformat(candidate)
+        except ValueError:
+            return text_value
+        return candidate
+    return text_value
+
+
 def _billing_payload_count(payload: dict | None, *keys: str) -> int | None:
     if not isinstance(payload, dict):
         return None
@@ -546,6 +630,18 @@ def _billing_payload_count(payload: dict | None, *keys: str) -> int | None:
         if isinstance(value, list):
             return len(value)
     return None
+
+
+def _invoice_summary_count(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, float):
+        return max(0, int(value))
+    if isinstance(value, str) and value.strip().isdigit():
+        return max(0, int(value.strip()))
+    return 0
 
 
 def _latest_payment_by_customer(payments: list[dict]) -> dict[str, dict]:
@@ -606,6 +702,26 @@ def _latest_payment_for_customer(db: Session, customer_id: str) -> dict[str, obj
     }
 
 
+def _postpaid_latest_payments_by_customer(db: Session, rows: list[dict]) -> dict[str, dict]:
+    customer_ids = {_billing_risk_row_customer_id(row) for row in rows if _billing_risk_row_customer_id(row)}
+    if not customer_ids:
+        return {}
+    try:
+        latest_payments = _latest_payment_by_customer(selfcare.fetch_payments(db, limit=10000))
+    except Exception:
+        logger.exception("Failed to load latest payment dates for postpaid customers dashboard")
+        latest_payments = {}
+
+    matched_payments = {
+        customer_id: latest_payments[customer_id] for customer_id in customer_ids if customer_id in latest_payments
+    }
+    for customer_id in sorted(customer_ids - set(matched_payments)):
+        latest_payment = _latest_payment_for_customer(db, customer_id)
+        if latest_payment:
+            matched_payments[customer_id] = latest_payment
+    return matched_payments
+
+
 def _postpaid_last_seen_by_customer(db: Session, customer_ids: list[str]) -> dict[str, str]:
     if not customer_ids:
         return {}
@@ -634,13 +750,16 @@ def _postpaid_enrich_detail_fields(
     rows: list[dict],
     *,
     latest_payments_by_customer: dict[str, dict] | None = None,
+    invoice_summaries_by_customer: dict[str, dict[str, object]] | None = None,
 ) -> None:
     latest_payments_by_customer = latest_payments_by_customer or {}
+    invoice_summaries_by_customer = invoice_summaries_by_customer or {}
     customer_ids = sorted({_billing_risk_row_customer_id(row) for row in rows if _billing_risk_row_customer_id(row)})
     last_seen_by_customer = _postpaid_last_seen_by_customer(db, customer_ids)
     for row in rows:
         customer_id = _billing_risk_row_customer_id(row)
         latest_payment = latest_payments_by_customer.get(customer_id) if customer_id else None
+        invoice_summary = invoice_summaries_by_customer.get(customer_id) if customer_id else None
 
         last_payment_date = _first_text(
             (latest_payment or {}).get("date"),
@@ -672,7 +791,14 @@ def _postpaid_enrich_detail_fields(
             overdue_balance = outstanding_balance
         unpaid_invoices = _billing_payload_count(row, "unpaid_invoices", "unpaid_invoice_count", "open_invoices")
         overdue_invoices = _billing_payload_count(row, "overdue_invoices", "overdue_invoice_count", "past_due_invoices")
-        row["detail_last_payment_date"] = last_payment_date
+        if invoice_summary is not None:
+            unpaid_invoices = _invoice_summary_count(invoice_summary.get("unpaid_invoices"))
+            overdue_invoices = _invoice_summary_count(invoice_summary.get("overdue_invoices"))
+            outstanding_balance = _money(invoice_summary.get("outstanding_balance"))
+            overdue_balance = _money(invoice_summary.get("overdue_balance"))
+            last_invoice_date = _first_text(invoice_summary.get("last_invoice_date"), last_invoice_date)
+            next_due_date = _first_text(invoice_summary.get("next_due_date"), next_due_date)
+        row["detail_last_payment_date"] = _date_only_text(last_payment_date)
         row["detail_last_payment_amount"] = last_payment_amount
         row["detail_next_due_date"] = next_due_date
         row["detail_unpaid_invoices"] = unpaid_invoices if unpaid_invoices is not None else int(outstanding_balance > 0)
@@ -2747,7 +2873,11 @@ def subscriber_billing_risk(
     )
 
 
-@router.get("/subscribers/postpaid-customers", response_class=HTMLResponse)
+@router.get(
+    "/subscribers/postpaid-customers",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission(*REPORTS_POSTPAID_CUSTOMERS_READ_PERMISSIONS))],
+)
 def postpaid_customers_dashboard(
     request: Request,
     db: Session = Depends(get_db),
@@ -2836,8 +2966,14 @@ def postpaid_customers_dashboard(
         date_to=normalized_date_to,
     )
     prepaid_unpaid_rows = all_prepaid_unpaid_rows[:250]
-    latest_payments_by_customer: dict[str, dict] = {}
-    _postpaid_enrich_detail_fields(db, table_rows, latest_payments_by_customer=latest_payments_by_customer)
+    latest_payments_by_customer = _postpaid_latest_payments_by_customer(db, table_rows + prepaid_unpaid_rows)
+    invoice_summaries_by_customer = _postpaid_invoice_summaries_by_customer(db, table_rows)
+    _postpaid_enrich_detail_fields(
+        db,
+        table_rows,
+        latest_payments_by_customer=latest_payments_by_customer,
+        invoice_summaries_by_customer=invoice_summaries_by_customer,
+    )
     _postpaid_enrich_detail_fields(db, prepaid_unpaid_rows, latest_payments_by_customer=latest_payments_by_customer)
     _apply_prepaid_unpaid_invoice_summary(prepaid_unpaid_rows)
     kpis = _postpaid_dashboard_kpis(rows, all_customer_rows=all_customer_rows)
@@ -2881,7 +3017,10 @@ def postpaid_customers_dashboard(
     )
 
 
-@router.get("/subscribers/postpaid-customers/export")
+@router.get(
+    "/subscribers/postpaid-customers/export",
+    dependencies=[Depends(require_any_permission(*REPORTS_POSTPAID_CUSTOMERS_READ_PERMISSIONS))],
+)
 def postpaid_customers_dashboard_export(
     request: Request,
     db: Session = Depends(get_db),
@@ -2909,6 +3048,15 @@ def postpaid_customers_dashboard_export(
         date_to=(request.query_params.get("date_to") or (date_to if isinstance(date_to, str) else "")).strip(),
         limit=10000,
     )
+    rows = sorted(rows, key=lambda item: _money(item.get("revenue_owed")), reverse=True)
+    latest_payments_by_customer = _postpaid_latest_payments_by_customer(db, rows)
+    invoice_summaries_by_customer = _postpaid_invoice_summaries_by_customer(db, rows)
+    _postpaid_enrich_detail_fields(
+        db,
+        rows,
+        latest_payments_by_customer=latest_payments_by_customer,
+        invoice_summaries_by_customer=invoice_summaries_by_customer,
+    )
     export_rows = [
         {
             "Name": row.get("name") or "",
@@ -2920,11 +3068,13 @@ def postpaid_customers_dashboard_export(
             "MRR": _money(row.get("mrr_total")),
             "Balance": _money(row.get("balance")),
             "Revenue Owed": _money(row.get("revenue_owed")),
+            "Last Payment Date": row.get("detail_last_payment_date") or "",
+            "Last Payment Amount": _money(row.get("detail_last_payment_amount")),
             "Service Expiration Date": row.get("service_expiration_date") or "",
             "Days Past Due": row.get("days_past_due") or 0,
             "External ID": row.get("_external_id") or row.get("subscriber_id") or "",
         }
-        for row in sorted(rows, key=lambda item: _money(item.get("revenue_owed")), reverse=True)
+        for row in rows
     ]
     return _csv_response(export_rows, f"postpaid_customers_{datetime.now(UTC).strftime('%Y%m%d')}.csv")
 

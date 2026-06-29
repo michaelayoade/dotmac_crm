@@ -2,6 +2,7 @@
 
 import logging
 import re
+import uuid
 from collections import defaultdict
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
@@ -9,6 +10,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, TypedDict
 
 from sqlalchemy import Date, DateTime, Integer, Numeric, String, and_, case, cast, false, func, or_, select, text, true
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -16,16 +18,19 @@ from app.models.bandwidth import BandwidthSample
 from app.models.comms import CustomerNotificationEvent
 from app.models.crm.enums import LeadStatus
 from app.models.crm.sales import Lead
+from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.event_store import EventStore
 from app.models.person import ChannelType as PersonChannelType
 from app.models.person import Person, PersonChannel
 from app.models.projects import Project
 from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus, SalesOrderStatus
-from app.models.subscriber import Subscriber, SubscriberStatus
+from app.models.subscriber import Subscriber, SubscriberBillingRiskSnapshot, SubscriberStatus
 from app.models.tickets import Ticket, TicketSlaEvent, TicketStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
 
 logger = logging.getLogger(__name__)
+RETENTION_LOST_STAGE_OUTCOMES = ("lost", "churning", "do not reach out")
+RETENTION_CHURN_REASON_CATEGORIES = ("Unspecified",)
 
 # =====================================================================
 # Report 1: Subscriber Overview
@@ -725,6 +730,8 @@ def _normalize_city_name(value: str | None) -> str:
                 "gwarinpa",
                 "maitama",
                 "maitamma",
+                "central area",
+                "dawaki",
                 "utako",
                 "jabi",
                 "gudu",
@@ -991,6 +998,20 @@ def _clean_report_name(value: str | None) -> str:
     cleaned = " ".join(words)
     cleaned = re.sub(r"'S\b", "'s", cleaned)
     return cleaned
+
+
+def _report_lookup_key(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).strip()
+
+
+def _is_excluded_report_customer_name(value: object) -> bool:
+    normalized = _report_lookup_key(value)
+    return bool(normalized) and (normalized == "test" or normalized.startswith("test account"))
+
+
+def _retention_customer_not_excluded_clause(latest_retention_sq):
+    normalized_name = func.lower(func.trim(func.coalesce(latest_retention_sq.c.customer_name, "")))
+    return and_(normalized_name != "test", normalized_name.notlike("test account%"))
 
 
 def _coerce_datetime_utc(value: datetime | date | None) -> datetime | None:
@@ -3033,10 +3054,10 @@ def churned_subscribers_kpis(
     *,
     behavioral_days: int = 60,
 ) -> dict:
-    """Summary metrics for unified churned subscribers in a date range."""
-    resolved = _unified_churn_expressions(db, behavioral_days)
+    """Summary metrics for retention-confirmed churned subscribers in a date range."""
+    resolved = _churned_report_expressions(db)
     activation_event_at = resolved["activation_event_at"]
-    successful_payment_sq = resolved["successful_payment_sq"]
+    latest_retention_sq = resolved["latest_retention_sq"]
     churn_event_at = resolved["churn_date"]
     churn_type = resolved["churn_type"]
     churn_filters = (
@@ -3057,17 +3078,9 @@ def churned_subscribers_kpis(
                     )
                 )
             ).label("operational_count"),
-            func.count(
-                func.distinct(
-                    case(
-                        (churn_type == "behavioral", Subscriber.id),
-                        else_=None,
-                    )
-                )
-            ).label("behavioral_count"),
         )
         .select_from(Subscriber)
-        .outerjoin(successful_payment_sq, successful_payment_sq.c.person_id == Subscriber.person_id)
+        .outerjoin(latest_retention_sq, latest_retention_sq.c.customer_external_id == Subscriber.external_id)
         .where(*churn_filters)
     ).one()
 
@@ -3086,18 +3099,20 @@ def churned_subscribers_kpis(
             Person.last_name,
             Person.display_name,
         )
-        .outerjoin(successful_payment_sq, successful_payment_sq.c.person_id == Subscriber.person_id)
+        .outerjoin(latest_retention_sq, latest_retention_sq.c.customer_external_id == Subscriber.external_id)
         .outerjoin(Person, Person.id == Subscriber.person_id)
         .where(*churn_filters)
     ).all()
 
-    churned_count = int(churn_counts_row.churned_count or 0)
+    total_churned_count = int(churn_counts_row.churned_count or 0)
     operational_count = int(churn_counts_row.operational_count or 0)
-    behavioral_count = int(churn_counts_row.behavioral_count or 0)
+    retention_lost_stage_count = _retention_lost_stage_customer_count(db, start_dt, end_dt)
+    churned_count = retention_lost_stage_count
+    retention_tracked_count = _retention_tracked_customer_count(db)
     tenure_days: list[int] = []
     plan_counts: dict[str, int] = defaultdict(int)
     impacted_regions: set[str] = set()
-    revenue_lost_to_churn = 0.0
+    revenue_lost_to_churn = _retention_lost_stage_revenue(db, start_dt, end_dt)
     churned_people: dict[Any, str] = {}
     fallback_names: list[str] = []
     seen_subscriber_ids: set[Any] = set()
@@ -3110,7 +3125,6 @@ def churned_subscribers_kpis(
             tenure_days.append(max(0, (row.churn_event_at.date() - row.activation_event_at.date()).days))
         plan_name = (row.service_plan or "").strip() or (row.service_name or "").strip() or "Unknown"
         plan_counts[plan_name] += 1
-        revenue_lost_to_churn += _estimate_monthly_plan_value(row.service_plan or row.service_name, row.service_speed)
         region_name = (
             _normalize_city_name(getattr(row, "service_region", None)) if hasattr(row, "service_region") else ""
         )
@@ -3135,11 +3149,11 @@ def churned_subscribers_kpis(
                 ((churn_event_at.is_(None)) | (churn_event_at > start_dt)),
             )
             .select_from(Subscriber)
-            .outerjoin(successful_payment_sq, successful_payment_sq.c.person_id == Subscriber.person_id)
+            .outerjoin(latest_retention_sq, latest_retention_sq.c.customer_external_id == Subscriber.external_id)
         )
         or 0
     )
-    churn_rate = round(churned_count / active_at_start * 100, 1) if active_at_start > 0 else 0
+    churn_rate = round(churned_count / retention_tracked_count * 100, 1) if retention_tracked_count > 0 else 0
 
     top_churn_plan_type = "N/A"
     top_churn_plan_count = 0
@@ -3174,9 +3188,12 @@ def churned_subscribers_kpis(
 
     return {
         "churned_count": churned_count,
+        "total_churned_with_operational_fallback": total_churned_count,
         "churn_rate": churn_rate,
         "count_operational_churn": operational_count,
-        "count_behavioral_churn": behavioral_count,
+        "count_behavioral_churn": 0,
+        "count_retention_churn": retention_lost_stage_count,
+        "retention_tracked_count": retention_tracked_count,
         "total_active_subscribers_start": active_at_start,
         "revenue_lost_to_churn": round(revenue_lost_to_churn, 2),
         "top_churn_plan_type": top_churn_plan_type,
@@ -3198,34 +3215,412 @@ def churned_subscribers_trend(
     *,
     behavioral_days: int = 60,
 ) -> list[dict]:
-    """Daily unified churn count in the selected date range."""
-    resolved = _unified_churn_expressions(db, behavioral_days)
-    churn_event_at = resolved["churn_date"]
-    activation_event_at = resolved["activation_event_at"]
-    successful_payment_sq = resolved["successful_payment_sq"]
+    """Daily Lost-stage retention outcome count in the selected date range."""
+    latest_retention_sq = _latest_retention_engagement_subquery()
+    latest_outcome = func.lower(func.trim(func.coalesce(latest_retention_sq.c.outcome, "")))
     dialect_name = db.get_bind().dialect.name if db.get_bind() is not None else ""
     if dialect_name == "sqlite":
-        churn_day = func.date(churn_event_at).label("day")
+        churn_day = func.date(latest_retention_sq.c.created_at).label("day")
     else:
-        churn_day = func.to_char(func.date_trunc("day", churn_event_at), "YYYY-MM-DD").label("day")
+        churn_day = func.to_char(func.date_trunc("day", latest_retention_sq.c.created_at), "YYYY-MM-DD").label("day")
 
     rows = db.execute(
         select(
             churn_day,
-            func.count(Subscriber.id).label("count"),
+            func.count(func.distinct(latest_retention_sq.c.customer_external_id)).label("count"),
         )
         .where(
-            churn_event_at.isnot(None),
-            churn_event_at >= start_dt,
-            churn_event_at <= end_dt,
-            activation_event_at <= churn_event_at,
+            latest_outcome.in_(RETENTION_LOST_STAGE_OUTCOMES),
+            _retention_customer_not_excluded_clause(latest_retention_sq),
+            latest_retention_sq.c.created_at >= start_dt,
+            latest_retention_sq.c.created_at <= end_dt,
         )
-        .select_from(Subscriber)
-        .outerjoin(successful_payment_sq, successful_payment_sq.c.person_id == Subscriber.person_id)
+        .select_from(latest_retention_sq)
         .group_by("day")
         .order_by("day")
     ).all()
     return [{"date": str(row.day)[:10], "count": int(row._mapping["count"] or 0)} for row in rows if row.day]
+
+
+def _retention_churn_reason_label(value: object) -> str:
+    text = str(value or "").strip()
+    if not text or text.casefold() in {"null", "none", "n/a", "na", "-"}:
+        return "Unspecified"
+    text = re.sub(r"\s+", " ", text).strip(" .")
+    if not text:
+        return "Unspecified"
+    lowered = text.casefold()
+    reason_prefixes = (
+        "reason:",
+        "churn reason:",
+        "reported reason:",
+        "customer reason:",
+        "loss reason:",
+    )
+    for prefix in reason_prefixes:
+        if lowered.startswith(prefix):
+            text = text[len(prefix) :].strip(" :-")
+            break
+    if not text:
+        return "Unspecified"
+    text = text[:1].upper() + text[1:]
+    return text[:120]
+
+
+def churned_subscribers_reason_breakdown(
+    db: Session,
+    start_dt: datetime,
+    end_dt: datetime,
+    *,
+    limit: int = 12,
+) -> list[dict]:
+    """Count churned retention customers by latest engagement reported reason."""
+    latest_retention_sq = _latest_retention_engagement_subquery()
+    latest_outcome = func.lower(func.trim(func.coalesce(latest_retention_sq.c.outcome, "")))
+    rows = db.execute(
+        select(latest_retention_sq.c.note, func.count().label("count"))
+        .where(
+            latest_outcome.in_(RETENTION_LOST_STAGE_OUTCOMES),
+            _retention_customer_not_excluded_clause(latest_retention_sq),
+            latest_retention_sq.c.created_at >= start_dt,
+            latest_retention_sq.c.created_at <= end_dt,
+        )
+        .select_from(latest_retention_sq)
+        .group_by(latest_retention_sq.c.note)
+    ).all()
+
+    counts: dict[str, int] = defaultdict(int)
+    for row in rows:
+        row_count = row._mapping["count"]
+        counts[_retention_churn_reason_label(row.note)] += int(row_count or 0)
+
+    all_rows = sorted(counts.items(), key=lambda item: (-item[1], item[0].casefold()))
+    if limit > 0:
+        all_rows = all_rows[:limit]
+    return [{"reason": reason, "count": count} for reason, count in all_rows]
+
+
+def _live_churned_subscriber_details(db: Session, customer_id: str, customer_name: str = "") -> dict[str, str]:
+    """Fetch live Selfcare details for a visible churn row."""
+    external_id = str(customer_id or "").strip()
+    if not external_id:
+        return {}
+
+    try:
+        from app.services.selfcare import (
+            _select_primary_service,
+            fetch_customer,
+            fetch_customer_billing,
+            fetch_customer_internet_services,
+            map_customer_to_subscriber_data,
+            search_subscribers,
+        )
+    except Exception as exc:
+        logger.debug("churned_subscribers_live_import_unavailable customer_id=%s error=%s", external_id, exc)
+        return {}
+
+    def _normalized_lookup_name(value: object) -> str:
+        return re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).strip()
+
+    def _infer_region_from_text(*values: object) -> str:
+        direct_values = []
+        haystack_parts = []
+        ignored = {"", "-", "n/a", "na", "none", "null", "unknown", "ng", "nga", "nigeria"}
+        for value in values:
+            text = str(value or "").strip().strip(",")
+            if not text:
+                continue
+            cleaned = text
+            for suffix in (", NG", ", NGA", ", Nigeria"):
+                if cleaned.casefold().endswith(suffix.casefold()):
+                    cleaned = cleaned[: -len(suffix)].strip().strip(",")
+                    break
+            normalized = cleaned.casefold().replace(".", "").strip()
+            if normalized not in ignored:
+                direct_values.append(cleaned)
+            haystack_parts.append(text)
+
+        for value in direct_values:
+            normalized = value.casefold()
+            if normalized in {"abuja", "lagos", "port harcourt", "nasarawa", "abeokuta", "maiduguri", "yola"}:
+                return value.title() if value.islower() else value
+
+        haystack = f" {' '.join(haystack_parts).casefold()} "
+        markers = (
+            (
+                "Abuja",
+                (
+                    "abuja",
+                    "fct",
+                    "wuse",
+                    "gwarimpa",
+                    "gwarinpa",
+                    "maitama",
+                    "central area",
+                    "galadimawa",
+                    "guzape",
+                    "asokoro",
+                    "jabi",
+                    "gudu",
+                    "guzape",
+                ),
+            ),
+            ("Lagos", ("lagos", "ikeja", "lekki", "victoria island", "ikoyi")),
+            ("Port Harcourt", ("port harcourt", "phc")),
+            ("Nasarawa", ("nasarawa", "mararaba")),
+            ("Abeokuta", ("abeokuta", "oke mosan")),
+            ("Maiduguri", ("maiduguri",)),
+            ("Yola", ("yola",)),
+            ("Kaduna", ("kaduna",)),
+            ("Kano", ("kano",)),
+        )
+        for label, label_markers in markers:
+            if any(marker in haystack for marker in label_markers):
+                return label
+        return ""
+
+    def _live_payload_region(payload: Mapping[str, Any], mapped_payload: Mapping[str, Any] | None = None) -> str:
+        mapped_payload = mapped_payload or {}
+        normalized_region = _normalize_city_name(
+            _first_nonempty_text(
+                _infer_region_from_text(
+                    mapped_payload.get("service_region"),
+                    mapped_payload.get("service_city"),
+                    payload.get("region"),
+                    payload.get("state"),
+                    payload.get("city"),
+                    payload.get("service_region"),
+                    payload.get("service_city"),
+                    payload.get("location"),
+                    payload.get("address"),
+                    payload.get("street"),
+                    payload.get("street_1"),
+                    payload.get("street_2"),
+                ),
+                mapped_payload.get("service_region"),
+                mapped_payload.get("service_city"),
+                payload.get("region"),
+                payload.get("state"),
+                payload.get("city"),
+                payload.get("service_region"),
+                payload.get("service_city"),
+            )
+        )
+        return "" if normalized_region == "Unknown" else normalized_region
+
+    customer: dict[str, Any] | None = None
+    live_external_id = external_id
+    try:
+        customer = fetch_customer(db, external_id)
+    except Exception as exc:
+        logger.debug("churned_subscribers_live_direct_lookup_failed customer_id=%s error=%s", external_id, exc)
+
+    if not customer and customer_name:
+        normalized_name = _normalized_lookup_name(customer_name)
+        try:
+            candidates = search_subscribers(db, customer_name, limit=10)
+        except Exception as exc:
+            logger.debug(
+                "churned_subscribers_live_search_failed customer_id=%s customer_name=%s error=%s",
+                external_id,
+                customer_name,
+                exc,
+            )
+            candidates = []
+        if candidates:
+            customer = sorted(
+                candidates,
+                key=lambda candidate: (
+                    -int(bool(normalized_name and normalized_name == _normalized_lookup_name(candidate.get("name")))),
+                    -int(bool(_live_payload_region(candidate))),
+                    str(candidate.get("name") or "").casefold(),
+                ),
+            )[0]
+            live_external_id = str(
+                customer.get("id") or customer.get("uuid") or customer.get("subscriber_id") or external_id
+            ).strip()
+
+    if not customer:
+        customer = {"id": live_external_id}
+
+    try:
+        services = fetch_customer_internet_services(db, live_external_id)
+    except Exception as exc:
+        logger.debug("churned_subscribers_live_services_failed customer_id=%s error=%s", live_external_id, exc)
+        services = []
+    try:
+        billing = fetch_customer_billing(db, live_external_id) or {}
+    except Exception as exc:
+        logger.debug("churned_subscribers_live_billing_failed customer_id=%s error=%s", live_external_id, exc)
+        billing = {}
+
+    customer_payload = dict(customer)
+    if services:
+        customer_payload["services"] = services
+    if billing:
+        customer_payload["billing"] = billing
+
+    try:
+        mapped = map_customer_to_subscriber_data(db, customer_payload, include_remote_details=False)
+    except Exception as exc:
+        logger.debug("churned_subscribers_live_mapping_failed customer_id=%s error=%s", external_id, exc)
+        mapped = {}
+
+    primary_service = _select_primary_service([row for row in services if isinstance(row, dict)])
+
+    def _payload_date(*values: object) -> str:
+        for value in values:
+            parsed = _parse_iso_date_text(str(value or ""))
+            if parsed is not None:
+                return parsed.strftime("%Y-%m-%d")
+            normalized = _coerce_datetime_utc(value if isinstance(value, (datetime, date)) else None)
+            if normalized is not None:
+                return normalized.strftime("%Y-%m-%d")
+        return ""
+
+    plan = _first_nonempty_text(
+        mapped.get("service_plan"),
+        mapped.get("service_name"),
+        customer_payload.get("service_plan"),
+        customer_payload.get("tariff_name"),
+        customer_payload.get("plan"),
+        primary_service.get("description") if isinstance(primary_service, Mapping) else "",
+        primary_service.get("tariff_name") if isinstance(primary_service, Mapping) else "",
+        primary_service.get("plan_name") if isinstance(primary_service, Mapping) else "",
+        primary_service.get("package") if isinstance(primary_service, Mapping) else "",
+        primary_service.get("name") if isinstance(primary_service, Mapping) else "",
+    )
+    region = _live_payload_region(customer_payload, mapped)
+    activated_at = _payload_date(
+        mapped.get("activated_at"),
+        customer_payload.get("activated_at"),
+        customer_payload.get("start_date"),
+        customer_payload.get("created_at"),
+        customer_payload.get("created"),
+        primary_service.get("start_date") if isinstance(primary_service, Mapping) else "",
+        primary_service.get("activated_at") if isinstance(primary_service, Mapping) else "",
+        billing.get("billing_start_date") if isinstance(billing, Mapping) else "",
+        billing.get("billing_start") if isinstance(billing, Mapping) else "",
+        billing.get("start_date") if isinstance(billing, Mapping) else "",
+    )
+    return {
+        "live_external_id": live_external_id,
+        "name": str(customer_payload.get("name") or customer_name or "").strip(),
+        "subscriber_number": str(mapped.get("subscriber_number") or customer_payload.get("login") or "").strip(),
+        "plan": plan,
+        "region": region,
+        "activated_at": activated_at,
+    }
+
+
+def refresh_retention_churn_detail_cache(db: Session, *, limit: int = 200) -> dict[str, Any]:
+    """Refresh cached plan, region, and activation details for retention-sourced churn rows."""
+    started_at = datetime.now(UTC)
+    latest_retention_sq = _latest_retention_engagement_subquery()
+    latest_outcome = func.lower(func.trim(func.coalesce(latest_retention_sq.c.outcome, "")))
+    retention_rows = db.execute(
+        select(
+            latest_retention_sq.c.customer_external_id,
+            latest_retention_sq.c.customer_name,
+        )
+        .where(
+            latest_outcome.in_(RETENTION_LOST_STAGE_OUTCOMES),
+            _retention_customer_not_excluded_clause(latest_retention_sq),
+        )
+        .order_by(latest_retention_sq.c.created_at.desc(), latest_retention_sq.c.customer_external_id)
+        .limit(max(1, int(limit or 200)))
+    ).all()
+    customer_ids = [
+        str(row.customer_external_id or "").strip()
+        for row in retention_rows
+        if str(row.customer_external_id or "").strip()
+    ]
+    subscribers_by_external = {
+        str(sub.external_id): sub
+        for sub in db.query(Subscriber)
+        .filter(Subscriber.external_system == "selfcare")
+        .filter(Subscriber.external_id.in_(customer_ids))
+        .all()
+        if sub.external_id
+    }
+
+    refreshed = 0
+    failed = 0
+    for row in retention_rows:
+        customer_id = str(row.customer_external_id or "").strip()
+        if not customer_id:
+            continue
+        details = _live_churned_subscriber_details(db, customer_id, str(row.customer_name or ""))
+        if not any(details.get(key) for key in ("plan", "region", "activated_at", "name", "subscriber_number")):
+            failed += 1
+            continue
+
+        subscriber = subscribers_by_external.get(customer_id)
+        existing_snapshot = db.scalar(
+            select(SubscriberBillingRiskSnapshot).where(
+                SubscriberBillingRiskSnapshot.external_system == "selfcare",
+                SubscriberBillingRiskSnapshot.external_id == customer_id,
+            )
+        )
+        existing_metadata = (
+            existing_snapshot.source_metadata
+            if existing_snapshot is not None and isinstance(existing_snapshot.source_metadata, dict)
+            else {}
+        )
+        source_metadata = dict(existing_metadata)
+        source_metadata.update(
+            {
+                "source": "retention_churn_detail_cache",
+                "retention_customer_external_id": customer_id,
+                "live_selfcare_id": details.get("live_external_id") or "",
+            }
+        )
+        values = {
+            "external_system": "selfcare",
+            "external_id": customer_id,
+            "subscriber_number": details.get("subscriber_number") or getattr(subscriber, "subscriber_number", None),
+            "person_id": getattr(subscriber, "person_id", None),
+            "subscriber_id": getattr(subscriber, "id", None),
+            "name": (details.get("name") or row.customer_name or customer_id)[:200],
+            "city": details.get("region") or None,
+            "location": details.get("region") or None,
+            "plan": details.get("plan") or None,
+            "subscriber_status": "Churned",
+            "risk_segment": "Churned",
+            "is_high_balance_risk": False,
+            "balance": 0,
+            "billing_start_date": _parse_iso_date_text(details.get("activated_at") or ""),
+            "source_metadata": source_metadata,
+            "refreshed_at": started_at,
+            "updated_at": started_at,
+        }
+        insert_values = {
+            **values,
+            "id": existing_snapshot.id if existing_snapshot is not None else None,
+            "created_at": getattr(existing_snapshot, "created_at", None) or started_at,
+        }
+        if db.get_bind() is not None and db.get_bind().dialect.name == "postgresql":
+            insert_values["id"] = insert_values["id"] or uuid.uuid4()
+            stmt = pg_insert(SubscriberBillingRiskSnapshot).values(**insert_values)
+            update_values = {
+                key: value for key, value in values.items() if key not in {"external_system", "external_id"}
+            }
+            db.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=["external_system", "external_id"],
+                    set_=update_values,
+                )
+            )
+        elif existing_snapshot is not None:
+            for key, value in values.items():
+                setattr(existing_snapshot, key, value)
+        else:
+            insert_values["id"] = insert_values["id"] or uuid.uuid4()
+            db.add(SubscriberBillingRiskSnapshot(**insert_values))
+        refreshed += 1
+
+    db.commit()
+    return {"rows": refreshed, "failed": failed, "refreshed_at": started_at.isoformat()}
 
 
 def churned_subscribers_rows(
@@ -3235,57 +3630,134 @@ def churned_subscribers_rows(
     limit: int = 50,
     *,
     behavioral_days: int = 60,
+    live_enrichment: bool = False,
 ) -> list[dict]:
-    """Detailed unified churned subscribers in the selected date range."""
-    resolved = _unified_churn_expressions(db, behavioral_days)
-    activation_event_at = resolved["activation_event_at"]
-    churn_event_at = resolved["churn_date"]
-    churn_type = resolved["churn_type"]
-    successful_payment_sq = resolved["successful_payment_sq"]
-    subs = db.execute(
+    """Detailed Lost-stage retention customers in the selected date range."""
+    latest_retention_sq = _latest_retention_engagement_subquery()
+    latest_outcome = func.lower(func.trim(func.coalesce(latest_retention_sq.c.outcome, "")))
+    retention_rows = db.execute(
         select(
-            Subscriber.subscriber_number,
-            Subscriber.service_plan,
-            Subscriber.service_region,
-            activation_event_at.label("activation_event_at"),
-            churn_event_at.label("churn_event_at"),
-            churn_type.label("churn_type"),
-            Person.first_name,
-            Person.last_name,
-            Person.display_name,
+            latest_retention_sq.c.customer_external_id,
+            latest_retention_sq.c.customer_name,
+            latest_retention_sq.c.outcome,
+            latest_retention_sq.c.created_at,
         )
-        .outerjoin(successful_payment_sq, successful_payment_sq.c.person_id == Subscriber.person_id)
-        .outerjoin(Person, Person.id == Subscriber.person_id)
         .where(
-            churn_event_at.isnot(None),
-            churn_event_at >= start_dt,
-            churn_event_at <= end_dt,
-            activation_event_at <= churn_event_at,
+            latest_outcome.in_(RETENTION_LOST_STAGE_OUTCOMES),
+            _retention_customer_not_excluded_clause(latest_retention_sq),
+            latest_retention_sq.c.created_at >= start_dt,
+            latest_retention_sq.c.created_at <= end_dt,
         )
-        .order_by(churn_event_at.desc())
+        .order_by(latest_retention_sq.c.created_at.desc(), latest_retention_sq.c.customer_external_id)
         .limit(limit)
     ).all()
+    retention_rows = [row for row in retention_rows if not _is_excluded_report_customer_name(row.customer_name)]
+
+    customer_ids = [
+        str(row.customer_external_id or "").strip()
+        for row in retention_rows
+        if str(row.customer_external_id or "").strip()
+    ]
+    customer_names = [
+        str(row.customer_name or "").strip() for row in retention_rows if str(row.customer_name or "").strip()
+    ]
+    snapshots_by_external_id: dict[str, SubscriberBillingRiskSnapshot] = {}
+    snapshots_by_name: dict[str, SubscriberBillingRiskSnapshot] = {}
+    subscribers_by_external_id: dict[str, Any] = {}
+    if customer_ids or customer_names:
+        snapshot_filters = []
+        if customer_ids:
+            snapshot_filters.append(SubscriberBillingRiskSnapshot.external_id.in_(customer_ids))
+        if customer_names:
+            snapshot_filters.append(SubscriberBillingRiskSnapshot.name.in_(customer_names))
+        snapshot_rows = db.scalars(select(SubscriberBillingRiskSnapshot).where(or_(*snapshot_filters))).all()
+        snapshots_by_external_id = {str(row.external_id or "").strip(): row for row in snapshot_rows}
+        snapshots_by_name = {
+            key: row
+            for row in snapshot_rows
+            if (key := _report_lookup_key(getattr(row, "name", None))) and key not in snapshots_by_name
+        }
+
+    if customer_ids:
+        subscriber_rows = db.execute(
+            select(Subscriber, Person)
+            .outerjoin(Person, Person.id == Subscriber.person_id)
+            .where(Subscriber.external_id.in_(customer_ids))
+            .order_by(Subscriber.created_at.desc())
+        ).all()
+        for subscriber, person in subscriber_rows:
+            external_id = str(subscriber.external_id or "").strip()
+            if external_id and external_id not in subscribers_by_external_id:
+                subscribers_by_external_id[external_id] = (subscriber, person)
 
     results = []
-    for row in subs:
-        raw_name = row.display_name or f"{row.first_name or ''} {row.last_name or ''}".strip() or row.subscriber_number
-        name = _clean_report_name(raw_name)
-        region = _normalize_city_name(row.service_region)
-        tenure = 0
-        if row.activation_event_at and row.churn_event_at:
-            tenure = max(0, (row.churn_event_at.date() - row.activation_event_at.date()).days)
-        results.append(
-            {
-                "name": name,
-                "subscriber_number": row.subscriber_number or "",
-                "plan": row.service_plan or "",
-                "region": region,
-                "activated_at": row.activation_event_at.strftime("%Y-%m-%d") if row.activation_event_at else "",
-                "terminated_at": row.churn_event_at.strftime("%Y-%m-%d") if row.churn_event_at else "",
-                "churn_type": row.churn_type or "",
-                "tenure_days": tenure,
-            }
+    for row in retention_rows:
+        customer_id = str(row.customer_external_id or "").strip()
+        snapshot = snapshots_by_external_id.get(customer_id) or snapshots_by_name.get(
+            _report_lookup_key(row.customer_name)
         )
+        subscriber_pair = subscribers_by_external_id.get(customer_id)
+        subscriber = subscriber_pair[0] if subscriber_pair else None
+        person = subscriber_pair[1] if subscriber_pair else None
+        person_name = ""
+        if person:
+            person_name = person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip()
+
+        raw_name = (
+            getattr(snapshot, "name", None)
+            or person_name
+            or row.customer_name
+            or getattr(subscriber, "subscriber_number", None)
+            or customer_id
+        )
+        name = _clean_report_name(raw_name)
+        region = _normalize_city_name(
+            getattr(snapshot, "location", None)
+            or getattr(snapshot, "city", None)
+            or getattr(subscriber, "service_region", None)
+            or getattr(subscriber, "service_city", None)
+        )
+        activated_at = getattr(subscriber, "activated_at", None) or getattr(snapshot, "billing_start_date", None)
+        churn_event_at = row.created_at
+        tenure = 0
+        if activated_at and churn_event_at:
+            activated_date = _date_value(activated_at)
+            churn_date = _date_value(churn_event_at)
+            if activated_date and churn_date:
+                tenure = max(0, (churn_date - activated_date).days)
+        result_row = {
+            "name": name,
+            "subscriber_number": getattr(snapshot, "subscriber_number", None)
+            or getattr(subscriber, "subscriber_number", None)
+            or customer_id,
+            "plan": getattr(snapshot, "plan", None)
+            or getattr(subscriber, "service_plan", None)
+            or getattr(subscriber, "service_name", None)
+            or "",
+            "region": region,
+            "activated_at": activated_at.strftime("%Y-%m-%d") if activated_at else "",
+            "terminated_at": churn_event_at.strftime("%Y-%m-%d") if churn_event_at else "",
+            "churn_type": "retention",
+            "outcome": row.outcome or "",
+            "tenure_days": tenure,
+            "_customer_external_id": customer_id,
+        }
+        if live_enrichment and (
+            not result_row["plan"]
+            or not result_row["region"]
+            or result_row["region"] == "Unknown"
+            or not result_row["activated_at"]
+        ):
+            live_details = _live_churned_subscriber_details(db, customer_id, name)
+            for key in ("plan", "region", "activated_at"):
+                if live_details.get(key):
+                    result_row[key] = live_details[key]
+            if result_row["activated_at"] and churn_event_at:
+                activated_date = _parse_iso_date_text(str(result_row["activated_at"]))
+                if activated_date is not None:
+                    result_row["tenure_days"] = max(0, (churn_event_at.date() - activated_date).days)
+        result_row.pop("_customer_external_id", None)
+        results.append(result_row)
     return results
 
 
@@ -3297,12 +3769,12 @@ def churned_failed_payment_rows(
     *,
     behavioral_days: int = 60,
 ) -> list[dict]:
-    """Behavioral churn in period with outstanding failed payment signals."""
-    resolved = _unified_churn_expressions(db, behavioral_days)
+    """Churned subscribers in period with outstanding unpaid or partial balances."""
+    resolved = _churned_report_expressions(db)
     activation_event_at = resolved["activation_event_at"]
     churn_event_at = resolved["churn_date"]
     churn_type = resolved["churn_type"]
-    successful_payment_sq = resolved["successful_payment_sq"]
+    latest_retention_sq = resolved["latest_retention_sq"]
     rows = db.execute(
         select(
             Subscriber.subscriber_number,
@@ -3383,7 +3855,7 @@ def churned_failed_payment_rows(
                 )
             ).label("latest_payment_update"),
         )
-        .outerjoin(successful_payment_sq, successful_payment_sq.c.person_id == Subscriber.person_id)
+        .outerjoin(latest_retention_sq, latest_retention_sq.c.customer_external_id == Subscriber.external_id)
         .outerjoin(Person, Person.id == Subscriber.person_id)
         .outerjoin(
             SalesOrder,
@@ -3394,7 +3866,6 @@ def churned_failed_payment_rows(
             churn_event_at >= start_dt,
             churn_event_at <= end_dt,
             activation_event_at <= churn_event_at,
-            churn_type == "behavioral",
         )
         .group_by(
             Subscriber.subscriber_number,
@@ -3981,6 +4452,148 @@ def _strict_churn_event_at():
             else_=None,
         ),
     )
+
+
+def _latest_retention_engagement_subquery():
+    """Latest active customer retention engagement per external customer ID."""
+    ranked = (
+        select(
+            CustomerRetentionEngagement.customer_external_id.label("customer_external_id"),
+            CustomerRetentionEngagement.customer_name.label("customer_name"),
+            CustomerRetentionEngagement.outcome.label("outcome"),
+            CustomerRetentionEngagement.note.label("note"),
+            CustomerRetentionEngagement.created_at.label("created_at"),
+            func.row_number()
+            .over(
+                partition_by=CustomerRetentionEngagement.customer_external_id,
+                order_by=(CustomerRetentionEngagement.created_at.desc(), CustomerRetentionEngagement.id.desc()),
+            )
+            .label("row_number"),
+        )
+        .where(
+            CustomerRetentionEngagement.is_active.is_(True),
+            CustomerRetentionEngagement.customer_external_id.isnot(None),
+        )
+        .subquery()
+    )
+    return (
+        select(
+            ranked.c.customer_external_id,
+            ranked.c.customer_name,
+            ranked.c.outcome,
+            ranked.c.note,
+            ranked.c.created_at,
+        )
+        .where(ranked.c.row_number == 1)
+        .subquery()
+    )
+
+
+def _retention_lost_stage_customer_count(db: Session, start_dt: datetime, end_dt: datetime) -> int:
+    latest_retention_sq = _latest_retention_engagement_subquery()
+    latest_outcome = func.lower(func.trim(func.coalesce(latest_retention_sq.c.outcome, "")))
+    return int(
+        db.scalar(
+            select(func.count(func.distinct(latest_retention_sq.c.customer_external_id))).where(
+                latest_outcome.in_(RETENTION_LOST_STAGE_OUTCOMES),
+                _retention_customer_not_excluded_clause(latest_retention_sq),
+                latest_retention_sq.c.created_at >= start_dt,
+                latest_retention_sq.c.created_at <= end_dt,
+            )
+        )
+        or 0
+    )
+
+
+def _retention_lost_stage_customer_ids(db: Session, start_dt: datetime, end_dt: datetime) -> list[str]:
+    latest_retention_sq = _latest_retention_engagement_subquery()
+    latest_outcome = func.lower(func.trim(func.coalesce(latest_retention_sq.c.outcome, "")))
+    rows = db.execute(
+        select(latest_retention_sq.c.customer_external_id)
+        .where(
+            latest_outcome.in_(RETENTION_LOST_STAGE_OUTCOMES),
+            _retention_customer_not_excluded_clause(latest_retention_sq),
+            latest_retention_sq.c.created_at >= start_dt,
+            latest_retention_sq.c.created_at <= end_dt,
+        )
+        .order_by(latest_retention_sq.c.customer_external_id)
+    ).all()
+    return [str(customer_id or "").strip() for (customer_id,) in rows if str(customer_id or "").strip()]
+
+
+def _retention_lost_stage_revenue(db: Session, start_dt: datetime, end_dt: datetime) -> float:
+    customer_ids = _retention_lost_stage_customer_ids(db, start_dt, end_dt)
+    if not customer_ids:
+        return 0.0
+
+    total = 0.0
+    covered_customer_ids: set[str] = set()
+    snapshot_rows = db.execute(
+        select(SubscriberBillingRiskSnapshot.external_id, SubscriberBillingRiskSnapshot.mrr_total).where(
+            SubscriberBillingRiskSnapshot.external_id.in_(customer_ids)
+        )
+    ).all()
+    for external_id, mrr_total in snapshot_rows:
+        customer_id = str(external_id or "").strip()
+        mrr_value = float(mrr_total or 0)
+        if customer_id and mrr_value > 0:
+            total += mrr_value
+            covered_customer_ids.add(customer_id)
+
+    remaining_customer_ids = [customer_id for customer_id in customer_ids if customer_id not in covered_customer_ids]
+    if remaining_customer_ids:
+        subscriber_rows = db.execute(
+            select(
+                Subscriber.external_id, Subscriber.service_plan, Subscriber.service_name, Subscriber.service_speed
+            ).where(Subscriber.external_id.in_(remaining_customer_ids))
+        ).all()
+        for _external_id, service_plan, service_name, service_speed in subscriber_rows:
+            total += _estimate_monthly_plan_value(service_plan or service_name, service_speed)
+
+    return round(total, 2)
+
+
+def _retention_tracked_customer_count(db: Session) -> int:
+    latest_retention_sq = _latest_retention_engagement_subquery()
+    return int(
+        db.scalar(
+            select(func.count(func.distinct(latest_retention_sq.c.customer_external_id))).where(
+                _retention_customer_not_excluded_clause(latest_retention_sq)
+            )
+        )
+        or 0
+    )
+
+
+def _churned_report_expressions(db: Session):
+    """Churned page rule: latest retention maps to Lost stage, else terminated/cancelled status."""
+    latest_retention_sq = _latest_retention_engagement_subquery()
+    activation_event_at = func.coalesce(Subscriber.activated_at, Subscriber.created_at)
+    latest_retention_outcome = func.lower(func.trim(func.coalesce(latest_retention_sq.c.outcome, "")))
+    retention_lost_stage_at = case(
+        (latest_retention_outcome.in_(RETENTION_LOST_STAGE_OUTCOMES), latest_retention_sq.c.created_at),
+        else_=None,
+    )
+    is_operational_status = or_(
+        Subscriber.status == SubscriberStatus.terminated,
+        cast(Subscriber.status, String).in_(["terminated", "cancelled"]),
+    )
+    operational_churn_date = func.coalesce(
+        Subscriber.terminated_at,
+        case((is_operational_status, Subscriber.updated_at), else_=None),
+    )
+    churn_date = func.coalesce(retention_lost_stage_at, operational_churn_date)
+    churn_type = case(
+        (retention_lost_stage_at.isnot(None), "retention"),
+        (operational_churn_date.isnot(None), "operational"),
+        else_=None,
+    )
+    return {
+        "activation_event_at": activation_event_at,
+        "latest_retention_sq": latest_retention_sq,
+        "churn_date": churn_date,
+        "churn_type": churn_type,
+    }
 
 
 def _successful_payment_subquery():

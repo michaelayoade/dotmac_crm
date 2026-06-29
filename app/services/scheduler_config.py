@@ -337,6 +337,28 @@ def build_beat_schedule() -> dict:
             interval_seconds=max(billing_risk_cache_interval, 600),
         )
 
+        retention_churn_detail_cache_enabled = _effective_bool(
+            session,
+            SettingDomain.scheduler,
+            "retention_churn_detail_cache_refresh_enabled",
+            "RETENTION_CHURN_DETAIL_CACHE_REFRESH_ENABLED",
+            True,
+        )
+        retention_churn_detail_cache_interval = _effective_int(
+            session,
+            SettingDomain.scheduler,
+            "retention_churn_detail_cache_refresh_interval_seconds",
+            "RETENTION_CHURN_DETAIL_CACHE_REFRESH_INTERVAL_SECONDS",
+            3600,
+        )
+        _sync_scheduled_task(
+            session,
+            name="retention_churn_detail_cache_refresh",
+            task_name="app.tasks.subscribers.refresh_retention_churn_detail_cache",
+            enabled=retention_churn_detail_cache_enabled,
+            interval_seconds=max(retention_churn_detail_cache_interval, 900),
+        )
+
         pending_mr_refresh_enabled = _effective_bool(
             session,
             SettingDomain.integration,

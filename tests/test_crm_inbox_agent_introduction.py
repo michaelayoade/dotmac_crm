@@ -111,5 +111,5 @@ def test_message_thread_has_insert_introduction_button():
         template = template_file.read()
 
     assert "Insert Introduction" in template
-    assert "insertIntroduction()" in template
+    assert "data-insert-introduction-button" in template
     assert "data-introduction-text" in template

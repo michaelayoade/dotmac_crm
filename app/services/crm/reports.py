@@ -1190,21 +1190,33 @@ def queue_wait_metrics(
     *,
     team_id: str | None = None,
 ) -> dict[str, Any]:
-    """Queue-wait statistics over conversations that were queued and then assigned
-    in the window. Wait = first_assigned_at - queued_at. Grouped overall, by team,
-    and by day."""
+    """Queue-wait statistics over completed queue cycles.
+
+    Newer rows use last_queue_* fields so re-queued conversations are measured
+    against their current queue cycle. Legacy rows fall back to
+    first_assigned_at - queued_at.
+    """
     import statistics
 
-    query = (
-        db.query(
-            Conversation.id,
-            Conversation.queued_at,
-            Conversation.first_assigned_at,
+    query = db.query(
+        Conversation.id,
+        Conversation.queued_at,
+        Conversation.first_assigned_at,
+        Conversation.last_queue_assigned_at,
+        Conversation.last_queue_wait_seconds,
+    ).filter(
+        (
+            (Conversation.last_queue_assigned_at.isnot(None))
+            & (Conversation.last_queue_assigned_at >= start_at)
+            & (Conversation.last_queue_assigned_at <= end_at)
         )
-        .filter(Conversation.queued_at.isnot(None))
-        .filter(Conversation.first_assigned_at.isnot(None))
-        .filter(Conversation.first_assigned_at >= start_at)
-        .filter(Conversation.first_assigned_at <= end_at)
+        | (
+            (Conversation.last_queue_assigned_at.is_(None))
+            & (Conversation.queued_at.isnot(None))
+            & (Conversation.first_assigned_at.isnot(None))
+            & (Conversation.first_assigned_at >= start_at)
+            & (Conversation.first_assigned_at <= end_at)
+        )
     )
     if team_id:
         query = query.join(ConversationAssignment, ConversationAssignment.conversation_id == Conversation.id).filter(
@@ -1215,18 +1227,23 @@ def queue_wait_metrics(
 
     waits: list[int] = []
     by_day: dict[str, list[int]] = {}
-    for _cid, queued_at, first_assigned_at in rows:
-        if queued_at is None or first_assigned_at is None:
-            continue
-        if queued_at.tzinfo is None:
-            queued_at = queued_at.replace(tzinfo=UTC)
-        if first_assigned_at.tzinfo is None:
-            first_assigned_at = first_assigned_at.replace(tzinfo=UTC)
-        wait = int((first_assigned_at - queued_at).total_seconds())
+    for _cid, queued_at, first_assigned_at, last_queue_assigned_at, last_queue_wait_seconds in rows:
+        if last_queue_assigned_at is not None and last_queue_wait_seconds is not None:
+            assigned_at = last_queue_assigned_at
+            wait = int(last_queue_wait_seconds)
+        else:
+            if queued_at is None or first_assigned_at is None:
+                continue
+            if queued_at.tzinfo is None:
+                queued_at = queued_at.replace(tzinfo=UTC)
+            assigned_at = first_assigned_at
+            if assigned_at.tzinfo is None:
+                assigned_at = assigned_at.replace(tzinfo=UTC)
+            wait = int((assigned_at - queued_at).total_seconds())
         if wait < 0:
             continue
         waits.append(wait)
-        day = first_assigned_at.date().isoformat()
+        day = assigned_at.date().isoformat()
         by_day.setdefault(day, []).append(wait)
 
     def _summary(values: list[int]) -> dict[str, Any]:

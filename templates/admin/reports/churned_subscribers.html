@@ -5,37 +5,321 @@
 
 {% block charts_js %}
 <script src="/static/js/vendor/chart.min.js"></script>
+<style>
+    .churn-trend-card {
+        --churn-chart-surface: #ffffff;
+        --churn-chart-text: #0f172a;
+        --churn-chart-muted: #64748b;
+        --churn-chart-border: #e2e8f0;
+        --churn-chart-grid: rgba(148, 163, 184, 0.26);
+        --churn-chart-line: #dc2626;
+        --churn-chart-fill: rgba(220, 38, 38, 0.10);
+    }
+
+    .dark .churn-trend-card {
+        --churn-chart-surface: #0f172a;
+        --churn-chart-text: #f8fafc;
+        --churn-chart-muted: #94a3b8;
+        --churn-chart-border: #334155;
+        --churn-chart-grid: rgba(148, 163, 184, 0.18);
+        --churn-chart-fill: rgba(220, 38, 38, 0.14);
+    }
+
+    .churn-trend-tooltip {
+        pointer-events: none;
+        position: absolute;
+        transform: translate(-50%, calc(-100% - 12px));
+        transition: opacity 120ms ease;
+        z-index: 10;
+    }
+
+    .churn-reasons-card {
+        --churn-reasons-surface: #ffffff;
+        --churn-reasons-text: #0f172a;
+        --churn-reasons-muted: #64748b;
+        --churn-reasons-border: #e2e8f0;
+        --churn-reasons-grid: rgba(148, 163, 184, 0.22);
+        --churn-reasons-bar: #e34948;
+        --churn-reasons-track: rgba(227, 73, 72, 0.10);
+    }
+
+    .dark .churn-reasons-card {
+        --churn-reasons-surface: #0f172a;
+        --churn-reasons-text: #f8fafc;
+        --churn-reasons-muted: #94a3b8;
+        --churn-reasons-border: #334155;
+        --churn-reasons-grid: rgba(148, 163, 184, 0.18);
+        --churn-reasons-track: rgba(227, 73, 72, 0.16);
+    }
+
+    .churn-kpi-card {
+        position: relative;
+        overflow: hidden;
+        border-radius: 12px;
+        border: 1px solid rgb(226 232 240);
+        background: rgb(255 255 255);
+        padding: 18px;
+    }
+
+    .dark .churn-kpi-card {
+        border-color: rgb(51 65 85);
+        background: rgb(15 23 42);
+    }
+
+    .churn-kpi-card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-top: 3px solid var(--kpi-accent);
+        background: linear-gradient(180deg, var(--kpi-soft), transparent 52%);
+        pointer-events: none;
+    }
+
+    .churn-kpi-icon {
+        align-items: center;
+        background: var(--kpi-soft);
+        border: 1px solid color-mix(in srgb, var(--kpi-accent) 24%, transparent);
+        border-radius: 10px;
+        color: var(--kpi-accent);
+        display: inline-flex;
+        height: 36px;
+        justify-content: center;
+        width: 36px;
+    }
+</style>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const churnTrend = {{ churn_trend | tojson }};
+    const churnReasons = {{ churn_reasons | tojson }};
     const trendCtx = document.getElementById("subscriber-churn-trend-chart");
+    const reasonsCtx = document.getElementById("subscriber-churn-reasons-chart");
+    const card = document.querySelector(".churn-trend-card");
+    const reasonsCard = document.querySelector(".churn-reasons-card");
 
-    if (trendCtx && churnTrend.length) {
-        new Chart(trendCtx, {
-            type: "line",
+    if (!window.Chart) {
+        return;
+    }
+
+    const styles = card ? getComputedStyle(card) : null;
+    const cssValue = (name) => styles ? styles.getPropertyValue(name).trim() : "";
+    const formatDate = (value) => {
+        const parsed = new Date(`${value}T00:00:00`);
+        if (Number.isNaN(parsed.getTime())) {
+            return value;
+        }
+        return new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(parsed);
+    };
+
+    if (trendCtx && card) {
+    const getOrCreateTooltip = (chart) => {
+        let tooltip = chart.canvas.parentNode.querySelector(".churn-trend-tooltip");
+        if (!tooltip) {
+            tooltip = document.createElement("div");
+            tooltip.className = "churn-trend-tooltip rounded-lg border px-3 py-2 text-xs";
+            chart.canvas.parentNode.appendChild(tooltip);
+        }
+        return tooltip;
+    };
+
+    const externalTooltip = (context) => {
+        const { chart, tooltip } = context;
+        const tooltipEl = getOrCreateTooltip(chart);
+
+        if (tooltip.opacity === 0) {
+            tooltipEl.style.opacity = "0";
+            return;
+        }
+
+        const item = tooltip.dataPoints && tooltip.dataPoints[0];
+        if (!item) {
+            tooltipEl.style.opacity = "0";
+            return;
+        }
+
+        tooltipEl.style.background = cssValue("--churn-chart-surface");
+        tooltipEl.style.borderColor = cssValue("--churn-chart-border");
+        tooltipEl.style.color = cssValue("--churn-chart-text");
+        tooltipEl.innerHTML = `
+            <div class="font-semibold">${formatDate(churnTrend[item.dataIndex]?.date || item.label)}</div>
+            <div class="mt-1 text-[11px]" style="color: ${cssValue("--churn-chart-muted")}">Churned subscribers: ${item.parsed.y}</div>
+        `;
+
+        const { offsetLeft, offsetTop } = chart.canvas;
+        tooltipEl.style.opacity = "1";
+        tooltipEl.style.left = `${offsetLeft + tooltip.caretX}px`;
+        tooltipEl.style.top = `${offsetTop + tooltip.caretY}px`;
+    };
+
+    const crosshairPlugin = {
+        id: "churnTrendCrosshair",
+        afterDraw(chart) {
+            const active = chart.tooltip?.getActiveElements?.() || [];
+            if (!active.length) {
+                return;
+            }
+            const ctx = chart.ctx;
+            const x = active[0].element.x;
+            const topY = chart.chartArea.top;
+            const bottomY = chart.chartArea.bottom;
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(x, topY);
+            ctx.lineTo(x, bottomY);
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = cssValue("--churn-chart-grid");
+            ctx.stroke();
+            ctx.restore();
+        },
+    };
+
+    new Chart(trendCtx, {
+        type: "line",
+        data: {
+            labels: churnTrend.map((row) => formatDate(row.date)),
+            datasets: [
+                {
+                    label: "Churned subscribers",
+                    data: churnTrend.map((row) => Number(row.count || 0)),
+                    borderColor: cssValue("--churn-chart-line"),
+                    backgroundColor: cssValue("--churn-chart-fill"),
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    pointHoverBorderWidth: 3,
+                    pointHoverBackgroundColor: cssValue("--churn-chart-line"),
+                    pointHoverBorderColor: cssValue("--churn-chart-surface"),
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            animation: { duration: 900, easing: "easeOutQuart" },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    enabled: false,
+                    external: externalTooltip,
+                },
+            },
+            scales: {
+                x: {
+                    grid: { display: false, drawBorder: false },
+                    border: { display: false },
+                    ticks: {
+                        autoSkip: true,
+                        maxRotation: 0,
+                        color: cssValue("--churn-chart-muted"),
+                    },
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: {
+                        color: cssValue("--churn-chart-grid"),
+                        drawBorder: false,
+                        lineWidth: 1,
+                    },
+                    border: { display: false },
+                    ticks: {
+                        precision: 0,
+                        color: cssValue("--churn-chart-muted"),
+                    },
+                },
+            },
+        },
+        plugins: [crosshairPlugin],
+    });
+    }
+
+    if (reasonsCtx && reasonsCard) {
+        const reasonStyles = getComputedStyle(reasonsCard);
+        const reasonCss = (name) => reasonStyles.getPropertyValue(name).trim();
+        const maxCount = Math.max(...churnReasons.map((row) => Number(row.count || 0)), 1);
+        const trackPlugin = {
+            id: "churnReasonTracks",
+            beforeDatasetsDraw(chart) {
+                const meta = chart.getDatasetMeta(0);
+                const xScale = chart.scales.x;
+                const ctx = chart.ctx;
+                ctx.save();
+                meta.data.forEach((bar) => {
+                    const props = bar.getProps(["y", "height"], true);
+                    const left = xScale.getPixelForValue(0);
+                    const right = xScale.getPixelForValue(maxCount);
+                    const trackHeight = Math.max(8, props.height);
+                    ctx.fillStyle = reasonCss("--churn-reasons-track");
+                    ctx.fillRect(left, props.y - trackHeight / 2, right - left, trackHeight);
+                });
+                ctx.restore();
+            },
+        };
+
+        new Chart(reasonsCtx, {
+            type: "bar",
             data: {
-                labels: churnTrend.map((row) => row.date),
+                labels: churnReasons.map((row) => row.reason),
                 datasets: [
                     {
-                        label: "Churned Subscribers",
-                        data: churnTrend.map((row) => row.count),
-                        borderColor: "#dc2626",
-                        backgroundColor: "rgba(220, 38, 38, 0.12)",
-                        borderWidth: 2,
-                        tension: 0.3,
-                        fill: true,
+                        label: "Churned customers",
+                        data: churnReasons.map((row) => Number(row.count || 0)),
+                        backgroundColor: reasonCss("--churn-reasons-bar"),
+                        borderColor: reasonCss("--churn-reasons-bar"),
+                        borderWidth: 0,
+                        borderRadius: 3,
+                        barPercentage: 0.72,
+                        categoryPercentage: 0.72,
                     },
                 ],
             },
             options: {
+                indexAxis: "y",
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
+                animation: { duration: 700, easing: "easeOutQuart" },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        displayColors: false,
+                        backgroundColor: reasonCss("--churn-reasons-surface"),
+                        borderColor: reasonCss("--churn-reasons-border"),
+                        borderWidth: 1,
+                        titleColor: reasonCss("--churn-reasons-text"),
+                        bodyColor: reasonCss("--churn-reasons-muted"),
+                        callbacks: {
+                            label(context) {
+                                return `Count: ${context.parsed.x}`;
+                            },
+                        },
+                    },
+                },
                 scales: {
-                    x: { grid: { display: false } },
-                    y: { beginAtZero: true, ticks: { precision: 0 } },
+                    x: {
+                        beginAtZero: true,
+                        suggestedMax: maxCount,
+                        grid: {
+                            color: reasonCss("--churn-reasons-grid"),
+                            drawBorder: false,
+                        },
+                        border: { display: false },
+                        ticks: {
+                            precision: 0,
+                            color: reasonCss("--churn-reasons-muted"),
+                        },
+                    },
+                    y: {
+                        grid: { display: false, drawBorder: false },
+                        border: { display: false },
+                        ticks: {
+                            color: reasonCss("--churn-reasons-text"),
+                            autoSkip: false,
+                        },
+                    },
                 },
             },
+            plugins: [trackPlugin],
         });
     }
 });
@@ -44,7 +328,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
 {% block content %}
 <div class="space-y-6">
-    {% call page_header("Churned Subscribers", "Standard churn dashboard with KPI cards, churn trend, and churn reason breakdown.", color="rose", color2="red") %}
+    {% call page_header("Churned Subscribers", "Churned subscriber data is sourced from Customer Retention outcomes marked as Lost, Churning, or Do Not Reach Out.", color="rose", color2="red") %}
         {{ action_button(
             "Export CSV",
             href="/admin/reports/subscribers/churned/export?days=" ~ days ~ "&behavioral_days=" ~ behavioral_days ~ ("&start_date=" ~ start_date if start_date else "") ~ ("&end_date=" ~ end_date if end_date else ""),
@@ -85,23 +369,67 @@ document.addEventListener("DOMContentLoaded", function () {
     </form>
     {% endcall %}
 
-    {% call dashboard_kpi_grid(cols="3") %}
-        {{ stats_card("Churned Subscribers (Period)", distinct_churned_subscribers_count, color="rose", color2="red") }}
-        {{ stats_card("Churn Rate", (kpis.churn_rate if kpis and kpis.churn_rate is not none else 0) ~ "%", color="amber", color2="orange") }}
-        {{ stats_card("Revenue Lost", "₦" ~ "{:,.2f}".format((kpis.revenue_lost_to_churn if kpis and kpis.revenue_lost_to_churn is not none else 0)), color="slate", color2="gray") }}
-    {% endcall %}
+    <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <article class="churn-kpi-card" style="--kpi-accent: #e34948; --kpi-soft: rgba(227, 73, 72, 0.10);">
+            <div class="relative flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Churned Subscribers</p>
+                    <p class="mt-2 text-4xl font-bold leading-none text-slate-950 dark:text-white">{{ distinct_churned_subscribers_count }}</p>
+                    <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Retention outcomes marked lost, churning, or do not reach out</p>
+                </div>
+                <span class="churn-kpi-icon">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 17l5-5m0 0l-5-5m5 5H9m4 5v1a3 3 0 01-3 3H6a3 3 0 01-3-3V6a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                </span>
+            </div>
+        </article>
+        <article class="churn-kpi-card" style="--kpi-accent: #d97706; --kpi-soft: rgba(217, 119, 6, 0.10);">
+            <div class="relative flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Churn Rate</p>
+                    <p class="mt-2 text-4xl font-bold leading-none text-slate-950 dark:text-white">{{ (kpis.churn_rate if kpis and kpis.churn_rate is not none else 0) }}%</p>
+                    <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Churned subscribers divided by tracked retention customers</p>
+                </div>
+                <span class="churn-kpi-icon">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 19V5m0 14h16M8 15l3-3 3 2 5-6"/></svg>
+                </span>
+            </div>
+        </article>
+        <article class="churn-kpi-card" style="--kpi-accent: #475569; --kpi-soft: rgba(71, 85, 105, 0.10);">
+            <div class="relative flex items-start justify-between gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Revenue Lost</p>
+                    <p class="mt-2 text-3xl font-bold leading-tight text-slate-950 dark:text-white">₦{{ "{:,.2f}".format((kpis.revenue_lost_to_churn if kpis and kpis.revenue_lost_to_churn is not none else 0)) }}</p>
+                    <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Estimated plan value for churned retention customers</p>
+                </div>
+                <span class="churn-kpi-icon">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-2.21 0-4 .895-4 2s1.79 2 4 2 4 .895 4 2-1.79 2-4 2m0-8V6m0 10v2"/></svg>
+                </span>
+            </div>
+        </article>
+    </section>
 
-    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
-        <div class="border-b border-slate-200/60 px-6 py-4 dark:border-slate-700/60">
-            <h2 class="font-semibold text-slate-900 dark:text-white">Churn Trend</h2>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Daily churned subscriber count for the selected range.</p>
-        </div>
-        <div class="p-6">
-            <div class="chart-container" style="min-height: 300px;">
-                <canvas id="subscriber-churn-trend-chart"></canvas>
+    <section class="churn-trend-card rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Churn Trend</h2>
+            <div class="flex items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300" aria-label="Chart legend">
+                <span class="h-3 w-3 rounded-sm" style="background: #dc2626"></span>
+                <span>Churned subscribers</span>
             </div>
         </div>
-    </div>
+        <div class="relative mt-4 h-72">
+            <canvas id="subscriber-churn-trend-chart"></canvas>
+        </div>
+    </section>
+
+    <section class="churn-reasons-card rounded-lg border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+        <div>
+            <h2 class="text-sm font-semibold text-slate-900 dark:text-white">Churn Reasons</h2>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Count of churned customers by reported reason</p>
+        </div>
+        <div class="relative mt-4 h-80">
+            <canvas id="subscriber-churn-reasons-chart"></canvas>
+        </div>
+    </section>
 
     {% call table_shell(table_id="churned-subscribers-table", title="Churned Subscribers", color="rose", count=churned_rows|length, bulk_selectable=False) %}
     <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
@@ -111,9 +439,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subscriber #</th>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Region</th>
+                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Outcome</th>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Activated</th>
                 <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Churned At</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tenure</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
@@ -123,99 +451,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_number }}</td>
                 <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan }}</td>
                 <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.region }}</td>
+                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.outcome }}</td>
                 <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.activated_at }}</td>
                 <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.terminated_at }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.tenure_days }}</td>
             {% endcall %}
             {% else %}
             {{ empty_state(title="No churned subscribers", message="No churned subscribers were found in the selected period.", color="rose", color2="red", colspan=7) }}
-            {% endfor %}
-        </tbody>
-    </table>
-    {% endcall %}
-
-    <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        {% call table_shell(table_id="failed-payment-churn-table", title="Behavioral Churn: Failed Payment", color="amber", count=failed_payment_rows|length, bulk_selectable=False) %}
-        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-            <thead>
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
-                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subscriber #</th>
-                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
-                    <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Outstanding</th>
-                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Latest Due</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                {% for row in failed_payment_rows %}
-                {% call table_row(color="amber") %}
-                    <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
-                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_number }}</td>
-                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan }}</td>
-                    <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.outstanding_balance or 0)|float) }}</td>
-                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.due_date }}</td>
-                {% endcall %}
-                {% else %}
-                {{ empty_state(title="No failed-payment churn", message="No churned subscribers with open unpaid balances were found.", color="amber", color2="orange", colspan=5) }}
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endcall %}
-
-        {% call table_shell(table_id="cancelled-churn-table", title="Operational Churn: Explicit Cancellation", color="rose", count=cancelled_rows|length, bulk_selectable=False) %}
-        <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-            <thead>
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
-                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subscriber #</th>
-                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
-                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Region</th>
-                    <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Canceled At</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                {% for row in cancelled_rows %}
-                {% call table_row(color="rose") %}
-                    <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
-                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_number }}</td>
-                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan }}</td>
-                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.region }}</td>
-                    <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.terminated_at }}</td>
-                {% endcall %}
-                {% else %}
-                {{ empty_state(title="No cancellation churn", message="No explicit cancellation events were found in the selected period.", color="rose", color2="red", colspan=5) }}
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endcall %}
-    </div>
-
-    {% call table_shell(table_id="inactive-usage-table", title="At-Risk Inactive Usage (90+ days no activity)", color="slate", count=inactive_usage_rows|length, bulk_selectable=False) %}
-    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-        <thead>
-            <tr>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Name</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subscriber #</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Plan</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Status</th>
-                <th class="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Last Usage</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Days Since Use</th>
-                <th class="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Paid</th>
-            </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-            {% for row in inactive_usage_rows %}
-            {% call table_row(color="slate") %}
-                <td class="px-6 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ row.name }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.subscriber_number }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.plan }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ status_badge(row.status|title, "warning" if row.status != "active" else "active", size="sm") }}</td>
-                <td class="px-6 py-3 text-sm text-slate-600 dark:text-slate-300">{{ row.last_usage_at or "No usage record" }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ row.days_since_use }}</td>
-                <td class="px-6 py-3 text-right text-sm text-slate-900 dark:text-white">{{ "{:,.2f}".format((row.total_paid or 0)|float) }}</td>
-            {% endcall %}
-            {% else %}
-            {{ empty_state(title="No inactive usage list", message="No subscribers qualified for the 90+ day inactivity list.", color="slate", color2="gray", colspan=7) }}
             {% endfor %}
         </tbody>
     </table>

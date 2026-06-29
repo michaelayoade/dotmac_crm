@@ -2472,7 +2472,7 @@ def subscriber_online_last_24h_export(
 def subscriber_lifecycle(
     request: Request,
     db: Session = Depends(get_db),
-    days: int = Query(0, ge=0, le=365),
+    days: int = Query(30, ge=0, le=365),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
     sort_by: str = Query("total_paid"),
@@ -2553,7 +2553,7 @@ def subscriber_lifecycle(
 @router.get("/subscribers/lifecycle/export")
 def subscriber_lifecycle_export(
     db: Session = Depends(get_db),
-    days: int = Query(0, ge=0, le=365),
+    days: int = Query(30, ge=0, le=365),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
 ):
@@ -2588,7 +2588,7 @@ def subscriber_lifecycle_export(
 def churned_subscribers(
     request: Request,
     db: Session = Depends(get_db),
-    days: int = Query(30, ge=0, le=365),
+    days: int = Query(0, ge=0, le=365),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
     behavioral_days: int = Query(60, ge=30, le=180),
@@ -2600,17 +2600,8 @@ def churned_subscribers(
     start_dt, end_dt = _resolve_lifecycle_date_range(db, days, start_date, end_date)
     kpis = sr.churned_subscribers_kpis(db, start_dt, end_dt, behavioral_days=behavioral_days)
     churn_trend = sr.churned_subscribers_trend(db, start_dt, end_dt, behavioral_days=behavioral_days)
+    churn_reasons = sr.churned_subscribers_reason_breakdown(db, start_dt, end_dt)
     churned_rows = sr.churned_subscribers_rows(db, start_dt, end_dt, limit=100, behavioral_days=behavioral_days)
-    failed_payment_rows = sr.churned_failed_payment_rows(
-        db,
-        start_dt,
-        end_dt,
-        limit=50,
-        behavioral_days=behavioral_days,
-    )
-    cancelled_rows = sr.churned_cancelled_rows(db, start_dt, end_dt, limit=50)
-    inactive_usage_rows = sr.churned_inactive_usage_rows(db, end_dt, limit=50)
-
     churned_count = kpis.get("churned_count")
     if churned_count is None:
         churned_count = kpis.get("terminated_in_period")
@@ -2618,8 +2609,8 @@ def churned_subscribers(
         churned_count = len(churned_rows)
     kpis["churned_count"] = int(churned_count or 0)
 
-    active_at_start = int(kpis.get("total_active_subscribers_start") or 0)
-    kpis["churn_rate"] = round((kpis["churned_count"] / active_at_start) * 100, 1) if active_at_start > 0 else 0.0
+    tracked_count = int(kpis.get("retention_tracked_count") or kpis.get("total_active_subscribers_start") or 0)
+    kpis["churn_rate"] = round((kpis["churned_count"] / tracked_count) * 100, 1) if tracked_count > 0 else 0.0
 
     return templates.TemplateResponse(
         "admin/reports/churned_subscribers.html",
@@ -2632,10 +2623,8 @@ def churned_subscribers(
             "active_menu": "reports",
             "kpis": kpis,
             "churn_trend": churn_trend,
+            "churn_reasons": churn_reasons,
             "churned_rows": churned_rows,
-            "failed_payment_rows": failed_payment_rows,
-            "cancelled_rows": cancelled_rows,
-            "inactive_usage_rows": inactive_usage_rows,
             "distinct_churned_subscribers_count": kpis["churned_count"],
             "days": days,
             "start_date": start_date or "",
@@ -2648,7 +2637,7 @@ def churned_subscribers(
 @router.get("/subscribers/churned/export")
 def churned_subscribers_export(
     db: Session = Depends(get_db),
-    days: int = Query(30, ge=0, le=365),
+    days: int = Query(0, ge=0, le=365),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
     behavioral_days: int = Query(60, ge=30, le=180),

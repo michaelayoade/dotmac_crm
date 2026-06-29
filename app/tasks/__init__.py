@@ -63,6 +63,7 @@ from app.tasks.subscriber_outreach import (
 from app.tasks.subscribers import (
     reconcile_subscriber_identity,
     refresh_billing_risk_cache,
+    refresh_retention_churn_detail_cache,
     sync_subscribers_from_selfcare,
     sync_subscribers_from_ucrm,
     sync_subscribers_generic,
@@ -109,6 +110,7 @@ __all__ = [
     "refresh_expiring_tokens",
     "refresh_material_request_erp_status",
     "refresh_pending_material_request_erp_statuses",
+    "refresh_retention_churn_detail_cache",
     "reopen_due_snoozed_conversations_task",
     "requeue_stale_pending_deliveries",
     "resolve_stale_offline_outreach_conversations_task",

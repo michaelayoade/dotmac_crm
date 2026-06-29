@@ -50,11 +50,13 @@ class Conversation(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     response_time_seconds: Mapped[int | None] = mapped_column(Integer)
     resolution_time_seconds: Mapped[int | None] = mapped_column(Integer)
-    # Queue lifecycle: queued_at is set when a conversation waits for an available
-    # agent; first_assigned_at is set the first time an agent is assigned. Queue
-    # wait = first_assigned_at - queued_at.
+    # Queue lifecycle: queued_at is set only while a conversation is currently
+    # waiting for an available agent; first_assigned_at is historical.
     queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     first_assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_queue_assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_queue_wait_seconds: Mapped[int | None] = mapped_column(Integer)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

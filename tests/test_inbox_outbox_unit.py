@@ -118,3 +118,72 @@ def test_list_due_outbox_ids(db_session, person):
     )
     due = outbox.list_due_outbox_ids(db_session, limit=10)
     assert str(queued.id) in due
+
+
+def test_list_due_outbox_ids_includes_stale_sending(db_session, person):
+    conversation = _create_conversation(db_session, person)
+    payload = InboxSendRequest(
+        conversation_id=conversation.id,
+        channel_type=ChannelType.email,
+        body="Hello",
+    )
+    queued = outbox.enqueue_outbound_message(
+        db_session,
+        payload=payload,
+        author_id=None,
+        dispatch=False,
+    )
+    queued.status = outbox.STATUS_SENDING
+    queued.attempts = 1
+    queued.last_attempt_at = datetime.now(UTC) - outbox.STUCK_SENDING_TIMEOUT - timedelta(minutes=1)
+    db_session.add(queued)
+    db_session.commit()
+
+    due = outbox.list_due_outbox_ids(db_session, limit=10)
+    assert str(queued.id) in due
+
+
+def test_list_due_outbox_ids_excludes_fresh_sending(db_session, person):
+    conversation = _create_conversation(db_session, person)
+    payload = InboxSendRequest(
+        conversation_id=conversation.id,
+        channel_type=ChannelType.email,
+        body="Hello",
+    )
+    queued = outbox.enqueue_outbound_message(
+        db_session,
+        payload=payload,
+        author_id=None,
+        dispatch=False,
+    )
+    queued.status = outbox.STATUS_SENDING
+    queued.attempts = 1
+    queued.last_attempt_at = datetime.now(UTC)
+    db_session.add(queued)
+    db_session.commit()
+
+    due = outbox.list_due_outbox_ids(db_session, limit=10)
+    assert str(queued.id) not in due
+
+
+def test_list_due_outbox_ids_excludes_very_old_sending(db_session, person):
+    conversation = _create_conversation(db_session, person)
+    payload = InboxSendRequest(
+        conversation_id=conversation.id,
+        channel_type=ChannelType.email,
+        body="Hello",
+    )
+    queued = outbox.enqueue_outbound_message(
+        db_session,
+        payload=payload,
+        author_id=None,
+        dispatch=False,
+    )
+    queued.status = outbox.STATUS_SENDING
+    queued.attempts = 1
+    queued.last_attempt_at = datetime.now(UTC) - outbox.MAX_STUCK_SENDING_RETRY_AGE - timedelta(minutes=1)
+    db_session.add(queued)
+    db_session.commit()
+
+    due = outbox.list_due_outbox_ids(db_session, limit=10)
+    assert str(queued.id) not in due

@@ -1043,12 +1043,21 @@
           hx-target="#message-thread"
           hx-swap="innerHTML transition:false"
           hx-on::after-request="
+              this.dataset.submitting = '';
+              var btn = this.querySelector('button[type=submit]');
+              if (btn) { btn.disabled = false; btn.classList.remove('opacity-60', 'pointer-events-none'); }
               if (!event.detail.successful) {
-                  this.dataset.submitting = '';
-                  var btn = this.querySelector('button[type=submit]');
-                  if (btn) { btn.disabled = false; btn.classList.remove('opacity-60', 'pointer-events-none'); }
                   var errEl = this.querySelector('[x-ref=messageError]');
                   if (errEl) { errEl.textContent = 'Failed to send. Please try again.'; }
+              } else {
+                  var keyEl = this.querySelector('input[name=idempotency_key]');
+                  if (keyEl) {
+                      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                          keyEl.value = window.crypto.randomUUID();
+                      } else {
+                          keyEl.value = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                      }
+                  }
               }
               htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML transition:false'});
           "
@@ -1106,7 +1115,7 @@
             <!-- Template + schedule -->
             <div class="flex flex-col gap-2">
                 <button type="button"
-                        @click="insertIntroduction()"
+                        data-insert-introduction-button
                         class="inline-flex items-center justify-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-700 shadow-sm hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-200 dark:hover:bg-primary-500/20">
                     Insert Introduction
                 </button>

@@ -847,9 +847,21 @@ def assign_conversation(
         assignment = ConversationAssignments.create(db, payload)
 
         # Stamp the first time an agent (not a team-only queue) takes the chat —
-        # powers queue-wait metrics (first_assigned_at - queued_at). Idempotent.
+        # historical and idempotent.
+        assigned_now = _now()
         if agent_uuid and conversation.first_assigned_at is None:
-            conversation.first_assigned_at = _now()
+            conversation.first_assigned_at = assigned_now
+            db.add(conversation)
+            db.commit()
+
+        if agent_uuid and conversation.queued_at is not None:
+            queued_at = conversation.queued_at
+            if queued_at.tzinfo is None:
+                queued_at = queued_at.replace(tzinfo=UTC)
+            conversation.last_queued_at = queued_at
+            conversation.last_queue_assigned_at = assigned_now
+            conversation.last_queue_wait_seconds = max(0, int((assigned_now - queued_at).total_seconds()))
+            conversation.queued_at = None
             db.add(conversation)
             db.commit()
 

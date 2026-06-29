@@ -53,3 +53,11 @@ def test_field_permissions_exist_after_seed(db_session):
         permission = db_session.query(Permission).filter(Permission.key == key).first()
         assert permission is not None, f"missing seeded permission: {key}"
         assert permission.is_active
+
+
+def test_postpaid_customers_permission_exists_after_seed(db_session):
+    seed_rbac.seed_roles_and_permissions(db_session)
+
+    permission = db_session.query(Permission).filter(Permission.key == "reports:postpaid-customers:read").first()
+    assert permission is not None
+    assert permission.is_active

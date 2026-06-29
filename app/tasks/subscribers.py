@@ -176,6 +176,35 @@ def refresh_billing_risk_cache() -> dict[str, Any]:
         observe_job("billing_risk_cache_refresh", status, time.monotonic() - start)
 
 
+@celery_app.task(name="app.tasks.subscribers.refresh_retention_churn_detail_cache")
+def refresh_retention_churn_detail_cache() -> dict[str, Any]:
+    """Refresh cached live details for retention-sourced churn report rows."""
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("RETENTION_CHURN_DETAIL_CACHE_REFRESH_START")
+    try:
+        from app.services.subscriber_reports import refresh_retention_churn_detail_cache as refresh_cache
+
+        result = refresh_cache(session, limit=250)
+        logger.info(
+            "RETENTION_CHURN_DETAIL_CACHE_REFRESH_COMPLETE rows=%d failed=%d refreshed_at=%s",
+            result.get("rows", 0),
+            result.get("failed", 0),
+            result.get("refreshed_at"),
+        )
+        return result
+    except Exception:
+        status = "error"
+        session.rollback()
+        logger.exception("RETENTION_CHURN_DETAIL_CACHE_REFRESH_ERROR")
+        raise
+    finally:
+        session.close()
+        observe_job("retention_churn_detail_cache_refresh", status, time.monotonic() - start)
+
+
 @celery_app.task(name="app.tasks.subscribers.reconcile_subscriber_identity")
 def reconcile_subscriber_identity(
     external_system: str = SELFCARE_EXTERNAL_SYSTEM,

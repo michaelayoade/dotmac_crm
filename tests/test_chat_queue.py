@@ -64,6 +64,29 @@ def test_assign_or_enqueue_assigns_when_available(db_session, crm_contact, crm_a
     assert conv.queued_at is None
 
 
+def test_agent_assignment_closes_current_queue_cycle(db_session, crm_contact, crm_agent, crm_team, crm_agent_team):
+    _online(db_session, crm_agent)
+    conv = _conversation(db_session, crm_contact)
+    conv.queued_at = datetime.now(UTC) - timedelta(minutes=2)
+    db_session.commit()
+
+    assignment = conversation_service.assign_conversation(
+        db_session,
+        conversation_id=str(conv.id),
+        agent_id=str(crm_agent.id),
+        team_id=str(crm_team.id),
+    )
+
+    db_session.refresh(conv)
+    assert assignment is not None
+    assert assignment.agent_id == crm_agent.id
+    assert conv.queued_at is None
+    assert conv.last_queued_at is not None
+    assert conv.last_queue_assigned_at is not None
+    assert conv.last_queue_wait_seconds is not None
+    assert conv.last_queue_wait_seconds >= 120
+
+
 def test_assign_or_enqueue_queues_when_no_one_available(db_session, crm_contact, crm_agent, crm_team, crm_agent_team):
     # Agent is offline -> not available -> conversation is queued.
     db_session.add(
@@ -238,6 +261,23 @@ def test_queue_wait_metrics_aggregates(db_session, crm_contact, crm_team):
     result = crm_reports.queue_wait_metrics(db_session, now - timedelta(days=1), now + timedelta(minutes=1))
     assert result["overall"]["count"] == 1
     assert result["overall"]["median_seconds"] == 120
+
+
+def test_queue_wait_metrics_uses_completed_queue_cycle(db_session, crm_contact):
+    from app.services.crm import reports as crm_reports
+
+    now = datetime.now(UTC)
+    conv = _conversation(db_session, crm_contact)
+    conv.first_assigned_at = now - timedelta(days=2)
+    conv.last_queued_at = now - timedelta(minutes=5)
+    conv.last_queue_assigned_at = now - timedelta(minutes=1)
+    conv.last_queue_wait_seconds = 240
+    db_session.commit()
+
+    result = crm_reports.queue_wait_metrics(db_session, now - timedelta(hours=1), now + timedelta(minutes=1))
+
+    assert result["overall"]["count"] == 1
+    assert result["overall"]["median_seconds"] == 240
 
 
 def test_issue_classification_breakdown_groups(db_session, crm_contact, crm_team):

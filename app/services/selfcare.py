@@ -534,6 +534,23 @@ def fetch_customer_payments(
     )
 
 
+def fetch_customer_invoices(
+    db: Session,
+    customer_id: str,
+    *,
+    page: int = 1,
+    per_page: int = 100,
+) -> list[dict[str, Any]]:
+    return _rows(
+        _request_json(
+            db,
+            "GET",
+            "/finance/invoices",
+            params={"customer_id": customer_id, "page": page, "per_page": per_page},
+        )
+    )
+
+
 def fetch_customer_sessions(db: Session, subscriber_id: str, *, limit: int = 10000) -> list[dict[str, Any]]:
     rows = _rows(_request_json(db, "GET", f"/subscribers/{_enc(subscriber_id)}/sessions", params={"limit": limit}))
     return _warn_if_truncated(rows, limit, "/subscribers/{id}/sessions")

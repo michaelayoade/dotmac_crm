@@ -28,6 +28,8 @@ STATUS_SENT = "sent"
 STATUS_FAILED = "failed"
 
 MAX_OUTBOX_ATTEMPTS = 10
+STUCK_SENDING_TIMEOUT = timedelta(minutes=10)
+MAX_STUCK_SENDING_RETRY_AGE = timedelta(hours=1)
 
 
 def _now() -> datetime:
@@ -218,10 +220,22 @@ def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
 
 def list_due_outbox_ids(db: Session, *, limit: int = 50) -> list[str]:
     now = _now()
+    stale_sending_cutoff = now - STUCK_SENDING_TIMEOUT
+    stale_sending_retry_floor = now - MAX_STUCK_SENDING_RETRY_AGE
     items = (
         db.query(OutboxMessage)
-        .filter(OutboxMessage.status.in_([STATUS_QUEUED, STATUS_RETRYING]))
-        .filter((OutboxMessage.next_attempt_at.is_(None)) | (OutboxMessage.next_attempt_at <= now))
+        .filter(
+            (
+                OutboxMessage.status.in_([STATUS_QUEUED, STATUS_RETRYING])
+                & ((OutboxMessage.next_attempt_at.is_(None)) | (OutboxMessage.next_attempt_at <= now))
+            )
+            | (
+                (OutboxMessage.status == STATUS_SENDING)
+                & (OutboxMessage.last_attempt_at.isnot(None))
+                & (OutboxMessage.last_attempt_at < stale_sending_cutoff)
+                & (OutboxMessage.last_attempt_at >= stale_sending_retry_floor)
+            )
+        )
         .filter((OutboxMessage.attempts.is_(None)) | (OutboxMessage.attempts < MAX_OUTBOX_ATTEMPTS))
         .order_by(OutboxMessage.priority.desc(), OutboxMessage.created_at.asc())
         .limit(limit)

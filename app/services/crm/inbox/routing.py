@@ -214,7 +214,9 @@ def mark_conversation_queued(db: Session, conversation: Conversation) -> None:
     )
     if has_agent is not None:
         return
-    conversation.queued_at = datetime.now(UTC)
+    queued_at = datetime.now(UTC)
+    conversation.queued_at = queued_at
+    conversation.last_queued_at = queued_at
     db.add(conversation)
     db.commit()
 

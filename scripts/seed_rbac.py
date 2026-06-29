@@ -146,6 +146,7 @@ DEFAULT_PERMISSIONS = [
     ("reports:online-last-24h:read", "View active/online last 24h subscriber report"),
     ("reports:online-last-24h:write", "Run active/online last 24h subscriber report actions"),
     ("reports:operations", "View operations reports"),
+    ("reports:postpaid-customers:read", "View postpaid customers report"),
     ("reports:subscribers", "View subscriber reports"),
     # Legacy broad permissions (for backward compatibility)
     ("billing:read", "Read all billing data"),

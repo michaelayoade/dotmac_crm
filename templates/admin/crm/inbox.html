@@ -1350,6 +1350,30 @@ document.body.addEventListener('crmContactAssignmentUpdated', function(event) {
     }
 });
 
+window.insertInboxIntroductionFromButton = function(button) {
+    if (!button) return false;
+    const compose = button.closest('[data-introduction-text]');
+    const textarea = compose ? compose.querySelector('textarea[name="message"]') : document.getElementById('reply-textarea');
+    const text = compose && compose.dataset ? (compose.dataset.introductionText || '') : '';
+    if (!textarea || !text.trim()) return false;
+
+    const existing = textarea.value || '';
+    const separator = existing.trim() && !existing.endsWith('\n') ? '\n' : '';
+    textarea.value = `${existing}${separator}${text}`;
+    const pos = textarea.value.length;
+    textarea.focus();
+    textarea.setSelectionRange(pos, pos);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+};
+
+document.addEventListener('click', function(event) {
+    const button = event.target.closest('[data-insert-introduction-button]');
+    if (!button) return;
+    event.preventDefault();
+    window.insertInboxIntroductionFromButton(button);
+});
+
 function inboxController() {
     return {
         searchQuery: {{ (search or "") | tojson }},

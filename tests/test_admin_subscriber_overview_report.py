@@ -8,10 +8,11 @@ from starlette.requests import Request
 
 from app.models.crm.enums import LeadStatus
 from app.models.crm.sales import Lead
+from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.event_store import EventStore
 from app.models.person import ChannelType, PartyStatus, Person, PersonChannel
 from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus, SalesOrderStatus
-from app.models.subscriber import Subscriber, SubscriberStatus
+from app.models.subscriber import Subscriber, SubscriberBillingRiskSnapshot, SubscriberStatus
 from app.models.tickets import Ticket, TicketStatus
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services import subscriber_reports as subscriber_reports_service
@@ -2966,6 +2967,14 @@ def test_churned_subscribers_page_renders(monkeypatch):
     )
     monkeypatch.setattr(
         subscriber_reports_service,
+        "churned_subscribers_reason_breakdown",
+        lambda _db, _start, _end: [
+            {"reason": "Switched to competitor", "count": 3},
+            {"reason": "Budget cut", "count": 1},
+        ],
+    )
+    monkeypatch.setattr(
+        subscriber_reports_service,
         "churned_subscribers_rows",
         lambda _db, _start, _end, limit=100, behavioral_days=60: [
             {
@@ -3005,22 +3014,6 @@ def test_churned_subscribers_page_renders(monkeypatch):
             }
         ],
     )
-    monkeypatch.setattr(
-        subscriber_reports_service,
-        "churned_inactive_usage_rows",
-        lambda _db, _end, limit=50: [
-            {
-                "name": "Dormant User",
-                "subscriber_number": "SUB-12",
-                "plan": "SME",
-                "status": "suspended",
-                "last_usage_at": "2025-12-20",
-                "days_since_use": 100,
-                "total_paid": 50000.0,
-            }
-        ],
-    )
-
     request = Request(
         {
             "type": "http",
@@ -3048,14 +3041,520 @@ def test_churned_subscribers_page_renders(monkeypatch):
     assert "Churn Rate" in body
     assert "Revenue Lost" in body
     assert "Churn Trend" in body
-    assert "Behavioral Churn: Failed Payment" in body
-    assert "Operational Churn: Explicit Cancellation" in body
-    assert "At-Risk Inactive Usage (90+ days no activity)" in body
-    assert "Outstanding" in body
+    assert "subscriber-churn-trend-chart" in body
+    assert "Churn Reasons" in body
+    assert "Count of churned customers by reported reason" in body
+    assert "subscriber-churn-reasons-chart" in body
+    assert "Switched to competitor" in body
+    assert "Budget cut" in body
+    assert "Churned subscribers" in body
+    assert "Churned subscriber data is sourced from Customer Retention outcomes" in body
+    assert "Churned Customers with Unpaid Balance" not in body
+    assert "Operational Churn: Explicit Cancellation" not in body
+    assert "Tenure" not in body
+    assert "At-Risk Inactive Usage (90+ days no activity)" not in body
     assert "Former Customer" in body
-    assert "Payment Risk" in body
-    assert "Cancelled User" in body
-    assert "Dormant User" in body
+    assert "Payment Risk" not in body
+    assert "Cancelled User" not in body
+    assert "Dormant User" not in body
+
+
+def test_churned_subscribers_uses_retention_churning_and_operational_fallback(db_session):
+    now = datetime.now(UTC)
+    start_dt = now - timedelta(days=30)
+    end_dt = now
+
+    churning_person = Person(
+        first_name="Retention",
+        last_name="Churning",
+        email=f"retention-churning-{uuid4().hex}@example.com",
+    )
+    resolved_person = Person(
+        first_name="Retention",
+        last_name="Resolved",
+        email=f"retention-resolved-{uuid4().hex}@example.com",
+    )
+    unpaid_person = Person(first_name="Unpaid", last_name="Only", email=f"unpaid-only-{uuid4().hex}@example.com")
+    terminated_person = Person(
+        first_name="Terminated",
+        last_name="Fallback",
+        email=f"terminated-fallback-{uuid4().hex}@example.com",
+    )
+    db_session.add_all([churning_person, resolved_person, unpaid_person, terminated_person])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            Subscriber(
+                person_id=churning_person.id,
+                external_id="retention-churning-customer",
+                subscriber_number="SUB-RETENTION-CHURNING",
+                status=SubscriberStatus.suspended,
+                is_active=True,
+                activated_at=now - timedelta(days=120),
+                created_at=now - timedelta(days=120),
+            ),
+            Subscriber(
+                person_id=resolved_person.id,
+                external_id="retention-resolved-customer",
+                subscriber_number="SUB-RETENTION-RESOLVED",
+                status=SubscriberStatus.suspended,
+                is_active=True,
+                activated_at=now - timedelta(days=120),
+                created_at=now - timedelta(days=120),
+            ),
+            Subscriber(
+                person_id=unpaid_person.id,
+                external_id="unpaid-only-customer",
+                subscriber_number="SUB-UNPAID-ONLY",
+                status=SubscriberStatus.active,
+                is_active=True,
+                activated_at=now - timedelta(days=120),
+                created_at=now - timedelta(days=120),
+                next_bill_date=now - timedelta(days=90),
+                balance="5000.00",
+                sync_metadata={"last_transaction_date": (now - timedelta(days=90)).strftime("%Y-%m-%d")},
+            ),
+            Subscriber(
+                person_id=terminated_person.id,
+                external_id="terminated-fallback-customer",
+                subscriber_number="SUB-TERMINATED-FALLBACK",
+                status=SubscriberStatus.terminated,
+                is_active=False,
+                activated_at=now - timedelta(days=120),
+                created_at=now - timedelta(days=120),
+                terminated_at=now - timedelta(days=6),
+            ),
+        ]
+    )
+    db_session.add_all(
+        [
+            SubscriberBillingRiskSnapshot(
+                external_id="retention-churning-customer",
+                external_system="selfcare",
+                name="Retention Churning",
+                risk_segment="Churned",
+                mrr_total=Decimal("10000.00"),
+                balance=Decimal("0.00"),
+                refreshed_at=now,
+            ),
+            SubscriberBillingRiskSnapshot(
+                external_id="retention-churning-without-subscriber",
+                external_system="selfcare",
+                name="Retention Churning Without Subscriber",
+                risk_segment="Churned",
+                mrr_total=Decimal("20000.00"),
+                balance=Decimal("0.00"),
+                refreshed_at=now,
+            ),
+            SubscriberBillingRiskSnapshot(
+                external_id="retention-lost-counted",
+                external_system="selfcare",
+                name="Retention Lost Counted",
+                risk_segment="Churned",
+                mrr_total=Decimal("30000.00"),
+                balance=Decimal("0.00"),
+                refreshed_at=now,
+            ),
+            SubscriberBillingRiskSnapshot(
+                external_id="retention-do-not-reach-out-counted",
+                external_system="selfcare",
+                name="Retention Do Not Reach Out Counted",
+                risk_segment="Churned",
+                mrr_total=Decimal("40000.00"),
+                balance=Decimal("0.00"),
+                refreshed_at=now,
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="retention-churning-customer",
+                customer_name="Retention Churning",
+                outcome="Churning",
+                is_active=True,
+                created_at=now - timedelta(days=5),
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="retention-churning-without-subscriber",
+                customer_name="Retention Churning Without Subscriber",
+                outcome="Churning",
+                is_active=True,
+                created_at=now - timedelta(days=4),
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="retention-resolved-customer",
+                customer_name="Retention Resolved",
+                outcome="Churning",
+                is_active=True,
+                created_at=now - timedelta(days=10),
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="retention-lost-counted",
+                customer_name="Retention Lost Counted",
+                outcome="Lost",
+                is_active=True,
+                created_at=now - timedelta(days=3),
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="retention-do-not-reach-out-counted",
+                customer_name="Retention Do Not Reach Out Counted",
+                outcome="Do Not Reach Out",
+                is_active=True,
+                created_at=now - timedelta(days=1),
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="test-customer",
+                customer_name="Test",
+                outcome="Churning",
+                is_active=True,
+                created_at=now - timedelta(hours=12),
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="retention-resolved-customer",
+                customer_name="Retention Resolved",
+                outcome="Resolved",
+                is_active=True,
+                created_at=now - timedelta(days=2),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    rows = subscriber_reports_service.churned_subscribers_rows(db_session, start_dt, end_dt, limit=20)
+    subscriber_numbers = {row["subscriber_number"]: row for row in rows}
+
+    assert subscriber_numbers["SUB-RETENTION-CHURNING"]["churn_type"] == "retention"
+    assert subscriber_numbers["SUB-RETENTION-CHURNING"]["outcome"] == "Churning"
+    assert (
+        subscriber_numbers["retention-churning-without-subscriber"]["name"] == "Retention Churning Without Subscriber"
+    )
+    assert subscriber_numbers["retention-lost-counted"]["outcome"] == "Lost"
+    assert subscriber_numbers["retention-do-not-reach-out-counted"]["outcome"] == "Do Not Reach Out"
+    assert "SUB-TERMINATED-FALLBACK" not in subscriber_numbers
+    assert "SUB-RETENTION-RESOLVED" not in subscriber_numbers
+    assert "SUB-UNPAID-ONLY" not in subscriber_numbers
+    assert "test-customer" not in subscriber_numbers
+
+    kpis = subscriber_reports_service.churned_subscribers_kpis(db_session, start_dt, end_dt)
+    assert kpis["churned_count"] == 4
+    assert kpis["total_churned_with_operational_fallback"] == 2
+    assert kpis["count_retention_churn"] == 4
+    assert kpis["retention_tracked_count"] == 5
+    assert kpis["churn_rate"] == 80.0
+    assert kpis["revenue_lost_to_churn"] == 100000.0
+    assert kpis["count_operational_churn"] == 1
+    assert kpis["count_behavioral_churn"] == 0
+
+    trend = subscriber_reports_service.churned_subscribers_trend(db_session, start_dt, end_dt)
+    trend_counts = {row["date"]: row["count"] for row in trend}
+    assert trend_counts[(now - timedelta(days=5)).strftime("%Y-%m-%d")] == 1
+    assert trend_counts[(now - timedelta(days=4)).strftime("%Y-%m-%d")] == 1
+    assert trend_counts[(now - timedelta(days=3)).strftime("%Y-%m-%d")] == 1
+    assert trend_counts[(now - timedelta(days=1)).strftime("%Y-%m-%d")] == 1
+    assert (now - timedelta(days=6)).strftime("%Y-%m-%d") not in trend_counts
+
+
+def test_churned_subscribers_reason_breakdown_uses_latest_retention_reason(db_session):
+    now = datetime.now(UTC)
+    db_session.add_all(
+        [
+            CustomerRetentionEngagement(
+                customer_external_id="reason-customer-1",
+                customer_name="Reason Customer 1",
+                outcome="Churning",
+                note="Switched to competitor",
+                is_active=True,
+                created_at=now - timedelta(days=5),
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="reason-customer-2",
+                customer_name="Reason Customer 2",
+                outcome="Lost",
+                note="Budget cut, cancelling subscription",
+                is_active=True,
+                created_at=now - timedelta(days=4),
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="reason-customer-3",
+                customer_name="Reason Customer 3",
+                outcome="Do Not Reach Out",
+                note="Switched to competitor",
+                is_active=True,
+                created_at=now - timedelta(days=3),
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="reason-customer-4",
+                customer_name="Reason Customer 4",
+                outcome="Lost",
+                note="null",
+                is_active=True,
+                created_at=now - timedelta(days=2),
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="reason-customer-5",
+                customer_name="Reason Customer 5",
+                outcome="Lost",
+                note="Customer moved to another ISP",
+                is_active=True,
+                created_at=now - timedelta(days=2),
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="reason-customer-6",
+                customer_name="Reason Customer 6",
+                outcome="Churning",
+                note="contact of a reseller, and he doesn't have an idea of why they stopped using our services",
+                is_active=True,
+                created_at=now - timedelta(days=2),
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="reason-customer-7",
+                customer_name="Reason Customer 7",
+                outcome="Lost",
+                note="they don't longer base here in Nigeria.",
+                is_active=True,
+                created_at=now - timedelta(days=2),
+            ),
+            CustomerRetentionEngagement(
+                customer_external_id="reason-customer-1",
+                customer_name="Reason Customer 1",
+                outcome="Resolved",
+                note="Do not count old reason",
+                is_active=True,
+                created_at=now - timedelta(days=1),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    rows = subscriber_reports_service.churned_subscribers_reason_breakdown(
+        db_session,
+        now - timedelta(days=30),
+        now,
+    )
+
+    assert rows == [
+        {"reason": "Budget cut, cancelling subscription", "count": 1},
+        {
+            "reason": "Contact of a reseller, and he doesn't have an idea of why they stopped using our services",
+            "count": 1,
+        },
+        {"reason": "Customer moved to another ISP", "count": 1},
+        {"reason": "Switched to competitor", "count": 1},
+        {"reason": "They don't longer base here in Nigeria", "count": 1},
+        {"reason": "Unspecified", "count": 1},
+    ]
+
+
+def test_churned_subscribers_enriches_missing_fields_from_live_selfcare(db_session, monkeypatch):
+    from app.services import selfcare
+
+    now = datetime.now(UTC)
+    db_session.add(
+        CustomerRetentionEngagement(
+            customer_external_id="live-retention-customer",
+            customer_name="Live Retention Customer",
+            outcome="Churning",
+            is_active=True,
+            created_at=now - timedelta(days=2),
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        selfcare,
+        "fetch_customer",
+        lambda _db, _subscriber_id: (_ for _ in ()).throw(selfcare.SelfcareProviderError("not found")),
+    )
+    monkeypatch.setattr(
+        selfcare,
+        "search_subscribers",
+        lambda _db, query, limit=50: [
+            {
+                "id": "empty-shell-id",
+                "name": query,
+                "location": "NG",
+                "address": "NG",
+            },
+            {
+                "id": "live-selfcare-id",
+                "name": query,
+                "location": "Abuja",
+                "address": "3 Dar Es Salam Street. Wuse 2, Abuja, NG",
+                "created_at": "2024-02-10T00:00:00Z",
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        selfcare,
+        "fetch_customer_internet_services",
+        lambda _db, subscriber_id: [
+            {
+                "id": "svc-1",
+                "subscriber_id": subscriber_id,
+                "description": "Unlimited Premium 50Mbps",
+                "status": "active",
+                "start_date": "2024-02-15T00:00:00Z",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        selfcare,
+        "fetch_customer_billing",
+        lambda _db, subscriber_id: {
+            "subscriber_id": subscriber_id,
+            "billing_start_date": "2024-02-20T00:00:00Z",
+        },
+    )
+
+    rows = subscriber_reports_service.churned_subscribers_rows(
+        db_session,
+        now - timedelta(days=30),
+        now,
+        limit=10,
+        live_enrichment=True,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["plan"] == "Unlimited Premium 50Mbps"
+    assert rows[0]["region"] == "Abuja"
+    assert rows[0]["activated_at"] == "2024-02-10"
+
+
+def test_churned_subscribers_enriches_missing_fields_from_live_selfcare_direct_id(db_session, monkeypatch):
+    from app.services import selfcare
+
+    now = datetime.now(UTC)
+    db_session.add(
+        CustomerRetentionEngagement(
+            customer_external_id="live-direct-customer",
+            customer_name="Live Direct Customer",
+            outcome="Lost",
+            is_active=True,
+            created_at=now - timedelta(days=2),
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        selfcare,
+        "fetch_customer",
+        lambda _db, subscriber_id: {
+            "id": subscriber_id,
+            "name": "Live Retention Customer",
+            "city": "Abuja",
+            "created_at": "2024-02-10T00:00:00Z",
+        },
+    )
+    monkeypatch.setattr(
+        selfcare,
+        "fetch_customer_internet_services",
+        lambda _db, _subscriber_id: [
+            {
+                "id": "svc-1",
+                "description": "Unlimited Premium 50Mbps",
+                "status": "active",
+                "start_date": "2024-02-15T00:00:00Z",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        selfcare,
+        "fetch_customer_billing",
+        lambda _db, _subscriber_id: {"billing_start_date": "2024-02-20T00:00:00Z"},
+    )
+
+    rows = subscriber_reports_service.churned_subscribers_rows(
+        db_session,
+        now - timedelta(days=30),
+        now,
+        limit=10,
+        live_enrichment=True,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["plan"] == "Unlimited Premium 50Mbps"
+    assert rows[0]["region"] == "Abuja"
+    assert rows[0]["activated_at"] == "2024-02-10"
+
+
+def test_retention_churn_detail_cache_populates_churned_rows(db_session, monkeypatch):
+    now = datetime.now(UTC)
+    db_session.add(
+        CustomerRetentionEngagement(
+            customer_external_id="stale-retention-id",
+            customer_name="Cached Retention Customer",
+            outcome="Churning",
+            is_active=True,
+            created_at=now - timedelta(days=2),
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        subscriber_reports_service,
+        "_live_churned_subscriber_details",
+        lambda _db, customer_id, customer_name="": {
+            "live_external_id": "live-selfcare-id",
+            "name": customer_name,
+            "subscriber_number": "SUB-CACHED",
+            "plan": "Unlimited Lite",
+            "region": "Abuja",
+            "activated_at": "2024-02-10",
+        },
+    )
+
+    result = subscriber_reports_service.refresh_retention_churn_detail_cache(db_session)
+    assert result["rows"] == 1
+
+    rows = subscriber_reports_service.churned_subscribers_rows(
+        db_session,
+        now - timedelta(days=30),
+        now,
+        limit=10,
+    )
+
+    assert rows[0]["subscriber_number"] == "SUB-CACHED"
+    assert rows[0]["plan"] == "Unlimited Lite"
+    assert rows[0]["region"] == "Abuja"
+    assert rows[0]["activated_at"] == "2024-02-10"
+
+
+def test_churned_subscribers_rows_uses_snapshot_name_when_retention_id_is_stale(db_session):
+    now = datetime.now(UTC)
+    db_session.add_all(
+        [
+            CustomerRetentionEngagement(
+                customer_external_id="old-numeric-id",
+                customer_name="Snapshot Matched Customer",
+                outcome="Lost",
+                is_active=True,
+                created_at=now - timedelta(days=2),
+            ),
+            SubscriberBillingRiskSnapshot(
+                external_id="live-uuid-id",
+                external_system="selfcare",
+                name="Snapshot Matched Customer",
+                subscriber_number="SUB-SNAPSHOT",
+                plan="Unlimited Lite",
+                location="Central Area, Abuja",
+                risk_segment="Churned",
+                balance=Decimal("0.00"),
+                billing_start_date=(now - timedelta(days=300)).date(),
+                refreshed_at=now,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    rows = subscriber_reports_service.churned_subscribers_rows(
+        db_session,
+        now - timedelta(days=30),
+        now,
+        limit=10,
+    )
+
+    assert rows[0]["subscriber_number"] == "SUB-SNAPSHOT"
+    assert rows[0]["plan"] == "Unlimited Lite"
+    assert rows[0]["region"] == "Abuja"
+    assert rows[0]["activated_at"] == (now - timedelta(days=300)).strftime("%Y-%m-%d")
 
 
 def test_churn_risk_summary_rolls_up_balances_and_recent_churn():

@@ -710,12 +710,35 @@ def test_postpaid_customers_dashboard_renders_cached_postpaid_rows(monkeypatch):
         selfcare_service, "fetch_customer_billing", lambda *_args, **_kwargs: pytest.fail("live billing lookup")
     )
     monkeypatch.setattr(
-        selfcare_service, "fetch_payments", lambda *_args, **_kwargs: pytest.fail("live payment lookup")
+        selfcare_service,
+        "fetch_payments",
+        lambda *_args, **_kwargs: [
+            {"customer_id": "postpaid-1", "date": "2026-06-20T09:00:00Z", "amount": 300000},
+            {"customer_id": "postpaid-1", "date": "2026-06-10T09:00:00Z", "amount": 225000},
+        ],
     )
     monkeypatch.setattr(
         selfcare_service,
         "fetch_customer_payments",
-        lambda *_args, **_kwargs: pytest.fail("live customer payment lookup"),
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        selfcare_service,
+        "fetch_customer_invoices",
+        lambda *_args, **_kwargs: [
+            {
+                "status": "overdue",
+                "balance_due": 450000,
+                "invoice_date": "2026-06-03T00:00:00Z",
+                "due_date": "2026-07-03T00:00:00Z",
+            },
+            {
+                "status": "paid",
+                "balance_due": 0,
+                "invoice_date": "2026-05-03T00:00:00Z",
+                "due_date": "2026-05-25T00:00:00Z",
+            },
+        ],
     )
     monkeypatch.setattr(
         selfcare_service,
@@ -757,7 +780,7 @@ def test_postpaid_customers_dashboard_renders_cached_postpaid_rows(monkeypatch):
     assert "Overdue Balance" in body
     assert "Customers with Overdue" in body
     assert "Unpaid Invoices" in body
-    assert "Prepaid Customers with Unpaid Balances" in body
+    assert "Prepaid Customers with Unpaid Balances" not in body
     assert "Average MRR" in body
     assert "Customer Status" in body
     assert "postpaid-customer-status-chart" in body
@@ -766,15 +789,18 @@ def test_postpaid_customers_dashboard_renders_cached_postpaid_rows(monkeypatch):
     assert "Top Customers By Outstanding Balance" in body
     assert "postpaid-top-balance-chart" in body
     assert "Lower Analytics" not in body
-    assert "Last Payment Recency" in body
-    assert "postpaid-payment-recency-chart" in body
-    assert "Last Payment Amount Trend" in body
-    assert "postpaid-payment-amount-trend-chart" in body
-    assert "Unpaid vs Overdue Invoices by Segment" in body
-    assert "postpaid-invoice-segment-chart" in body
-    assert "Invoice Aging by Overdue Balance" in body
-    assert "postpaid-invoice-aging-chart" in body
-    assert "Customer Detail Table" in body
+    assert "Last Payment Recency" not in body
+    assert "Paid &lt;30, 31-60, 61-90, &gt;90 days, or never paid." not in body
+    assert "postpaid-payment-recency-chart" not in body
+    assert "Last Payment Amount Trend" not in body
+    assert "postpaid-payment-amount-trend-chart" not in body
+    assert "Unpaid vs Overdue Invoices by Segment" not in body
+    assert "Stacked unpaid and overdue invoice counts by risk segment." not in body
+    assert "postpaid-invoice-segment-chart" not in body
+    assert "Invoice Aging by Overdue Balance" not in body
+    assert "postpaid-invoice-aging-chart" not in body
+    assert "Customer Detail Table" not in body
+    assert "Postpaid Customers with Unpaid Balances" in body
     assert "Customer Status" in body
     assert "Last Payment Date" in body
     assert "Last Payment Amount" in body
@@ -784,22 +810,19 @@ def test_postpaid_customers_dashboard_renders_cached_postpaid_rows(monkeypatch):
     assert "Outstanding Balance" in body
     assert "Overdue Balance" in body
     assert "Last Invoice Date" in body
-    assert "Last Online / Last Browsed" in body
+    assert "Last Online / Last Browsed" not in body
     assert "Billing Type" not in body
     assert "Top Locations By Revenue Owed" not in body
-    assert "Prepaid Customers with Unpaid Balances" in body
     assert "Postpaid Customer" in body
-    assert "Prepaid Customer" in body
+    assert "Prepaid Customer" not in body
     assert "Test Dotmac Customer" not in body
     assert "NGN 450,000.00" in body
-    assert "NGN 3,500.00" in body
-    assert "Revenue Owed" in body
-    assert "NGN 225,000.00" in body
-    assert "NGN 125,000.00" in body
+    assert "NGN 300,000.00" in body
+    assert "NGN 125,000.00" not in body
     assert "NGN 1,200,000.00" in body
-    assert "2026-06-10T09:00:00Z" in body
+    assert "2026-06-20" in body
+    assert "2026-06-20T09:00:00Z" not in body
     assert "2026-07-03" in body
-    assert "2026-06-25 12:00:00" in body
 
 
 def test_prepaid_unpaid_balance_rows_use_cached_active_invoice_balance_due():
@@ -848,7 +871,7 @@ def test_postpaid_detail_fields_use_cached_payment_fields(monkeypatch):
 
     billing_risk_web._postpaid_enrich_detail_fields(SimpleNamespace(), rows, latest_payments_by_customer={})
 
-    assert rows[0]["detail_last_payment_date"] == "2026-06-10T09:00:00Z"
+    assert rows[0]["detail_last_payment_date"] == "2026-06-10"
     assert rows[0]["detail_last_payment_amount"] == Decimal("225000")
 
 
@@ -874,8 +897,66 @@ def test_postpaid_detail_fields_prefer_bulk_cache_over_row_payment_fields(monkey
         latest_payments_by_customer={"postpaid-1": {"date": "2026-06-01T09:00:00Z", "amount": 175000}},
     )
 
-    assert rows[0]["detail_last_payment_date"] == "2026-06-01T09:00:00Z"
+    assert rows[0]["detail_last_payment_date"] == "2026-06-01"
     assert rows[0]["detail_last_payment_amount"] == Decimal("175000")
+
+
+def test_postpaid_latest_payments_falls_back_to_customer_payment_lookup(monkeypatch):
+    rows = [{"name": "Postpaid Customer", "_external_id": "postpaid-1"}]
+
+    monkeypatch.setattr(selfcare_service, "fetch_payments", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        selfcare_service,
+        "fetch_customer_payments",
+        lambda _db, customer_id, **_kwargs: [
+            {
+                "customer_id": customer_id,
+                "date": "2026-06-20T09:00:00Z",
+                "amount": 300000,
+            }
+        ],
+    )
+
+    latest_payments = billing_risk_web._postpaid_latest_payments_by_customer(SimpleNamespace(), rows)
+
+    assert latest_payments == {"postpaid-1": {"date": "2026-06-20T09:00:00Z", "amount": Decimal("300000")}}
+
+
+def test_postpaid_detail_fields_use_invoice_endpoint_counts(monkeypatch):
+    rows = [
+        {
+            "name": "PTAD",
+            "_external_id": "postpaid-1",
+            "billing_type": "postpaid",
+            "billing_mode": "postpaid",
+            "balance": 2084800,
+            "days_past_due": 0,
+        }
+    ]
+
+    monkeypatch.setattr(billing_risk_web, "_postpaid_last_seen_by_customer", lambda _db, _customer_ids: {})
+
+    billing_risk_web._postpaid_enrich_detail_fields(
+        SimpleNamespace(),
+        rows,
+        invoice_summaries_by_customer={
+            "postpaid-1": {
+                "unpaid_invoices": 2,
+                "overdue_invoices": 1,
+                "outstanding_balance": 125000,
+                "overdue_balance": 75000,
+                "last_invoice_date": "2026-06-03",
+                "next_due_date": "2026-06-25",
+            }
+        },
+    )
+
+    assert rows[0]["detail_unpaid_invoices"] == 2
+    assert rows[0]["detail_overdue_invoices"] == 1
+    assert rows[0]["detail_outstanding_balance"] == Decimal("125000")
+    assert rows[0]["detail_overdue_balance"] == Decimal("75000")
+    assert rows[0]["detail_last_invoice_date"] == "2026-06-03"
+    assert rows[0]["detail_next_due_date"] == "2026-06-25"
 
 
 def test_billing_risk_location_options_use_selfcare_location_names(monkeypatch):
