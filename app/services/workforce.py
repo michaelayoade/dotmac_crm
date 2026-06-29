@@ -374,15 +374,19 @@ class WorkOrders(ListResponseMixin):
         return work_order
 
     @staticmethod
-    def portal_list(db: Session, subscriber_id: str) -> list[dict]:
+    def portal_list(db: Session, subscriber_ids: list[str] | str) -> list[dict]:
         """Customer-facing work-order list (status, schedule, ETA, technician)
-        for the dotmac_sub field-service mirror. Scoped to one subscriber."""
-        sub_uuid = coerce_uuid(str(subscriber_id))
-        if sub_uuid is None:
+        for the dotmac_sub field-service mirror. Scoped to one subscriber, or to a
+        set of subscribers (a reseller's customer subtree)."""
+        if isinstance(subscriber_ids, str):
+            subscriber_ids = [subscriber_ids]
+        uuids = [coerce_uuid(str(s)) for s in subscriber_ids]
+        uuids = [u for u in uuids if u is not None]
+        if not uuids:
             return []
         work_orders = (
             db.query(WorkOrder)
-            .filter(WorkOrder.subscriber_id == sub_uuid)
+            .filter(WorkOrder.subscriber_id.in_(uuids))
             .filter(WorkOrder.is_active.is_(True))
             .order_by(WorkOrder.created_at.desc())
             .all()
