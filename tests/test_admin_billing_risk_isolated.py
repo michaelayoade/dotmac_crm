@@ -1,6 +1,6 @@
 import json
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -8,7 +8,8 @@ from uuid import UUID, uuid4
 import pytest
 from starlette.requests import Request
 
-from app.models.subscriber import SubscriberBillingRiskSnapshot
+from app.models.person import Person
+from app.models.subscriber import Subscriber, SubscriberBillingRiskSnapshot, SubscriberStatus
 from app.services import billing_risk_cache
 from app.services import billing_risk_reports as billing_risk_service
 from app.services import selfcare as selfcare_service
@@ -264,6 +265,9 @@ def test_subscriber_billing_risk_page_renders_from_isolated_module(monkeypatch):
     assert "event.preventDefault()" in body
     assert "subscriber_billing_risk_visible_" in body
     assert "'X-CSRF-Token': csrfToken()" in body
+    assert 'id="billing-risk-kpi-total-at-risk"' in body
+    assert "updateTopKpisFromFragment" in body
+    assert "data-billing-risk-bucket-card" in body
     assert "8&ndash;30 Days" in body
 
 
@@ -330,6 +334,133 @@ def test_billing_risk_live_rows_resolve_and_filter_location(monkeypatch):
     )
 
     assert rows == []
+
+
+def test_billing_risk_prefers_subscription_billing_mode(monkeypatch):
+    class Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+    class FakeDb:
+        def execute(self, _statement):
+            return Result([])
+
+    customer_payload = {
+        "id": "mode-100",
+        "name": "Mode Customer",
+        "status": "blocked",
+        "billing_mode": "postpaid",
+        "billing_type": "postpaid_monthly",
+        "billing": {
+            "subscription_billing_mode": "prepaid",
+            "account_billing_mode": "postpaid",
+            "billing_mode": "postpaid",
+            "billing_type": "prepaid_monthly",
+            "blocking_date": "2026-04-01",
+        },
+    }
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(selfcare_service, "fetch_customers", lambda _db: [customer_payload])
+    monkeypatch.setattr(selfcare_service, "fetch_locations", lambda _db: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(
+        selfcare_service, "fetch_customer_billing", lambda _db, _external_id: customer_payload["billing"]
+    )
+    monkeypatch.setattr(
+        selfcare_service,
+        "map_customer_to_subscriber_data",
+        lambda _db, _customer, include_remote_details=False: {
+            "status": "suspended",
+            "subscriber_number": "MODE-100",
+            "billing_cycle": "monthly",
+            "sync_metadata": {},
+        },
+    )
+
+    rows = billing_risk_service.get_billing_risk_table(
+        FakeDb(),
+        segment="suspended",
+        limit=10,
+        enrich_visible_rows=False,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["billing_type"] == "prepaid"
+    assert rows[0]["subscription_billing_mode"] == "prepaid"
+    assert rows[0]["billing_mode"] == "postpaid"
+    assert rows[0]["account_billing_mode"] == "postpaid"
+    assert rows[0]["_billing_type_raw"] == "postpaid_monthly"
+
+
+def test_billing_type_category_supports_mode_suffixes():
+    assert billing_risk_web._billing_type_category("prepaid_monthly") == "prepaid"
+    assert billing_risk_web._billing_type_category("postpaid_monthly") == "postpaid"
+    assert billing_risk_web._billing_type_category("recurring_monthly") == "postpaid"
+
+
+def test_billing_risk_uses_local_subscribers_when_selfcare_fetch_fails(db_session, monkeypatch):
+    person = Person(
+        first_name="Local",
+        last_name="Fallback",
+        display_name="Local Fallback",
+        email=f"local-fallback-{uuid4().hex}@example.com",
+        phone="08012345678",
+    )
+    db_session.add(person)
+    db_session.flush()
+    subscriber = Subscriber(
+        person_id=person.id,
+        external_system="selfcare",
+        external_id=f"local-{uuid4().hex}",
+        subscriber_number="LOCAL-1001",
+        status=SubscriberStatus.suspended,
+        service_plan="Home Fiber 50Mbps",
+        service_city="Abuja",
+        service_region="Abuja",
+        service_address_line1="12 Aminu Kano Crescent",
+        balance="1500",
+        billing_cycle="prepaid",
+        next_bill_date=datetime.now(UTC) - timedelta(days=3),
+        sync_metadata={
+            "billing_mode": "prepaid",
+            "blocked_date": "2026-04-01",
+            "invoiced_until": "2026-03-15",
+            "last_transaction_date": "2026-03-01",
+            "total_paid": "5000",
+        },
+    )
+    db_session.add(subscriber)
+    db_session.commit()
+
+    billing_risk_service.clear_live_splynx_cache()
+
+    def _raise_fetch_error(_db):
+        raise TimeoutError("selfcare timed out")
+
+    monkeypatch.setattr(selfcare_service, "fetch_customers", _raise_fetch_error)
+    monkeypatch.setattr(selfcare_service, "fetch_locations", lambda _db: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", lambda _db, _external_id: [])
+    monkeypatch.setattr(selfcare_service, "fetch_customer_billing", lambda _db, _external_id: {})
+
+    rows = billing_risk_service.get_billing_risk_table(
+        db_session,
+        segment="suspended",
+        limit=10,
+        enrich_visible_rows=False,
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["name"] == "Local Fallback"
+    assert rows[0]["risk_segment"] == "Suspended"
+    assert rows[0]["_external_id"] == subscriber.external_id
+    assert rows[0]["phone"] == "+2348012345678"
+    assert rows[0]["location"] == "Abuja"
+    assert rows[0]["billing_type"] == "prepaid"
+    assert rows[0]["_source"] == "local_subscriber_fallback"
 
 
 def test_billing_risk_live_rows_resolve_location_key_from_selfcare_locations(monkeypatch):
@@ -525,6 +656,39 @@ def test_billing_risk_cache_persists_and_filters_location(db_session):
     assert billing_risk_cache.location_options_cached(db_session) == ["Abuja", "Gwarimpa", "SPDC"]
 
 
+def test_billing_risk_cache_filters_postpaid_mode_suffixes(db_session):
+    refreshed_at = datetime.now(UTC)
+    db_session.add_all(
+        [
+            SubscriberBillingRiskSnapshot(
+                id=uuid4(),
+                external_system="selfcare",
+                external_id="postpaid-100",
+                name="Postpaid Customer",
+                risk_segment="Suspended",
+                balance=1000,
+                source_metadata={"billing_type": "postpaid_monthly"},
+                refreshed_at=refreshed_at,
+            ),
+            SubscriberBillingRiskSnapshot(
+                id=uuid4(),
+                external_system="selfcare",
+                external_id="prepaid-100",
+                name="Prepaid Customer",
+                risk_segment="Suspended",
+                balance=500,
+                source_metadata={"billing_type": "prepaid_monthly"},
+                refreshed_at=refreshed_at,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    page = billing_risk_cache.list_cached_rows(db_session, billing_type="postpaid")
+
+    assert [row["_external_id"] for row in page.rows] == ["postpaid-100"]
+
+
 def test_billing_risk_cache_snapshot_values_include_location():
     values = billing_risk_cache._snapshot_values(
         {
@@ -584,6 +748,28 @@ def test_billing_risk_cache_active_unpaid_invoice_summary_uses_balance_due():
     assert summary["count"] == 1
     assert summary["balance_due"] == "3500.00"
     assert summary["last_invoice_date"] == "2026-06-05"
+
+
+def test_subscriber_billing_risk_refresh_enqueues_sync_and_cache(monkeypatch):
+    enqueued: list[str] = []
+
+    class Task:
+        def __init__(self, name):
+            self.name = name
+
+        def delay(self):
+            enqueued.append(self.name)
+
+    monkeypatch.setattr(billing_risk_web, "sync_subscribers_from_selfcare", Task("sync"))
+    monkeypatch.setattr(billing_risk_web, "refresh_billing_risk_cache", Task("cache"))
+
+    response = billing_risk_web.subscriber_billing_risk_refresh(
+        request=SimpleNamespace(),
+        next_url="/admin/reports/subscribers/billing-risk",
+    )
+
+    assert response.status_code == 303
+    assert enqueued == ["sync", "cache"]
 
 
 def test_billing_risk_cache_display_location_skips_country_ids_and_addresses():
@@ -3079,6 +3265,9 @@ def test_subscriber_billing_risk_rows_returns_html(monkeypatch):
     assert "Canceled 1" in body
     assert "Total 7" in body
     assert "Total Balance Exposure" in body
+    assert 'id="billing-risk-results-fragment"' in body
+    assert 'data-kpi-total-at-risk="3"' in body
+    assert 'data-billing-risk-bucket-card="0-7"' in body
     assert "₦125,000.00" in body
     assert "/admin/support/tickets/19814" in body
     assert "/admin/support/tickets/19815" in body

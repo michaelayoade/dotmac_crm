@@ -28,7 +28,7 @@ from app.services.common import coerce_uuid
 from app.services.crm.web_campaigns import create_billing_risk_outreach_campaign, outreach_channel_target_options
 from app.services.customer_retention import create_retention_engagement_and_sync
 from app.services.external_systems import EXTERNAL_SUBSCRIBER_SYSTEMS
-from app.tasks.subscribers import sync_subscribers_from_selfcare
+from app.tasks.subscribers import refresh_billing_risk_cache, sync_subscribers_from_selfcare
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.auth.rbac import require_web_role
 from app.web.templates import Jinja2Templates
@@ -134,7 +134,7 @@ def _billing_type_category(value: object) -> str:
         return ""
     if normalized == "prepaid" or normalized.startswith("prepaid"):
         return "prepaid"
-    if normalized in {"recurring", "postpaid", "post_paid"}:
+    if normalized.startswith("postpaid") or normalized.startswith("recurring"):
         return "postpaid"
     return ""
 
@@ -144,7 +144,7 @@ def _billing_row_type_category(row: dict) -> str:
         normalized = str(row.get(key) or "").strip().lower().replace("-", "_").replace(" ", "_")
         if normalized == "prepaid":
             return "prepaid"
-        if normalized == "postpaid":
+        if normalized.startswith("postpaid") or normalized.startswith("recurring"):
             return "postpaid"
     return _billing_type_category(row.get("billing_type"))
 
@@ -2258,6 +2258,14 @@ def _retention_subscriber_row(subscriber: Subscriber, latest_engagement: dict[st
     customer_name = subscriber.display_name or engagement_name or "Unknown Customer"
     phone = str(getattr(person, "phone", "") or "").strip() or str(getattr(organization, "phone", "") or "").strip()
     email = str(getattr(person, "email", "") or "").strip() or str(getattr(organization, "email", "") or "").strip()
+    sync_metadata = subscriber.sync_metadata if isinstance(subscriber.sync_metadata, dict) else {}
+    billing_mode = str(sync_metadata.get("billing_mode") or "").strip()
+    subscription_billing_mode = str(sync_metadata.get("subscription_billing_mode") or "").strip()
+    billing_type = billing_risk_cache._display_billing_type(
+        billing_mode,
+        subscription_billing_mode,
+        sync_metadata.get("billing_type") or subscriber.billing_cycle,
+    )
     days_past_due = None
     if subscriber.suspended_at:
         days_past_due = max(0, (datetime.now(UTC).date() - subscriber.suspended_at.date()).days)
@@ -2277,9 +2285,9 @@ def _retention_subscriber_row(subscriber: Subscriber, latest_engagement: dict[st
         "next_bill_date": _retention_date_text(subscriber.next_bill_date),
         "balance": _coerce_money_value(subscriber.balance) or 0,
         "account_balance_deposit": None,
-        "billing_type": "unknown",
-        "billing_mode": "",
-        "subscription_billing_mode": "",
+        "billing_type": billing_type,
+        "billing_mode": billing_mode,
+        "subscription_billing_mode": subscription_billing_mode,
         "billing_cycle": subscriber.billing_cycle or "",
         "blocked_date": _retention_date_text(subscriber.suspended_at),
         "blocked_for_days": days_past_due,
@@ -3324,6 +3332,7 @@ def subscriber_billing_risk_refresh(
 
     try:
         sync_subscribers_from_selfcare.delay()
+        refresh_billing_risk_cache.delay()
         return RedirectResponse(url=_append_query_flag(next_url, "refresh_started", "1"), status_code=303)
     except Exception:
         logger.exception("Failed to enqueue Selfcare subscriber sync")

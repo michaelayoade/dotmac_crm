@@ -143,18 +143,57 @@ def _display_billing_type(
     subscription_billing_mode: object = None,
     billing_type: object = None,
 ) -> str:
-    for value in (billing_mode, subscription_billing_mode):
+    for value in (subscription_billing_mode, billing_mode):
         normalized = str(value or "").strip().casefold().replace("-", "_").replace(" ", "_")
-        if normalized == "prepaid":
+        if normalized.startswith("prepaid"):
             return "prepaid"
-        if normalized == "postpaid":
+        if normalized.startswith("postpaid") or normalized.startswith("recurring"):
             return "postpaid"
     normalized_type = str(billing_type or "").strip().casefold().replace("-", "_").replace(" ", "_")
     if normalized_type.startswith("prepaid"):
         return "prepaid"
-    if normalized_type in {"postpaid", "post_paid", "recurring"}:
+    if normalized_type.startswith("postpaid") or normalized_type.startswith("recurring"):
         return "postpaid"
     return "unknown"
+
+
+def _normalized_customer_status(value: str | None) -> str:
+    normalized = str(value or "all").strip().lower()
+    if normalized in {"active", "suspended", "all"}:
+        return normalized
+    return "all"
+
+
+def _normalized_billing_type(value: str | None) -> str:
+    normalized = str(value or "all").strip().lower()
+    if normalized in {"prepaid", "postpaid", "all"}:
+        return normalized
+    return "all"
+
+
+def _billing_type_expr():
+    source_type = func.lower(
+        func.coalesce(
+            SubscriberBillingRiskSnapshot.source_metadata["subscription_billing_mode"].as_string(),
+            SubscriberBillingRiskSnapshot.source_metadata["billing_mode"].as_string(),
+            SubscriberBillingRiskSnapshot.source_metadata["billing_type"].as_string(),
+            "",
+        )
+    )
+    billing_cycle = func.lower(func.coalesce(SubscriberBillingRiskSnapshot.billing_cycle, ""))
+    return case(
+        (or_(source_type.like("prepaid%"), billing_cycle.like("prepaid%")), "prepaid"),
+        (
+            or_(
+                source_type.like("postpaid%"),
+                source_type.like("recurring%"),
+                billing_cycle.like("postpaid%"),
+                billing_cycle.like("recurring%"),
+            ),
+            "postpaid",
+        ),
+        else_="unknown",
+    )
 
 
 def _first_text(*values: object) -> str:
@@ -320,6 +359,7 @@ def _snapshot_to_dict(row: SubscriberBillingRiskSnapshot) -> dict[str, Any]:
         ),
         "billing_mode": str(source_metadata.get("billing_mode") or ""),
         "subscription_billing_mode": str(source_metadata.get("subscription_billing_mode") or ""),
+        "account_billing_mode": str(source_metadata.get("account_billing_mode") or ""),
         "billing_cycle": row.billing_cycle or "",
         "blocked_date": _date_text(row.blocked_date),
         "blocked_for_days": row.blocked_for_days,
@@ -391,6 +431,8 @@ def _base_query(
     search: str | None,
     overdue_bucket: str | None,
     location: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
 ):
     query = db.query(SubscriberBillingRiskSnapshot)
     due_soon_days = max(1, min(int(due_soon_days or 7), 30))
@@ -459,6 +501,19 @@ def _base_query(
                 ),
             )
         )
+    normalized_status = _normalized_customer_status(customer_status)
+    if normalized_status == "active":
+        query = query.filter(func.lower(func.coalesce(SubscriberBillingRiskSnapshot.subscriber_status, "")) == "active")
+    elif normalized_status == "suspended":
+        query = query.filter(
+            func.lower(func.coalesce(SubscriberBillingRiskSnapshot.subscriber_status, "")) == "suspended"
+        )
+
+    normalized_billing_type = _normalized_billing_type(billing_type)
+    if normalized_billing_type == "prepaid":
+        query = query.filter(_billing_type_expr() == "prepaid")
+    elif normalized_billing_type == "postpaid":
+        query = query.filter(_billing_type_expr() == "postpaid")
     return query
 
 
@@ -485,6 +540,8 @@ def list_cached_rows(
     search: str | None = None,
     overdue_bucket: str | None = None,
     location: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
 ) -> BillingRiskPage:
     page = max(1, int(page or 1))
     page_size = max(1, min(int(page_size or 50), 100))
@@ -497,6 +554,8 @@ def list_cached_rows(
         search=search,
         overdue_bucket=overdue_bucket,
         location=location,
+        customer_status=customer_status,
+        billing_type=billing_type,
     )
     total_count = int(query.count())
     total_pages = max(1, (total_count + page_size - 1) // page_size)
@@ -533,6 +592,8 @@ def all_cached_rows(
     search: str | None = None,
     overdue_bucket: str | None = None,
     location: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
     limit: int = 2000,
 ) -> list[dict[str, Any]]:
     rows = (
@@ -545,6 +606,8 @@ def all_cached_rows(
             search=search,
             overdue_bucket=overdue_bucket,
             location=location,
+            customer_status=customer_status,
+            billing_type=billing_type,
         )
         .order_by(
             SubscriberBillingRiskSnapshot.is_high_balance_risk.desc(),
@@ -569,6 +632,8 @@ def cached_rows_by_external_ids(
     search: str | None = None,
     overdue_bucket: str | None = None,
     location: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
     limit: int | None = None,
 ) -> list[dict[str, Any]]:
     normalized_ids = sorted({str(value or "").strip() for value in external_ids if str(value or "").strip()})
@@ -583,6 +648,8 @@ def cached_rows_by_external_ids(
         search=search,
         overdue_bucket=overdue_bucket,
         location=location,
+        customer_status=customer_status,
+        billing_type=billing_type,
     ).filter(SubscriberBillingRiskSnapshot.external_id.in_(normalized_ids))
     rows = query.order_by(
         SubscriberBillingRiskSnapshot.is_high_balance_risk.desc(),
@@ -631,6 +698,8 @@ def _filtered_snapshot_query(
     search: str | None = None,
     overdue_bucket: str | None = None,
     location: str | None = None,
+    customer_status: str | None = None,
+    billing_type: str | None = None,
 ):
     return _base_query(
         db,
@@ -641,6 +710,8 @@ def _filtered_snapshot_query(
         search=search,
         overdue_bucket=overdue_bucket,
         location=location,
+        customer_status=customer_status,
+        billing_type=billing_type,
     )
 
 
@@ -898,6 +969,7 @@ def _snapshot_values(
             "billing_type": row.get("billing_type") or "",
             "billing_mode": row.get("billing_mode") or "",
             "subscription_billing_mode": row.get("subscription_billing_mode") or "",
+            "account_billing_mode": row.get("account_billing_mode") or "",
             "account_balance_deposit": row.get("account_balance_deposit"),
             "last_payment_date": _first_text(row.get("last_payment_date"), row.get("last_transaction_date")),
             "last_payment_amount": str(_parse_decimal(row.get("last_payment_amount"))),
@@ -905,7 +977,7 @@ def _snapshot_values(
             "prepaid_unpaid_invoice_balance_due": str(_parse_decimal(prepaid_invoice_summary.get("balance_due"))),
             "prepaid_unpaid_last_invoice_date": prepaid_invoice_summary.get("last_invoice_date") or "",
             "prepaid_unpaid_next_due_date": prepaid_invoice_summary.get("next_due_date") or "",
-            "source": "billing_risk_live_builder",
+            "source": row.get("_source") or "billing_risk_live_builder",
         },
         "refreshed_at": refreshed_at,
         "created_at": refreshed_at,

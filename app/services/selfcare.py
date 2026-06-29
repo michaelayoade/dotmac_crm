@@ -311,6 +311,23 @@ def fetch_payments(db: Session, *, offset: int = 0, limit: int = 5000) -> list[d
     return _rows(_request_json(db, "GET", "/finance/payments", params={"offset": offset, "limit": limit}))
 
 
+def fetch_customer_payments(
+    db: Session,
+    customer_id: str,
+    *,
+    page: int = 1,
+    per_page: int = 1,
+) -> list[dict[str, Any]]:
+    return _rows(
+        _request_json(
+            db,
+            "GET",
+            "/finance/payments",
+            params={"customer_id": customer_id, "page": page, "per_page": per_page},
+        )
+    )
+
+
 def fetch_customer_sessions(db: Session, subscriber_id: str, *, limit: int = 10000) -> list[dict[str, Any]]:
     return _rows(_request_json(db, "GET", f"/subscribers/{subscriber_id}/sessions", params={"limit": limit}))
 
@@ -484,7 +501,13 @@ def map_customer_to_subscriber_data(
         "selfcare_subscriber_number": _coalesce_str(
             customer.get("subscriber_number"), customer.get("login"), customer.get("account_number")
         ),
+        "subscription_billing_mode": _coalesce_str(
+            customer.get("subscription_billing_mode"), (billing or {}).get("subscription_billing_mode")
+        ),
         "billing_mode": _coalesce_str(customer.get("billing_mode"), (billing or {}).get("billing_mode")),
+        "account_billing_mode": _coalesce_str(
+            customer.get("account_billing_mode"), (billing or {}).get("account_billing_mode")
+        ),
         "billing_type": _coalesce_str(customer.get("billing_type"), (billing or {}).get("billing_type")),
         "invoiced_until": _coalesce_str(customer.get("invoiced_until"), (billing or {}).get("invoiced_until")),
         "total_paid": _normalize_decimal_str(customer.get("total_paid") or (billing or {}).get("total_paid")),

@@ -106,6 +106,10 @@ def test_selfcare_mapper_handles_null_lifecycle_fields_and_preserves_splynx_meta
             "suspended_at": None,
             "terminated_at": None,
             "billing": {
+                "subscription_billing_mode": "prepaid",
+                "billing_mode": "postpaid",
+                "account_billing_mode": "postpaid",
+                "billing_type": "prepaid_monthly",
                 "invoiced_until": None,
                 "total_paid": None,
                 "last_payment_date": None,
@@ -122,6 +126,10 @@ def test_selfcare_mapper_handles_null_lifecycle_fields_and_preserves_splynx_meta
     assert mapped["sync_metadata"]["splynx_id"] == "old-9"
     assert mapped["sync_metadata"]["selfcare_id"] == "sc-123"
     assert mapped["sync_metadata"]["source"] == "selfcare"
+    assert mapped["sync_metadata"]["subscription_billing_mode"] == "prepaid"
+    assert mapped["sync_metadata"]["billing_mode"] == "postpaid"
+    assert mapped["sync_metadata"]["account_billing_mode"] == "postpaid"
+    assert mapped["sync_metadata"]["billing_type"] == "prepaid_monthly"
 
 
 def test_fetch_customers_paginates(db_session, monkeypatch):

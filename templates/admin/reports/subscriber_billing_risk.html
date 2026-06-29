@@ -237,7 +237,7 @@
             <div class="relative flex items-start justify-between gap-4">
                 <div class="min-w-0">
                     <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">At-Risk Subscribers</p>
-                    <p class="mt-4 text-3xl font-semibold text-slate-900 dark:text-white">{{ kpis.total_at_risk|default(0) }}</p>
+                    <p id="billing-risk-kpi-total-at-risk" class="mt-4 text-3xl font-semibold text-slate-900 dark:text-white">{{ kpis.total_at_risk|default(0) }}</p>
                 </div>
                 <span class="billing-risk-exec-icon" aria-hidden="true">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a4 4 0 00-4-4h-1M9 20H4v-2a4 4 0 014-4h1m0-4a4 4 0 100-8 4 4 0 000 8zm8 0a4 4 0 100-8 4 4 0 000 8z"/></svg>
@@ -248,7 +248,7 @@
             <div class="relative flex items-start justify-between gap-4">
                 <div class="min-w-0">
                     <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total Balance Exposure</p>
-                    <p class="mt-4 text-3xl font-semibold text-slate-900 dark:text-white">₦{{ "{:,.2f}".format(kpis.total_balance_exposure|default(0)) }}</p>
+                    <p id="billing-risk-kpi-total-balance" class="mt-4 text-3xl font-semibold text-slate-900 dark:text-white">₦{{ "{:,.2f}".format(kpis.total_balance_exposure|default(0)) }}</p>
                 </div>
                 <span class="billing-risk-exec-icon" aria-hidden="true">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-2.21 0-4 .895-4 2s1.79 2 4 2 4 .895 4 2-1.79 2-4 2m0-8V6m0 10v2m8-6a8 8 0 11-16 0 8 8 0 0116 0z"/></svg>
@@ -259,7 +259,7 @@
             <div class="relative flex items-start justify-between gap-4">
                 <div class="min-w-0">
                     <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">High Balance Risk</p>
-                    <p class="mt-4 text-3xl font-semibold text-slate-900 dark:text-white">{{ kpis.high_balance_risk_count|default(0) }}</p>
+                    <p id="billing-risk-kpi-high-balance" class="mt-4 text-3xl font-semibold text-slate-900 dark:text-white">{{ kpis.high_balance_risk_count|default(0) }}</p>
                 </div>
                 <span class="billing-risk-exec-icon" aria-hidden="true">
                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
@@ -390,12 +390,20 @@
             const locationSelect = document.getElementById('billing-risk-location-filter');
             const currentMrrSortSelect = () => document.getElementById('billing-risk-mrr-sort');
             const exportLink = document.querySelector('a[href^="/admin/reports/subscribers/billing-risk/export"]');
+            const totalAtRiskKpi = document.getElementById('billing-risk-kpi-total-at-risk');
+            const totalBalanceKpi = document.getElementById('billing-risk-kpi-total-balance');
+            const highBalanceKpi = document.getElementById('billing-risk-kpi-high-balance');
+            const integerFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+            const moneyFormatter = new Intl.NumberFormat(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            });
             const filterState = {
                 bucket: results.dataset.bucket || 'all',
                 customerTier: results.dataset.customerTier || 'all',
                 location: results.dataset.location || locationSelect?.value || '',
                 mrrSort: results.dataset.mrrSort || '',
-                customerStatus: results.dataset.customerStatus || 'suspended',
+                customerStatus: results.dataset.customerStatus || 'all',
                 billingType: results.dataset.billingType || 'all',
                 segments: (results.dataset.segments || '').split(',').map((segment) => segment.trim()).filter(Boolean),
                 search: results.dataset.search || searchInput?.value || '',
@@ -693,6 +701,26 @@
                 }
             }
 
+            function applyBucketCardState() {
+                for (const candidate of document.querySelectorAll('[data-billing-risk-bucket-card]')) {
+                    const active = (candidate.getAttribute('data-billing-risk-bucket-card') || 'all') === filterState.bucket;
+                    candidate.setAttribute('aria-pressed', active ? 'true' : 'false');
+                    candidate.classList.toggle('ring-2', active);
+                    candidate.classList.toggle('ring-rose-500/20', active);
+                }
+            }
+
+            function updateTopKpisFromFragment() {
+                const fragment = document.getElementById('billing-risk-results-fragment');
+                if (!fragment) return;
+                const totalAtRisk = Number(fragment.dataset.kpiTotalAtRisk || '0');
+                const totalBalance = Number(fragment.dataset.kpiTotalBalance || '0');
+                const highBalance = Number(fragment.dataset.kpiHighBalance || '0');
+                if (totalAtRiskKpi) totalAtRiskKpi.textContent = integerFormatter.format(totalAtRisk);
+                if (totalBalanceKpi) totalBalanceKpi.textContent = `₦${moneyFormatter.format(totalBalance)}`;
+                if (highBalanceKpi) highBalanceKpi.textContent = integerFormatter.format(highBalance);
+            }
+
             function applyTierButtonState() {
                 for (const candidate of tierButtons) {
                     const active = (candidate.dataset.customerTier || 'all') === filterState.customerTier;
@@ -713,7 +741,7 @@
 
             function applyStatusButtonState() {
                 for (const candidate of statusButtons) {
-                    const active = (candidate.dataset.customerStatus || 'suspended') === filterState.customerStatus;
+                    const active = (candidate.dataset.customerStatus || 'all') === filterState.customerStatus;
                     candidate.classList.toggle('border-rose-300', active);
                     candidate.classList.toggle('bg-rose-50', active);
                     candidate.classList.toggle('text-rose-700', active);
@@ -982,7 +1010,7 @@
                     filterState.segments = Array.isArray(nextState.segments) ? nextState.segments : [];
                 }
                 if (Object.prototype.hasOwnProperty.call(nextState, 'customerStatus')) {
-                    filterState.customerStatus = nextState.customerStatus || 'suspended';
+                    filterState.customerStatus = nextState.customerStatus || 'all';
                 }
                 if (Object.prototype.hasOwnProperty.call(nextState, 'billingType')) {
                     filterState.billingType = nextState.billingType || 'all';
@@ -1036,17 +1064,21 @@
                 syncUrlState();
                 syncExportLink();
                 applyBucketButtonState();
+                applyBucketCardState();
                 applyStatusButtonState();
                 applyBillingButtonState();
                 applyTierButtonState();
+                updateTopKpisFromFragment();
                 hydrateResults();
             }
 
             hydrateResults();
             applyBucketButtonState();
+            applyBucketCardState();
             applyStatusButtonState();
             applyBillingButtonState();
             applyTierButtonState();
+            updateTopKpisFromFragment();
             if (searchInput) {
                 searchInput.value = filterState.search;
             }
@@ -1085,6 +1117,7 @@
                 results.dataset.billingType = 'all';
                 results.dataset.search = '';
                 applyBucketButtonState();
+                applyBucketCardState();
                 applyTierButtonState();
                 applyStatusButtonState();
                 applyBillingButtonState();
@@ -1099,16 +1132,18 @@
                 button.addEventListener('click', () => {
                     filterState.bucket = button.dataset.blockedBucket || 'all';
                     applyBucketButtonState();
+                    applyBucketCardState();
                     loadResults(1, true, { bucket: button.dataset.blockedBucket || 'all' });
                 });
             }
             for (const button of statusButtons) {
                 button.addEventListener('click', () => {
-                    filterState.customerStatus = button.dataset.customerStatus || 'suspended';
+                    filterState.customerStatus = button.dataset.customerStatus || 'all';
                     results.dataset.customerStatus = filterState.customerStatus;
                     filterState.bucket = 'all';
                     applyStatusButtonState();
                     applyBucketButtonState();
+                    applyBucketCardState();
                     loadResults(1, true, {
                         customerStatus: filterState.customerStatus,
                         bucket: 'all',
@@ -1213,6 +1248,16 @@
                 const engagementButton = target.closest('[data-engagement-open]');
                 if (engagementButton) {
                     openEngagementPanel(engagementButton);
+                    return;
+                }
+                const bucketCard = target.closest('[data-billing-risk-bucket-card]');
+                if (bucketCard && results.contains(bucketCard)) {
+                    const selectedBucket = bucketCard.getAttribute('data-billing-risk-bucket-card') || 'all';
+                    const nextBucket = filterState.bucket === selectedBucket ? 'all' : selectedBucket;
+                    filterState.bucket = nextBucket;
+                    applyBucketButtonState();
+                    applyBucketCardState();
+                    loadResults(1, true, { bucket: nextBucket });
                     return;
                 }
                 const pageButton = target.closest('[data-billing-risk-page]');

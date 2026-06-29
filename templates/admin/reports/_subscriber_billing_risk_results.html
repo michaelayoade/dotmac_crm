@@ -17,6 +17,7 @@
 {% set enterprise_threshold = enterprise_mrr_threshold|default(70000) %}
 {% set current_aging_buckets = aging_buckets|default([]) %}
 {% set empty_colspan = 13 %}
+{% set active_bucket = request.query_params.get('bucket', 'all') if request is defined else 'all' %}
 {% set page_size_control %}
 <label class="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
     Show
@@ -46,8 +47,15 @@
     {% endif %}
 {% endfor %}
 
+<div
+    id="billing-risk-results-fragment"
+    data-kpi-total-at-risk="{{ kpis.total_at_risk|default(metrics.total_count) if kpis is defined else metrics.total_count }}"
+    data-kpi-total-balance="{{ kpis.total_balance_exposure|default(metrics.total_balance) if kpis is defined else metrics.total_balance }}"
+    data-kpi-high-balance="{{ kpis.high_balance_risk_count|default(0) if kpis is defined else 0 }}"
+    data-active-bucket="{{ active_bucket }}"
+>
 <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-    <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60" style="--billing-risk-glow: rgba(59, 130, 246, 0.15); --billing-risk-icon-bg: rgba(59, 130, 246, 0.12); --billing-risk-icon-color: #3b82f6; --billing-risk-icon-shadow: rgba(59, 130, 246, 0.18);">
+    <button type="button" data-billing-risk-bucket-card="0-7" class="billing-risk-bucket-card billing-risk-exec-card w-full rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-blue-300 hover:bg-blue-50/50 dark:bg-slate-900/60 dark:hover:border-blue-700 dark:hover:bg-blue-950/20 {% if active_bucket == '0-7' %}border-blue-400 ring-2 ring-blue-500/20 dark:border-blue-500{% else %}border-slate-200 dark:border-slate-700{% endif %}" style="--billing-risk-glow: rgba(59, 130, 246, 0.15); --billing-risk-icon-bg: rgba(59, 130, 246, 0.12); --billing-risk-icon-color: #3b82f6; --billing-risk-icon-shadow: rgba(59, 130, 246, 0.18);" aria-pressed="{{ 'true' if active_bucket == '0-7' else 'false' }}">
         <div class="relative flex items-start justify-between gap-3">
             <div class="min-w-0">
                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">0&ndash;7 Days</p>
@@ -57,8 +65,8 @@
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3M4 11h16M5 5h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z"/></svg>
             </span>
         </div>
-    </div>
-    <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60" style="--billing-risk-glow: rgba(249, 115, 22, 0.15); --billing-risk-icon-bg: rgba(249, 115, 22, 0.12); --billing-risk-icon-color: #f97316; --billing-risk-icon-shadow: rgba(249, 115, 22, 0.18);">
+    </button>
+    <button type="button" data-billing-risk-bucket-card="8-30" class="billing-risk-bucket-card billing-risk-exec-card w-full rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-orange-300 hover:bg-orange-50/50 dark:bg-slate-900/60 dark:hover:border-orange-700 dark:hover:bg-orange-950/20 {% if active_bucket == '8-30' %}border-orange-400 ring-2 ring-orange-500/20 dark:border-orange-500{% else %}border-slate-200 dark:border-slate-700{% endif %}" style="--billing-risk-glow: rgba(249, 115, 22, 0.15); --billing-risk-icon-bg: rgba(249, 115, 22, 0.12); --billing-risk-icon-color: #f97316; --billing-risk-icon-shadow: rgba(249, 115, 22, 0.18);" aria-pressed="{{ 'true' if active_bucket == '8-30' else 'false' }}">
         <div class="relative flex items-start justify-between gap-3">
             <div class="min-w-0">
                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">8&ndash;30 Days</p>
@@ -68,8 +76,8 @@
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             </span>
         </div>
-    </div>
-    <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60" style="--billing-risk-glow: rgba(234, 179, 8, 0.15); --billing-risk-icon-bg: rgba(234, 179, 8, 0.12); --billing-risk-icon-color: #eab308; --billing-risk-icon-shadow: rgba(234, 179, 8, 0.18);">
+    </button>
+    <button type="button" data-billing-risk-bucket-card="31-60" class="billing-risk-bucket-card billing-risk-exec-card w-full rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-yellow-300 hover:bg-yellow-50/50 dark:bg-slate-900/60 dark:hover:border-yellow-700 dark:hover:bg-yellow-950/20 {% if active_bucket == '31-60' %}border-yellow-400 ring-2 ring-yellow-500/20 dark:border-yellow-500{% else %}border-slate-200 dark:border-slate-700{% endif %}" style="--billing-risk-glow: rgba(234, 179, 8, 0.15); --billing-risk-icon-bg: rgba(234, 179, 8, 0.12); --billing-risk-icon-color: #eab308; --billing-risk-icon-shadow: rgba(234, 179, 8, 0.18);" aria-pressed="{{ 'true' if active_bucket == '31-60' else 'false' }}">
         <div class="relative flex items-start justify-between gap-3">
             <div class="min-w-0">
                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">31&ndash;60 Days</p>
@@ -79,8 +87,8 @@
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 17h2m-6-4h10M5 7h14M6 3h12a1 1 0 011 1v16a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z"/></svg>
             </span>
         </div>
-    </div>
-    <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60" style="--billing-risk-glow: rgba(239, 68, 68, 0.15); --billing-risk-icon-bg: rgba(239, 68, 68, 0.12); --billing-risk-icon-color: #ef4444; --billing-risk-icon-shadow: rgba(239, 68, 68, 0.18);">
+    </button>
+    <button type="button" data-billing-risk-bucket-card="61+" class="billing-risk-bucket-card billing-risk-exec-card w-full rounded-xl border bg-white p-4 text-left shadow-sm transition hover:border-red-300 hover:bg-red-50/50 dark:bg-slate-900/60 dark:hover:border-red-700 dark:hover:bg-red-950/20 {% if active_bucket == '61+' %}border-red-400 ring-2 ring-red-500/20 dark:border-red-500{% else %}border-slate-200 dark:border-slate-700{% endif %}" style="--billing-risk-glow: rgba(239, 68, 68, 0.15); --billing-risk-icon-bg: rgba(239, 68, 68, 0.12); --billing-risk-icon-color: #ef4444; --billing-risk-icon-shadow: rgba(239, 68, 68, 0.18);" aria-pressed="{{ 'true' if active_bucket == '61+' else 'false' }}">
         <div class="relative flex items-start justify-between gap-3">
             <div class="min-w-0">
                 <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">61+ Days</p>
@@ -90,7 +98,7 @@
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
             </span>
         </div>
-    </div>
+    </button>
     <div class="billing-risk-exec-card rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60" style="--billing-risk-glow: rgba(59, 130, 246, 0.14); --billing-risk-icon-bg: rgba(59, 130, 246, 0.11); --billing-risk-icon-color: #3b82f6; --billing-risk-icon-shadow: rgba(59, 130, 246, 0.16);">
         <div class="relative flex items-start justify-between gap-3">
             <div class="min-w-0">
@@ -383,3 +391,4 @@
     syncSelection();
 })();
 </script>
+</div>

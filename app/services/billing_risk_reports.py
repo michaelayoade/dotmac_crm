@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -23,6 +24,8 @@ from app.models.subscriber import Subscriber, SubscriberStatus
 from app.models.tickets import Ticket, TicketStatus
 from app.services import subscriber_reports as subscriber_reports_service
 from app.services.external_systems import EXTERNAL_SUBSCRIBER_SYSTEMS
+
+logger = logging.getLogger(__name__)
 
 _clean_report_name = subscriber_reports_service._clean_report_name
 _coerce_datetime_utc = subscriber_reports_service._coerce_datetime_utc
@@ -455,7 +458,94 @@ def get_billing_risk_table(
             cache_scope=read_fn,
         )
 
-    customers = _call_sub("fetch_customers", fetch_customers)
+    def _local_subscriber_customers() -> list[dict[str, Any]]:
+        local_rows = (
+            db.query(Subscriber, Person)
+            .outerjoin(Person, Person.id == Subscriber.person_id)
+            .filter(Subscriber.is_active.is_(True))
+            .filter(Subscriber.external_system.in_(EXTERNAL_SUBSCRIBER_SYSTEMS))
+            .filter(Subscriber.external_id.isnot(None))
+            .order_by(Subscriber.updated_at.desc().nulls_last(), Subscriber.created_at.desc().nulls_last())
+            .all()
+        )
+        fallback_customers: list[dict[str, Any]] = []
+        for subscriber, person in local_rows:
+            external_id = str(subscriber.external_id or "").strip()
+            if not external_id:
+                continue
+            sync_metadata = subscriber.sync_metadata if isinstance(subscriber.sync_metadata, Mapping) else {}
+            status_value = subscriber.status.value if isinstance(subscriber.status, SubscriberStatus) else subscriber.status
+            display_name = (
+                str(getattr(person, "display_name", "") or "").strip()
+                or " ".join(
+                    part
+                    for part in (
+                        str(getattr(person, "first_name", "") or "").strip(),
+                        str(getattr(person, "last_name", "") or "").strip(),
+                    )
+                    if part
+                ).strip()
+                or str(subscriber.subscriber_number or subscriber.account_number or external_id).strip()
+            )
+            billing_payload = {
+                "subscription_billing_mode": sync_metadata.get("subscription_billing_mode"),
+                "billing_mode": sync_metadata.get("billing_mode"),
+                "account_billing_mode": sync_metadata.get("account_billing_mode"),
+                "billing_type": sync_metadata.get("billing_type"),
+                "invoiced_until": sync_metadata.get("invoiced_until"),
+                "total_paid": sync_metadata.get("total_paid"),
+                "last_transaction_date": sync_metadata.get("last_transaction_date"),
+                "last_payment_date": sync_metadata.get("last_transaction_date"),
+                "blocked_date": sync_metadata.get("blocked_date"),
+                "blocking_date": sync_metadata.get("blocked_date"),
+                "next_bill_date": subscriber.next_bill_date.isoformat() if subscriber.next_bill_date else "",
+                "balance": subscriber.balance,
+            }
+            fallback_customers.append(
+                {
+                    "_source": "local_subscriber_fallback",
+                    "id": external_id,
+                    "subscriber_id": external_id,
+                    "login": str(subscriber.subscriber_number or "").strip(),
+                    "subscriber_number": str(subscriber.subscriber_number or "").strip(),
+                    "account_number": str(subscriber.account_number or "").strip(),
+                    "name": display_name,
+                    "email": str(getattr(person, "email", "") or "").strip(),
+                    "phone": str(getattr(person, "phone", "") or "").strip(),
+                    "status": str(status_value or "").strip(),
+                    "service_plan": str(subscriber.service_plan or subscriber.service_name or "").strip(),
+                    "plan": str(subscriber.service_plan or subscriber.service_name or "").strip(),
+                    "balance": subscriber.balance,
+                    "billing_cycle": str(subscriber.billing_cycle or "").strip(),
+                    "subscription_billing_mode": sync_metadata.get("subscription_billing_mode") or "",
+                    "billing_mode": sync_metadata.get("billing_mode") or "",
+                    "account_billing_mode": sync_metadata.get("account_billing_mode") or "",
+                    "billing_type": sync_metadata.get("billing_type") or "",
+                    "next_bill_date": subscriber.next_bill_date.isoformat() if subscriber.next_bill_date else "",
+                    "activated_at": subscriber.activated_at.isoformat() if subscriber.activated_at else "",
+                    "created_at": subscriber.created_at.isoformat() if subscriber.created_at else "",
+                    "suspended_at": subscriber.suspended_at.isoformat() if subscriber.suspended_at else "",
+                    "terminated_at": subscriber.terminated_at.isoformat() if subscriber.terminated_at else "",
+                    "street_1": str(subscriber.service_address_line1 or "").strip(),
+                    "street_2": str(subscriber.service_address_line2 or "").strip(),
+                    "city": str(subscriber.service_city or "").strip(),
+                    "region": str(subscriber.service_region or "").strip(),
+                    "service_region": str(subscriber.service_region or "").strip(),
+                    "location": str(subscriber.service_region or subscriber.service_city or "").strip(),
+                    "billing": billing_payload,
+                    "invoiced_until": sync_metadata.get("invoiced_until") or "",
+                    "total_paid": sync_metadata.get("total_paid") or "",
+                    "last_transaction_date": sync_metadata.get("last_transaction_date") or "",
+                    "blocked_date": sync_metadata.get("blocked_date") or "",
+                }
+            )
+        return fallback_customers
+
+    try:
+        customers = _call_sub("fetch_customers", fetch_customers)
+    except Exception as exc:
+        logger.warning("billing_risk_live_customer_fetch_failed_using_local_subscribers error=%s", exc)
+        customers = _local_subscriber_customers()
     try:
         locations_payload = _call_sub("fetch_locations", fetch_locations)
     except Exception:
@@ -1185,7 +1275,12 @@ def get_billing_risk_table(
         billing_payload: Mapping[str, Any] | None,
         cached_subscriber: Mapping[str, Any],
     ) -> str:
-        del mapped_payload, cached_subscriber
+        mapped_sync_metadata = (
+            mapped_payload.get("sync_metadata") if isinstance(mapped_payload.get("sync_metadata"), Mapping) else {}
+        )
+        cached_sync_metadata = (
+            cached_subscriber.get("sync_metadata") if isinstance(cached_subscriber.get("sync_metadata"), Mapping) else {}
+        )
 
         def _field_value(*keys: str) -> str:
             for key in keys:
@@ -1196,23 +1291,29 @@ def get_billing_risk_table(
                     text = str(billing_payload.get(key) or "").strip()
                     if text:
                         return text
+                text = str(mapped_sync_metadata.get(key) or "").strip()
+                if text:
+                    return text
+                text = str(cached_sync_metadata.get(key) or "").strip()
+                if text:
+                    return text
             return ""
 
         mode = _field_value("billing_mode", "billingMode")
         subscription_mode = _field_value("subscription_billing_mode", "subscriptionBillingMode")
         billing_type = _field_value("billing_type", "billingType")
 
-        for candidate in (mode, subscription_mode):
+        for candidate in (subscription_mode, mode):
             normalized = candidate.casefold().replace("-", "_").replace(" ", "_")
-            if normalized == "prepaid":
+            if normalized.startswith("prepaid"):
                 return "prepaid"
-            if normalized == "postpaid":
+            if normalized.startswith("postpaid") or normalized.startswith("recurring"):
                 return "postpaid"
 
         normalized_type = billing_type.casefold().replace("-", "_").replace(" ", "_")
         if normalized_type.startswith("prepaid"):
             return "prepaid"
-        if normalized_type in {"postpaid", "post_paid", "recurring"}:
+        if normalized_type.startswith("postpaid") or normalized_type.startswith("recurring"):
             return "postpaid"
         return "unknown"
 
@@ -1270,6 +1371,40 @@ def get_billing_risk_table(
         plan_value = str(mapped.get("service_plan") or "").strip() or str(cached_subscriber.get("service_plan") or "")
         embedded_billing = customer.get("billing") if isinstance(customer.get("billing"), Mapping) else None
         billing_type_value = _live_billing_type(customer, mapped, embedded_billing, cached_subscriber)
+        billing_mode_value = str(
+            customer.get("billing_mode")
+            or customer.get("billingMode")
+            or (embedded_billing.get("billing_mode") if isinstance(embedded_billing, Mapping) else "")
+            or (embedded_billing.get("billingMode") if isinstance(embedded_billing, Mapping) else "")
+            or cached_sync_metadata.get("billing_mode")
+            or ""
+        ).strip()
+        subscription_billing_mode_value = str(
+            customer.get("subscription_billing_mode")
+            or customer.get("subscriptionBillingMode")
+            or (
+                embedded_billing.get("subscription_billing_mode") if isinstance(embedded_billing, Mapping) else ""
+            )
+            or (embedded_billing.get("subscriptionBillingMode") if isinstance(embedded_billing, Mapping) else "")
+            or cached_sync_metadata.get("subscription_billing_mode")
+            or ""
+        ).strip()
+        account_billing_mode_value = str(
+            customer.get("account_billing_mode")
+            or customer.get("accountBillingMode")
+            or (embedded_billing.get("account_billing_mode") if isinstance(embedded_billing, Mapping) else "")
+            or (embedded_billing.get("accountBillingMode") if isinstance(embedded_billing, Mapping) else "")
+            or cached_sync_metadata.get("account_billing_mode")
+            or ""
+        ).strip()
+        billing_type_raw_value = str(
+            customer.get("billing_type")
+            or customer.get("billingType")
+            or (embedded_billing.get("billing_type") if isinstance(embedded_billing, Mapping) else "")
+            or (embedded_billing.get("billingType") if isinstance(embedded_billing, Mapping) else "")
+            or cached_sync_metadata.get("billing_type")
+            or ""
+        ).strip()
         billing_start_date = _live_billing_start_date(customer, mapped, embedded_billing)
         if not billing_start_date:
             cached_activated_at = _coerce_datetime_utc(cached_subscriber.get("activated_at"))
@@ -1398,26 +1533,10 @@ def get_billing_risk_table(
                 "balance": balance_amount,
                 "account_balance_deposit": account_balance_deposit,
                 "billing_type": billing_type_value,
-                "billing_mode": str(
-                    customer.get("billing_mode")
-                    or customer.get("billingMode")
-                    or (embedded_billing.get("billing_mode") if isinstance(embedded_billing, Mapping) else "")
-                    or (embedded_billing.get("billingMode") if isinstance(embedded_billing, Mapping) else "")
-                    or ""
-                ),
-                "subscription_billing_mode": str(
-                    customer.get("subscription_billing_mode")
-                    or customer.get("subscriptionBillingMode")
-                    or (
-                        embedded_billing.get("subscription_billing_mode")
-                        if isinstance(embedded_billing, Mapping)
-                        else ""
-                    )
-                    or (
-                        embedded_billing.get("subscriptionBillingMode") if isinstance(embedded_billing, Mapping) else ""
-                    )
-                    or ""
-                ),
+                "billing_mode": billing_mode_value,
+                "subscription_billing_mode": subscription_billing_mode_value,
+                "account_billing_mode": account_billing_mode_value,
+                "_billing_type_raw": billing_type_raw_value,
                 "billing_cycle": str(mapped.get("billing_cycle") or cached_subscriber.get("billing_cycle") or ""),
                 "blocked_date": blocked_date_text,
                 "blocked_for_days": blocked_for_days,
@@ -1445,6 +1564,7 @@ def get_billing_risk_table(
                 "_subscriber_uuid": subscriber_id_key,
                 "_external_id": external_id_value,
                 "_subscriber_number": str(mapped.get("subscriber_number") or ""),
+                "_source": str(customer.get("_source") or "live_selfcare"),
                 "_last_synced_at": "",
                 "_customer_last_update": customer_last_update,
                 "_customer_last_online": customer_last_online,
@@ -1516,6 +1636,8 @@ def get_billing_risk_table(
 
     def _enrich_live_entry(entry: dict[str, Any]) -> dict[str, Any]:
         updates: dict[str, Any] = {}
+        if str(entry.get("_source") or "") == "local_subscriber_fallback":
+            return updates
         external_id = str(entry.get("_external_id") or "").strip()
         if not external_id:
             return updates
@@ -1728,6 +1850,8 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
 
     def _enrich_live_entry(entry: dict[str, Any]) -> dict[str, Any]:
         updates: dict[str, Any] = {}
+        if str(entry.get("_source") or "") == "local_subscriber_fallback":
+            return updates
         external_id = str(entry.get("_external_id") or "").strip()
         if not external_id:
             return updates
