@@ -60,6 +60,7 @@ from app.services.numbering import generate_number
 from app.services.person_identity import is_placeholder_email
 from app.services.response import ListResponseMixin
 from app.services.sla_assignment import SLA_APPLICABLE_STATUSES, resolve_ticket_sla_target_minutes
+from app.services.work_lifecycle import work_lifecycle
 from app.services.workqueue.events import emit_change as _wq_emit
 from app.services.workqueue.types import ItemKind as _WQItemKind
 
@@ -757,6 +758,14 @@ def _auto_create_work_order_for_ticket(db: Session, ticket: Ticket) -> WorkOrder
             status=DispatchQueueStatus.queued,
             reason="Auto-created from field_visit ticket",
         )
+    )
+    work_lifecycle.link_work_order_origin(
+        db,
+        work_order_id=work_order.id,
+        origin_type="ticket",
+        origin_id=ticket.id,
+        contract_name="ticket.field_visit.created_work_order",
+        metadata={"reason": "field_visit"},
     )
     return work_order
 

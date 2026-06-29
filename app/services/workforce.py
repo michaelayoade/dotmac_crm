@@ -34,6 +34,7 @@ from app.services.common import (
 from app.services.events import emit_event
 from app.services.events.types import EventType
 from app.services.response import ListResponseMixin
+from app.services.work_lifecycle import work_lifecycle
 
 logger = logging.getLogger(__name__)
 
@@ -341,6 +342,25 @@ class WorkOrders(ListResponseMixin):
         db.add(work_order)
         db.commit()
         db.refresh(work_order)
+
+        if work_order.ticket_id:
+            work_lifecycle.link_work_order_origin(
+                db,
+                work_order_id=work_order.id,
+                origin_type="ticket",
+                origin_id=work_order.ticket_id,
+                contract_name="work_order.created_from_ticket",
+            )
+        if work_order.project_id:
+            work_lifecycle.link_work_order_origin(
+                db,
+                work_order_id=work_order.id,
+                origin_type="project",
+                origin_id=work_order.project_id,
+                contract_name="work_order.created_from_project",
+            )
+        if work_order.ticket_id or work_order.project_id:
+            db.commit()
 
         # Emit work order created event
         emit_event(
