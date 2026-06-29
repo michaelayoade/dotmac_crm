@@ -1119,16 +1119,20 @@ class Projects(ListResponseMixin):
         )
 
     @staticmethod
-    def portal_list(db: Session, subscriber_id: str) -> list[dict]:
+    def portal_list(db: Session, subscriber_ids: list[str] | str) -> list[dict]:
         """Customer-facing project list (stage timeline + progress %) for the
-        dotmac_sub installation tracker. Scoped to one subscriber."""
-        sub_uuid = coerce_uuid(str(subscriber_id))
-        if sub_uuid is None:
+        dotmac_sub installation tracker. Scoped to one subscriber, or to a set of
+        subscribers (a reseller's customer subtree)."""
+        if isinstance(subscriber_ids, str):
+            subscriber_ids = [subscriber_ids]
+        uuids = [coerce_uuid(str(s)) for s in subscriber_ids]
+        uuids = [u for u in uuids if u is not None]
+        if not uuids:
             return []
         projects = (
             db.query(Project)
             .options(selectinload(Project.tasks))
-            .filter(Project.subscriber_id == sub_uuid)
+            .filter(Project.subscriber_id.in_(uuids))
             .filter(Project.is_active.is_(True))
             .order_by(Project.created_at.desc())
             .all()

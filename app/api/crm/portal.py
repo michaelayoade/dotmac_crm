@@ -27,6 +27,10 @@ from app.models.subscriber import Subscriber
 from app.schemas.crm.portal import (
     PortalMeResponse,
     PortalProjectsResponse,
+    PortalQuoteAcceptRequest,
+    PortalQuoteItem,
+    PortalQuoteRequest,
+    PortalQuotesResponse,
     PortalReferralItem,
     PortalReferralProgram,
     PortalReferralsResponse,
@@ -40,6 +44,9 @@ from app.schemas.crm.portal import (
 from app.services.auth_dependencies import require_user_auth
 from app.services.auth_flow import create_portal_token
 from app.services.common import coerce_uuid
+from app.services.crm.portal_quotes import build_portal_quote_payload
+from app.services.crm.portal_quotes import quotes as portal_quotes_service
+from app.services.crm.portal_scope import resolve_subscriber_ids
 from app.services.crm.referrals import referrals as referrals_service
 from app.services.portal_auth import PortalPrincipal, require_portal_auth
 from app.services.projects import Projects as projects_service
@@ -218,10 +225,12 @@ def portal_list_projects(
     principal: PortalPrincipal = Depends(require_portal_auth),
     db: Session = Depends(get_db),
 ) -> PortalProjectsResponse:
-    """The subscriber's installations/projects with stage timeline + progress %
-    (Installation tracker; consumed by the dotmac_sub mirror)."""
+    """Installations/projects with stage timeline + progress % (Installation
+    tracker; consumed by the dotmac_sub mirror). Scoped to the subscriber, or to
+    a reseller's whole customer subtree."""
     principal.require_scope("projects:read")
-    projects = projects_service.portal_list(db, principal.subject_id)
+    subscriber_ids = resolve_subscriber_ids(db, principal)
+    projects = projects_service.portal_list(db, subscriber_ids)
     payload = {"projects": projects, "total": len(projects)}
     return PortalProjectsResponse.model_validate(payload)
 
@@ -231,9 +240,69 @@ def portal_list_work_orders(
     principal: PortalPrincipal = Depends(require_portal_auth),
     db: Session = Depends(get_db),
 ) -> PortalWorkOrdersResponse:
-    """The subscriber's field-service work orders (status, schedule, ETA,
-    technician; consumed by the dotmac_sub mirror)."""
+    """Field-service work orders (status, schedule, ETA, technician; consumed by
+    the dotmac_sub mirror). Scoped to the subscriber, or to a reseller's whole
+    customer subtree."""
     principal.require_scope("work_orders:read")
-    work_orders = work_orders_service.portal_list(db, principal.subject_id)
+    subscriber_ids = resolve_subscriber_ids(db, principal)
+    work_orders = work_orders_service.portal_list(db, subscriber_ids)
     payload = {"work_orders": work_orders, "total": len(work_orders)}
     return PortalWorkOrdersResponse.model_validate(payload)
+
+
+# --- Self-serve quotes (Sales/Quotes vertical) ----------------------------
+
+
+@router.post("/quote-request", response_model=PortalQuoteItem, status_code=201)
+def portal_request_quote(
+    payload: PortalQuoteRequest,
+    principal: PortalPrincipal = Depends(require_portal_auth),
+    db: Session = Depends(get_db),
+) -> PortalQuoteItem:
+    """Map-pinned installation quote: feasibility (proximity to fiber) + estimate
+    + deposit, as a draft quote. Subscribers request for themselves; resellers
+    pass ``for_subscriber_id`` to quote on a customer's behalf."""
+    principal.require_scope("quotes:write")
+    quote = portal_quotes_service.request(
+        db,
+        principal,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        address=payload.address,
+        region=payload.region,
+        note=payload.note,
+        for_subscriber_id=payload.for_subscriber_id,
+    )
+    return PortalQuoteItem.model_validate(build_portal_quote_payload(db, quote))
+
+
+@router.get("/quotes", response_model=PortalQuotesResponse)
+def portal_list_quotes(
+    principal: PortalPrincipal = Depends(require_portal_auth),
+    db: Session = Depends(get_db),
+) -> PortalQuotesResponse:
+    """Self-serve quotes for the subscriber, or a reseller's customer subtree."""
+    principal.require_scope("quotes:read")
+    quotes = portal_quotes_service.portal_list(db, principal)
+    return PortalQuotesResponse.model_validate({"quotes": quotes, "total": len(quotes)})
+
+
+@router.post("/quotes/{quote_id}/accept", response_model=PortalQuoteItem)
+def portal_accept_quote(
+    quote_id: str,
+    payload: PortalQuoteAcceptRequest,
+    principal: PortalPrincipal = Depends(require_portal_auth),
+    db: Session = Depends(get_db),
+) -> PortalQuoteItem:
+    """Accept a quote after the sub verifies the deposit payment; records the
+    deposit and triggers the sales-order + install-project creation. Idempotent."""
+    principal.require_scope("quotes:write")
+    result = portal_quotes_service.accept_with_deposit(
+        db,
+        principal,
+        quote_id,
+        deposit_reference=payload.deposit_reference,
+        deposit_amount=payload.deposit_amount,
+        provider=payload.provider,
+    )
+    return PortalQuoteItem.model_validate(result)

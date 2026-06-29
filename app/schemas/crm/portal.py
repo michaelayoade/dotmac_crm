@@ -128,3 +128,76 @@ class PortalWorkOrderItem(BaseModel):
 class PortalWorkOrdersResponse(BaseModel):
     work_orders: list[PortalWorkOrderItem] = Field(default_factory=list)
     total: int = 0
+
+
+# --- Self-serve quotes (Sales/Quotes vertical) ----------------------------
+
+
+class PortalQuoteRequest(BaseModel):
+    """Map-pinned installation quote request.
+
+    ``for_subscriber_id`` is required for reseller actors (the target customer);
+    ignored for subscriber actors (always scoped to self).
+    """
+
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    address: str | None = None
+    region: str | None = None
+    note: str | None = None
+    for_subscriber_id: str | None = None
+
+
+class PortalQuoteAcceptRequest(BaseModel):
+    """Accept a quote after the deposit has been verified by the sub backend."""
+
+    deposit_reference: str = Field(..., description="Verified deposit payment reference")
+    deposit_amount: str = Field(..., description="Deposit amount paid, as a decimal string")
+    provider: str | None = Field(default=None, description="Payment provider (e.g. paystack)")
+
+
+class PortalQuoteFeasibility(BaseModel):
+    coverage: str | None = None  # covered | survey_required | out_of_area
+    feasible: bool | None = None
+    distance_meters: float | None = None
+    nearest_fap_name: str | None = None
+
+
+class PortalQuoteLineItem(BaseModel):
+    description: str
+    quantity: str
+    unit_price: str
+    amount: str
+
+
+class PortalQuoteItem(BaseModel):
+    id: str
+    status: str
+    currency: str
+    subtotal: str
+    tax_total: str
+    total: str
+    project_type: str | None = None
+    subscriber_id: str | None = None
+    subscriber_external_id: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    address: str | None = None
+    region: str | None = None
+    feasibility: PortalQuoteFeasibility = Field(default_factory=PortalQuoteFeasibility)
+    estimate_provisional: bool = False
+    deposit_percent: int = 0
+    deposit_amount: str = "0"
+    deposit_paid: bool = False
+    deposit_reference: str | None = None
+    line_items: list[PortalQuoteLineItem] = Field(default_factory=list)
+    sales_order_id: str | None = None
+    project_id: str | None = None
+    already_accepted: bool = False
+    created_at: str | None = None
+    expires_at: str | None = None
+
+
+class PortalQuotesResponse(BaseModel):
+    quotes: list[PortalQuoteItem] = Field(default_factory=list)
+    total: int = 0

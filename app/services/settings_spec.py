@@ -27,6 +27,68 @@ class SettingSpec(ListResponseMixin):
 
 
 SETTINGS_SPECS: list[SettingSpec] = [
+    # --- Self-serve quote / installation estimate (RFC #73, Sales/Quotes) ------
+    # Placeholder defaults — tune per market before go-live. Estimate =
+    # base_fee + max(0, distance_to_nearest_FAP - free_radius) * fee_per_km;
+    # deposit = estimate * deposit_percent. Feasibility radius bounds "covered".
+    SettingSpec(
+        domain=SettingDomain.projects,
+        key="selfserve_quote_enabled",
+        env_var="SELFSERVE_QUOTE_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=True,
+        label="Enable self-serve installation quotes",
+        section="selfserve_quotes",
+    ),
+    SettingSpec(
+        domain=SettingDomain.projects,
+        key="selfserve_quote_base_fee",
+        env_var="SELFSERVE_QUOTE_BASE_FEE",
+        value_type=SettingValueType.decimal,
+        default="50000.00",
+        label="Base installation fee (NGN) — PLACEHOLDER, set real value",
+        section="selfserve_quotes",
+    ),
+    SettingSpec(
+        domain=SettingDomain.projects,
+        key="selfserve_quote_free_radius_meters",
+        env_var="SELFSERVE_QUOTE_FREE_RADIUS_METERS",
+        value_type=SettingValueType.integer,
+        default=300,
+        label="Free drop radius from nearest fiber access point (m)",
+        section="selfserve_quotes",
+        min_value=0,
+    ),
+    SettingSpec(
+        domain=SettingDomain.projects,
+        key="selfserve_quote_fee_per_km",
+        env_var="SELFSERVE_QUOTE_FEE_PER_KM",
+        value_type=SettingValueType.decimal,
+        default="25000.00",
+        label="Distance surcharge per km beyond free radius (NGN) — PLACEHOLDER",
+        section="selfserve_quotes",
+    ),
+    SettingSpec(
+        domain=SettingDomain.projects,
+        key="selfserve_quote_deposit_percent",
+        env_var="SELFSERVE_QUOTE_DEPOSIT_PERCENT",
+        value_type=SettingValueType.integer,
+        default=50,
+        label="Deposit required to confirm a quote (% of total)",
+        section="selfserve_quotes",
+        min_value=0,
+        max_value=100,
+    ),
+    SettingSpec(
+        domain=SettingDomain.projects,
+        key="selfserve_quote_feasibility_radius_meters",
+        env_var="SELFSERVE_QUOTE_FEASIBILITY_RADIUS_METERS",
+        value_type=SettingValueType.integer,
+        default=2000,
+        label="Max distance to nearest fiber access point for instant feasibility (m)",
+        section="selfserve_quotes",
+        min_value=0,
+    ),
     SettingSpec(
         domain=SettingDomain.auth,
         key="jwt_secret",
