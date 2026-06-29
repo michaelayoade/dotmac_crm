@@ -946,6 +946,124 @@ def _maybe_auto_assign_project(db: Session, project: Project):
     return results
 
 
+# ── Customer installation tracker (dotmac_sub mirror) ───────────────────────
+
+
+def _portal_stage_status(task_status: TaskStatus) -> str:
+    if task_status == TaskStatus.done:
+        return "done"
+    if task_status in (TaskStatus.in_progress, TaskStatus.blocked):
+        return "in_progress"
+    return "pending"
+
+
+def build_portal_project_payload(project: Project) -> dict:
+    """Customer-facing project view: stage timeline + progress %.
+
+    Fiber installs use the canonical 6-stage order; other project types fall
+    back to a generic per-task timeline. Shared by the portal read endpoint and
+    the webhook push so the sub mirror gets a consistent shape.
+    """
+    tasks = [t for t in (project.tasks or []) if getattr(t, "is_active", True)]
+    fiber_tasks: dict[str, ProjectTask] = {}
+    for t in tasks:
+        key = _resolve_fiber_stage_key(t)
+        if key:
+            fiber_tasks.setdefault(key, t)
+
+    stages: list[dict] = []
+    if fiber_tasks:
+        for key in FIBER_INSTALLATION_STAGE_ORDER:
+            t = fiber_tasks.get(key)
+            title = FIBER_INSTALLATION_STAGE_TITLES.get(key, key)
+            if t is None:
+                stages.append({"key": key, "title": title, "status": "pending", "completed_at": None})
+            else:
+                stages.append(
+                    {
+                        "key": key,
+                        "title": title,
+                        "status": _portal_stage_status(t.status),
+                        "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+                    }
+                )
+    else:
+        for t in tasks:
+            stages.append(
+                {
+                    "key": None,
+                    "title": t.title,
+                    "status": _portal_stage_status(t.status),
+                    "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+                }
+            )
+
+    total = len(stages)
+    done = sum(1 for s in stages if s["status"] == "done")
+    completed = project.status == ProjectStatus.completed
+    progress_pct = 100 if completed else (int(round(done / total * 100)) if total else 0)
+    current_stage = None if completed else next((s["title"] for s in stages if s["status"] != "done"), None)
+
+    return {
+        "id": str(project.id),
+        "name": project.name,
+        "status": project.status.value if project.status else "open",
+        "project_type": project.project_type.value if project.project_type else None,
+        "progress_pct": progress_pct,
+        "current_stage": current_stage,
+        "stages": stages,
+        "customer_address": project.customer_address,
+        "region": project.region,
+        "start_at": project.start_at.isoformat() if project.start_at else None,
+        "due_at": project.due_at.isoformat() if project.due_at else None,
+        "completed_at": project.completed_at.isoformat() if project.completed_at else None,
+        "created_at": project.created_at.isoformat() if project.created_at else None,
+    }
+
+
+def _project_subscriber_id(db: Session, project: Project) -> str | None:
+    """Resolve a project's dotmac_sub subscriber id (for webhook dispatch)."""
+    if not project.subscriber_id:
+        return None
+    sub = db.get(Subscriber, project.subscriber_id)
+    if sub is not None and getattr(sub, "is_active", True) and sub.external_system == "selfcare" and sub.external_id:
+        return str(sub.external_id)
+    return None
+
+
+def _emit_project_to_sub(db: Session, project: Project, event_type: str) -> None:
+    """Push a project lifecycle event to dotmac_sub to hydrate its installation
+    mirror. Best-effort: the sub reconciles periodically, so a failed push never
+    breaks the project flow."""
+    try:
+        from app.services import selfcare
+
+        subscriber_id = _project_subscriber_id(db, project)
+        if not subscriber_id:
+            return
+        selfcare.notify_project_event(
+            db,
+            event_type,
+            {
+                "subscriber_id": subscriber_id,
+                "project_id": str(project.id),
+                "name": project.name,
+                "status": project.status.value if project.status else None,
+                "project_type": project.project_type.value if project.project_type else None,
+                "region": project.region,
+                "completed_at": project.completed_at.isoformat() if project.completed_at else None,
+                "created_at": project.created_at.isoformat() if project.created_at else None,
+            },
+        )
+    except Exception as exc:  # - mirror push must never break projects
+        logger.warning(
+            "project_event_emit_failed project_id=%s event=%s error=%s",
+            getattr(project, "id", None),
+            event_type,
+            exc,
+        )
+
+
 class Projects(ListResponseMixin):
     PROJECT_TYPE_DURATIONS: ClassVar[dict[ProjectType, int]] = {
         ProjectType.air_fiber_installation: 3,
@@ -999,6 +1117,23 @@ class Projects(ListResponseMixin):
             .order_by(Project.name)
             .all()
         )
+
+    @staticmethod
+    def portal_list(db: Session, subscriber_id: str) -> list[dict]:
+        """Customer-facing project list (stage timeline + progress %) for the
+        dotmac_sub installation tracker. Scoped to one subscriber."""
+        sub_uuid = coerce_uuid(str(subscriber_id))
+        if sub_uuid is None:
+            return []
+        projects = (
+            db.query(Project)
+            .options(selectinload(Project.tasks))
+            .filter(Project.subscriber_id == sub_uuid)
+            .filter(Project.is_active.is_(True))
+            .order_by(Project.created_at.desc())
+            .all()
+        )
+        return [build_portal_project_payload(p) for p in projects]
 
     @staticmethod
     def create(db: Session, payload: ProjectCreate):
@@ -1107,6 +1242,7 @@ class Projects(ListResponseMixin):
             project_id=project.id,
             subscriber_id=project.subscriber_id,
         )
+        _emit_project_to_sub(db, project, "project.created")
 
         # In-app notifications for internal project roles.
         # Project has already been committed above, so failures here won't roll back creation.
@@ -1376,6 +1512,7 @@ class Projects(ListResponseMixin):
                 subscriber_id=project.subscriber_id,
             )
             _notify_customer_project_completed(db, project)
+            _emit_project_to_sub(db, project, "project.completed")
         elif new_status == ProjectStatus.canceled and previous_status != ProjectStatus.canceled:
             emit_event(
                 db,
@@ -1389,6 +1526,7 @@ class Projects(ListResponseMixin):
                 project_id=project.id,
                 subscriber_id=project.subscriber_id,
             )
+            _emit_project_to_sub(db, project, "project.canceled")
         elif previous_status != new_status or len(data) > 1:
             # Emit generic update if status changed or other fields updated
             emit_event(
@@ -1403,6 +1541,7 @@ class Projects(ListResponseMixin):
                 project_id=project.id,
                 subscriber_id=project.subscriber_id,
             )
+            _emit_project_to_sub(db, project, "project.updated")
 
         if "project_template_id" in data:
             new_template_id = str(project.project_template_id) if project.project_template_id else None
@@ -1920,6 +2059,8 @@ class ProjectTasks(ListResponseMixin):
                 event_payload,
                 project_id=task.project_id,
             )
+            if project:
+                _emit_project_to_sub(db, project, "project_task.completed")
         elif previous_status != task.status or bool(changed_fields):
             emit_event(
                 db,
@@ -1927,6 +2068,9 @@ class ProjectTasks(ListResponseMixin):
                 event_payload,
                 project_id=task.project_id,
             )
+            project = db.get(Project, task.project_id)
+            if project:
+                _emit_project_to_sub(db, project, "project_task.updated")
         return task
 
     @staticmethod
