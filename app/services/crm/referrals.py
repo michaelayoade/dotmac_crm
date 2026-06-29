@@ -101,6 +101,16 @@ def _referrer_subscriber_id(db: Session, referrer_person_id) -> str | None:
 
 class Referrals:
     @staticmethod
+    def program(db: Session) -> dict:
+        """Public program summary (enabled + advertised reward) for portals/UI."""
+        cfg = _config(db)
+        return {
+            "enabled": bool(cfg["enabled"]),
+            "amount": cfg["amount"],
+            "currency": cfg["currency"],
+        }
+
+    @staticmethod
     def ensure_code(db: Session, person_id: str) -> ReferralCode:
         """Get (or mint) the active referral code for a referrer."""
         pid = coerce_uuid(person_id)
