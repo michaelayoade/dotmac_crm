@@ -106,3 +106,25 @@ class PortalProjectItem(BaseModel):
 class PortalProjectsResponse(BaseModel):
     projects: list[PortalProjectItem] = Field(default_factory=list)
     total: int = 0
+
+
+class PortalWorkOrderItem(BaseModel):
+    id: str
+    title: str
+    status: str
+    work_type: str | None = None
+    priority: str | None = None
+    technician_name: str | None = None
+    technician_phone: str | None = None
+    address: str | None = None
+    scheduled_start: str | None = None
+    scheduled_end: str | None = None
+    estimated_arrival_at: str | None = None
+    estimated_duration_minutes: int | None = None
+    completed_at: str | None = None
+    created_at: str | None = None
+
+
+class PortalWorkOrdersResponse(BaseModel):
+    work_orders: list[PortalWorkOrderItem] = Field(default_factory=list)
+    total: int = 0

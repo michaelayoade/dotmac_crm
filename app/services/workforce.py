@@ -216,6 +216,7 @@ def emit_work_order_status_events(
             project_id=work_order.project_id,
             ticket_id=work_order.ticket_id,
         )
+        _emit_work_order_to_sub(db, work_order, "work_order.dispatched")
     elif new_status == WorkOrderStatus.completed and previous_status != WorkOrderStatus.completed:
         emit_event(
             db,
@@ -225,6 +226,7 @@ def emit_work_order_status_events(
             project_id=work_order.project_id,
             ticket_id=work_order.ticket_id,
         )
+        _emit_work_order_to_sub(db, work_order, "work_order.completed")
     elif new_status == WorkOrderStatus.canceled and previous_status != WorkOrderStatus.canceled:
         emit_event(
             db,
@@ -234,6 +236,7 @@ def emit_work_order_status_events(
             project_id=work_order.project_id,
             ticket_id=work_order.ticket_id,
         )
+        _emit_work_order_to_sub(db, work_order, "work_order.canceled")
     elif previous_status != new_status or (changed_fields is not None and len(changed_fields) > 1):
         event_payload["changed_fields"] = changed_fields or ["status"]
         emit_event(
@@ -244,6 +247,7 @@ def emit_work_order_status_events(
             project_id=work_order.project_id,
             ticket_id=work_order.ticket_id,
         )
+        _emit_work_order_to_sub(db, work_order, "work_order.updated")
 
 
 def _notify_work_order_assignment_mobile_push(db: Session, work_order: WorkOrder) -> None:
@@ -253,6 +257,75 @@ def _notify_work_order_assignment_mobile_push(db: Session, work_order: WorkOrder
         queue_work_order_assignment_push(db, work_order)
     except Exception:
         logger.exception("work_order_mobile_push_failed work_order_id=%s", work_order.id)
+
+
+# ── Customer field-service tracker (dotmac_sub mirror) ──────────────────────
+
+
+def build_work_order_portal_payload(db: Session, work_order: WorkOrder) -> dict:
+    """Customer-facing work-order view: status, schedule, ETA, technician.
+
+    Shared by the portal read endpoint and the webhook push so the sub mirror
+    gets a consistent shape.
+    """
+    technician_name = None
+    technician_phone = None
+    if work_order.assigned_to_person_id:
+        person = db.get(Person, work_order.assigned_to_person_id)
+        if person is not None:
+            full = " ".join(p for p in [person.first_name, person.last_name] if _compact(p))
+            technician_name = _compact(person.display_name) or _compact(full)
+            technician_phone = _compact(person.phone)
+    return {
+        "id": str(work_order.id),
+        "title": work_order.title,
+        "status": work_order.status.value if work_order.status else "scheduled",
+        "work_type": work_order.work_type.value if work_order.work_type else None,
+        "priority": work_order.priority.value if work_order.priority else None,
+        "technician_name": technician_name,
+        "technician_phone": technician_phone,
+        "address": _resolve_site_address(work_order),
+        "scheduled_start": work_order.scheduled_start.isoformat() if work_order.scheduled_start else None,
+        "scheduled_end": work_order.scheduled_end.isoformat() if work_order.scheduled_end else None,
+        "estimated_arrival_at": work_order.estimated_arrival_at.isoformat()
+        if work_order.estimated_arrival_at
+        else None,
+        "estimated_duration_minutes": work_order.estimated_duration_minutes,
+        "completed_at": work_order.completed_at.isoformat() if work_order.completed_at else None,
+        "created_at": work_order.created_at.isoformat() if work_order.created_at else None,
+    }
+
+
+def _work_order_subscriber_id(db: Session, work_order: WorkOrder) -> str | None:
+    """Resolve a work order's dotmac_sub subscriber id (for webhook dispatch)."""
+    sub = work_order.subscriber
+    if sub is None and work_order.subscriber_id:
+        sub = db.get(Subscriber, work_order.subscriber_id)
+    if sub is not None and getattr(sub, "is_active", True) and sub.external_system == "selfcare" and sub.external_id:
+        return str(sub.external_id)
+    return None
+
+
+def _emit_work_order_to_sub(db: Session, work_order: WorkOrder, event_type: str) -> None:
+    """Push a work-order lifecycle event to dotmac_sub to hydrate its
+    field-service mirror. Best-effort: a failed push never breaks the flow."""
+    try:
+        from app.services import selfcare
+
+        subscriber_id = _work_order_subscriber_id(db, work_order)
+        if not subscriber_id:
+            return
+        payload = build_work_order_portal_payload(db, work_order)
+        payload["subscriber_id"] = subscriber_id
+        payload["work_order_id"] = payload["id"]
+        selfcare.notify_work_order_event(db, event_type, payload)
+    except Exception as exc:
+        logger.warning(
+            "work_order_event_emit_failed work_order_id=%s event=%s error=%s",
+            getattr(work_order, "id", None),
+            event_type,
+            exc,
+        )
 
 
 class WorkOrders(ListResponseMixin):
@@ -285,6 +358,7 @@ class WorkOrders(ListResponseMixin):
             project_id=work_order.project_id,
             ticket_id=work_order.ticket_id,
         )
+        _emit_work_order_to_sub(db, work_order, "work_order.created")
 
         _notify_work_order_assignment_in_app(db, work_order)
         _notify_work_order_assignment_customer(db, work_order)
@@ -298,6 +372,22 @@ class WorkOrders(ListResponseMixin):
         if not work_order:
             raise HTTPException(status_code=404, detail="Work order not found")
         return work_order
+
+    @staticmethod
+    def portal_list(db: Session, subscriber_id: str) -> list[dict]:
+        """Customer-facing work-order list (status, schedule, ETA, technician)
+        for the dotmac_sub field-service mirror. Scoped to one subscriber."""
+        sub_uuid = coerce_uuid(str(subscriber_id))
+        if sub_uuid is None:
+            return []
+        work_orders = (
+            db.query(WorkOrder)
+            .filter(WorkOrder.subscriber_id == sub_uuid)
+            .filter(WorkOrder.is_active.is_(True))
+            .order_by(WorkOrder.created_at.desc())
+            .all()
+        )
+        return [build_work_order_portal_payload(db, w) for w in work_orders]
 
     @staticmethod
     def list(
