@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from app.models.inventory import InventoryItem, WorkOrderMaterial
 from app.models.person import Person
+from app.models.tickets import TicketComment
 from app.models.timecost import WorkLog
 from app.models.workforce import WorkOrderAssignment
 from app.schemas.field import FieldJobDetail, FieldWorkLogRead
@@ -81,6 +82,19 @@ def test_detail_bundle_contents(db_session, assigned_job, person, ticket):
     assert len(bundle["notes"]) == 1
     assert [m.item.name for m in bundle["materials"]] == ["Drop cable"]
     assert len(bundle["worklogs"]) == 1
+
+
+def test_work_order_note_mirrors_to_linked_ticket(db_session, assigned_job, person):
+    note = work_order_notes.create(
+        db_session,
+        WorkOrderNoteCreate(work_order_id=assigned_job.id, body="Customer confirmed access", author_person_id=person.id),
+    )
+
+    comment = db_session.query(TicketComment).filter(TicketComment.ticket_id == assigned_job.ticket_id).one()
+    assert comment.author_person_id == person.id
+    assert comment.is_internal is True
+    assert str(assigned_job.id)[:8] in comment.body
+    assert note.body in comment.body
 
 
 def test_worklog_schema_never_exposes_rates():

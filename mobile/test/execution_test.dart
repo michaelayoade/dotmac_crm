@@ -86,6 +86,26 @@ void main() {
     });
   });
 
+  group('work order notes', () {
+    test('addNote queues a technician note for the job', () async {
+      final controller = container.read(executionControllerProvider.notifier);
+      final clientRef = await controller.addNote('wo-1', '  ONT replaced  ');
+
+      final payloads = await queued('note');
+      expect(payloads.single['work_order_id'], 'wo-1');
+      expect(payloads.single['body'], 'ONT replaced');
+      expect(payloads.single['attachment_ids'], isEmpty);
+
+      final rows = await db.select(db.outboxEntries).get();
+      expect(rows.single.clientRef, clientRef);
+    });
+
+    test('addNote rejects blank notes', () async {
+      final controller = container.read(executionControllerProvider.notifier);
+      await expectLater(controller.addNote('wo-1', '   '), throwsArgumentError);
+    });
+  });
+
   group('timer', () {
     test('start opens a timer; hold queues a closed worklog and clears it', () async {
       final controller = container.read(executionControllerProvider.notifier);

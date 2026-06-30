@@ -27,6 +27,7 @@ from app.models.person import Person
 from app.models.service_team import ServiceTeam
 from app.models.subscriber import Subscriber
 from app.models.tickets import Ticket, TicketChannel, TicketLink, TicketMerge, TicketPriority, TicketStatus
+from app.models.workforce import WorkOrder
 from app.queries.tickets import TicketQuery
 from app.services import audit as audit_service
 from app.services import filter_preferences as filter_preferences_service
@@ -2888,6 +2889,15 @@ def ticket_detail(
     except Exception:
         logger.debug("ERP expense totals fetch failed for ticket.", exc_info=True)
 
+    linked_work_orders = (
+        db.query(WorkOrder)
+        .filter(WorkOrder.ticket_id == ticket.id)
+        .filter(WorkOrder.is_active.is_(True))
+        .order_by(WorkOrder.created_at.desc())
+        .limit(20)
+        .all()
+    )
+
     ticket_attachments: list[dict[str, Any]] = []
     try:
         metadata = ticket.metadata_ if isinstance(ticket.metadata_, dict) else {}
@@ -2974,6 +2984,7 @@ def ticket_detail(
             "merged_sources": merged_sources,
             "expense_totals": expense_totals,
             "material_requests": ticket_material_requests,
+            "linked_work_orders": linked_work_orders,
             "ticket_attachments": ticket_attachments,
             "customer_details": customer_details,
             "subscriber_details": subscriber_details,

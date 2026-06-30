@@ -22,6 +22,7 @@ from app.models.inventory import InventoryItem
 from app.models.person import Person
 from app.models.projects import ProjectType
 from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus, SalesOrderStatus
+from app.models.tickets import Ticket
 from app.models.vendor import InstallationProject
 from app.models.workforce import WorkOrder, WorkOrderPriority, WorkOrderStatus, WorkOrderType
 from app.schemas.dispatch import TechnicianProfileCreate, TechnicianProfileUpdate
@@ -31,7 +32,7 @@ from app.services import dispatch as dispatch_service
 from app.services import sales_orders as sales_orders_service
 from app.services import vendor as vendor_service
 from app.services import workforce as workforce_service
-from app.services.auth_dependencies import require_permission
+from app.services.auth_dependencies import require_any_permission, require_permission
 from app.services.common import coerce_uuid
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.templates import Jinja2Templates
@@ -597,7 +598,11 @@ def sales_order_delete(
 # =============================================================================
 
 
-@router.get("/work-orders", response_class=HTMLResponse)
+@router.get(
+    "/work-orders",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("operations:work_order:read", "support:ticket:read"))],
+)
 def work_orders_list(
     request: Request,
     db: Session = Depends(get_db),
@@ -681,9 +686,14 @@ def work_orders_list(
     )
 
 
-@router.get("/work-orders/new", response_class=HTMLResponse)
+@router.get(
+    "/work-orders/new",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("operations:work_order:create", "support:ticket:update"))],
+)
 def work_order_new(
     request: Request,
+    ticket_id: str | None = None,
     db: Session = Depends(get_db),
 ):
     """New work order form."""
@@ -699,6 +709,28 @@ def work_order_new(
         offset=0,
     )
 
+    linked_ticket = None
+    form_defaults = {}
+    if ticket_id:
+        linked_ticket = db.query(Ticket).filter(Ticket.number == ticket_id).first()
+        if not linked_ticket:
+            try:
+                linked_ticket = db.get(Ticket, coerce_uuid(ticket_id))
+            except (ValueError, AttributeError):
+                linked_ticket = None
+        if linked_ticket:
+            ticket_ref = linked_ticket.number or str(linked_ticket.id)
+            ticket_priority = linked_ticket.priority.value if linked_ticket.priority else "normal"
+            form_defaults = {
+                "title": f"Field work for ticket #{ticket_ref}",
+                "description": linked_ticket.description or linked_ticket.title or "",
+                "status": "draft",
+                "priority": ticket_priority if ticket_priority in {p.value for p in WorkOrderPriority} else "normal",
+                "work_type": "repair",
+                "ticket_id": str(linked_ticket.id),
+                "subscriber_id": str(linked_ticket.subscriber_id or ""),
+            }
+
     return templates.TemplateResponse(
         "admin/operations/work_order_form.html",
         {
@@ -707,18 +739,26 @@ def work_order_new(
             "current_user": user,
             "sidebar_stats": get_sidebar_stats(db),
             "work_order": None,
+            "linked_ticket": linked_ticket,
             "technicians": technicians,
             "status_options": [s.value for s in WorkOrderStatus],
             "priority_options": [p.value for p in WorkOrderPriority],
             "type_options": [t.value for t in WorkOrderType],
             "is_new": True,
             "form_action": "/admin/operations/work-orders",
-            "cancel_url": "/admin/operations/work-orders",
+            "cancel_url": f"/admin/support/tickets/{linked_ticket.number or linked_ticket.id}"
+            if linked_ticket
+            else "/admin/operations/work-orders",
+            "form": form_defaults,
         },
     )
 
 
-@router.post("/work-orders", response_class=HTMLResponse)
+@router.post(
+    "/work-orders",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("operations:work_order:create", "support:ticket:update"))],
+)
 def work_order_create(
     request: Request,
     title: str = Form(...),
@@ -726,6 +766,9 @@ def work_order_create(
     status: str = Form("draft"),
     priority: str = Form("normal"),
     work_type: str = Form("install"),
+    ticket_id: str | None = Form(None),
+    subscriber_id: str | None = Form(None),
+    project_id: str | None = Form(None),
     assigned_to_person_id: str | None = Form(None),
     scheduled_start: str | None = Form(None),
     scheduled_end: str | None = Form(None),
@@ -739,6 +782,9 @@ def work_order_create(
             status=WorkOrderStatus(status),
             priority=WorkOrderPriority(priority),
             work_type=WorkOrderType(work_type),
+            ticket_id=UUID(ticket_id) if ticket_id else None,
+            subscriber_id=UUID(subscriber_id) if subscriber_id else None,
+            project_id=UUID(project_id) if project_id else None,
             assigned_to_person_id=UUID(assigned_to_person_id) if assigned_to_person_id else None,
             scheduled_start=_parse_local_datetime(scheduled_start),
             scheduled_end=_parse_local_datetime(scheduled_end),
@@ -781,6 +827,9 @@ def work_order_create(
                     "status": status,
                     "priority": priority,
                     "work_type": work_type,
+                    "ticket_id": ticket_id or "",
+                    "subscriber_id": subscriber_id or "",
+                    "project_id": project_id or "",
                     "assigned_to_person_id": assigned_to_person_id or "",
                     "scheduled_start": scheduled_start or "",
                     "scheduled_end": scheduled_end or "",
@@ -790,7 +839,11 @@ def work_order_create(
         )
 
 
-@router.get("/work-orders/{order_id}/edit", response_class=HTMLResponse)
+@router.get(
+    "/work-orders/{order_id}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("operations:work_order:update"))],
+)
 def work_order_edit(
     request: Request,
     order_id: UUID,
@@ -830,7 +883,11 @@ def work_order_edit(
     )
 
 
-@router.post("/work-orders/{order_id}/edit", response_class=HTMLResponse)
+@router.post(
+    "/work-orders/{order_id}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("operations:work_order:update"))],
+)
 def work_order_update(
     request: Request,
     order_id: UUID,
@@ -904,7 +961,11 @@ def work_order_update(
         )
 
 
-@router.get("/work-orders/{order_id}", response_class=HTMLResponse)
+@router.get(
+    "/work-orders/{order_id}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("operations:work_order:read", "support:ticket:read"))],
+)
 def work_order_detail(
     request: Request,
     order_id: UUID,
@@ -952,7 +1013,7 @@ def work_order_detail(
     )
 
 
-@router.post("/work-orders/{order_id}/delete")
+@router.post("/work-orders/{order_id}/delete", dependencies=[Depends(require_permission("operations:work_order:delete"))])
 def work_order_delete(
     request: Request,
     order_id: UUID,
@@ -965,7 +1026,11 @@ def work_order_delete(
     return RedirectResponse(url="/admin/operations/work-orders", status_code=303)
 
 
-@router.post("/work-orders/{order_id}/status", response_class=HTMLResponse)
+@router.post(
+    "/work-orders/{order_id}/status",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("operations:work_order:update"))],
+)
 async def work_order_status_update(
     request: Request,
     order_id: UUID,
@@ -998,7 +1063,11 @@ async def work_order_status_update(
         return RedirectResponse(url="/admin/operations/work-orders", status_code=303)
 
 
-@router.post("/work-orders/{order_id}/assign", response_class=HTMLResponse)
+@router.post(
+    "/work-orders/{order_id}/assign",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("operations:work_order:dispatch", "operations:work_order:update"))],
+)
 async def work_order_assign(
     request: Request,
     order_id: UUID,

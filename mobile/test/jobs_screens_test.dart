@@ -138,4 +138,19 @@ void main() {
     await tester.tap(find.byKey(const Key('call-button')));
     expect(launched.single.scheme, 'tel');
   });
+
+  testWidgets('technician can open add note dialog from job detail', (tester) async {
+    await tester.pumpWidget(_wrap(
+      const JobDetailScreen(jobId: 'wo-1'),
+      overrides: [jobDetailProvider('wo-1').overrideWith((ref) async => _detail())],
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('add-note-action')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Add note'), findsWidgets);
+    expect(find.byKey(const Key('note-body-field')), findsOneWidget);
+    expect(find.byKey(const Key('save-note-action')), findsOneWidget);
+  });
 }

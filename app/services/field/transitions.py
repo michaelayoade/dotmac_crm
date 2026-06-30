@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.models.audit import AuditActorType, AuditEvent
 from app.models.domain_settings import DomainSetting, SettingDomain
 from app.models.field import FieldAttachment, FieldAttachmentKind, FieldJobEvent, WorkOrderEvent
+from app.models.tickets import TicketComment
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.schemas.workflow import StatusTransitionRequest
 from app.services import workflow as workflow_service
@@ -51,6 +52,15 @@ _TRANSITION_ALLOWED_FROM: dict[FieldJobEvent, set[WorkOrderStatus]] = {
     FieldJobEvent.hold: {WorkOrderStatus.in_progress},
     FieldJobEvent.resume: {WorkOrderStatus.in_progress},
     FieldJobEvent.complete: {WorkOrderStatus.in_progress},
+}
+
+_EVENT_COMMENT_LABELS: dict[FieldJobEvent, str] = {
+    FieldJobEvent.accept: "accepted",
+    FieldJobEvent.en_route: "is en route",
+    FieldJobEvent.start: "started",
+    FieldJobEvent.hold: "put on hold",
+    FieldJobEvent.resume: "resumed",
+    FieldJobEvent.complete: "completed",
 }
 
 
@@ -181,6 +191,18 @@ class FieldTransitions:
                 metadata_={"client_event_id": str(client_uuid)},
             )
         )
+        if work_order.ticket_id:
+            comment_body = f"Field update: work order {str(work_order.id)[:8]} {_EVENT_COMMENT_LABELS[event_value]}."
+            if note:
+                comment_body = f"{comment_body}\n\nNote: {note}"
+            db.add(
+                TicketComment(
+                    ticket_id=work_order.ticket_id,
+                    author_person_id=person_uuid,
+                    body=comment_body,
+                    is_internal=True,
+                )
+            )
         try:
             db.commit()
         except IntegrityError:

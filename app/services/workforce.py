@@ -8,7 +8,7 @@ from app.models.notification import Notification, NotificationChannel, Notificat
 from app.models.person import Person
 from app.models.projects import Project
 from app.models.subscriber import Subscriber
-from app.models.tickets import Ticket
+from app.models.tickets import Ticket, TicketComment
 from app.models.workforce import (
     WorkOrder,
     WorkOrderAssignment,
@@ -452,6 +452,15 @@ class WorkOrderNotes(ListResponseMixin):
             _ensure_person(db, str(payload.author_person_id))
         note = WorkOrderNote(**payload.model_dump())
         db.add(note)
+        if work_order.ticket_id:
+            db.add(
+                TicketComment(
+                    ticket_id=work_order.ticket_id,
+                    author_person_id=payload.author_person_id,
+                    body=f"Work order note from {str(work_order.id)[:8]}: {payload.body}",
+                    is_internal=True,
+                )
+            )
         db.commit()
         db.refresh(note)
         return note
