@@ -73,6 +73,23 @@ def resolve_project_id(db: Session, value: str | None):
         raise ResolveError(f"Project '{raw}' not found")
 
 
+def resolve_work_order_id(db: Session, value: str | None):
+    """Resolve a work order UUID string. Returns None if empty."""
+    from app.models.workforce import WorkOrder
+
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        work_order_id = coerce_uuid(raw)
+    except (ValueError, AttributeError):
+        raise ResolveError(f"Work order '{raw}' is not a valid ID")
+    work_order = db.get(WorkOrder, work_order_id)
+    if not work_order:
+        raise ResolveError(f"Work order '{raw}' not found")
+    return work_order.id
+
+
 def resolve_warehouse_id(value: str | None):
     """Resolve a warehouse UUID string. Returns None if empty."""
     raw = (value or "").strip()
@@ -261,12 +278,20 @@ def _validate_serial_numbers_in_erp(db: Session, mr: MaterialRequest, source_loc
 class MaterialRequests(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: MaterialRequestCreate) -> MaterialRequest:
+        from app.models.workforce import WorkOrder
+
         get_or_404(db, Person, str(payload.requested_by_person_id), detail="Person not found")
 
-        if not (payload.ticket_id or payload.project_id):
+        data = payload.model_dump(exclude={"items"})
+        if data.get("work_order_id"):
+            work_order = get_or_404(db, WorkOrder, str(data["work_order_id"]), detail="Work order not found")
+            data["ticket_id"] = data.get("ticket_id") or work_order.ticket_id
+            data["project_id"] = data.get("project_id") or work_order.project_id
+
+        if not (data.get("ticket_id") or data.get("project_id")):
             raise HTTPException(
                 status_code=400,
-                detail="Material request must be linked to a ticket or project",
+                detail="Material request must be linked to a ticket or project, directly or through a work order",
             )
 
         if payload.source_location_id:
@@ -281,7 +306,6 @@ class MaterialRequests(ListResponseMixin):
         if payload.source_location_id and payload.destination_location_id == payload.source_location_id:
             raise HTTPException(status_code=400, detail="Source and destination warehouse cannot be the same")
 
-        data = payload.model_dump(exclude={"items"})
         number = generate_number(
             db=db,
             domain=SettingDomain.numbering,
@@ -334,6 +358,7 @@ class MaterialRequests(ListResponseMixin):
         erp_status: str | None = None,
         ticket_id: str | None = None,
         project_id: str | None = None,
+        work_order_id: str | None = None,
         priority: str | None = None,
         created_from: date | None = None,
         created_to: date | None = None,
@@ -359,6 +384,8 @@ class MaterialRequests(ListResponseMixin):
             query = query.filter(MaterialRequest.ticket_id == coerce_uuid(ticket_id))
         if project_id:
             query = query.filter(MaterialRequest.project_id == coerce_uuid(project_id))
+        if work_order_id:
+            query = query.filter(MaterialRequest.work_order_id == coerce_uuid(work_order_id))
         if priority:
             validated_priority = validate_enum(priority, MaterialRequestPriority, "priority")
             query = query.filter(MaterialRequest.priority == validated_priority)
@@ -380,6 +407,8 @@ class MaterialRequests(ListResponseMixin):
 
     @staticmethod
     def update(db: Session, mr_id: str, payload: MaterialRequestUpdate) -> MaterialRequest:
+        from app.models.workforce import WorkOrder
+
         mr = get_or_404(db, MaterialRequest, mr_id, options=[selectinload(MaterialRequest.items)])
         if mr.status in _TERMINAL_STATUSES:
             raise HTTPException(status_code=400, detail=f"Cannot update material request in {mr.status.value} status")
@@ -394,7 +423,25 @@ class MaterialRequests(ListResponseMixin):
                 detail="Destination warehouse not found",
             )
 
-        for field, value in payload.model_dump(exclude_unset=True).items():
+        data = payload.model_dump(exclude_unset=True)
+        next_ticket_id = data.get("ticket_id", mr.ticket_id)
+        next_project_id = data.get("project_id", mr.project_id)
+        next_work_order_id = data.get("work_order_id", mr.work_order_id)
+        if next_work_order_id:
+            work_order = get_or_404(db, WorkOrder, str(next_work_order_id), detail="Work order not found")
+            if not next_ticket_id and work_order.ticket_id:
+                data["ticket_id"] = work_order.ticket_id
+                next_ticket_id = work_order.ticket_id
+            if not next_project_id and work_order.project_id:
+                data["project_id"] = work_order.project_id
+                next_project_id = work_order.project_id
+        if not (next_ticket_id or next_project_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Material request must be linked to a ticket or project, directly or through a work order",
+            )
+
+        for field, value in data.items():
             setattr(mr, field, value)
         db.commit()
         db.refresh(mr)

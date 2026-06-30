@@ -11,6 +11,7 @@ from app.models.material_request import (
     MaterialRequestPriority,
     MaterialRequestStatus,
 )
+from app.models.workforce import WorkOrder
 from app.schemas.material_request import (
     MaterialRequestCreate,
     MaterialRequestItemCreate,
@@ -115,6 +116,26 @@ class TestMaterialRequestCRUD:
         )
         assert len(mr.items) == 1
         assert mr.items[0].quantity == 3
+
+    def test_create_with_work_order_derives_ticket_parent(self, db_session, person, ticket):
+        work_order = WorkOrder(
+            title="Replace ONT",
+            ticket_id=ticket.id,
+            subscriber_id=ticket.subscriber_id,
+        )
+        db_session.add(work_order)
+        db_session.commit()
+
+        mr = material_requests.create(
+            db_session,
+            MaterialRequestCreate(
+                work_order_id=work_order.id,
+                requested_by_person_id=person.id,
+            ),
+        )
+
+        assert mr.work_order_id == work_order.id
+        assert mr.ticket_id == ticket.id
 
     def test_create_with_item_serial_numbers(self, db_session, person, ticket, inventory_item):
         mr = _make_mr(

@@ -70,6 +70,29 @@ class ExecutionController extends Notifier<ActiveTimer?> {
     return clientEventId;
   }
 
+  Future<String> addNote(
+    String jobId,
+    String body, {
+    List<String> attachmentIds = const [],
+  }) async {
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError.value(body, 'body', 'Note body is required');
+    }
+    final clientRef = _uuid.v4();
+    await _sync.enqueue(
+      kind: 'note',
+      clientRef: clientRef,
+      payload: {
+        'work_order_id': jobId,
+        'body': trimmed,
+        'attachment_ids': attachmentIds,
+      },
+    );
+    await _sync.flushOutbox();
+    return clientRef;
+  }
+
   Future<void> _stopTimer(String jobId) async {
     final timer = state;
     if (timer == null || timer.jobId != jobId) return;

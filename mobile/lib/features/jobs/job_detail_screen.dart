@@ -60,6 +60,12 @@ class _JobDetailView extends ConsumerWidget {
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        key: const Key('add-note-action'),
+        onPressed: () => _showAddNoteDialog(context, ref, job.id),
+        icon: const Icon(Icons.note_add_outlined),
+        label: const Text('Add note'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -161,6 +167,81 @@ class _JobDetailView extends ConsumerWidget {
               ),
             ),
     );
+  }
+
+  Future<void> _showAddNoteDialog(BuildContext context, WidgetRef ref, String jobId) async {
+    final controller = TextEditingController();
+    var isSaving = false;
+    var errorText = '';
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Add note'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                key: const Key('note-body-field'),
+                controller: controller,
+                minLines: 4,
+                maxLines: 6,
+                textInputAction: TextInputAction.newline,
+                decoration: InputDecoration(
+                  hintText: 'What happened on site?',
+                  errorText: errorText.isEmpty ? null : errorText,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: isSaving ? null : () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('save-note-action'),
+              onPressed: isSaving
+                  ? null
+                  : () async {
+                      final body = controller.text.trim();
+                      if (body.isEmpty) {
+                        setState(() => errorText = 'Enter a note');
+                        return;
+                      }
+                      setState(() {
+                        isSaving = true;
+                        errorText = '';
+                      });
+                      try {
+                        await ref.read(executionControllerProvider.notifier).addNote(jobId, body);
+                        ref.invalidate(jobDetailProvider(jobId));
+                        if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Note saved')));
+                        }
+                      } catch (_) {
+                        if (!context.mounted) return;
+                        setState(() {
+                          isSaving = false;
+                          errorText = 'Could not save note';
+                        });
+                      }
+                    },
+              child: isSaving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
   }
 }
 

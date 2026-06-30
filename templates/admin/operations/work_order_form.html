@@ -35,12 +35,24 @@
     {% set status_value = form.status if form is defined else (work_order.status.value if work_order and work_order.status else '') %}
     {% set priority_value = form.priority if form is defined else (work_order.priority.value if work_order and work_order.priority else '') %}
     {% set type_value = form.work_type if form is defined else (work_order.work_type.value if work_order and work_order.work_type else '') %}
+    {% set ticket_id_value = form.ticket_id if form is defined else (work_order.ticket_id|string if work_order and work_order.ticket_id else '') %}
+    {% set subscriber_id_value = form.subscriber_id if form is defined else (work_order.subscriber_id|string if work_order and work_order.subscriber_id else '') %}
+    {% set project_id_value = form.project_id if form is defined else (work_order.project_id|string if work_order and work_order.project_id else '') %}
     {% set assigned_value = form.assigned_to_person_id if form is defined else (work_order.assigned_to_person_id|string if work_order and work_order.assigned_to_person_id else '') %}
     {% set start_value = form.scheduled_start if form is defined else (work_order.scheduled_start.strftime('%Y-%m-%dT%H:%M') if work_order and work_order.scheduled_start else '') %}
     {% set end_value = form.scheduled_end if form is defined else (work_order.scheduled_end.strftime('%Y-%m-%dT%H:%M') if work_order and work_order.scheduled_end else '') %}
 
     <form method="post" action="{{ form_action if form_action is defined else ('/admin/operations/work-orders/' ~ work_order.id ~ '/edit') }}" class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <input type="hidden" name="ticket_id" value="{{ ticket_id_value }}">
+        <input type="hidden" name="subscriber_id" value="{{ subscriber_id_value }}">
+        <input type="hidden" name="project_id" value="{{ project_id_value }}">
         <div class="p-6 space-y-6">
+            {% if linked_ticket is defined and linked_ticket %}
+            <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-100">
+                Creating from ticket
+                <a class="font-semibold text-amber-700 hover:underline dark:text-amber-200" href="/admin/support/tickets/{{ linked_ticket.number or linked_ticket.id }}">#{{ linked_ticket.number or linked_ticket.id|string|truncate(8, True, '') }}</a>
+            </div>
+            {% endif %}
             <div>
                 <label for="title" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Title</label>
                 <input type="text" name="title" id="title" required

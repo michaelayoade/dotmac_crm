@@ -47,6 +47,7 @@ class MaterialRequestUpdate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     ticket_id: UUID | None = None
     project_id: UUID | None = None
+    work_order_id: UUID | None = None
     priority: MaterialRequestPriority | None = None
     notes: str | None = None
     source_location_id: UUID | None = None
