@@ -4,6 +4,8 @@ class InventoryItem {
     required this.name,
     this.sku,
     this.unit,
+    this.unitPrice,
+    this.currency,
     this.availableQuantity,
   });
 
@@ -11,6 +13,8 @@ class InventoryItem {
   final String name;
   final String? sku;
   final String? unit;
+  final double? unitPrice;
+  final String? currency;
   final int? availableQuantity;
 
   String get displayName => sku == null || sku!.isEmpty ? name : '$name ($sku)';
@@ -20,6 +24,8 @@ class InventoryItem {
     name: json['name'] as String? ?? 'Item',
     sku: json['sku'] as String?,
     unit: json['unit'] as String?,
+    unitPrice: _double(json['unit_price']),
+    currency: json['currency'] as String?,
     availableQuantity: _int(
       json['available_quantity'] ?? json['quantity_available'],
     ),
@@ -140,6 +146,12 @@ int? _int(Object? value) => switch (value) {
   int() => value,
   num() => value.toInt(),
   String() => int.tryParse(value),
+  _ => null,
+};
+
+double? _double(Object? value) => switch (value) {
+  num() => value.toDouble(),
+  String() => double.tryParse(value),
   _ => null,
 };
 

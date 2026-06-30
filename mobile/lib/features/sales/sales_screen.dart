@@ -141,6 +141,10 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
       if (_description.text.trim().isEmpty) {
         _description.text = item.name;
       }
+      final price = item.unitPrice;
+      if (price != null && price > 0) {
+        _unitPrice.text = price.toStringAsFixed(2);
+      }
     });
   }
 
