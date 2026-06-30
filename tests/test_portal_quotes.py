@@ -15,6 +15,9 @@ _CFG = {
     "fee_per_km": Decimal("25000.00"),
     "deposit_percent": 50,
     "feasibility_radius_m": 2000,
+    "bundle_sku": None,
+    "base_sku": None,
+    "distance_sku": None,
 }
 
 
@@ -132,3 +135,58 @@ def test_build_payload_serializes_quote(monkeypatch):
     assert out["project_id"] is None
     assert len(out["line_items"]) == 1
     assert out["line_items"][0]["unit_price"] == "50000.00"
+
+
+# --- Catalog-backed pricing (price book) + flat bundle ----------------------
+
+from app.models.inventory import InventoryItem  # noqa: E402
+
+
+def _item(db, sku, name, price):
+    it = InventoryItem(sku=sku, name=name, unit_price=Decimal(price), currency="NGN", is_active=True)
+    db.add(it)
+    db.commit()
+    db.refresh(it)
+    return it
+
+
+def _cfg(**over):
+    c = dict(_CFG)
+    c.update(over)
+    return c
+
+
+def test_bundle_mode_is_flat_irrespective_of_distance(db_session, monkeypatch):
+    bundle = _item(db_session, "INSTALL-BUNDLE", "Standard Fibre Install", "120000.00")
+    monkeypatch.setattr(portal_quotes, "_settings", lambda db: _cfg(bundle_sku="INSTALL-BUNDLE"))
+    # A far location (would add a big distance surcharge in derived mode).
+    est = portal_quotes.compute_estimate(db_session, {"coverage": "covered", "distance_meters": 5000.0}, "NGN")
+    assert est["pricing_mode"] == "bundle"
+    assert est["subtotal"] == Decimal("120000.00")  # flat, distance ignored
+    assert est["distance_fee"] == Decimal("0.00")
+    assert est["deposit_amount"] == Decimal("60000.00")
+    assert len(est["line_items"]) == 1
+    assert est["line_items"][0]["inventory_item_id"] == bundle.id
+
+
+def test_derived_mode_sources_prices_from_catalog(db_session, monkeypatch):
+    base = _item(db_session, "INSTALL-BASE", "Base install", "40000.00")
+    drop = _item(db_session, "DROP-PER-KM", "Drop cable", "10000.00")
+    monkeypatch.setattr(
+        portal_quotes, "_settings", lambda db: _cfg(base_sku="INSTALL-BASE", distance_sku="DROP-PER-KM")
+    )
+    est = portal_quotes.compute_estimate(db_session, {"coverage": "covered", "distance_meters": 1300.0}, "NGN")
+    assert est["pricing_mode"] == "derived"
+    assert est["base_fee"] == Decimal("40000.00")  # from catalog, not the 50000 setting
+    assert est["distance_fee"] == Decimal("10000.00")  # 1km beyond free radius * 10000
+    assert est["subtotal"] == Decimal("50000.00")
+    assert est["line_items"][0]["inventory_item_id"] == base.id
+    assert est["line_items"][1]["inventory_item_id"] == drop.id
+
+
+def test_derived_mode_falls_back_to_settings_when_no_catalog_item(db_session, monkeypatch):
+    monkeypatch.setattr(portal_quotes, "_settings", lambda db: _cfg(base_sku="DOES-NOT-EXIST"))
+    est = portal_quotes.compute_estimate(db_session, {"coverage": "covered", "distance_meters": 200.0}, "NGN")
+    assert est["pricing_mode"] == "derived"
+    assert est["base_fee"] == Decimal("50000.00")  # settings fallback
+    assert est["line_items"][0]["inventory_item_id"] is None
