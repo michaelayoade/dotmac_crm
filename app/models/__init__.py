@@ -346,6 +346,14 @@ from app.models.wireless_survey import (  # noqa: F401
     SurveyStatus,
     WirelessSiteSurvey,
 )
+from app.models.work_lifecycle import (  # noqa: F401
+    WorkEntityType,
+    WorkLink,
+    WorkLinkType,
+    WorkOutcome,
+    WorkOutcomeStatus,
+    WorkOutcomeType,
+)
 from app.models.workflow import (  # noqa: F401
     ProjectTaskStatusTransition,
     SlaBreach,

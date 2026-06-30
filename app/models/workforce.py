@@ -76,6 +76,7 @@ class WorkOrder(Base):
     assigned_to = relationship("Person", foreign_keys=[assigned_to_person_id])
     assignments = relationship("WorkOrderAssignment", back_populates="work_order")
     notes = relationship("WorkOrderNote", back_populates="work_order")
+    outcomes = relationship("WorkOutcome", back_populates="work_order")
 
 
 class WorkOrderAssignment(Base):

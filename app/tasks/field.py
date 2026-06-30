@@ -6,6 +6,25 @@ from app.metrics import observe_job
 from app.services.field.location_tracking import field_location_tracking
 
 
+@celery_app.task(name="app.tasks.field.reconcile_pending_work_outcomes")
+def reconcile_pending_work_outcomes(limit: int = 100) -> dict:
+    """Self-heal WorkOutcomes stuck ``pending`` after a failed dotmac_sub push."""
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    try:
+        from app.services.work_lifecycle import work_lifecycle
+
+        return work_lifecycle.reconcile_pending_outcomes(session, limit=limit)
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("work_outcome_reconcile", status, time.monotonic() - start)
+
+
 @celery_app.task(name="app.tasks.field.prune_field_location_pings")
 def prune_field_location_pings(older_than_hours: int | None = None) -> dict:
     start = time.monotonic()

@@ -46,7 +46,38 @@ SETTINGS_SPECS: list[SettingSpec] = [
         env_var="SELFSERVE_QUOTE_BASE_FEE",
         value_type=SettingValueType.decimal,
         default="50000.00",
-        label="Base installation fee (NGN) — PLACEHOLDER, set real value",
+        label="Base installation fee (NGN) — fallback when no base catalog item is set",
+        section="selfserve_quotes",
+    ),
+    # Catalog-backed pricing (price book): point these at inventory_items by SKU.
+    # If the bundle item is set, the estimate is that item's flat price
+    # (irrespective of distance). Otherwise base + distance items are used, each
+    # falling back to the *_fee settings when unset/unpriced.
+    SettingSpec(
+        domain=SettingDomain.projects,
+        key="selfserve_quote_bundle_item_sku",
+        env_var="SELFSERVE_QUOTE_BUNDLE_ITEM_SKU",
+        value_type=SettingValueType.string,
+        default=None,
+        label="Bundle install product SKU (flat price, overrides the derived estimate)",
+        section="selfserve_quotes",
+    ),
+    SettingSpec(
+        domain=SettingDomain.projects,
+        key="selfserve_quote_base_item_sku",
+        env_var="SELFSERVE_QUOTE_BASE_ITEM_SKU",
+        value_type=SettingValueType.string,
+        default=None,
+        label="Base install product SKU (price book) — its sell price is the base fee",
+        section="selfserve_quotes",
+    ),
+    SettingSpec(
+        domain=SettingDomain.projects,
+        key="selfserve_quote_distance_item_sku",
+        env_var="SELFSERVE_QUOTE_DISTANCE_ITEM_SKU",
+        value_type=SettingValueType.string,
+        default=None,
+        label="Per-km drop product SKU (price book) — its sell price is the per-km surcharge",
         section="selfserve_quotes",
     ),
     SettingSpec(
@@ -1634,6 +1665,13 @@ SETTINGS_SPECS: list[SettingSpec] = [
         value_type=SettingValueType.string,
         default="open",
         allowed={"open", "acknowledged", "resolved"},
+    ),
+    SettingSpec(
+        domain=SettingDomain.workflow,
+        key="work_order_completion_resolves_ticket",
+        env_var="WORK_ORDER_COMPLETION_RESOLVES_TICKET",
+        value_type=SettingValueType.boolean,
+        default=False,
     ),
     SettingSpec(
         domain=SettingDomain.network,
