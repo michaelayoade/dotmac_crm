@@ -53,3 +53,40 @@ def test_status_converged_when_no_splynx_remains(db_session):
     assert status["subscribers_remaining_splynx"] == 0
     assert status["people_splynx_id_without_selfcare_id"] == 0
     assert status["converged"] is True
+
+
+def _keyed_subscriber(db, external_system, external_id, subscriber_number) -> Subscriber:
+    s = Subscriber(
+        external_system=external_system,
+        external_id=external_id,
+        subscriber_number=subscriber_number,
+    )
+    db.add(s)
+    db.commit()
+    return s
+
+
+def test_dedupe_soft_deletes_only_duplicates_with_twin(db_session):
+    from app.services.splynx_convergence import dedupe_splynx_duplicates
+
+    # splynx 17897 has a canonical selfcare twin (100017897) -> duplicate.
+    dup = _keyed_subscriber(db_session, "splynx", "17897", None)
+    twin = _keyed_subscriber(db_session, "selfcare", "uuid-twin", "100017897")
+    # splynx 99999 has no selfcare twin -> must be left alone.
+    orphan = _keyed_subscriber(db_session, "splynx", "99999", None)
+
+    dry = dedupe_splynx_duplicates(db_session, apply=False)
+    assert dry["duplicates"] == 1
+    assert dry["no_twin"] == 1
+    assert dry["soft_deleted"] == 0
+    db_session.refresh(dup)
+    assert dup.is_active is True  # dry run changed nothing
+
+    applied = dedupe_splynx_duplicates(db_session, apply=True)
+    assert applied["soft_deleted"] == 1
+    db_session.refresh(dup)
+    db_session.refresh(twin)
+    db_session.refresh(orphan)
+    assert dup.is_active is False  # duplicate retired
+    assert twin.is_active is True  # canonical row untouched
+    assert orphan.is_active is True  # no-twin splynx row left for review
