@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from sqlalchemy import exists, or_
+
+from app.models.work_lifecycle import WorkEntityType, WorkLink, WorkLinkType
 from app.models.workforce import (
     WorkOrder,
     WorkOrderAssignment,
@@ -57,16 +60,40 @@ class WorkOrderQuery(BaseQuery[WorkOrder]):
         """Filter by linked ticket ID."""
         if not ticket_id:
             return self
+        ticket_uuid = coerce_uuid(ticket_id)
         clone = self._clone()
-        clone._query = clone._query.filter(WorkOrder.ticket_id == coerce_uuid(ticket_id))
+        clone._query = clone._query.filter(
+            or_(
+                WorkOrder.ticket_id == ticket_uuid,
+                exists().where(
+                    WorkLink.source_type == WorkEntityType.ticket,
+                    WorkLink.source_id == ticket_uuid,
+                    WorkLink.target_type == WorkEntityType.work_order,
+                    WorkLink.target_id == WorkOrder.id,
+                    WorkLink.link_type == WorkLinkType.originated,
+                ),
+            )
+        )
         return clone
 
     def by_project(self, project_id: UUID | str | None) -> WorkOrderQuery:
         """Filter by linked project ID."""
         if not project_id:
             return self
+        project_uuid = coerce_uuid(project_id)
         clone = self._clone()
-        clone._query = clone._query.filter(WorkOrder.project_id == coerce_uuid(project_id))
+        clone._query = clone._query.filter(
+            or_(
+                WorkOrder.project_id == project_uuid,
+                exists().where(
+                    WorkLink.source_type == WorkEntityType.project,
+                    WorkLink.source_id == project_uuid,
+                    WorkLink.target_type == WorkEntityType.work_order,
+                    WorkLink.target_id == WorkOrder.id,
+                    WorkLink.link_type == WorkLinkType.originated,
+                ),
+            )
+        )
         return clone
 
     def by_assigned_to(self, person_id: UUID | str | None) -> WorkOrderQuery:

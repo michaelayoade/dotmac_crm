@@ -34,6 +34,7 @@ from app.services.common import (
 from app.services.events import emit_event
 from app.services.events.types import EventType
 from app.services.response import ListResponseMixin
+from app.services.work_lifecycle import work_lifecycle
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +227,9 @@ def emit_work_order_status_events(
             project_id=work_order.project_id,
             ticket_id=work_order.ticket_id,
         )
-        _emit_work_order_to_sub(db, work_order, "work_order.completed")
+        selfcare_notified = _emit_work_order_to_sub(db, work_order, "work_order.completed")
+        work_lifecycle.record_work_order_completion(db, work_order, selfcare_notified=selfcare_notified)
+        db.commit()
     elif new_status == WorkOrderStatus.canceled and previous_status != WorkOrderStatus.canceled:
         emit_event(
             db,
@@ -306,7 +309,7 @@ def _work_order_subscriber_id(db: Session, work_order: WorkOrder) -> str | None:
     return None
 
 
-def _emit_work_order_to_sub(db: Session, work_order: WorkOrder, event_type: str) -> None:
+def _emit_work_order_to_sub(db: Session, work_order: WorkOrder, event_type: str) -> bool:
     """Push a work-order lifecycle event to dotmac_sub to hydrate its
     field-service mirror. Best-effort: a failed push never breaks the flow."""
     try:
@@ -314,11 +317,11 @@ def _emit_work_order_to_sub(db: Session, work_order: WorkOrder, event_type: str)
 
         subscriber_id = _work_order_subscriber_id(db, work_order)
         if not subscriber_id:
-            return
+            return False
         payload = build_work_order_portal_payload(db, work_order)
         payload["subscriber_id"] = subscriber_id
         payload["work_order_id"] = payload["id"]
-        selfcare.notify_work_order_event(db, event_type, payload)
+        return selfcare.notify_work_order_event(db, event_type, payload)
     except Exception as exc:
         logger.warning(
             "work_order_event_emit_failed work_order_id=%s event=%s error=%s",
@@ -326,6 +329,7 @@ def _emit_work_order_to_sub(db: Session, work_order: WorkOrder, event_type: str)
             event_type,
             exc,
         )
+        return False
 
 
 class WorkOrders(ListResponseMixin):
@@ -339,6 +343,24 @@ class WorkOrders(ListResponseMixin):
             _ensure_person(db, str(payload.assigned_to_person_id))
         work_order = WorkOrder(**payload.model_dump())
         db.add(work_order)
+        db.flush()
+
+        if work_order.ticket_id:
+            work_lifecycle.link_work_order_origin(
+                db,
+                work_order_id=work_order.id,
+                origin_type="ticket",
+                origin_id=work_order.ticket_id,
+                contract_name="work_order.created_from_ticket",
+            )
+        if work_order.project_id:
+            work_lifecycle.link_work_order_origin(
+                db,
+                work_order_id=work_order.id,
+                origin_type="project",
+                origin_id=work_order.project_id,
+                contract_name="work_order.created_from_project",
+            )
         db.commit()
         db.refresh(work_order)
 
@@ -444,6 +466,22 @@ class WorkOrders(ListResponseMixin):
             _ensure_person(db, str(data["assigned_to_person_id"]))
         for key, value in data.items():
             setattr(work_order, key, value)
+        if work_order.ticket_id:
+            work_lifecycle.link_work_order_origin(
+                db,
+                work_order_id=work_order.id,
+                origin_type="ticket",
+                origin_id=work_order.ticket_id,
+                contract_name="work_order.created_from_ticket",
+            )
+        if work_order.project_id:
+            work_lifecycle.link_work_order_origin(
+                db,
+                work_order_id=work_order.id,
+                origin_type="project",
+                origin_id=work_order.project_id,
+                contract_name="work_order.created_from_project",
+            )
         db.commit()
         db.refresh(work_order)
 
