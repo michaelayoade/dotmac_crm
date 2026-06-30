@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.models.crm.sales import Quote, QuoteStatus
 from app.models.domain_settings import SettingDomain
+from app.models.inventory import InventoryItem
 from app.models.network import FiberAccessPoint
 from app.models.projects import ProjectType
 from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus, SalesOrderStatus
@@ -93,6 +94,11 @@ def _settings(db: Session) -> dict:
         except (TypeError, ValueError):
             return fallback
 
+    def _sku(key: str) -> str | None:
+        raw = settings_spec.resolve_value(db, SettingDomain.projects, key)
+        sku = str(raw).strip() if raw else ""
+        return sku or None
+
     return {
         "enabled": bool(settings_spec.resolve_value(db, SettingDomain.projects, "selfserve_quote_enabled")),
         "base_fee": _dec("selfserve_quote_base_fee"),
@@ -100,7 +106,23 @@ def _settings(db: Session) -> dict:
         "fee_per_km": _dec("selfserve_quote_fee_per_km"),
         "deposit_percent": max(0, min(100, _int("selfserve_quote_deposit_percent", 50))),
         "feasibility_radius_m": _int("selfserve_quote_feasibility_radius_meters", 2000),
+        "bundle_sku": _sku("selfserve_quote_bundle_item_sku"),
+        "base_sku": _sku("selfserve_quote_base_item_sku"),
+        "distance_sku": _sku("selfserve_quote_distance_item_sku"),
     }
+
+
+def _priced_item(db: Session, sku: str | None) -> InventoryItem | None:
+    """Resolve an active price-book item (inventory item with a sell price) by SKU."""
+    if not sku:
+        return None
+    return (
+        db.query(InventoryItem)
+        .filter(InventoryItem.sku == sku)
+        .filter(InventoryItem.is_active.is_(True))
+        .filter(InventoryItem.unit_price.isnot(None))
+        .first()
+    )
 
 
 def _nearest_fiber_access_point(db: Session, latitude: float, longitude: float):
@@ -157,9 +179,37 @@ def compute_estimate(db: Session, feasibility: dict, currency: str) -> dict:
     site survey confirms the true cost; only the base fee is quoted up front.
     """
     cfg = _settings(db)
-    base_fee = _money(cfg["base_fee"])
     coverage = feasibility.get("coverage")
+    deposit_percent = cfg["deposit_percent"]
+
+    bundle = _priced_item(db, cfg["bundle_sku"])
+    if bundle is not None:
+        # Bundle mode: a flat catalog price, irrespective of distance. Out-of-area
+        # (no nearby plant) still needs a survey, so flag it provisional.
+        bundle_price = _money(bundle.unit_price)
+        subtotal = bundle_price
+        return {
+            "currency": currency,
+            "pricing_mode": "bundle",
+            "base_fee": bundle_price,
+            "distance_fee": Decimal("0.00"),
+            "subtotal": subtotal,
+            "deposit_percent": deposit_percent,
+            "deposit_amount": _money(subtotal * Decimal(deposit_percent) / Decimal("100")),
+            "provisional": coverage == "out_of_area",
+            "line_items": [{"description": bundle.name, "unit_price": bundle_price, "inventory_item_id": bundle.id}],
+        }
+
+    # Derived mode: base + per-km distance surcharge. Unit prices come from the
+    # catalog (price book) when configured, else the *_fee settings.
     free_radius_m = float(cfg["free_radius_m"])
+    base_item = _priced_item(db, cfg["base_sku"])
+    base_fee = _money(base_item.unit_price) if base_item is not None else _money(cfg["base_fee"])
+    base_desc = base_item.name if base_item is not None else "Fiber installation (base)"
+    base_item_id = base_item.id if base_item is not None else None
+
+    distance_item = _priced_item(db, cfg["distance_sku"])
+    fee_per_km = _money(distance_item.unit_price) if distance_item is not None else _money(cfg["fee_per_km"])
 
     distance_m: float | None = None
     raw_distance = feasibility.get("distance_meters")
@@ -176,25 +226,29 @@ def compute_estimate(db: Session, feasibility: dict, currency: str) -> dict:
         billable_m = max(0.0, distance_m - free_radius_m)
         if billable_m > 0:
             km = Decimal(str(billable_m)) / Decimal("1000")
-            distance_fee = _money(km * cfg["fee_per_km"])
+            distance_fee = _money(km * fee_per_km)
 
-    line_items = [{"description": "Fiber installation (base)", "unit_price": base_fee}]
+    line_items: list[dict] = [{"description": base_desc, "unit_price": base_fee, "inventory_item_id": base_item_id}]
     if distance_fee > 0:
         over_km = round(billable_m / 1000, 2)
+        distance_name = distance_item.name if distance_item is not None else "Distance surcharge"
         line_items.append(
-            {"description": f"Distance surcharge ({over_km} km beyond free radius)", "unit_price": distance_fee}
+            {
+                "description": f"{distance_name} ({over_km} km beyond free radius)",
+                "unit_price": distance_fee,
+                "inventory_item_id": distance_item.id if distance_item is not None else None,
+            }
         )
 
     subtotal = _money(base_fee + distance_fee)
-    deposit_percent = cfg["deposit_percent"]
-    deposit_amount = _money(subtotal * Decimal(deposit_percent) / Decimal("100"))
     return {
         "currency": currency,
+        "pricing_mode": "derived",
         "base_fee": base_fee,
         "distance_fee": distance_fee,
         "subtotal": subtotal,
         "deposit_percent": deposit_percent,
-        "deposit_amount": deposit_amount,
+        "deposit_amount": _money(subtotal * Decimal(deposit_percent) / Decimal("100")),
         "provisional": provisional,
         "line_items": line_items,
     }
@@ -266,6 +320,7 @@ class PortalQuotes:
                     "feasibility": feasibility,
                     "deposit_percent": estimate["deposit_percent"],
                     "estimate_provisional": estimate["provisional"],
+                    "pricing_mode": estimate["pricing_mode"],
                 },
             ),
         )
@@ -274,6 +329,7 @@ class PortalQuotes:
                 db,
                 QuoteLineItemCreate(
                     quote_id=quote.id,
+                    inventory_item_id=item.get("inventory_item_id"),
                     description=item["description"],
                     quantity=Decimal("1.000"),
                     unit_price=item["unit_price"],
