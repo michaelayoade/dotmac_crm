@@ -353,16 +353,17 @@ class _NewMaterialRequestScreenState
           inventory.when(
             data: (items) => DropdownButtonFormField<InventoryItem>(
               initialValue: _selectedItem,
+              isExpanded: true,
+              menuMaxHeight: 360,
               decoration: const InputDecoration(labelText: 'Item'),
+              selectedItemBuilder: (context) => [
+                for (final item in items) _InventoryItemLabel(item: item),
+              ],
               items: [
                 for (final item in items)
                   DropdownMenuItem(
                     value: item,
-                    child: Text(
-                      item.sku == null
-                          ? item.name
-                          : '${item.name} (${item.sku})',
-                    ),
+                    child: _InventoryItemLabel(item: item),
                   ),
               ],
               onChanged: (value) => setState(() => _selectedItem = value),
@@ -409,6 +410,22 @@ class _NewMaterialRequestScreenState
           ),
         ),
       ),
+    );
+  }
+}
+
+class _InventoryItemLabel extends StatelessWidget {
+  const _InventoryItemLabel({required this.item});
+
+  final InventoryItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final sku = item.sku;
+    return Text(
+      sku == null || sku.isEmpty ? item.name : '${item.name} ($sku)',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
     );
   }
 }
