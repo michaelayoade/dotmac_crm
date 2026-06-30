@@ -1399,7 +1399,7 @@ class Tickets(ListResponseMixin):
         ticket = Tickets.update(
             db,
             str(ticket_id),
-            TicketUpdate(status=TicketStatus.closed),
+            TicketUpdate(status=TicketStatus.closed, closed_at=datetime.now(UTC)),
         )
         affected_user_ids = [a.person_id for a in (ticket.assignees or [])]
         _wq_emit(
