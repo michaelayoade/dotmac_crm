@@ -7,8 +7,8 @@ Run ONLY after the dotmac_sub push fix has deployed, otherwise sub recreates
 the duplicates on the next push.
 
 Usage:
-    poetry run python scripts/dedup_splynx_subscribers.py           # dry run
-    poetry run python scripts/dedup_splynx_subscribers.py --apply   # execute
+    poetry run python scripts/dedup_splynx_subscribers.py
+    poetry run python scripts/dedup_splynx_subscribers.py --apply --confirm-sub-fix-deployed
 """
 
 import argparse
@@ -21,7 +21,14 @@ from app.services.splynx_convergence import dedupe_splynx_duplicates
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="Soft-delete duplicates (default: dry run)")
+    parser.add_argument(
+        "--confirm-sub-fix-deployed",
+        action="store_true",
+        help="Required with --apply after verifying dotmac_sub #559 is deployed",
+    )
     args = parser.parse_args()
+    if args.apply and not args.confirm_sub_fix_deployed:
+        parser.error("--apply requires --confirm-sub-fix-deployed after verifying dotmac_sub #559 is deployed")
 
     db = SessionLocal()
     try:
