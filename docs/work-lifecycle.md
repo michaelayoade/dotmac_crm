@@ -45,6 +45,12 @@ External handoffs must use an idempotency key when possible so retries do not du
 
 Work-order completion records one idempotent `WorkOutcome` using `work-order:{id}:completion`. Internal/non-billing work records `no_billing_change`; subscriber-backed installs, repairs, and disconnects record the corresponding operational outcome and carry the dotmac_sub external reference when available.
 
+A failed dotmac_sub push leaves the outcome `pending`. The `app.tasks.field.reconcile_pending_work_outcomes` sweep (scheduler domain, default-on, ~30 min) re-drives pending selfcare outcomes and flips recovered ones to `succeeded`, so a transient sub outage self-heals.
+
+## Named Contracts
+
+Cross-stage handoffs are explicit, named, and opt-in — never implicit. The originating ticket of a completed work order is resolved only when `workflow.work_order_completion_resolves_ticket` is enabled (default off), so a WorkOrder closing its ticket is a deliberate decision rather than a silent side effect. When it fires, the closure is itself recorded as a `WorkLink` (`work_order` `resulted_in` `ticket`, contract `work_order.completed.resolved_ticket`).
+
 ## Link Audits
 
 Because `WorkLink` is polymorphic, `source_id` and `target_id` cannot have ordinary database foreign keys. Use `work_lifecycle.dangling_links()` for periodic checks that identify missing or inactive source/target records.

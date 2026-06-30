@@ -172,6 +172,29 @@ class WorkLifecycle:
         return [target_id for (target_id,) in rows]
 
     @staticmethod
+    def work_order_origin_id(
+        db: Session,
+        *,
+        work_order_id: UUID | str,
+        origin_type: WorkEntityType | str,
+        link_type: WorkLinkType | str = WorkLinkType.originated,
+    ) -> UUID | None:
+        """Reverse lookup: the origin entity (e.g. ticket) that a work order came from."""
+        origin_type_value = _coerce_entity_type(origin_type, "origin type")
+        link_type_value = _coerce_link_type(link_type)
+        work_order_uuid = coerce_uuid(work_order_id)
+        row = (
+            db.query(WorkLink.source_id)
+            .filter(WorkLink.target_type == WorkEntityType.work_order)
+            .filter(WorkLink.target_id == work_order_uuid)
+            .filter(WorkLink.source_type == origin_type_value)
+            .filter(WorkLink.link_type == link_type_value)
+            .order_by(WorkLink.created_at)
+            .first()
+        )
+        return row[0] if row else None
+
+    @staticmethod
     def create_outcome(
         db: Session,
         *,
