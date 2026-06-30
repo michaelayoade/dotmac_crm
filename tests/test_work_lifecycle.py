@@ -205,3 +205,66 @@ def test_dangling_links_reports_missing_source(db_session, work_order):
         "entity_id": str(link.source_id),
         "reason": "missing",
     } in findings
+
+
+def test_reconcile_heals_pending_selfcare_outcome(db_session, person, monkeypatch):
+    subscriber = Subscriber(
+        person_id=person.id,
+        external_system="selfcare",
+        external_id="sub-heal",
+        subscriber_number="SUB-HEAL",
+    )
+    db_session.add(subscriber)
+    db_session.flush()
+    work_order = workforce_service.work_orders.create(
+        db_session,
+        WorkOrderCreate(
+            title="Install needing retry",
+            work_type=WorkOrderType.install,
+            subscriber_id=subscriber.id,
+        ),
+    )
+
+    # First completion: the sub push fails, so the outcome is left pending.
+    monkeypatch.setattr("app.services.selfcare.notify_work_order_event", lambda *a, **k: False)
+    workforce_service.work_orders.update(
+        db_session,
+        str(work_order.id),
+        WorkOrderUpdate(status=WorkOrderStatus.completed),
+    )
+    outcome = db_session.query(WorkOutcome).filter(WorkOutcome.work_order_id == work_order.id).one()
+    assert outcome.status == WorkOutcomeStatus.pending
+
+    # The sub is reachable now: the self-heal sweep flips it to succeeded.
+    monkeypatch.setattr("app.services.selfcare.notify_work_order_event", lambda *a, **k: True)
+    result = work_lifecycle.reconcile_pending_outcomes(db_session)
+
+    db_session.refresh(outcome)
+    assert result["processed"] == 1
+    assert result["healed"] == 1
+    assert outcome.status == WorkOutcomeStatus.succeeded
+
+
+def test_reconcile_leaves_outcome_pending_when_push_still_fails(db_session, person, monkeypatch):
+    subscriber = Subscriber(
+        person_id=person.id,
+        external_system="selfcare",
+        external_id="sub-stuck",
+        subscriber_number="SUB-STUCK",
+    )
+    db_session.add(subscriber)
+    db_session.flush()
+    work_order = workforce_service.work_orders.create(
+        db_session,
+        WorkOrderCreate(title="Repair retry", work_type=WorkOrderType.repair, subscriber_id=subscriber.id),
+    )
+    monkeypatch.setattr("app.services.selfcare.notify_work_order_event", lambda *a, **k: False)
+    workforce_service.work_orders.update(
+        db_session, str(work_order.id), WorkOrderUpdate(status=WorkOrderStatus.completed)
+    )
+
+    result = work_lifecycle.reconcile_pending_outcomes(db_session)
+
+    outcome = db_session.query(WorkOutcome).filter(WorkOutcome.work_order_id == work_order.id).one()
+    assert result["healed"] == 0
+    assert outcome.status == WorkOutcomeStatus.pending
