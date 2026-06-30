@@ -16,6 +16,19 @@ from sqlalchemy.orm import Session
 
 from app.models.person import Person
 from app.models.subscriber import Subscriber
+from app.services.common import coerce_uuid
+
+
+def _expected_selfcare_number(external_id: object) -> str | None:
+    """The canonical selfcare subscriber_number for a legacy splynx id.
+
+    dotmac_sub numbers migrated subscribers as ``100`` + zero-padded
+    splynx_customer_id (e.g. 17897 -> 100017897).
+    """
+    raw = str(external_id or "").strip()
+    if not raw.isdigit():
+        return None
+    return "100" + raw.zfill(6)
 
 
 def _people_metadata_stats(db: Session) -> dict[str, int]:
@@ -71,4 +84,62 @@ def convergence_status(db: Session) -> dict:
         "subscribers_remaining_splynx": remaining_splynx,
         **people,
         "converged": remaining_splynx == 0 and people["people_splynx_id_without_selfcare_id"] == 0,
+    }
+
+
+def find_splynx_duplicates(db: Session) -> tuple[list[dict], list[dict]]:
+    """Partition active splynx rows into (duplicates, no_twin).
+
+    A splynx row is a *duplicate* when a canonical selfcare row exists for the
+    same subscriber (matched by the ``100`` + padded-id subscriber_number). Those
+    are safe to retire — the selfcare row is authoritative. ``no_twin`` rows have
+    no selfcare counterpart and must NOT be auto-removed (manual review).
+    """
+    splynx_rows = (
+        db.query(Subscriber).filter(Subscriber.external_system == "splynx", Subscriber.is_active.is_(True)).all()
+    )
+    duplicates: list[dict] = []
+    no_twin: list[dict] = []
+    for sp in splynx_rows:
+        number = _expected_selfcare_number(sp.external_id)
+        twin = None
+        if number:
+            twin = (
+                db.query(Subscriber)
+                .filter(
+                    Subscriber.external_system == "selfcare",
+                    Subscriber.subscriber_number == number,
+                    Subscriber.is_active.is_(True),
+                )
+                .first()
+            )
+        if twin is not None and twin.id != sp.id:
+            duplicates.append({"splynx_id": str(sp.id), "external_id": sp.external_id, "twin_id": str(twin.id)})
+        else:
+            no_twin.append({"splynx_id": str(sp.id), "external_id": sp.external_id})
+    return duplicates, no_twin
+
+
+def dedupe_splynx_duplicates(db: Session, *, apply: bool = False) -> dict:
+    """Soft-delete splynx rows that duplicate a canonical selfcare row.
+
+    Dry-run by default (``apply=False``): only reports. With ``apply=True`` it
+    sets ``is_active=False`` on the duplicate splynx rows (reversible; the
+    selfcare twin is untouched). Run only AFTER the sub-side push fix has
+    deployed, otherwise sub recreates the duplicates on the next push.
+    """
+    duplicates, no_twin = find_splynx_duplicates(db)
+    soft_deleted = 0
+    if apply:
+        for dup in duplicates:
+            sub = db.get(Subscriber, coerce_uuid(dup["splynx_id"]))
+            if sub is not None and sub.is_active:
+                sub.is_active = False
+                soft_deleted += 1
+        db.commit()
+    return {
+        "duplicates": len(duplicates),
+        "no_twin": len(no_twin),
+        "applied": apply,
+        "soft_deleted": soft_deleted,
     }
