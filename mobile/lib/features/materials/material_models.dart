@@ -13,6 +13,8 @@ class InventoryItem {
   final String? unit;
   final int? availableQuantity;
 
+  String get displayName => sku == null || sku!.isEmpty ? name : '$name ($sku)';
+
   factory InventoryItem.fromJson(Map<String, dynamic> json) => InventoryItem(
     id: json['id'].toString(),
     name: json['name'] as String? ?? 'Item',

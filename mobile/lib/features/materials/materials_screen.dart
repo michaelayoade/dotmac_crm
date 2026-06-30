@@ -236,6 +236,7 @@ class _NewMaterialRequestScreenState
   final _workOrderId = TextEditingController();
   final _projectId = TextEditingController();
   final _ticketId = TextEditingController();
+  final _itemSearch = TextEditingController();
   final _quantity = TextEditingController(text: '1');
   final _itemNotes = TextEditingController();
   String _priority = 'medium';
@@ -255,6 +256,7 @@ class _NewMaterialRequestScreenState
     _workOrderId.dispose();
     _projectId.dispose();
     _ticketId.dispose();
+    _itemSearch.dispose();
     _quantity.dispose();
     _itemNotes.dispose();
     super.dispose();
@@ -273,6 +275,7 @@ class _NewMaterialRequestScreenState
         ),
       );
       _selectedItem = null;
+      _itemSearch.clear();
       _quantity.text = '1';
       _itemNotes.clear();
     });
@@ -342,31 +345,25 @@ class _NewMaterialRequestScreenState
           Text('Add items', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           TextField(
+            controller: _itemSearch,
             decoration: const InputDecoration(
               labelText: 'Search inventory',
               prefixIcon: Icon(Icons.search),
             ),
-            onChanged: (value) =>
-                ref.read(inventorySearchQueryProvider.notifier).state = value,
+            onChanged: (value) {
+              setState(() => _selectedItem = null);
+              ref.read(inventorySearchQueryProvider.notifier).state = value;
+            },
           ),
           const SizedBox(height: 8),
           inventory.when(
-            data: (items) => DropdownButtonFormField<InventoryItem>(
-              initialValue: _selectedItem,
-              isExpanded: true,
-              menuMaxHeight: 360,
-              decoration: const InputDecoration(labelText: 'Item'),
-              selectedItemBuilder: (context) => [
-                for (final item in items) _InventoryItemLabel(item: item),
-              ],
-              items: [
-                for (final item in items)
-                  DropdownMenuItem(
-                    value: item,
-                    child: _InventoryItemLabel(item: item),
-                  ),
-              ],
-              onChanged: (value) => setState(() => _selectedItem = value),
+            data: (items) => _InventorySuggestions(
+              items: items,
+              selectedItem: _selectedItem,
+              onSelected: (item) => setState(() {
+                _selectedItem = item;
+                _itemSearch.text = item.displayName;
+              }),
             ),
             loading: () => const LinearProgressIndicator(),
             error: (_, _) => const Text('Inventory search failed'),
@@ -421,11 +418,57 @@ class _InventoryItemLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sku = item.sku;
-    return Text(
-      sku == null || sku.isEmpty ? item.name : '${item.name} ($sku)',
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
+    return Text(item.displayName, maxLines: 1, overflow: TextOverflow.ellipsis);
+  }
+}
+
+class _InventorySuggestions extends StatelessWidget {
+  const _InventorySuggestions({
+    required this.items,
+    required this.selectedItem,
+    required this.onSelected,
+  });
+
+  final List<InventoryItem> items;
+  final InventoryItem? selectedItem;
+  final ValueChanged<InventoryItem> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = selectedItem;
+    if (selected != null) {
+      return InputDecorator(
+        decoration: const InputDecoration(labelText: 'Selected item'),
+        child: Row(
+          children: [
+            Expanded(child: _InventoryItemLabel(item: selected)),
+            const SizedBox(width: 8),
+            const Icon(Icons.check_circle_outline, size: 18),
+          ],
+        ),
+      );
+    }
+    if (items.isEmpty) return const SizedBox.shrink();
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxHeight: 220),
+      child: ListView.separated(
+        shrinkWrap: true,
+        itemCount: items.length.clamp(0, 6),
+        separatorBuilder: (_, _) => const Divider(height: 1),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          return ListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            leading: const Icon(Icons.inventory_2_outlined, size: 20),
+            title: _InventoryItemLabel(item: item),
+            subtitle: item.availableQuantity == null
+                ? null
+                : Text('${item.availableQuantity} available'),
+            onTap: () => onSelected(item),
+          );
+        },
+      ),
     );
   }
 }
