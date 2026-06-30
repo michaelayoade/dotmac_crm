@@ -10,6 +10,7 @@ import '../features/jobs/job_detail_screen.dart';
 import '../features/location/location_tracking_controller.dart';
 import '../features/materials/materials_screen.dart';
 import '../features/profile/profile_screen.dart';
+import '../features/sales/sales_screen.dart';
 import '../features/schedule/schedule_screen.dart';
 import '../features/today/map_screen.dart';
 import '../features/today/today_screen.dart';
@@ -58,6 +59,10 @@ GoRouter buildRouter(Ref ref) {
         builder: (_, state) =>
             MaterialRequestDetailScreen(id: state.pathParameters['id']!),
       ),
+      GoRoute(
+        path: '/sales/new',
+        builder: (_, _) => const NewSalesOrderScreen(),
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) => _AppShell(shell: shell),
         branches: [
@@ -85,6 +90,11 @@ GoRouter buildRouter(Ref ref) {
                 path: '/materials',
                 builder: (_, _) => const MaterialsScreen(),
               ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/sales', builder: (_, _) => const SalesScreen()),
             ],
           ),
           StatefulShellBranch(
@@ -142,6 +152,10 @@ class _AppShell extends StatelessWidget {
           NavigationDestination(
             icon: Icon(Icons.inventory_2_outlined),
             label: 'Materials',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.receipt_long_outlined),
+            label: 'Sales',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),

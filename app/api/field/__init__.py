@@ -11,6 +11,7 @@ from app.api.field.map_assets import router as map_assets_router
 from app.api.field.material_requests import router as material_requests_router
 from app.api.field.materials import router as materials_router
 from app.api.field.notes import router as notes_router
+from app.api.field.sales_orders import router as sales_orders_router
 from app.api.field.schedule import router as schedule_router
 from app.api.field.transitions import router as transitions_router
 from app.api.field.vendor_projects import router as vendor_projects_router
@@ -38,6 +39,7 @@ router.include_router(map_assets_router, dependencies=_technician)
 router.include_router(material_requests_router, dependencies=_technician)
 router.include_router(materials_router, dependencies=_technician)
 router.include_router(notes_router, dependencies=_technician)
+router.include_router(sales_orders_router, dependencies=_technician)
 router.include_router(schedule_router, dependencies=_technician)
 router.include_router(transitions_router, dependencies=_technician)
 router.include_router(vendor_projects_router)

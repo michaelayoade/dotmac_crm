@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -8,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.models.field import DevicePlatform, FieldAttachmentKind
 from app.models.material_request import MaterialRequestPriority
+from app.models.sales_order import SalesOrderPaymentStatus, SalesOrderStatus
 from app.schemas.material_request import MaterialRequestItemCreate
 
 
@@ -167,6 +169,79 @@ class FieldMaterialRequestCreate(BaseModel):
     destination_location_id: UUID | None = None
     items: list[MaterialRequestItemCreate] = Field(default_factory=list, max_length=100)
     submit: bool = True
+
+
+class FieldCustomerSearchItem(BaseModel):
+    id: UUID
+    type: Literal["person"]
+    label: str
+    ref: str
+
+
+class FieldSalesOrderLineCreate(BaseModel):
+    inventory_item_id: UUID | None = None
+    description: str = Field(min_length=1, max_length=255)
+    quantity: Decimal = Field(default=Decimal("1.000"), gt=0)
+    unit_price: Decimal = Field(default=Decimal("0.00"), ge=0)
+
+
+class FieldSalesOrderCreate(BaseModel):
+    person_id: UUID
+    notes: str | None = Field(default=None, max_length=5000)
+    currency: str = Field(default="NGN", min_length=3, max_length=3)
+    lines: list[FieldSalesOrderLineCreate] = Field(min_length=1, max_length=100)
+
+
+class FieldSalesOrderLineRead(BaseModel):
+    id: UUID
+    inventory_item_id: UUID | None
+    description: str
+    quantity: Decimal
+    unit_price: Decimal
+    amount: Decimal
+
+
+class FieldSalesOrderRead(BaseModel):
+    id: UUID
+    person_id: UUID
+    order_number: str | None
+    status: SalesOrderStatus
+    payment_status: SalesOrderPaymentStatus
+    currency: str
+    subtotal: Decimal
+    total: Decimal
+    balance_due: Decimal
+    notes: str | None
+    created_at: datetime
+    lines: list[FieldSalesOrderLineRead] = Field(default_factory=list)
+
+    @classmethod
+    def from_order(cls, order) -> FieldSalesOrderRead:
+        return cls(
+            id=order.id,
+            person_id=order.person_id,
+            order_number=order.order_number,
+            status=order.status,
+            payment_status=order.payment_status,
+            currency=order.currency,
+            subtotal=order.subtotal,
+            total=order.total,
+            balance_due=order.balance_due,
+            notes=order.notes,
+            created_at=order.created_at,
+            lines=[
+                FieldSalesOrderLineRead(
+                    id=line.id,
+                    inventory_item_id=line.inventory_item_id,
+                    description=line.description,
+                    quantity=line.quantity,
+                    unit_price=line.unit_price,
+                    amount=line.amount,
+                )
+                for line in (order.lines or [])
+                if line.is_active
+            ],
+        )
 
 
 class FieldWorkLogRead(BaseModel):
