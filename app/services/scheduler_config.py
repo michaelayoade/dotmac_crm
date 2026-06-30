@@ -359,6 +359,28 @@ def build_beat_schedule() -> dict:
             interval_seconds=max(retention_churn_detail_cache_interval, 900),
         )
 
+        work_outcome_reconcile_enabled = _effective_bool(
+            session,
+            SettingDomain.scheduler,
+            "work_outcome_reconcile_enabled",
+            "WORK_OUTCOME_RECONCILE_ENABLED",
+            True,
+        )
+        work_outcome_reconcile_interval = _effective_int(
+            session,
+            SettingDomain.scheduler,
+            "work_outcome_reconcile_interval_seconds",
+            "WORK_OUTCOME_RECONCILE_INTERVAL_SECONDS",
+            1800,
+        )
+        _sync_scheduled_task(
+            session,
+            name="work_outcome_reconcile",
+            task_name="app.tasks.field.reconcile_pending_work_outcomes",
+            enabled=work_outcome_reconcile_enabled,
+            interval_seconds=max(work_outcome_reconcile_interval, 600),
+        )
+
         pending_mr_refresh_enabled = _effective_bool(
             session,
             SettingDomain.integration,

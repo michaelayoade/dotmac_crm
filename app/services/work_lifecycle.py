@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -20,6 +21,8 @@ from app.models.work_lifecycle import (
 )
 from app.models.workforce import WorkOrder, WorkOrderType
 from app.services.common import coerce_uuid
+
+logger = logging.getLogger(__name__)
 
 _ENTITY_MODELS = {
     WorkEntityType.ticket: Ticket,
@@ -263,6 +266,45 @@ class WorkLifecycle:
         db.add(outcome)
         db.flush()
         return outcome
+
+    @staticmethod
+    def reconcile_pending_outcomes(db: Session, *, limit: int = 100) -> dict[str, int]:
+        """Re-drive WorkOutcomes left ``pending`` by a failed dotmac_sub push.
+
+        A completion records its outcome as ``pending`` when the sub notification
+        failed at that moment. This re-sends the notification and flips the ones
+        that now succeed to ``succeeded`` — idempotent via the completion key, so
+        it updates the existing row rather than creating a new one. Commits per
+        outcome so one failure doesn't lose the batch.
+        """
+        from app.services.workforce import _emit_work_order_to_sub
+
+        outcomes = (
+            db.query(WorkOutcome)
+            .filter(WorkOutcome.status == WorkOutcomeStatus.pending)
+            .filter(WorkOutcome.external_system == "selfcare")
+            .order_by(WorkOutcome.created_at)
+            .limit(limit)
+            .all()
+        )
+        processed = 0
+        healed = 0
+        for outcome in outcomes:
+            work_order = db.get(WorkOrder, outcome.work_order_id)
+            if work_order is None:
+                continue
+            processed += 1
+            try:
+                notified = _emit_work_order_to_sub(db, work_order, "work_order.completed")
+                WorkLifecycle.record_work_order_completion(db, work_order, selfcare_notified=notified)
+                db.commit()
+                if notified:
+                    healed += 1
+            except Exception:
+                db.rollback()
+                logger.exception("work_outcome_reconcile_error outcome_id=%s", outcome.id)
+        logger.info("work_outcome_reconcile_done processed=%s healed=%s", processed, healed)
+        return {"processed": processed, "healed": healed}
 
     @staticmethod
     def dangling_links(db: Session, *, limit: int = 100) -> list[dict[str, str]]:
