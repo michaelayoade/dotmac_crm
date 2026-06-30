@@ -36,6 +36,7 @@ from app.services.material_requests import (
     resolve_project_id,
     resolve_ticket_id,
     resolve_warehouse_id,
+    resolve_work_order_id,
 )
 from app.web.templates import Jinja2Templates
 
@@ -418,6 +419,7 @@ def material_request_list(
     date_to: str | None = None,
     ticket_id: str | None = None,
     project_id: str | None = None,
+    work_order_id: str | None = None,
     db: Session = Depends(get_db),
 ):
     selected_status = _selected_status(status)
@@ -434,6 +436,7 @@ def material_request_list(
         created_to=selected_date_to,
         ticket_id=ticket_id,
         project_id=project_id,
+        work_order_id=work_order_id,
         order_by="created_at",
         order_dir="desc",
         limit=100,
@@ -474,14 +477,35 @@ def material_request_new(
     request: Request,
     ticket_id: str | None = None,
     project_id: str | None = None,
+    work_order_id: str | None = None,
     db: Session = Depends(get_db),
 ):
+    resolved_work_order = None
+    if work_order_id:
+        from app.models.workforce import WorkOrder
+
+        try:
+            resolved_work_order = db.get(WorkOrder, coerce_uuid(work_order_id))
+        except (ValueError, AttributeError):
+            resolved_work_order = None
+        if resolved_work_order:
+            ticket_id = ticket_id or (
+                str(resolved_work_order.ticket.number)
+                if resolved_work_order.ticket and resolved_work_order.ticket.number
+                else str(resolved_work_order.ticket_id or "")
+            )
+            project_id = project_id or (
+                str(resolved_work_order.project.number)
+                if resolved_work_order.project and resolved_work_order.project.number
+                else str(resolved_work_order.project_id or "")
+            )
     context = _base_ctx(
         request,
         db,
         mr=None,
         ticket_id=ticket_id,
         project_id=project_id,
+        work_order_id=work_order_id,
         priorities=[p.value for p in MaterialRequestPriority],
         warehouses=_warehouse_choices(db),
     )
@@ -493,6 +517,7 @@ def material_request_create(
     request: Request,
     ticket_id: str | None = Form(None),
     project_id: str | None = Form(None),
+    work_order_id: str | None = Form(None),
     notes: str | None = Form(None),
     priority: str = Form("medium"),
     source_location_id: str | None = Form(None),
@@ -530,6 +555,7 @@ def material_request_create(
     try:
         resolved_ticket_id = resolve_ticket_id(db, ticket_id)
         resolved_project_id = resolve_project_id(db, project_id)
+        resolved_work_order_id = resolve_work_order_id(db, work_order_id)
         resolved_source = resolve_warehouse_id(source_location_id)
         resolved_dest = resolve_warehouse_id(destination_location_id)
     except ResolveError as exc:
@@ -539,28 +565,31 @@ def material_request_create(
             mr=None,
             ticket_id=ticket_id,
             project_id=project_id,
+            work_order_id=work_order_id,
             priorities=[p.value for p in MaterialRequestPriority],
             warehouses=_warehouse_choices(db),
             error=str(exc),
         )
         return templates.TemplateResponse("admin/material_requests/form.html", context)
 
-    if not (resolved_ticket_id or resolved_project_id):
+    if not (resolved_ticket_id or resolved_project_id or resolved_work_order_id):
         context = _base_ctx(
             request,
             db,
             mr=None,
             ticket_id=ticket_id,
             project_id=project_id,
+            work_order_id=work_order_id,
             priorities=[p.value for p in MaterialRequestPriority],
             warehouses=_warehouse_choices(db),
-            error="Link a ticket or project before creating a material request.",
+            error="Link a ticket, project, or work order before creating a material request.",
         )
         return templates.TemplateResponse("admin/material_requests/form.html", context, status_code=400)
 
     payload = MaterialRequestCreate(
         ticket_id=resolved_ticket_id,
         project_id=resolved_project_id,
+        work_order_id=resolved_work_order_id,
         requested_by_person_id=coerce_uuid(person_id),
         priority=MaterialRequestPriority(priority) if priority else MaterialRequestPriority.medium,
         notes=notes,
@@ -577,6 +606,7 @@ def material_request_create(
             mr=None,
             ticket_id=ticket_id,
             project_id=project_id,
+            work_order_id=work_order_id,
             priorities=[p.value for p in MaterialRequestPriority],
             warehouses=_warehouse_choices(db),
             error=str(exc.detail or "Unable to create material request."),
@@ -651,6 +681,7 @@ def material_request_edit(request: Request, mr_id: str, db: Session = Depends(ge
         priorities=[p.value for p in MaterialRequestPriority],
         ticket_id=mr.ticket.number if mr.ticket and mr.ticket.number else mr.ticket_id,
         project_id=mr.project.number if mr.project and mr.project.number else mr.project_id,
+        work_order_id=mr.work_order_id,
         warehouses=_warehouse_choices(db),
     )
     return templates.TemplateResponse("admin/material_requests/form.html", context)
@@ -662,6 +693,7 @@ def material_request_update(
     mr_id: str,
     ticket_id: str | None = Form(None),
     project_id: str | None = Form(None),
+    work_order_id: str | None = Form(None),
     notes: str | None = Form(None),
     priority: str | None = Form(None),
     source_location_id: str | None = Form(None),
@@ -678,6 +710,7 @@ def material_request_update(
     payload = MaterialRequestUpdate(
         ticket_id=resolve_ticket_id(db, ticket_id),
         project_id=resolve_project_id(db, project_id),
+        work_order_id=resolve_work_order_id(db, work_order_id),
         priority=MaterialRequestPriority(priority) if priority else None,
         notes=notes,
         source_location_id=resolve_warehouse_id(source_location_id),

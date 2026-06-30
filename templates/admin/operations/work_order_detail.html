@@ -16,6 +16,9 @@
             <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">#{{ work_order.id | string | truncate(12, True, '') }}</p>
         </div>
         <div class="flex items-center gap-2">
+            <a href="/admin/operations/material-requests/new?work_order_id={{ work_order.id }}{% if work_order.ticket_id %}&ticket_id={{ work_order.ticket.number or work_order.ticket_id }}{% endif %}{% if work_order.project_id %}&project_id={{ work_order.project.number or work_order.project_id }}{% endif %}" class="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700">
+                Request Materials
+            </a>
             <a href="/admin/operations/work-orders/{{ work_order.id }}/edit" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 Edit
             </a>
@@ -48,6 +51,57 @@
                             {{ work_order.assigned_to.first_name }} {{ work_order.assigned_to.last_name }}
                         {% else %}
                             Unassigned
+                        {% endif %}
+                    </dd>
+                </div>
+                <div>
+                    <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Linked Ticket</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">
+                        {% if work_order.ticket %}
+                            <a href="/admin/support/tickets/{{ work_order.ticket.number or work_order.ticket_id }}" class="text-amber-700 hover:underline dark:text-amber-300">#{{ work_order.ticket.number or work_order.ticket_id|string|truncate(8, True, '') }}</a>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </dd>
+                </div>
+                <div>
+                    <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Linked Project</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">
+                        {% if work_order.project %}
+                            <a href="/admin/projects/{{ work_order.project_id }}" class="text-amber-700 hover:underline dark:text-amber-300">{{ work_order.project.number or work_order.project.name or work_order.project_id|string|truncate(8, True, '') }}</a>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </dd>
+                </div>
+                <div class="sm:col-span-2">
+                    <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Customer</dt>
+                    <dd class="mt-1 text-sm text-slate-900 dark:text-white">
+                        {% if work_order.subscriber %}
+                            {% set customer_person = work_order.subscriber.person %}
+                            <div class="space-y-1">
+                                <div>
+                                    <a href="/admin/subscribers/{{ work_order.subscriber_id }}" class="font-medium text-amber-700 hover:underline dark:text-amber-300">
+                                        {{ customer_person.display_name if customer_person and customer_person.display_name else ((customer_person.first_name ~ ' ' ~ customer_person.last_name)|trim if customer_person else work_order.subscriber.account_number or work_order.subscriber_id) }}
+                                    </a>
+                                    {% if work_order.subscriber.account_number %}
+                                        <span class="text-slate-500 dark:text-slate-400">({{ work_order.subscriber.account_number }})</span>
+                                    {% endif %}
+                                </div>
+                                <div class="text-slate-600 dark:text-slate-300">
+                                    {% if customer_person and customer_person.phone %}{{ customer_person.phone }}{% endif %}
+                                    {% if customer_person and customer_person.email %}{% if customer_person.phone %} · {% endif %}{{ customer_person.email }}{% endif %}
+                                </div>
+                                {% set address_text = [work_order.subscriber.service_address_line1, work_order.subscriber.service_address_line2, work_order.subscriber.service_city, work_order.subscriber.service_region, work_order.subscriber.service_postal_code] | select | join(', ') %}
+                                {% if address_text %}
+                                    <div class="text-slate-600 dark:text-slate-300">{{ address_text }}</div>
+                                {% endif %}
+                                {% if work_order.subscriber.service_plan %}
+                                    <div class="text-slate-500 dark:text-slate-400">Plan: {{ work_order.subscriber.service_plan }}</div>
+                                {% endif %}
+                            </div>
+                        {% else %}
+                            —
                         {% endif %}
                     </dd>
                 </div>

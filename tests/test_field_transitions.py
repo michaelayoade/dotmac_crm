@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from app.models.audit import AuditEvent
 from app.models.field import FieldJobEvent, WorkOrderEvent
 from app.models.person import Person
+from app.models.tickets import TicketComment
 from app.models.timecost import WorkLog
 from app.models.workforce import WorkOrderAssignment, WorkOrderStatus
 from app.schemas.workforce import WorkOrderUpdate
@@ -94,6 +95,11 @@ def test_start_sets_in_progress_and_timestamps(db_session, dispatched_job, perso
     assert audit is not None
     assert audit.entity_id == str(dispatched_job.id)
 
+    comment = db_session.query(TicketComment).filter(TicketComment.ticket_id == dispatched_job.ticket_id).one()
+    assert comment.is_internal is True
+    assert "Field update" in comment.body
+    assert "started" in comment.body
+
 
 def test_replay_is_idempotent(db_session, dispatched_job, person):
     client_event_id = str(uuid.uuid4())
@@ -102,6 +108,7 @@ def test_replay_is_idempotent(db_session, dispatched_job, person):
     assert replay["replayed"] is True
     assert replay["event"].id == first["event"].id
     assert db_session.query(WorkOrderEvent).filter_by(work_order_id=dispatched_job.id).count() == 1
+    assert db_session.query(TicketComment).filter_by(ticket_id=dispatched_job.ticket_id).count() == 1
 
 
 def test_helper_cannot_transition(db_session, dispatched_job, person):
