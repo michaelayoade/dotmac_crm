@@ -1636,6 +1636,13 @@ SETTINGS_SPECS: list[SettingSpec] = [
         allowed={"open", "acknowledged", "resolved"},
     ),
     SettingSpec(
+        domain=SettingDomain.workflow,
+        key="work_order_completion_resolves_ticket",
+        env_var="WORK_ORDER_COMPLETION_RESOLVES_TICKET",
+        value_type=SettingValueType.boolean,
+        default=False,
+    ),
+    SettingSpec(
         domain=SettingDomain.network,
         key="default_device_type",
         env_var="NETWORK_DEFAULT_DEVICE_TYPE",

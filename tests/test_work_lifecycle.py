@@ -268,3 +268,57 @@ def test_reconcile_leaves_outcome_pending_when_push_still_fails(db_session, pers
     outcome = db_session.query(WorkOutcome).filter(WorkOutcome.work_order_id == work_order.id).one()
     assert result["healed"] == 0
     assert outcome.status == WorkOutcomeStatus.pending
+
+
+def test_completion_resolves_ticket_when_enabled(db_session, ticket, monkeypatch):
+    import app.services.settings_spec as ss
+    from app.models.domain_settings import SettingDomain
+    from app.models.tickets import TicketStatus
+
+    original = ss.resolve_value
+
+    def _fake(db, domain, key, **kwargs):
+        if domain == SettingDomain.workflow and key == "work_order_completion_resolves_ticket":
+            return True
+        return original(db, domain, key, **kwargs)
+
+    monkeypatch.setattr(ss, "resolve_value", _fake)
+    monkeypatch.setattr("app.services.selfcare.notify_work_order_event", lambda *a, **k: True)
+
+    work_order = workforce_service.work_orders.create(
+        db_session,
+        WorkOrderCreate(title="Fix ONT", work_type=WorkOrderType.repair, ticket_id=ticket.id),
+    )
+    workforce_service.work_orders.update(
+        db_session, str(work_order.id), WorkOrderUpdate(status=WorkOrderStatus.completed)
+    )
+
+    db_session.refresh(ticket)
+    assert ticket.status == TicketStatus.closed
+    link = (
+        db_session.query(WorkLink)
+        .filter(WorkLink.source_type == WorkEntityType.work_order)
+        .filter(WorkLink.source_id == work_order.id)
+        .filter(WorkLink.target_type == WorkEntityType.ticket)
+        .filter(WorkLink.target_id == ticket.id)
+        .filter(WorkLink.link_type == WorkLinkType.resulted_in)
+        .one_or_none()
+    )
+    assert link is not None
+    assert link.contract_name == "work_order.completed.resolved_ticket"
+
+
+def test_completion_leaves_ticket_open_when_disabled(db_session, ticket, monkeypatch):
+    from app.models.tickets import TicketStatus
+
+    monkeypatch.setattr("app.services.selfcare.notify_work_order_event", lambda *a, **k: True)
+    work_order = workforce_service.work_orders.create(
+        db_session,
+        WorkOrderCreate(title="Fix ONT", work_type=WorkOrderType.repair, ticket_id=ticket.id),
+    )
+    workforce_service.work_orders.update(
+        db_session, str(work_order.id), WorkOrderUpdate(status=WorkOrderStatus.completed)
+    )
+
+    db_session.refresh(ticket)
+    assert ticket.status != TicketStatus.closed  # default: contract off, no auto-resolve

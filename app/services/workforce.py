@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.models.domain_settings import SettingDomain
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.person import Person
 from app.models.projects import Project
@@ -28,6 +29,7 @@ from app.schemas.workforce import (
     WorkOrderNoteUpdate,
     WorkOrderUpdate,
 )
+from app.services import settings_spec
 from app.services.common import (
     coerce_uuid,
 )
@@ -230,6 +232,7 @@ def emit_work_order_status_events(
         selfcare_notified = _emit_work_order_to_sub(db, work_order, "work_order.completed")
         work_lifecycle.record_work_order_completion(db, work_order, selfcare_notified=selfcare_notified)
         db.commit()
+        _resolve_origin_ticket_on_completion(db, work_order)
     elif new_status == WorkOrderStatus.canceled and previous_status != WorkOrderStatus.canceled:
         emit_event(
             db,
@@ -330,6 +333,49 @@ def _emit_work_order_to_sub(db: Session, work_order: WorkOrder, event_type: str)
             exc,
         )
         return False
+
+
+def _resolve_origin_ticket_on_completion(db: Session, work_order: WorkOrder) -> None:
+    """Named contract: resolve the originating ticket when its work order completes.
+
+    Opt-in (``workflow.work_order_completion_resolves_ticket``, default off) so
+    closing a WorkOrder closing its ticket is an explicit decision, not implicit.
+    The origin ticket is found via the ``ticket_id`` compat FK, falling back to a
+    WorkLink ``originated`` record. Records a ``resulted_in`` link so the closure
+    is itself an auditable contract. Best-effort: never breaks completion.
+    """
+    try:
+        if not settings_spec.resolve_value(db, SettingDomain.workflow, "work_order_completion_resolves_ticket"):
+            return
+        ticket_id = work_order.ticket_id or work_lifecycle.work_order_origin_id(
+            db, work_order_id=work_order.id, origin_type="ticket"
+        )
+        if not ticket_id:
+            return
+        from app.models.tickets import TicketStatus
+        from app.services.tickets import tickets as tickets_service
+
+        ticket = db.get(Ticket, ticket_id)
+        if ticket is None or ticket.status in {
+            TicketStatus.closed,
+            TicketStatus.canceled,
+            TicketStatus.merged,
+        }:
+            return
+        tickets_service.resolve(db, str(ticket_id))
+        work_lifecycle.link(
+            db,
+            source_type="work_order",
+            source_id=work_order.id,
+            target_type="ticket",
+            target_id=ticket_id,
+            link_type="resulted_in",
+            contract_name="work_order.completed.resolved_ticket",
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("work_order_resolve_ticket_failed work_order_id=%s", getattr(work_order, "id", None))
 
 
 class WorkOrders(ListResponseMixin):
