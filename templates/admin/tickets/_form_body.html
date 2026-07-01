@@ -250,6 +250,7 @@
                 {% set tech_ids = [] %}
                 <div id="technician-typeahead"
                      data-assignment-groups="{{ (assignment_groups or []) | tojson | forceescape }}"
+                     data-technicians="{{ (technician_options or []) | tojson | forceescape }}"
                      class="mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-700">
                     <div class="flex flex-wrap gap-2" data-selected-wrap>
                         {% for tech in technicians %}
@@ -861,10 +862,16 @@
         const selectedWrap = root.querySelector("[data-selected-wrap]");
         const groupHidden = root.querySelector("input[type='hidden'][name='service_team_id'][data-hidden-group]");
         let assignmentGroups = [];
+        let localTechnicians = [];
         try {
             assignmentGroups = JSON.parse(root.dataset.assignmentGroups || "[]");
         } catch (e) {
             assignmentGroups = [];
+        }
+        try {
+            localTechnicians = JSON.parse(root.dataset.technicians || "[]");
+        } catch (e) {
+            localTechnicians = [];
         }
         const selected = new Map();
         const hiddenById = new Map();
@@ -1038,6 +1045,15 @@
                     kind: "group",
                 }))
                 .slice(0, 5);
+            const localMatches = localTechnicians
+                .filter((item) => item && item.id && item.label)
+                .filter((item) => {
+                    const id = String(item.id || "");
+                    if (!id || selected.has(id)) return false;
+                    if (!term) return true;
+                    return String(item.label).toLowerCase().includes(term);
+                })
+                .slice(0, 20);
             const url = `/api/v1/search/technicians?q=${encodeURIComponent(query)}&limit=10`;
             fetch(url)
                 .then((response) => {
@@ -1046,14 +1062,15 @@
                 })
                 .then((data) => {
                     const items = (data && data.items) || [];
+                    const localIds = new Set(localMatches.map((item) => String(item.id || "")));
                     const filtered = items.filter((item) => {
                         const id = String(item.id || item.ref || "");
-                        return id && !selected.has(id);
+                        return id && !selected.has(id) && !localIds.has(id);
                     });
-                    renderResults([...groupMatches, ...filtered]);
+                    renderResults([...groupMatches, ...localMatches, ...filtered]);
                 })
                 .catch(() => {
-                    renderResults(groupMatches);
+                    renderResults([...groupMatches, ...localMatches]);
                 });
         };
 

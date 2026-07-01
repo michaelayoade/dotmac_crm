@@ -66,6 +66,19 @@ def test_create_note_with_linked_attachments(db_session, assigned_job, person, f
     assert note.author_person_id == person.id
     db_session.refresh(attachment)
     assert attachment.note_id == note.id
+    assert note.attachments == [
+        {
+            "id": str(attachment.id),
+            "field_attachment_id": str(attachment.id),
+            "file_name": attachment.file_name,
+            "file_size": attachment.size_bytes,
+            "mime_type": attachment.mime_type,
+            "kind": attachment.kind.value,
+            "url": f"/api/v1/field/attachments/{attachment.id}/content",
+        }
+    ]
+    comment = db_session.query(TicketComment).filter(TicketComment.author_person_id == person.id).one()
+    assert comment.attachments == note.attachments
 
 
 def test_field_note_mirrors_to_linked_ticket(db_session, assigned_job, person):

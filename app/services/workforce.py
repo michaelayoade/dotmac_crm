@@ -637,6 +637,7 @@ class WorkOrderNotes(ListResponseMixin):
                     author_person_id=payload.author_person_id,
                     body=f"Work order note from {str(work_order.id)[:8]}: {payload.body}",
                     is_internal=True,
+                    attachments=payload.attachments,
                 )
             )
         db.commit()

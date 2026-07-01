@@ -20,15 +20,17 @@ from app.models.auth import UserCredential
 from app.models.dispatch import TechnicianProfile
 from app.models.inventory import InventoryItem
 from app.models.person import Person
-from app.models.projects import ProjectType
+from app.models.projects import Project, ProjectTask, ProjectType
 from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus, SalesOrderStatus
 from app.models.tickets import Ticket
 from app.models.vendor import InstallationProject
 from app.models.workforce import WorkOrder, WorkOrderPriority, WorkOrderStatus, WorkOrderType
 from app.schemas.dispatch import TechnicianProfileCreate, TechnicianProfileUpdate
+from app.schemas.projects import ProjectTaskUpdate
 from app.schemas.sales_order import SalesOrderCreate, SalesOrderLineCreate
 from app.schemas.workforce import WorkOrderCreate, WorkOrderUpdate
 from app.services import dispatch as dispatch_service
+from app.services import projects as projects_service
 from app.services import sales_orders as sales_orders_service
 from app.services import vendor as vendor_service
 from app.services import workforce as workforce_service
@@ -689,11 +691,22 @@ def work_orders_list(
 @router.get(
     "/work-orders/new",
     response_class=HTMLResponse,
-    dependencies=[Depends(require_any_permission("operations:work_order:create", "support:ticket:update"))],
+    dependencies=[
+        Depends(
+            require_any_permission(
+                "operations:work_order:create",
+                "support:ticket:update",
+                "project:update",
+                "project:task:write",
+            )
+        )
+    ],
 )
 def work_order_new(
     request: Request,
     ticket_id: str | None = None,
+    project_id: str | None = None,
+    task_id: str | None = None,
     db: Session = Depends(get_db),
 ):
     """New work order form."""
@@ -710,6 +723,8 @@ def work_order_new(
     )
 
     linked_ticket = None
+    linked_project = None
+    linked_task = None
     form_defaults = {}
     if ticket_id:
         linked_ticket = db.query(Ticket).filter(Ticket.number == ticket_id).first()
@@ -730,6 +745,53 @@ def work_order_new(
                 "ticket_id": str(linked_ticket.id),
                 "subscriber_id": str(linked_ticket.subscriber_id or ""),
             }
+    if task_id and not linked_ticket:
+        linked_task = db.query(ProjectTask).filter(ProjectTask.number == task_id).first()
+        if not linked_task:
+            try:
+                linked_task = db.get(ProjectTask, coerce_uuid(task_id))
+            except (ValueError, AttributeError):
+                linked_task = None
+        if linked_task and linked_task.work_order_id:
+            return RedirectResponse(url=f"/admin/operations/work-orders/{linked_task.work_order_id}", status_code=303)
+        if linked_task:
+            linked_project = db.get(Project, linked_task.project_id)
+            task_ref = linked_task.number or str(linked_task.id)
+            task_assignee_ids = linked_task.assigned_to_person_ids
+            assigned_to_person_id = task_assignee_ids[0] if task_assignee_ids else None
+            form_defaults = {
+                "title": f"Field work for task #{task_ref}: {linked_task.title}",
+                "description": linked_task.description or linked_task.title or "",
+                "status": "draft",
+                "priority": linked_task.priority.value if linked_task.priority else "normal",
+                "work_type": "install",
+                "project_id": str(linked_task.project_id),
+                "project_task_id": str(linked_task.id),
+                "subscriber_id": str(linked_project.subscriber_id or "") if linked_project else "",
+                "assigned_to_person_id": str(assigned_to_person_id or ""),
+            }
+    if project_id and not linked_ticket and not linked_task:
+        linked_project = db.query(Project).filter(Project.number == project_id).first()
+        if not linked_project:
+            try:
+                linked_project = db.get(Project, coerce_uuid(project_id))
+            except (ValueError, AttributeError):
+                linked_project = None
+        if linked_project:
+            project_ref = linked_project.number or str(linked_project.id)
+            project_priority = linked_project.priority.value if linked_project.priority else "normal"
+            work_type = "install"
+            if linked_project.project_type and "relocation" in linked_project.project_type.value:
+                work_type = "maintenance"
+            form_defaults = {
+                "title": f"Field work for project #{project_ref}",
+                "description": linked_project.description or linked_project.name or "",
+                "status": "draft",
+                "priority": project_priority if project_priority in {p.value for p in WorkOrderPriority} else "normal",
+                "work_type": work_type,
+                "project_id": str(linked_project.id),
+                "subscriber_id": str(linked_project.subscriber_id or ""),
+            }
 
     return templates.TemplateResponse(
         "admin/operations/work_order_form.html",
@@ -740,15 +802,27 @@ def work_order_new(
             "sidebar_stats": get_sidebar_stats(db),
             "work_order": None,
             "linked_ticket": linked_ticket,
+            "linked_project": linked_project,
+            "linked_task": linked_task,
             "technicians": technicians,
             "status_options": [s.value for s in WorkOrderStatus],
             "priority_options": [p.value for p in WorkOrderPriority],
             "type_options": [t.value for t in WorkOrderType],
             "is_new": True,
             "form_action": "/admin/operations/work-orders",
-            "cancel_url": f"/admin/support/tickets/{linked_ticket.number or linked_ticket.id}"
-            if linked_ticket
-            else "/admin/operations/work-orders",
+            "cancel_url": (
+                f"/admin/support/tickets/{linked_ticket.number or linked_ticket.id}"
+                if linked_ticket
+                else (
+                    f"/admin/projects/tasks/{linked_task.number or linked_task.id}"
+                    if linked_task
+                    else (
+                        f"/admin/projects/{linked_project.number or linked_project.id}"
+                        if linked_project
+                        else "/admin/operations/work-orders"
+                    )
+                )
+            ),
             "form": form_defaults,
         },
     )
@@ -757,7 +831,16 @@ def work_order_new(
 @router.post(
     "/work-orders",
     response_class=HTMLResponse,
-    dependencies=[Depends(require_any_permission("operations:work_order:create", "support:ticket:update"))],
+    dependencies=[
+        Depends(
+            require_any_permission(
+                "operations:work_order:create",
+                "support:ticket:update",
+                "project:update",
+                "project:task:write",
+            )
+        )
+    ],
 )
 def work_order_create(
     request: Request,
@@ -769,6 +852,7 @@ def work_order_create(
     ticket_id: str | None = Form(None),
     subscriber_id: str | None = Form(None),
     project_id: str | None = Form(None),
+    project_task_id: str | None = Form(None),
     assigned_to_person_id: str | None = Form(None),
     scheduled_start: str | None = Form(None),
     scheduled_end: str | None = Form(None),
@@ -790,6 +874,12 @@ def work_order_create(
             scheduled_end=_parse_local_datetime(scheduled_end),
         )
         order = workforce_service.work_orders.create(db, payload)
+        if project_task_id:
+            projects_service.project_tasks.update(
+                db,
+                project_task_id,
+                ProjectTaskUpdate(work_order_id=order.id),
+            )
         return RedirectResponse(
             url=f"/admin/operations/work-orders/{order.id}",
             status_code=303,
@@ -830,6 +920,7 @@ def work_order_create(
                     "ticket_id": ticket_id or "",
                     "subscriber_id": subscriber_id or "",
                     "project_id": project_id or "",
+                    "project_task_id": project_task_id or "",
                     "assigned_to_person_id": assigned_to_person_id or "",
                     "scheduled_start": scheduled_start or "",
                     "scheduled_end": scheduled_end or "",
@@ -1013,7 +1104,9 @@ def work_order_detail(
     )
 
 
-@router.post("/work-orders/{order_id}/delete", dependencies=[Depends(require_permission("operations:work_order:delete"))])
+@router.post(
+    "/work-orders/{order_id}/delete", dependencies=[Depends(require_permission("operations:work_order:delete"))]
+)
 def work_order_delete(
     request: Request,
     order_id: UUID,
