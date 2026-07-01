@@ -2,12 +2,24 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+from types import SimpleNamespace
 from uuid import uuid4
 
 from app.schemas.workforce import WorkOrderCreate
+from app.services import ticket_attachments as ticket_attachment_service
 from app.services import workforce as workforce_service
 from app.web.admin import operations as operations_web
 from app.web.admin import projects as projects_web
+
+
+class _FakeForm(dict):
+    def getlist(self, key: str):
+        value = self.get(key)
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return value
+        return [value]
 
 
 def _run_async(coro):
@@ -17,7 +29,7 @@ def _run_async(coro):
 
 class _FakeRequest:
     def __init__(self, form_data: dict[str, str], headers: dict[str, str] | None = None):
-        self._form_data = form_data
+        self._form_data = _FakeForm(form_data)
         self.headers = headers or {}
 
     async def form(self):
@@ -89,6 +101,74 @@ def test_work_order_status_update_updates_status_and_redirects_to_referrer(monke
     assert len(calls) == 1
     assert calls[0][0] == str(order_id)
     assert calls[0][1].status == operations_web.WorkOrderStatus.scheduled
+
+
+def test_work_order_note_create_saves_body_and_attachments(monkeypatch):
+    calls: list[object] = []
+    deleted: list[list[dict]] = []
+    order_id = uuid4()
+    upload = SimpleNamespace(filename="signal.png")
+
+    def _fake_create(_db, payload):
+        calls.append(payload)
+
+    monkeypatch.setattr(operations_web, "get_current_user", lambda _request: {"person_id": str(uuid4())})
+    monkeypatch.setattr(operations_web.workforce_service.work_order_notes, "create", _fake_create)
+    monkeypatch.setattr(
+        ticket_attachment_service,
+        "prepare_ticket_attachments",
+        lambda uploads: [
+            {
+                "stored_name": "stored.png",
+                "file_name": uploads[0].filename,
+                "content": b"image",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        ticket_attachment_service,
+        "save_ticket_attachments",
+        lambda prepared: [
+            {
+                "file_name": prepared[0]["file_name"],
+                "file_size": 5,
+                "mime_type": "image/png",
+                "key": "uploads/tickets/stored.png",
+                "url": "/admin/storage/dotmac-uploads/uploads/tickets/stored.png",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        ticket_attachment_service, "delete_ticket_attachments", lambda prepared: deleted.append(prepared)
+    )
+
+    request = _FakeRequest(
+        {
+            "body": "Checked splitter and replaced connector",
+            "is_internal": "1",
+            "attachments": [upload],
+        }
+    )
+
+    response = _run_async(operations_web.work_order_note_create(request, order_id, db=object()))
+
+    assert response.status_code == 303
+    assert response.headers.get("location") == f"/admin/operations/work-orders/{order_id}"
+    assert len(calls) == 1
+    payload = calls[0]
+    assert payload.work_order_id == order_id
+    assert payload.body == "Checked splitter and replaced connector"
+    assert payload.is_internal is True
+    assert payload.attachments == [
+        {
+            "file_name": "signal.png",
+            "file_size": 5,
+            "mime_type": "image/png",
+            "key": "uploads/tickets/stored.png",
+            "url": "/admin/storage/dotmac-uploads/uploads/tickets/stored.png",
+        }
+    ]
+    assert deleted == []
 
 
 def test_work_order_new_prefills_from_project(monkeypatch, db_session, project):
