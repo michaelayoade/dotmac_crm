@@ -103,7 +103,16 @@ class _SalesOrderTile extends StatelessWidget {
 }
 
 class NewSalesOrderScreen extends ConsumerStatefulWidget {
-  const NewSalesOrderScreen({super.key});
+  const NewSalesOrderScreen({
+    super.key,
+    this.initialCustomerId,
+    this.initialCustomerLabel,
+    this.initialCustomerRef,
+  });
+
+  final String? initialCustomerId;
+  final String? initialCustomerLabel;
+  final String? initialCustomerRef;
 
   @override
   ConsumerState<NewSalesOrderScreen> createState() =>
@@ -122,6 +131,21 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
   InventoryItem? _selectedItem;
   final _lines = <SalesOrderLineDraft>[];
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final customerId = widget.initialCustomerId;
+    final customerLabel = widget.initialCustomerLabel;
+    if (customerId != null && customerLabel != null) {
+      _selectedCustomer = SalesCustomer(
+        id: customerId,
+        label: customerLabel,
+        ref: widget.initialCustomerRef ?? 'person:$customerId',
+      );
+      _customerSearch.text = customerLabel;
+    }
+  }
 
   @override
   void dispose() {

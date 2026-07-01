@@ -6,6 +6,7 @@ import '../core/api/token_store.dart' show LoginMode;
 import '../features/auth/auth_state.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/mfa_screen.dart';
+import '../features/customers/customer_lookup_screen.dart';
 import '../features/jobs/job_detail_screen.dart';
 import '../features/location/location_tracking_controller.dart';
 import '../features/materials/materials_screen.dart';
@@ -61,7 +62,11 @@ GoRouter buildRouter(Ref ref) {
       ),
       GoRoute(
         path: '/sales/new',
-        builder: (_, _) => const NewSalesOrderScreen(),
+        builder: (_, state) => NewSalesOrderScreen(
+          initialCustomerId: state.uri.queryParameters['customerId'],
+          initialCustomerLabel: state.uri.queryParameters['customerLabel'],
+          initialCustomerRef: state.uri.queryParameters['customerRef'],
+        ),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) => _AppShell(shell: shell),
@@ -89,6 +94,14 @@ GoRouter buildRouter(Ref ref) {
               GoRoute(
                 path: '/materials',
                 builder: (_, _) => const MaterialsScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/customers',
+                builder: (_, _) => const CustomerLookupScreen(),
               ),
             ],
           ),
@@ -152,6 +165,10 @@ class _AppShell extends StatelessWidget {
           NavigationDestination(
             icon: Icon(Icons.inventory_2_outlined),
             label: 'Materials',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.people_alt_outlined),
+            label: 'Customers',
           ),
           NavigationDestination(
             icon: Icon(Icons.receipt_long_outlined),
