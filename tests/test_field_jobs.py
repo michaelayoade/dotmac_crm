@@ -87,7 +87,9 @@ def test_detail_bundle_contents(db_session, assigned_job, person, ticket):
 def test_work_order_note_mirrors_to_linked_ticket(db_session, assigned_job, person):
     note = work_order_notes.create(
         db_session,
-        WorkOrderNoteCreate(work_order_id=assigned_job.id, body="Customer confirmed access", author_person_id=person.id),
+        WorkOrderNoteCreate(
+            work_order_id=assigned_job.id, body="Customer confirmed access", author_person_id=person.id
+        ),
     )
 
     comment = db_session.query(TicketComment).filter(TicketComment.ticket_id == assigned_job.ticket_id).one()

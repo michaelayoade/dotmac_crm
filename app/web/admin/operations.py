@@ -1104,7 +1104,9 @@ def work_order_detail(
     )
 
 
-@router.post("/work-orders/{order_id}/delete", dependencies=[Depends(require_permission("operations:work_order:delete"))])
+@router.post(
+    "/work-orders/{order_id}/delete", dependencies=[Depends(require_permission("operations:work_order:delete"))]
+)
 def work_order_delete(
     request: Request,
     order_id: UUID,
