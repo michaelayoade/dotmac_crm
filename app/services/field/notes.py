@@ -13,6 +13,18 @@ from app.services.field.jobs import get_scoped_work_order
 from app.services.workforce import work_order_notes
 
 
+def _attachment_payload(attachment: FieldAttachment) -> dict:
+    return {
+        "id": str(attachment.id),
+        "field_attachment_id": str(attachment.id),
+        "file_name": attachment.file_name,
+        "file_size": attachment.size_bytes,
+        "mime_type": attachment.mime_type,
+        "kind": attachment.kind.value,
+        "url": f"/api/v1/field/attachments/{attachment.id}/content",
+    }
+
+
 class FieldNotes:
     @staticmethod
     def create(
@@ -47,6 +59,7 @@ class FieldNotes:
                 work_order_id=work_order.id,
                 body=body.strip(),
                 author_person_id=person_uuid,
+                attachments=[_attachment_payload(attachment) for attachment in attachments] or None,
             ),
         )
         for attachment in attachments:
