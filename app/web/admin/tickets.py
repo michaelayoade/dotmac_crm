@@ -1046,6 +1046,25 @@ def _person_filter_label(person: Person) -> str:
     return person.email or str(person.id)
 
 
+def _technician_typeahead_options(technicians) -> list[dict[str, str]]:
+    options: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for tech in technicians or []:
+        person_id = getattr(tech, "person_id", None)
+        if not person_id or str(person_id) in seen:
+            continue
+        seen.add(str(person_id))
+        person = getattr(tech, "person", None)
+        if person:
+            label = person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip()
+            if person.email:
+                label = f"{label} ({person.email})" if label else person.email
+        else:
+            label = f"Technician {str(getattr(tech, 'id', person_id))[:8]}"
+        options.append({"id": str(person_id), "label": label or str(person_id), "kind": "technician"})
+    return options
+
+
 def _load_ticket_pm_spc_options(db: Session) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     rows = (
         db.query(Ticket.ticket_manager_person_id, Ticket.assistant_manager_person_id)
@@ -1709,6 +1728,7 @@ def ticket_create(
             "ticket": None,
             "accounts": accounts,
             "technicians": technicians,
+            "technician_options": _technician_typeahead_options(technicians),
             "assignment_groups": _list_assignment_groups(db),
             "region_options": REGION_OPTIONS,
             "region_ticket_assignments": _load_region_ticket_assignments(db),
@@ -2220,6 +2240,7 @@ async def ticket_create_post(
                 "ticket": None,
                 "accounts": accounts,
                 "technicians": technicians,
+                "technician_options": _technician_typeahead_options(technicians),
                 "assignment_groups": _list_assignment_groups(db),
                 "region_options": REGION_OPTIONS,
                 "region_ticket_assignments": _load_region_ticket_assignments(db),
@@ -2306,6 +2327,7 @@ def ticket_edit(
             "ticket": ticket,
             "accounts": accounts,
             "technicians": technicians,
+            "technician_options": _technician_typeahead_options(technicians),
             "assignment_groups": _list_assignment_groups(db),
             "region_options": REGION_OPTIONS,
             "region_ticket_assignments": _load_region_ticket_assignments(db),
@@ -2408,6 +2430,7 @@ async def ticket_edit_post(
                 "ticket": ticket,
                 "accounts": accounts,
                 "technicians": technicians,
+                "technician_options": _technician_typeahead_options(technicians),
                 "assignment_groups": _list_assignment_groups(db),
                 "region_options": REGION_OPTIONS,
                 "region_ticket_assignments": _load_region_ticket_assignments(db),
@@ -2783,6 +2806,7 @@ async def ticket_edit_post(
                 "ticket": ticket,
                 "accounts": accounts,
                 "technicians": technicians,
+                "technician_options": _technician_typeahead_options(technicians),
                 "assignment_groups": _list_assignment_groups(db),
                 "region_options": REGION_OPTIONS,
                 "region_ticket_assignments": _load_region_ticket_assignments(db),

@@ -33,6 +33,7 @@ from app.models.projects import (
 )
 from app.models.subscriber import Subscriber
 from app.models.workflow import SlaClock, SlaClockStatus, WorkflowEntityType
+from app.models.workforce import WorkOrder
 from app.schemas.projects import (
     ProjectCommentCreate,
     ProjectCreate,
@@ -2212,6 +2213,27 @@ def project_detail(request: Request, project_ref: str, db: Session = Depends(get
         )
     except Exception:
         logger.debug("ERP expense totals fetch failed for project.", exc_info=True)
+    linked_work_orders = []
+    try:
+        from app.services import workforce as workforce_service
+
+        linked_work_orders = workforce_service.work_orders.list(
+            db,
+            subscriber_id=None,
+            ticket_id=None,
+            project_id=str(project.id),
+            assigned_to_person_id=None,
+            status=None,
+            priority=None,
+            work_type=None,
+            is_active=True,
+            order_by="created_at",
+            order_dir="desc",
+            limit=20,
+            offset=0,
+        )
+    except Exception:
+        logger.debug("Linked work orders fetch failed for project.", exc_info=True)
 
     return templates.TemplateResponse(
         "admin/projects/project_detail.html",
@@ -2224,6 +2246,7 @@ def project_detail(request: Request, project_ref: str, db: Session = Depends(get
             "assigned_vendor": assigned_vendor,
             "expense_totals": expense_totals,
             "material_requests": project_material_requests,
+            "linked_work_orders": linked_work_orders,
             "customer_name": customer_name,
             "customer_address": customer_address,
             "csrf_token": get_csrf_token(request),
@@ -2828,6 +2851,7 @@ def project_task_detail(request: Request, task_ref: str, db: Session = Depends(g
             .first()
             is not None
         )
+        linked_work_order = db.get(WorkOrder, task.work_order_id) if task.work_order_id else None
     except Exception:
         context = {
             "request": request,
@@ -2846,6 +2870,7 @@ def project_task_detail(request: Request, task_ref: str, db: Session = Depends(g
             "comments": comments,
             "activities": activities,
             "task_is_breached": task_is_breached,
+            "linked_work_order": linked_work_order,
             "csrf_token": get_csrf_token(request),
             "mention_agents": list_active_users_for_mentions(db),
             "current_user": get_current_user(request),
