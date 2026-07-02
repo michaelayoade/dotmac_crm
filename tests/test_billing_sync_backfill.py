@@ -1,4 +1,4 @@
-"""Backfill of existing paid sales orders → sub (installation invoice + payment)."""
+"""Backfill of existing paid sales orders → sub (installation payment + subscriptions)."""
 
 import uuid
 from decimal import Decimal
@@ -36,14 +36,28 @@ def test_backfill_pushes_only_settled_orders(db_session, person, monkeypatch):
     assert set(pushed) == {paid.id, partial.id}
 
 
+def test_backfill_pushes_both_payment_and_subscription(db_session, person, monkeypatch):
+    import app.services.events.handlers.selfcare_customer as handler
+
+    pay, subs = [], []
+    monkeypatch.setattr(handler, "push_sales_order_payment_to_selfcare", lambda db, so: pay.append(so.id))
+    monkeypatch.setattr(handler, "push_sales_order_subscription_to_selfcare", lambda db, so: subs.append(so.id))
+
+    paid = _order(db_session, person, SalesOrderPaymentStatus.paid)
+    result = billing_sync.backfill_sales_payments_to_sub(db_session, limit=100)
+    assert result["processed"] == 1
+    assert pay == [paid.id] and subs == [paid.id]
+
+
 def test_backfill_is_resilient_to_a_bad_row(db_session, person, monkeypatch):
     import app.services.events.handlers.selfcare_customer as handler
 
     def _boom(db, so):
         raise RuntimeError("selfcare down")
 
+    # Both pushes failing is logged, not raised — the sweep continues.
     monkeypatch.setattr(handler, "push_sales_order_payment_to_selfcare", _boom)
+    monkeypatch.setattr(handler, "push_sales_order_subscription_to_selfcare", _boom)
     _order(db_session, person, SalesOrderPaymentStatus.paid)
-    # A failing push is logged, not raised — the sweep continues.
     result = billing_sync.backfill_sales_payments_to_sub(db_session, limit=100)
     assert result["processed"] == 1

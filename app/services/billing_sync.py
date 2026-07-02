@@ -1,10 +1,11 @@
 """Backfill existing CRM sales financials into dotmac_sub.
 
 Re-runnable one-time migration: sweeps paid/partly-paid sales orders and pushes
-each one's installation invoice + payment to the subscriber app so historical
-sales settle in the ledger and show in the customer portal. Every push is
-idempotent server-side (invoices dedup on external_ref, payments on
-``crm:<ref>``), so this is safe to run repeatedly and to resume mid-way.
+each one's installation invoice + payment AND any subscription (plan) lines to
+the subscriber app, so historical sales settle in the ledger and show in the
+customer portal. Every push is idempotent server-side (invoices dedup on
+external_ref, payments on ``crm:<ref>``, subscriptions on external_ref), so this
+is safe to run repeatedly and to resume mid-way.
 """
 
 from __future__ import annotations
@@ -21,10 +22,14 @@ _SETTLED_STATUSES = (SalesOrderPaymentStatus.paid, SalesOrderPaymentStatus.parti
 
 
 def backfill_sales_payments_to_sub(db: Session, *, limit: int = 500, offset: int = 0) -> dict:
-    """Push one batch of paid/partial sales orders to sub. Returns
-    {processed, batch_size} — processed is how many push calls ran (each is a
-    no-op if already synced or if selfcare is disabled)."""
-    from app.services.events.handlers.selfcare_customer import push_sales_order_payment_to_selfcare
+    """Push one batch of paid/partial sales orders to sub — both the installation
+    payment and any subscription (plan) lines. Returns {processed, batch_size} —
+    processed is how many orders were swept (each push is a no-op if already
+    synced or if selfcare is disabled)."""
+    from app.services.events.handlers.selfcare_customer import (
+        push_sales_order_payment_to_selfcare,
+        push_sales_order_subscription_to_selfcare,
+    )
 
     orders = (
         db.query(SalesOrder)
@@ -40,5 +45,9 @@ def backfill_sales_payments_to_sub(db: Session, *, limit: int = 500, offset: int
             push_sales_order_payment_to_selfcare(db, order)
         except Exception:
             logger.warning("backfill_sales_payment_failed sales_order_id=%s", order.id, exc_info=True)
+        try:
+            push_sales_order_subscription_to_selfcare(db, order)
+        except Exception:
+            logger.warning("backfill_sales_subscription_failed sales_order_id=%s", order.id, exc_info=True)
         processed += 1
     return {"processed": processed, "batch_size": len(orders)}
