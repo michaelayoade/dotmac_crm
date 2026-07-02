@@ -79,6 +79,17 @@ def _generate_order_number(db: Session) -> str:
     return f"SO-{value:06d}"
 
 
+def _sync_sales_order_payment_to_sub(db: Session, sales_order: SalesOrder) -> None:
+    """Push the customer's payment to dotmac_sub once the order is paid, so the
+    installation invoice settles and shows in the customer portal. Best-effort;
+    only fires on a paid order (the handler + server dedup make it idempotent)."""
+    if sales_order.payment_status not in {SalesOrderPaymentStatus.paid, SalesOrderPaymentStatus.partial}:
+        return
+    from app.services.events.handlers.selfcare_customer import push_sales_order_payment_to_selfcare
+
+    push_sales_order_payment_to_selfcare(db, sales_order)
+
+
 def _apply_payment_fields(sales_order: SalesOrder, data: dict) -> None:
     if "amount_paid" in data or "total" in data:
         total = Decimal(data.get("total") or sales_order.total or 0)
@@ -286,6 +297,7 @@ class SalesOrders(ListResponseMixin):
         db.commit()
         db.refresh(sales_order)
         _accrue_reseller_commission(db, sales_order)
+        _sync_sales_order_payment_to_sub(db, sales_order)
         return sales_order
 
     @staticmethod
@@ -430,6 +442,7 @@ class SalesOrders(ListResponseMixin):
         # Accrue on any transition into paid (idempotent: a no-op if already
         # accrued or not reseller-sourced). Covers update_from_input too.
         _accrue_reseller_commission(db, sales_order)
+        _sync_sales_order_payment_to_sub(db, sales_order)
         return sales_order
 
     @staticmethod

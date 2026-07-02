@@ -392,6 +392,60 @@ def ensure_installation_invoice_for_sales_order(db: Session, sales_order_id: obj
     _ensure_installation_invoice(db, project, person)
 
 
+def push_sales_order_payment_to_selfcare(db: Session, sales_order: object) -> None:
+    """When a sales order is paid, record the customer's payment in dotmac_sub so
+    the installation invoice settles and shows paid in the customer portal.
+
+    Best-effort: a selfcare outage must never break the sale. Idempotent — the
+    payment external_ref dedups server-side, so repeated calls are safe.
+    """
+    # Skip entirely (before any DB query) when the integration is off — keeps
+    # this out of environments/tests where selfcare isn't configured.
+    if not selfcare.is_customer_sync_enabled(db):
+        return
+    try:
+        amount_paid = getattr(sales_order, "amount_paid", None)
+        if amount_paid is None or Decimal(str(amount_paid)) <= 0:
+            return
+        sales_order_id = getattr(sales_order, "id", None)
+        if not sales_order_id:
+            return
+
+        # Ensure the installation invoice exists first, so the payment allocates.
+        ensure_installation_invoice_for_sales_order(db, sales_order_id)
+
+        project = (
+            db.query(Project)
+            .filter(Project.is_active.is_(True))
+            .filter(func.json_extract_path_text(Project.metadata_, "sales_order_id") == str(sales_order_id))
+            .order_by(Project.created_at.desc())
+            .first()
+        )
+        if not project:
+            return
+        person = _resolve_person_for_project(db, project)
+        identity = _selfcare_identity(person) if person else None
+        if not identity or not identity.external_id:
+            return
+
+        selfcare.record_payment(
+            db,
+            subscriber_id=identity.external_id,
+            amount=amount_paid,
+            external_ref=f"sales_order:{sales_order_id}:payment",
+            invoice_external_ref=f"project:{project.id}",
+            paid_at=getattr(sales_order, "paid_at", None),
+            memo=f"CRM sales order {sales_order_id}",
+        )
+    except Exception:
+        logger.warning(
+            "selfcare_sales_order_payment_push_failed sales_order_id=%s",
+            getattr(sales_order, "id", None),
+            exc_info=True,
+        )
+        db.rollback()
+
+
 def _ensure_installation_invoice(db: Session, project: Project, person: Person) -> None:
     identity = _selfcare_identity(person)
     subscriber_id = identity.external_id if identity else None

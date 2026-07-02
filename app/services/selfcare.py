@@ -151,6 +151,19 @@ def _get_config(db: Session) -> dict[str, Any] | None:
     }
 
 
+def is_customer_sync_enabled(db: Session) -> bool:
+    """True only when selfcare customer sync is turned on. Cheap guard so callers
+    can skip work (and DB queries) entirely when the integration is off."""
+    try:
+        return bool(
+            settings_spec.resolve_value(
+                db, SettingDomain.integration, "selfcare_customer_sync_enabled", use_cache=False
+            )
+        )
+    except Exception:
+        return False
+
+
 def _get_api_config(db: Session) -> dict[str, Any]:
     enabled = settings_spec.resolve_value(
         db, SettingDomain.integration, "selfcare_customer_sync_enabled", use_cache=False
@@ -357,6 +370,46 @@ def create_installation_invoice(
     row = _unwrap_data(data) or {}
     invoice_id = str(row.get("id") or "").strip() if isinstance(row, dict) else ""
     return invoice_id or None
+
+
+def record_payment(
+    db: Session,
+    *,
+    subscriber_id: str,
+    amount: Any,
+    external_ref: str,
+    paid_at: Any = None,
+    memo: str | None = None,
+    invoice_external_ref: str | None = None,
+    currency: str = "NGN",
+) -> str | None:
+    """Record a payment a customer made in the CRM into dotmac_sub's ledger, so
+    it settles the matching invoice and shows in the customer portal. Returns the
+    new payment id, or None when the amount is invalid or sync is disabled.
+    Idempotent server-side on ``external_ref``."""
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        amt = Decimal(str(amount))
+    except (InvalidOperation, TypeError, ValueError):
+        logger.error("selfcare_payment_invalid_amount value=%s", amount)
+        return None
+    if amt <= 0:
+        return None
+
+    body = {
+        "subscriber_id": str(subscriber_id),
+        "amount": str(amt),
+        "external_ref": str(external_ref),
+        "invoice_external_ref": invoice_external_ref,
+        "memo": memo,
+        "currency": currency,
+        "paid_at": paid_at.isoformat() if hasattr(paid_at, "isoformat") else paid_at,
+    }
+    data = _request_json(db, "POST", "/payments", json_body=body)
+    row = _unwrap_data(data) or {}
+    payment_id = str(row.get("id") or "").strip() if isinstance(row, dict) else ""
+    return payment_id or None
 
 
 def create_account_credit(
