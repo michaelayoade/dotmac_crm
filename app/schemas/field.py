@@ -387,12 +387,40 @@ class FieldMapAssetLocationUpdate(BaseModel):
     move_type: Literal["correction", "relocation"] | None = None
 
 
+class FieldSiteContact(BaseModel):
+    """An additional account contact the tech can reach on site."""
+
+    name: str | None
+    phone: str | None
+    email: str | None
+    relationship: str | None = None
+
+
+class FieldVisitHistoryItem(BaseModel):
+    work_order_id: UUID
+    title: str
+    work_type: str | None
+    status: str | None
+    completed_at: datetime | None
+
+
+class FieldOpenTicketItem(BaseModel):
+    id: UUID
+    ref: str | None
+    subject: str | None
+    status: str | None
+
+
 class FieldJobDetail(BaseModel):
     job: FieldJobSummary
     customer: FieldCustomer | None
     location: FieldJobLocation
     ticket_ref: str | None
     project_id: UUID | None
+    access_notes: str | None = None
+    additional_contacts: list[FieldSiteContact] = []
+    recent_visits: list[FieldVisitHistoryItem] = []
+    open_tickets: list[FieldOpenTicketItem] = []
     notes: list[FieldNoteRead]
     attachments: list[FieldAttachmentRead]
     materials: list[FieldMaterialRead]

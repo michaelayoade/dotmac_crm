@@ -15,6 +15,9 @@ from app.schemas.field import (
     FieldMaterialRead,
     FieldMeResponse,
     FieldNoteRead,
+    FieldOpenTicketItem,
+    FieldSiteContact,
+    FieldVisitHistoryItem,
     FieldWorkLogRead,
 )
 from app.services.auth_dependencies import require_user_auth
@@ -60,6 +63,10 @@ def get_field_job(work_order_id: str, auth=Depends(require_user_auth), db: Sessi
         location=FieldJobLocation(**bundle["location"]),
         ticket_ref=bundle["ticket_ref"],
         project_id=bundle["project_id"],
+        access_notes=bundle["access_notes"],
+        additional_contacts=[FieldSiteContact(**c) for c in bundle["additional_contacts"]],
+        recent_visits=[FieldVisitHistoryItem(**v) for v in bundle["recent_visits"]],
+        open_tickets=[FieldOpenTicketItem(**t) for t in bundle["open_tickets"]],
         notes=[FieldNoteRead.model_validate(n) for n in bundle["notes"]],
         attachments=[FieldAttachmentRead.model_validate(a) for a in bundle["attachments"]],
         materials=[FieldMaterialRead.from_material(m) for m in bundle["materials"]],

@@ -299,8 +299,13 @@ def _open_reschedule_request(work_order: WorkOrder) -> dict | None:
     return None
 
 
-def _notify_dispatch(db: Session, work_order: WorkOrder, subject: str, body: str) -> None:
-    """Best-effort in-app notice to the assigned technician + ticket manager."""
+def _notify_dispatch(db: Session, work_order: WorkOrder, subject: str, body: str, *, urgent: bool = False) -> None:
+    """Notice to the assigned technician + ticket manager.
+
+    Always records an in-app notice. When ``urgent`` (e.g. a customer reschedule
+    that needs dispatch action), also queues a real email so dispatch is actively
+    alerted rather than only shown an in-app row that may go unwatched.
+    """
     recipients: set[str] = set()
     for person_id in (
         work_order.assigned_to_person_id,
@@ -322,6 +327,17 @@ def _notify_dispatch(db: Session, work_order: WorkOrder, subject: str, body: str
                 sent_at=_now(),
             )
         )
+        if urgent:
+            # Queued (not pre-delivered) so the notification worker actually sends it.
+            db.add(
+                Notification(
+                    channel=NotificationChannel.email,
+                    recipient=recipient,
+                    subject=subject,
+                    body=body,
+                    status=NotificationStatus.queued,
+                )
+            )
 
 
 def confirm_appointment(db: Session, token_row: WorkOrderAccessToken) -> dict:
@@ -395,6 +411,7 @@ def request_reschedule(
         work_order,
         subject="Reschedule requested by customer",
         body=f"The customer requested a reschedule for work order {work_order.title}: {detail}.",
+        urgent=True,
     )
     db.commit()
     return {"requested": True}
