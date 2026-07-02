@@ -462,9 +462,7 @@ class WorkOrders(ListResponseMixin):
         return [build_work_order_portal_payload(db, w) for w in work_orders]
 
     @staticmethod
-    def portal_technician_location(
-        db: Session, work_order_id: str, subscriber_ids: list[str] | str
-    ) -> dict:
+    def portal_technician_location(db: Session, work_order_id: str, subscriber_ids: list[str] | str) -> dict:
         """Live location of the technician assigned to an active work order, for
         the customer "where's my technician" map.
 
@@ -500,9 +498,7 @@ class WorkOrders(ListResponseMixin):
             return {"available": False, "reason": "no_technician"}
 
         presence = (
-            db.query(FieldTechPresence)
-            .filter(FieldTechPresence.person_id == work_order.assigned_to_person_id)
-            .first()
+            db.query(FieldTechPresence).filter(FieldTechPresence.person_id == work_order.assigned_to_person_id).first()
         )
         if presence is None or not presence.location_sharing_enabled:
             return {"available": False, "reason": "sharing_off"}
@@ -515,15 +511,9 @@ class WorkOrders(ListResponseMixin):
             "latitude": presence.last_latitude,
             "longitude": presence.last_longitude,
             "accuracy_m": presence.last_location_accuracy_m,
-            "updated_at": (
-                presence.last_location_at.isoformat()
-                if presence.last_location_at
-                else None
-            ),
+            "updated_at": (presence.last_location_at.isoformat() if presence.last_location_at else None),
             "estimated_arrival_at": (
-                work_order.estimated_arrival_at.isoformat()
-                if work_order.estimated_arrival_at
-                else None
+                work_order.estimated_arrival_at.isoformat() if work_order.estimated_arrival_at else None
             ),
         }
 
@@ -570,15 +560,9 @@ class WorkOrders(ListResponseMixin):
         if work_order is None:
             raise HTTPException(status_code=404, detail="Work order not found")
         if work_order.status != WorkOrderStatus.completed:
-            raise HTTPException(
-                status_code=409, detail="Work order is not completed yet"
-            )
+            raise HTTPException(status_code=409, detail="Work order is not completed yet")
 
-        existing = (
-            db.query(SurveyResponse)
-            .filter(SurveyResponse.work_order_id == work_order.id)
-            .first()
-        )
+        existing = db.query(SurveyResponse).filter(SurveyResponse.work_order_id == work_order.id).first()
         if existing is not None:
             return {
                 "ok": True,
@@ -626,11 +610,7 @@ class WorkOrders(ListResponseMixin):
             db,
             str(survey.id),
             answers,
-            person_id=(
-                str(work_order.assigned_to_person_id)
-                if work_order.assigned_to_person_id
-                else None
-            ),
+            person_id=(str(work_order.assigned_to_person_id) if work_order.assigned_to_person_id else None),
         )
         response.work_order_id = work_order.id
         db.commit()

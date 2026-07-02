@@ -139,9 +139,7 @@ def _db_rating(work_order, existing_response):
     def _query(model):
         chain = MagicMock()
         chain.filter.return_value = chain
-        chain.first.return_value = (
-            work_order if model is WorkOrder else existing_response
-        )
+        chain.first.return_value = work_order if model is WorkOrder else existing_response
         return chain
 
     db.query.side_effect = _query
