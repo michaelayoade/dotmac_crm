@@ -22,6 +22,7 @@ from app.models.service_team import ServiceTeam, ServiceTeamMember
 from app.models.subscriber import Subscriber
 from app.models.tickets import (
     Ticket,
+    TicketAccessToken,
     TicketAssignee,
     TicketComment,
     TicketLink,
@@ -65,6 +66,14 @@ from app.services.workqueue.events import emit_change as _wq_emit
 from app.services.workqueue.types import ItemKind as _WQItemKind
 
 logger = logging.getLogger(__name__)
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    """Normalize a possibly tz-naive timestamp (SQLite round-trips) to UTC-aware."""
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
 
 RELATED_OUTAGE_LINK_TYPE = "related_outage"
 TICKET_SLA_POLICY_NAME = "Ticket Resolution SLA"
@@ -1412,6 +1421,164 @@ class Tickets(ListResponseMixin):
         return ticket
 
     @staticmethod
+    def request_resolution_confirmation(
+        db: Session,
+        ticket_id: str | UUID,
+        *,
+        actor_id: str | UUID | None = None,
+        grace_hours: int = 24,
+    ) -> Ticket:
+        """Mark a ticket resolved-pending-confirmation instead of closing it.
+
+        Moves the ticket to ``pending_confirmation`` (stamping ``resolved_at``
+        but not ``closed_at``), mints a customer confirm/dispute magic-link, and
+        fires the ``ticket_resolved`` notification carrying that link. The
+        customer confirms → closed, disputes → reopened, or a beat sweep
+        auto-confirms after ``grace_hours``. This avoids false closures.
+        """
+        ticket = Tickets.get(db, str(ticket_id))
+        if ticket.status in (TicketStatus.closed, TicketStatus.canceled, TicketStatus.merged):
+            raise HTTPException(status_code=409, detail="Ticket is already closed")
+
+        ticket.status = TicketStatus.pending_confirmation
+        ticket.resolved_at = datetime.now(UTC)
+        meta = dict(ticket.metadata_ or {})
+        meta["resolution_confirmation_requested_at"] = ticket.resolved_at.isoformat()
+        meta["resolution_grace_hours"] = grace_hours
+        meta.pop("customer_confirmed_at", None)
+        meta.pop("customer_disputed_at", None)
+        ticket.metadata_ = meta
+
+        token_row = ticket_access_tokens.mint(db, ticket, purpose="resolution_confirm")
+        db.add(
+            TicketComment(
+                ticket_id=ticket.id,
+                author_person_id=coerce_uuid(str(actor_id)) if actor_id else None,
+                body="Resolution sent to the customer for confirmation.",
+                is_internal=True,
+            )
+        )
+        db.commit()
+        db.refresh(ticket)
+
+        confirm_url, dispute_url = ticket_access_tokens.action_urls(db, token_row)
+        customer_name = _resolve_customer_name(ticket, db)
+        emit_event(
+            db,
+            EventType.ticket_resolved,
+            {
+                "ticket_id": str(ticket.id),
+                "number": ticket.number,
+                "subject": ticket.title,
+                "status": ticket.status.value,
+                "customer_name": customer_name,
+                "email": _resolve_customer_email(ticket, db),
+                "awaiting_confirmation": True,
+                "confirm_url": confirm_url,
+                "dispute_url": dispute_url,
+                "grace_hours": grace_hours,
+                "doc": {
+                    "custom_customer_name": customer_name,
+                    "name": str(ticket.id),
+                    "subject": ticket.title,
+                    "status": ticket.status.value,
+                },
+            },
+            subscriber_id=ticket.subscriber_id,
+            ticket_id=ticket.id,
+        )
+        return ticket
+
+    @staticmethod
+    def confirm_resolution(db: Session, token_row: TicketAccessToken, *, auto: bool = False) -> Ticket:
+        """Customer confirms the fix (or the beat sweep auto-confirms) → close.
+
+        Idempotent: a ticket already closed just returns.
+        """
+        ticket = token_row.ticket
+        if ticket.status in (TicketStatus.closed, TicketStatus.canceled, TicketStatus.merged):
+            return ticket
+        now = datetime.now(UTC)
+        meta = dict(ticket.metadata_ or {})
+        meta["customer_confirmed_at"] = now.isoformat()
+        meta["resolution_auto_confirmed"] = auto
+        ticket.metadata_ = meta
+        token_row.responded_at = now
+        token_row.is_active = False
+        db.add(
+            TicketComment(
+                ticket_id=ticket.id,
+                body="Resolution auto-confirmed after grace period." if auto else "Customer confirmed the resolution.",
+                is_internal=True,
+            )
+        )
+        db.commit()
+        # Route through update so close side-effects (closed_at, events, SLA) fire.
+        return Tickets.update(db, str(ticket.id), TicketUpdate(status=TicketStatus.closed, closed_at=now))
+
+    @staticmethod
+    def dispute_resolution(db: Session, token_row: TicketAccessToken, *, reason: str | None = None) -> Ticket:
+        """Customer says it isn't fixed → reopen (back to ``open``)."""
+        ticket = token_row.ticket
+        if ticket.status in (TicketStatus.closed, TicketStatus.canceled, TicketStatus.merged):
+            raise HTTPException(status_code=409, detail="Ticket is already closed")
+        now = datetime.now(UTC)
+        meta = dict(ticket.metadata_ or {})
+        meta["customer_disputed_at"] = now.isoformat()
+        if reason:
+            meta["customer_dispute_reason"] = reason[:2000]
+        ticket.metadata_ = meta
+        ticket.resolved_at = None
+        token_row.responded_at = now
+        token_row.is_active = False
+        db.add(
+            TicketComment(
+                ticket_id=ticket.id,
+                body=f"Customer disputed the resolution: {reason}" if reason else "Customer disputed the resolution.",
+                is_internal=True,
+            )
+        )
+        db.commit()
+        return Tickets.update(db, str(ticket.id), TicketUpdate(status=TicketStatus.open))
+
+    @staticmethod
+    def auto_confirm_pending(db: Session, *, older_than_hours: int = 24, limit: int = 500) -> int:
+        """Close tickets stuck in pending_confirmation past their grace window.
+
+        Uses each ticket's own recorded grace (falling back to the argument) so
+        a per-ticket window is honoured. Returns the number auto-confirmed.
+        """
+        now = datetime.now(UTC)
+        candidates = (
+            db.query(Ticket)
+            .filter(Ticket.status == TicketStatus.pending_confirmation)
+            .filter(Ticket.resolved_at.isnot(None))
+            .order_by(Ticket.resolved_at.asc())
+            .limit(limit)
+            .all()
+        )
+        closed = 0
+        for ticket in candidates:
+            grace = int((ticket.metadata_ or {}).get("resolution_grace_hours", older_than_hours))
+            resolved_at = _as_utc(ticket.resolved_at)
+            if resolved_at and resolved_at <= now - timedelta(hours=grace):
+                token_row = (
+                    db.query(TicketAccessToken)
+                    .filter(TicketAccessToken.ticket_id == ticket.id, TicketAccessToken.is_active.is_(True))
+                    .first()
+                )
+                if token_row is None:
+                    token_row = ticket_access_tokens.mint(db, ticket, purpose="resolution_confirm")
+                    db.commit()
+                try:
+                    Tickets.confirm_resolution(db, token_row, auto=True)
+                    closed += 1
+                except Exception:
+                    logger.exception("auto_confirm_failed ticket_id=%s", ticket.id)
+                    db.rollback()
+        return closed
+
+    @staticmethod
     def auto_assign_manual(db: Session, ticket_id: str, actor_id: str | None = None):
         ticket = db.get(Ticket, ticket_id)
         if not ticket:
@@ -2256,6 +2423,75 @@ class TicketSlaEvents(ListResponseMixin):
         db.commit()
 
 
+class TicketAccessTokens:
+    """Magic-link tokens for customer resolution confirmation (no login)."""
+
+    _TTL_DAYS = 14
+
+    @staticmethod
+    def mint(db: Session, ticket: Ticket, *, purpose: str = "resolution_confirm") -> TicketAccessToken:
+        import secrets
+
+        # One live token per ticket: retire any prior active ones so an old link
+        # can't confirm a re-resolved ticket.
+        for prior in (
+            db.query(TicketAccessToken)
+            .filter(TicketAccessToken.ticket_id == ticket.id, TicketAccessToken.is_active.is_(True))
+            .all()
+        ):
+            prior.is_active = False
+        token_row = TicketAccessToken(
+            ticket_id=ticket.id,
+            token=secrets.token_urlsafe(32),
+            purpose=purpose,
+            expires_at=datetime.now(UTC) + timedelta(days=TicketAccessTokens._TTL_DAYS),
+        )
+        db.add(token_row)
+        db.flush()
+        return token_row
+
+    @staticmethod
+    def get_by_token(db: Session, token: str) -> TicketAccessToken | None:
+        return (
+            db.query(TicketAccessToken)
+            .filter(TicketAccessToken.token == token, TicketAccessToken.is_active.is_(True))
+            .first()
+        )
+
+    @staticmethod
+    def token_state(token_row: TicketAccessToken | None) -> str:
+        if token_row is None:
+            return "not_found"
+        if token_row.responded_at is not None:
+            return "closed"
+        expires_at = _as_utc(token_row.expires_at)
+        if expires_at and expires_at < datetime.now(UTC):
+            return "expired"
+        if token_row.ticket and token_row.ticket.status in (
+            TicketStatus.closed,
+            TicketStatus.canceled,
+            TicketStatus.merged,
+        ):
+            return "closed"
+        return "ok"
+
+    @staticmethod
+    def mark_accessed(db: Session, token_row: TicketAccessToken) -> None:
+        token_row.accessed_at = datetime.now(UTC)
+        db.commit()
+
+    @staticmethod
+    def action_urls(db: Session, token_row: TicketAccessToken) -> tuple[str | None, str | None]:
+        from app.services import email as email_service
+
+        base = (email_service.get_app_url(db) or "").rstrip("/")
+        if not base:
+            return None, None
+        landing = f"{base}/ticket-confirm/{token_row.token}"
+        return landing, f"{landing}?action=dispute"
+
+
 tickets = Tickets()
 ticket_comments = TicketComments()
 ticket_sla_events = TicketSlaEvents()
+ticket_access_tokens = TicketAccessTokens()
