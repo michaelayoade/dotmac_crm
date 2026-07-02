@@ -14,6 +14,7 @@ from app.api.field.notes import router as notes_router
 from app.api.field.sales_orders import router as sales_orders_router
 from app.api.field.schedule import router as schedule_router
 from app.api.field.transitions import router as transitions_router
+from app.api.field.vendor_devices import router as vendor_devices_router
 from app.api.field.vendor_map import router as vendor_map_router
 from app.api.field.vendor_projects import router as vendor_projects_router
 from app.api.field.vendor_quotes import router as vendor_quotes_router
@@ -27,8 +28,8 @@ router = APIRouter(prefix="/field")
 # not merely an authenticated user named on a work order. Excluded:
 #   - attachments / devices: shared with vendors (project evidence, push tokens
 #     are owned by person XOR vendor_user), each already scoped per-resource.
-#   - vendor_map / vendor_projects / vendor_quotes: guarded by their own
-#     require_vendor_token dependency.
+#   - vendor_devices / vendor_map / vendor_projects / vendor_quotes: guarded
+#     by their own require_vendor_token dependency.
 _technician = [Depends(require_technician)]
 
 router.include_router(attachments_router)
@@ -45,6 +46,7 @@ router.include_router(notes_router, dependencies=_technician)
 router.include_router(sales_orders_router, dependencies=_technician)
 router.include_router(schedule_router, dependencies=_technician)
 router.include_router(transitions_router, dependencies=_technician)
+router.include_router(vendor_devices_router)
 router.include_router(vendor_map_router)
 router.include_router(vendor_projects_router)
 router.include_router(vendor_quotes_router)

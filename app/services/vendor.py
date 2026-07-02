@@ -860,6 +860,9 @@ class ProjectQuotes(ListResponseMixin):
             actor=f"person:{reviewer_person_id}",
             project_id=quote.project.project_id,
         )
+        from app.services.push import queue_vendor_quote_approved_push
+
+        queue_vendor_quote_approved_push(db, quote)
         return quote
 
     @staticmethod
