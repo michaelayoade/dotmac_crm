@@ -1,12 +1,14 @@
 """Tests for vendor crew project endpoints in the field API."""
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import HTTPException
 
 from app.models.subscriber import Subscriber
 from app.models.vendor import (
+    AsBuiltRoute,
     AsBuiltRouteStatus,
     InstallationProject,
     InstallationProjectStatus,
@@ -258,6 +260,57 @@ def test_staff_token_rejected_on_vendor_routes(db_session, person):
     assert exc.value.status_code == 403
 
 
+def _as_built(db_session, project, **kw):
+    route = AsBuiltRoute(project_id=project.id, status=AsBuiltRouteStatus.accepted, **kw)
+    db_session.add(route)
+    db_session.commit()
+    db_session.refresh(route)
+    return route
+
+
+def test_report_download_returns_generated_report(db_session, vendor, installation_project, tmp_path):
+    pdf = tmp_path / "report.pdf"
+    pdf.write_bytes(b"%PDF-1.4 test")
+    route = _as_built(
+        db_session,
+        installation_project,
+        report_file_path=str(pdf),
+        report_file_name="as_built.pdf",
+        report_generated_at=datetime.now(UTC),
+    )
+    got = field_vendor_projects.get_as_built_report(
+        db_session, str(vendor.id), str(installation_project.id), str(route.id)
+    )
+    assert got.id == route.id
+    assert got.report_file_name == "as_built.pdf"
+
+
+def test_report_404_when_not_generated(db_session, vendor, installation_project):
+    route = _as_built(db_session, installation_project)  # no report fields
+    with pytest.raises(HTTPException) as exc:
+        field_vendor_projects.get_as_built_report(
+            db_session, str(vendor.id), str(installation_project.id), str(route.id)
+        )
+    assert exc.value.status_code == 404
+
+
+def test_report_404_for_other_vendor(db_session, vendor, other_vendor, installation_project, tmp_path):
+    pdf = tmp_path / "r.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    route = _as_built(
+        db_session,
+        installation_project,
+        report_file_path=str(pdf),
+        report_file_name="r.pdf",
+        report_generated_at=datetime.now(UTC),
+    )
+    with pytest.raises(HTTPException) as exc:
+        field_vendor_projects.get_as_built_report(
+            db_session, str(other_vendor.id), str(installation_project.id), str(route.id)
+        )
+    assert exc.value.status_code == 404
+
+
 def _walk(dependant):
     for dep in dependant.dependencies:
         yield dep
@@ -271,7 +324,7 @@ def test_routes_use_vendor_token_guard():
     from app.services.vendor_auth_tokens import require_vendor_token
 
     routes = [r for r in router.routes if isinstance(r, APIRoute)]
-    assert len(routes) == 3
+    assert len(routes) == 4
     for route in routes:
         found = any(dep.call is require_vendor_token for dep in _walk(route.dependant))
         assert found, f"{route.path} missing require_vendor_token"

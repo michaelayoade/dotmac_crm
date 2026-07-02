@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -66,4 +67,21 @@ def submit_vendor_as_built(
         vendor["person_id"],
         project_id,
         payload,
+    )
+
+
+@router.get("/projects/{project_id}/as-built/{route_id}/report")
+def download_vendor_as_built_report(
+    project_id: str,
+    route_id: str,
+    vendor=Depends(require_vendor_token),
+    db: Session = Depends(get_db),
+):
+    """Download the generated as-built PDF for a route the vendor owns."""
+    route = field_vendor_projects.get_as_built_report(db, vendor["vendor_id"], project_id, route_id)
+    # get_as_built_report guarantees a generated, on-disk report (404s otherwise).
+    return FileResponse(
+        str(route.report_file_path),
+        media_type="application/pdf",
+        filename=route.report_file_name or f"as_built_{route.id}.pdf",
     )
