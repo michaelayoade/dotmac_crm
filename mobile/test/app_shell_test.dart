@@ -9,6 +9,7 @@ import 'package:dotmac_field/features/location/location_cadence.dart';
 import 'package:dotmac_field/features/location/location_ping_service.dart';
 import 'package:dotmac_field/features/profile/profile_screen.dart';
 import 'package:dotmac_field/features/schedule/schedule_providers.dart';
+import 'package:dotmac_field/features/vendor/vendor_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,16 +19,24 @@ class _AuthedController extends AuthController {
   AuthState build() => const Authenticated(LoginMode.staff);
 }
 
+class _VendorController extends AuthController {
+  @override
+  AuthState build() => const Authenticated(LoginMode.vendor);
+}
+
 Widget _app({
   bool authenticated = true,
   LocationPingService? locationPingService,
+  AuthController Function() controller = _AuthedController.new,
+  List<Override> extra = const [],
 }) {
   return ProviderScope(
     overrides: [
       if (locationPingService != null)
         locationPingServiceProvider.overrideWithValue(locationPingService),
       if (authenticated) ...[
-        authControllerProvider.overrideWith(_AuthedController.new),
+        authControllerProvider.overrideWith(controller),
+        ...extra,
         meProvider.overrideWith(
           (ref) async =>
               const MeSummary(name: 'Chidi Tech', openJobs: 2, completedToday: 1),
@@ -79,6 +88,26 @@ void main() {
     await tester.tap(find.text('Schedule'));
     await tester.pumpAndSettle();
     expect(find.text('Schedule'), findsWidgets);
+  });
+
+  testWidgets('vendor shell shows only Projects and Profile tabs', (tester) async {
+    await tester.pumpWidget(_app(
+      controller: _VendorController.new,
+      extra: [
+        vendorProjectsProvider.overrideWith((ref) async => <VendorProjectListItem>[]),
+      ],
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.text('Projects'), findsWidgets);
+    expect(find.text('Profile'), findsOneWidget);
+    // The require_technician tabs are hidden for vendors (would 403).
+    expect(find.text('Schedule'), findsNothing);
+    expect(find.text('Materials'), findsNothing);
+    expect(find.text('Customers'), findsNothing);
+    expect(find.text('Sales'), findsNothing);
+    expect(find.text('Map'), findsNothing);
   });
 
   testWidgets('start shift enables mobile location sharing', (tester) async {
