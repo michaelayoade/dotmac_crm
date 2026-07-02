@@ -140,44 +140,57 @@ class _HomeSwitch extends ConsumerWidget {
   }
 }
 
-class _AppShell extends StatelessWidget {
+/// A bottom-nav destination bound to a shell branch index. The visible set
+/// differs by login mode, but every entry maps to the same fixed branch so
+/// `shell.goBranch` stays correct regardless of what's shown.
+class _NavItem {
+  const _NavItem(this.branchIndex, this.icon, this.label);
+  final int branchIndex;
+  final IconData icon;
+  final String label;
+}
+
+// Branch order (see StatefulShellRoute above):
+// 0 Today/Projects · 1 Map · 2 Schedule · 3 Materials · 4 Customers · 5 Sales · 6 Profile
+const _staffNav = [
+  _NavItem(0, Icons.assignment_outlined, 'Today'),
+  _NavItem(1, Icons.map_outlined, 'Map'),
+  _NavItem(2, Icons.calendar_today_outlined, 'Schedule'),
+  _NavItem(3, Icons.inventory_2_outlined, 'Materials'),
+  _NavItem(4, Icons.people_alt_outlined, 'Customers'),
+  _NavItem(5, Icons.receipt_long_outlined, 'Sales'),
+  _NavItem(6, Icons.person_outline, 'Profile'),
+];
+
+// Vendors only get the tabs backed by vendor-aware endpoints. Schedule /
+// Materials / Customers / Sales are require_technician and would 403; the Map
+// tab arrives once the vendor-scoped map screen lands.
+const _vendorNav = [
+  _NavItem(0, Icons.assignment_outlined, 'Projects'),
+  _NavItem(6, Icons.person_outline, 'Profile'),
+];
+
+class _AppShell extends ConsumerWidget {
   const _AppShell({required this.shell});
 
   final StatefulNavigationShell shell;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authControllerProvider);
+    final isVendor = auth is Authenticated && auth.mode == LoginMode.vendor;
+    final items = isVendor ? _vendorNav : _staffNav;
+    // Map the active branch to its position in the visible set (0 if the
+    // current branch is hidden for this mode).
+    final selected = items.indexWhere((i) => i.branchIndex == shell.currentIndex);
     return Scaffold(
       body: LocationTrackingHost(child: shell),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: shell.currentIndex,
-        onDestinationSelected: shell.goBranch,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.assignment_outlined),
-            label: 'Today',
-          ),
-          NavigationDestination(icon: Icon(Icons.map_outlined), label: 'Map'),
-          NavigationDestination(
-            icon: Icon(Icons.calendar_today_outlined),
-            label: 'Schedule',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.inventory_2_outlined),
-            label: 'Materials',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.people_alt_outlined),
-            label: 'Customers',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.receipt_long_outlined),
-            label: 'Sales',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            label: 'Profile',
-          ),
+        selectedIndex: selected < 0 ? 0 : selected,
+        onDestinationSelected: (pos) => shell.goBranch(items[pos].branchIndex),
+        destinations: [
+          for (final item in items)
+            NavigationDestination(icon: Icon(item.icon), label: item.label),
         ],
       ),
     );
