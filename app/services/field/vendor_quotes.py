@@ -12,8 +12,12 @@ from __future__ import annotations
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models.vendor import ProjectQuote, QuoteLineItem
-from app.schemas.vendor import QuoteLineItemCreate, QuoteLineItemCreateRequest
+from app.models.vendor import ProjectQuote, ProposedRouteRevision, QuoteLineItem
+from app.schemas.vendor import (
+    ProposedRouteRevisionCreate,
+    QuoteLineItemCreate,
+    QuoteLineItemCreateRequest,
+)
 from app.services import vendor as vendor_service
 from app.services.common import coerce_uuid
 
@@ -90,6 +94,51 @@ class FieldVendorQuotes:
     def submit(db: Session, vendor_id: str, quote_id: str) -> ProjectQuote:
         _scoped_quote(db, vendor_id, quote_id)
         return vendor_service.project_quotes.submit(db, str(quote_id), str(vendor_id))
+
+    @staticmethod
+    def list_proposed_routes(db: Session, vendor_id: str, quote_id: str) -> list[ProposedRouteRevision]:
+        _scoped_quote(db, vendor_id, quote_id)
+        return vendor_service.proposed_route_revisions.list(
+            db,
+            quote_id=str(quote_id),
+            status=None,
+            order_by="revision_number",
+            order_dir="asc",
+            limit=100,
+            offset=0,
+        )
+
+    @staticmethod
+    def add_proposed_route(
+        db: Session,
+        vendor_id: str,
+        quote_id: str,
+        person_id: str | None,
+        *,
+        geojson: dict,
+        length_meters: float | None = None,
+        submit: bool = True,
+    ) -> ProposedRouteRevision:
+        """Attach a proposed route (drawn/walked on the map) to the quote — the
+        map half of a complete bid. Created as a new revision and, by default,
+        submitted for review in the same call so the crew has one action."""
+        quote = _scoped_quote(db, vendor_id, quote_id)
+        revision = vendor_service.proposed_route_revisions.create(
+            db,
+            payload=ProposedRouteRevisionCreate(
+                quote_id=quote.id,
+                geojson=geojson,
+                length_meters=length_meters,
+            ),
+            vendor_id=str(vendor_id),
+        )
+        if submit:
+            if not person_id:
+                raise HTTPException(status_code=400, detail="A person is required to submit a proposed route")
+            revision = vendor_service.proposed_route_revisions.submit(
+                db, str(revision.id), str(person_id), vendor_id=str(vendor_id)
+            )
+        return revision
 
 
 field_vendor_quotes = FieldVendorQuotes()

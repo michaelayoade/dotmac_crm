@@ -9,10 +9,19 @@ from app.models.vendor import (
     InstallationProject,
     InstallationProjectStatus,
     ProjectQuoteStatus,
+    ProposedRouteRevisionStatus,
     Vendor,
 )
 from app.schemas.vendor import QuoteLineItemCreateRequest
 from app.services.field.vendor_quotes import field_vendor_quotes
+
+
+@pytest.fixture(autouse=True)
+def _no_postgis(monkeypatch):
+    """SQLite has no ST_GeomFromGeoJSON; geometry persistence is a PG concern."""
+    from app.services import vendor as vendor_service
+
+    monkeypatch.setattr(vendor_service, "_geojson_to_geom", lambda _geojson: None)
 
 
 @pytest.fixture()
@@ -110,6 +119,50 @@ def test_list_scoped_to_vendor(db_session, vendor, other_vendor, person, install
     assert field_vendor_quotes.list_mine(db_session, str(other_vendor.id)) == []
 
 
+def _geojson():
+    return {"type": "LineString", "coordinates": [[3.42, 6.42], [3.43, 6.43]]}
+
+
+def test_add_proposed_route_creates_and_submits(db_session, vendor, person, installation_project):
+    quote = field_vendor_quotes.open_draft(db_session, str(vendor.id), str(installation_project.id), str(person.id))
+    revision = field_vendor_quotes.add_proposed_route(
+        db_session,
+        str(vendor.id),
+        str(quote.id),
+        str(person.id),
+        geojson=_geojson(),
+        length_meters=212.0,
+    )
+    assert revision.status == ProposedRouteRevisionStatus.submitted
+    assert revision.revision_number == 1
+    assert revision.submitted_at is not None
+
+    routes = field_vendor_quotes.list_proposed_routes(db_session, str(vendor.id), str(quote.id))
+    assert [r.id for r in routes] == [revision.id]
+
+
+def test_add_proposed_route_draft_without_submit(db_session, vendor, person, installation_project):
+    quote = field_vendor_quotes.open_draft(db_session, str(vendor.id), str(installation_project.id), str(person.id))
+    revision = field_vendor_quotes.add_proposed_route(
+        db_session,
+        str(vendor.id),
+        str(quote.id),
+        str(person.id),
+        geojson=_geojson(),
+        submit=False,
+    )
+    assert revision.status == ProposedRouteRevisionStatus.draft
+
+
+def test_proposed_route_404_for_other_vendor(db_session, vendor, other_vendor, person, installation_project):
+    quote = field_vendor_quotes.open_draft(db_session, str(vendor.id), str(installation_project.id), str(person.id))
+    with pytest.raises(HTTPException) as exc:
+        field_vendor_quotes.add_proposed_route(
+            db_session, str(other_vendor.id), str(quote.id), str(person.id), geojson=_geojson()
+        )
+    assert exc.value.status_code == 404
+
+
 def _walk(dependant):
     for dep in dependant.dependencies:
         yield dep
@@ -123,7 +176,7 @@ def test_routes_use_vendor_token_guard():
     from app.services.vendor_auth_tokens import require_vendor_token
 
     routes = [r for r in router.routes if isinstance(r, APIRoute)]
-    assert len(routes) == 6
+    assert len(routes) == 8
     for route in routes:
         found = any(dep.call is require_vendor_token for dep in _walk(route.dependant))
         assert found, f"{route.path} missing require_vendor_token"
