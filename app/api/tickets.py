@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.schemas.common import ListResponse
 from app.schemas.tickets import (
+    InfrastructureTicketCreate,
+    InfrastructureTicketResolveRequest,
     TicketBulkUpdateRequest,
     TicketBulkUpdateResponse,
     TicketCommentBulkCreateRequest,
@@ -22,6 +24,7 @@ from app.services import sla_assignment
 from app.services import tickets as tickets_service
 from app.services.auth_dependencies import require_permission
 from app.services.filter_engine import parse_filter_payload_json
+from app.services.infrastructure_tickets import infrastructure_tickets
 
 router = APIRouter()
 
@@ -35,6 +38,103 @@ router = APIRouter()
 )
 def create_ticket(payload: TicketCreate, db: Session = Depends(get_db)):
     return tickets_service.tickets.create(db, payload)
+
+
+def _impact_summary(affected: dict) -> dict:
+    return {
+        "affected_count": len(affected["crm_subscriber_ids"]),
+        "topology_count": affected.get("topology_count", 0),
+        "coverage": affected.get("coverage", {}),
+        "unmatched_subscriber_numbers": affected.get("unmatched_subscriber_numbers", []),
+    }
+
+
+@router.get(
+    "/tickets/infrastructure/impact-preview",
+    tags=["tickets"],
+    dependencies=[Depends(require_permission("support:ticket:read"))],
+)
+def preview_infrastructure_impact(
+    node_id: str | None = Query(default=None),
+    basestation_id: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Who would be notified for an asset — plus topology coverage — before creating."""
+    if not node_id and not basestation_id:
+        raise HTTPException(status_code=400, detail="node_id or basestation_id is required")
+    affected = infrastructure_tickets.resolve_affected(db, node_id=node_id, basestation_id=basestation_id)
+    return _impact_summary(affected)
+
+
+@router.post(
+    "/tickets/infrastructure",
+    status_code=status.HTTP_201_CREATED,
+    tags=["tickets"],
+    dependencies=[Depends(require_permission("support:ticket:create"))],
+)
+def create_infrastructure_ticket(
+    payload: InfrastructureTicketCreate,
+    db: Session = Depends(get_db),
+    auth=Depends(get_current_user),
+):
+    """Create one ticket for an infrastructure asset and notify every affected customer."""
+    if not (payload.node_id or payload.basestation_id or payload.manual_subscriber_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="Provide an infrastructure asset (node_id/basestation_id) or manual subscribers.",
+        )
+    actor_id = str(auth.get("person_id")) if auth else None
+    result = infrastructure_tickets.create(
+        db,
+        title=payload.title,
+        description=payload.description,
+        node_id=payload.node_id,
+        basestation_id=payload.basestation_id,
+        manual_subscriber_ids=[str(s) for s in payload.manual_subscriber_ids],
+        asset_label=payload.asset_label,
+        region=payload.region,
+        priority=payload.priority,
+        actor_id=actor_id,
+        notify=payload.notify,
+        channel=payload.channel,
+        email_subject=payload.email_subject,
+        email_body=payload.email_body,
+        sms_body=payload.sms_body,
+    )
+    return {
+        "ticket": TicketRead.model_validate(result["ticket"]),
+        "impact": _impact_summary(result["affected"]),
+        "notification": result["notification"],
+    }
+
+
+@router.post(
+    "/tickets/infrastructure/{ticket_id}/resolve",
+    tags=["tickets"],
+    dependencies=[Depends(require_permission("support:ticket:update"))],
+)
+def resolve_infrastructure_ticket(
+    ticket_id: str,
+    payload: InfrastructureTicketResolveRequest,
+    db: Session = Depends(get_db),
+    auth=Depends(get_current_user),
+):
+    """Close an infrastructure ticket and notify every affected customer it's fixed."""
+    actor_id = str(auth.get("person_id")) if auth else None
+    result = infrastructure_tickets.resolve(
+        db,
+        ticket_id,
+        actor_id=actor_id,
+        notify=payload.notify,
+        channel=payload.channel,
+        email_subject=payload.email_subject,
+        email_body=payload.email_body,
+        sms_body=payload.sms_body,
+    )
+    return {
+        "ticket": TicketRead.model_validate(result["ticket"]),
+        "notification": result["notification"],
+    }
 
 
 @router.get(
