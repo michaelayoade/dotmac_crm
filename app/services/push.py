@@ -398,3 +398,40 @@ def queue_work_order_assignment_push(db: Session, work_order) -> None:
             push_sender.send_to_person(db, person_id, title=title, body=body, data=data)
         except Exception:
             logger.warning("push_sync_fallback_failed work_order_id=%s", work_order.id, exc_info=True)
+
+
+def queue_vendor_quote_approved_push(db: Session, quote) -> None:
+    """Notify a vendor's crew that their bid was approved.
+
+    Pushes to every active VendorUser of the quote's vendor (a vendor may have
+    several logins). Falls back to a synchronous send when the Celery broker is
+    unavailable so tests and degraded environments still deliver.
+    """
+    from app.models.vendor import VendorUser
+
+    project = quote.project
+    project_name = project.project.name if project and project.project else "your project"
+    title = "Bid approved"
+    body = f"Your bid for {project_name} was approved — you can start work."
+    data = {
+        "type": "vendor_quote_approved",
+        "quote_id": str(quote.id),
+        "installation_project_id": str(quote.project_id),
+    }
+    vendor_user_ids = [
+        str(vu.id)
+        for vu in db.query(VendorUser)
+        .filter(VendorUser.vendor_id == quote.vendor_id, VendorUser.is_active.is_(True))
+        .all()
+    ]
+    for vendor_user_id in vendor_user_ids:
+        try:
+            from app.tasks.push import send_push_to_vendor_user
+
+            send_push_to_vendor_user.delay(vendor_user_id=vendor_user_id, title=title, body=body, data=data)
+        except Exception:
+            logger.debug("vendor_push_enqueue_failed_falling_back_to_sync", exc_info=True)
+            try:
+                push_sender.send_to_vendor_user(db, vendor_user_id, title=title, body=body, data=data)
+            except Exception:
+                logger.warning("vendor_push_sync_fallback_failed quote_id=%s", quote.id, exc_info=True)
