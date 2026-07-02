@@ -3,7 +3,12 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.schemas.common import ListResponse
-from app.schemas.vendor import AsBuiltRouteCreate, AsBuiltRouteRead, InstallationProjectRead
+from app.schemas.vendor import (
+    AsBuiltRouteCreate,
+    AsBuiltRouteRead,
+    FieldProjectSite,
+    InstallationProjectRead,
+)
 from app.services.field.vendor_projects import field_vendor_projects
 from app.services.vendor_auth_tokens import require_vendor_token
 
@@ -30,6 +35,7 @@ def get_vendor_project(
     bundle = field_vendor_projects.get_detail(db, vendor["vendor_id"], project_id)
     return {
         "project": InstallationProjectRead.model_validate(bundle["project"]),
+        "site": FieldProjectSite.model_validate(bundle["site"]) if bundle["site"] else None,
         "submissions": [AsBuiltRouteRead.model_validate(s) for s in bundle["submissions"]],
         "rejected_for_resubmission": (
             AsBuiltRouteRead.model_validate(bundle["rejected_for_resubmission"])

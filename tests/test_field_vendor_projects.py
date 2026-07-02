@@ -5,6 +5,7 @@ import uuid
 import pytest
 from fastapi import HTTPException
 
+from app.models.subscriber import Subscriber
 from app.models.vendor import (
     AsBuiltRouteStatus,
     InstallationProject,
@@ -155,6 +156,49 @@ def test_rejected_submission_offered_for_resubmission(
     bundle = field_vendor_projects.get_detail(db_session, str(vendor.id), str(installation_project.id))
     assert bundle["rejected_for_resubmission"] is None
     assert len(bundle["submissions"]) == 2
+
+
+def test_detail_has_no_site_without_subscriber(db_session, vendor, installation_project):
+    """A buildout-only project with no subscriber yields site=None, not an error."""
+    bundle = field_vendor_projects.get_detail(db_session, str(vendor.id), str(installation_project.id))
+    assert bundle["site"] is None
+
+
+def test_detail_site_bundle_from_subscriber(db_session, vendor, person, project):
+    """The vendor project detail surfaces who-to-call + where-to-go from the
+    linked subscriber, reusing the technician contact/address helpers."""
+    sub = Subscriber(
+        person_id=person.id,
+        external_system="selfcare",
+        external_id=uuid.uuid4().hex[:8],
+        service_address_line1="12 Fiber Way",
+        service_city="Lagos",
+        service_plan="Business 500M",
+        account_number="ACC-9001",
+    )
+    db_session.add(sub)
+    db_session.commit()
+    ip = InstallationProject(
+        project_id=project.id,
+        assigned_vendor_id=vendor.id,
+        subscriber_id=sub.id,
+        status=InstallationProjectStatus.in_progress,
+        notes="Gate code 4455; ask for the site foreman.",
+    )
+    db_session.add(ip)
+    db_session.commit()
+
+    bundle = field_vendor_projects.get_detail(db_session, str(vendor.id), str(ip.id))
+    site = bundle["site"]
+    assert site is not None
+    assert site["subscriber_id"] == sub.id
+    assert site["email"] == person.email
+    assert site["address_text"] == "12 Fiber Way, Lagos"
+    assert site["service_plan"] == "Business 500M"
+    assert site["account_number"] == "ACC-9001"
+    assert site["access_notes"] == "Gate code 4455; ask for the site foreman."
+    assert site["additional_contacts"] == []
+    assert site["recent_visits"] == []
 
 
 def test_staff_token_rejected_on_vendor_routes(db_session, person):

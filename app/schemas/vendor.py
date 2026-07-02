@@ -15,6 +15,7 @@ from app.models.vendor import (
     VendorAssignmentType,
     VendorPurchaseInvoiceStatus,
 )
+from app.schemas.field import FieldSiteContact, FieldVisitHistoryItem
 
 
 class VendorBase(BaseModel):
@@ -97,6 +98,26 @@ class InstallationProjectRead(InstallationProjectBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
+
+
+class FieldProjectSite(BaseModel):
+    """Site + customer context for a vendor crew heading to an installation
+    project: who to call and where to go. Mirrors the technician job's customer
+    bundle so the mobile app can render both flows with one widget. Cost/rate
+    data is never included — vendors see contact and location only.
+    """
+
+    subscriber_id: UUID | None = None
+    name: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    address_text: str | None = None
+    service_plan: str | None = None
+    account_number: str | None = None
+    status: str | None = None
+    access_notes: str | None = None
+    additional_contacts: list[FieldSiteContact] = []
+    recent_visits: list[FieldVisitHistoryItem] = []
 
 
 class ProjectQuoteBase(BaseModel):
