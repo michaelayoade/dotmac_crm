@@ -112,6 +112,59 @@ void main() {
       expect(detail.rejectedForResubmission!.reviewNotes, 'Path too short');
     });
 
+    test('fetchProjects parses the {project, lifecycle} list shape', () async {
+      adapter.on('GET', '/api/v1/field/projects', (_) => (200, {
+            'items': [
+              {
+                'project': {'id': 'p-1', 'status': 'in_progress', 'notes': 'Gate code 4455'},
+                'lifecycle': {
+                  'quote': {'status': 'submitted', 'total': 150000.0, 'currency': 'NGN'},
+                  'as_built': null,
+                  'billing': null,
+                },
+              },
+            ],
+            'count': 1,
+            'limit': 50,
+            'offset': 0,
+          }));
+
+      final items = await container.read(vendorRepositoryProvider).fetchProjects();
+      expect(items.single.project.id, 'p-1');
+      expect(items.single.project.notes, 'Gate code 4455');
+      expect(items.single.lifecycle!.quote!.status, 'submitted');
+      expect(items.single.lifecycle!.quote!.label, 'NGN 150000');
+      expect(items.single.lifecycle!.asBuilt, isNull);
+    });
+
+    test('detail parses site contact and lifecycle', () async {
+      adapter.on('GET', '/api/v1/field/projects/p-9', (_) => (200, {
+            'project': {'id': 'p-9', 'status': 'in_progress'},
+            'site': {
+              'name': 'Acme Corp',
+              'phone': '+2348010000000',
+              'address_text': '12 Fiber Way, Lagos',
+              'access_notes': 'Ask for the foreman',
+            },
+            'lifecycle': {
+              'quote': {'status': 'approved', 'total': 90000.0, 'currency': 'NGN'},
+              'as_built': {'status': 'submitted'},
+              'billing': {'status': 'submitted', 'invoice_number': 'PINV-1', 'erp_synced': true},
+            },
+            'submissions': [],
+            'rejected_for_resubmission': null,
+            'attachment_count': 0,
+          }));
+
+      final detail = await container.read(vendorRepositoryProvider).fetchDetail('p-9');
+      expect(detail.site!.name, 'Acme Corp');
+      expect(detail.site!.phone, '+2348010000000');
+      expect(detail.site!.accessNotes, 'Ask for the foreman');
+      expect(detail.site!.hasContact, isTrue);
+      expect(detail.lifecycle!.asBuilt!.status, 'submitted');
+      expect(detail.lifecycle!.billing!.label, 'Synced to ERP');
+    });
+
     test('submit queues an as_built outbox entry with the right shape', () async {
       final recorder = TraceRecorder()..start();
       recorder.addPoint((latitude: 6.0, longitude: 3.0));
