@@ -35,6 +35,10 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Screenshot harness (App Store / Play listing captures). See
+  # integration_test/screenshots_test.dart + tool/screenshots.sh.
+  integration_test:
+    sdk: flutter
   flutter_lints: ^6.0.0
   drift_dev: ^2.28.0
   build_runner: ^2.7.0

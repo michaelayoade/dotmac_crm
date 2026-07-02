@@ -25,9 +25,10 @@ import 'features/execution/execution_controller.dart';
 /// untouched. Sentry auto-captures uncaught Flutter + async errors once init'd.
 const _sentryDsn = String.fromEnvironment('SENTRY_DSN');
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
+/// Builds the fully-wired app root (drift DB, offline sync, photo/signature
+/// queues, optional FCM). Shared by [main] and the screenshot integration test
+/// so the harness renders the exact same provider graph as production.
+Future<Widget> buildFieldAppRoot() async {
   final documents = await getApplicationDocumentsDirectory();
   final dbFile = File(p.join(documents.path, 'dotmac_field.sqlite'));
   final photoDir = Directory(p.join(documents.path, 'field_photos'));
@@ -38,54 +39,59 @@ Future<void> main() async {
   // FCM push, when Firebase is configured (else null → NoopPushSource).
   final fcm = await FcmPushSource.tryCreate();
 
-  void runTheApp() => runApp(
-    ProviderScope(
-      overrides: [
-        if (fcm != null) pushSourceProvider.overrideWithValue(fcm),
-        syncServiceProvider.overrideWith((ref) {
-          final sync = SyncService(
-            db: db,
-            api: ref.watch(apiClientProvider),
-            connectivity: DeviceConnectivity(),
+  return ProviderScope(
+    overrides: [
+      if (fcm != null) pushSourceProvider.overrideWithValue(fcm),
+      syncServiceProvider.overrideWith((ref) {
+        final sync = SyncService(
+          db: db,
+          api: ref.watch(apiClientProvider),
+          connectivity: DeviceConnectivity(),
+        );
+        Future.microtask(sync.flushAll);
+        ref.onDispose(sync.dispose);
+        ref.onDispose(db.close);
+        return sync;
+      }),
+      photoCaptureProvider.overrideWith((ref) {
+        final queue = PhotoQueue(
+          db: db,
+          source: CameraImageSource(),
+          location: ref.watch(locationSourceProvider),
+          storageDir: photoDir,
+        );
+        return ({String? workOrderId, String? installationProjectId}) {
+          return queue.captureForJob(
+            workOrderId: workOrderId,
+            installationProjectId: installationProjectId,
           );
-          Future.microtask(sync.flushAll);
-          ref.onDispose(sync.dispose);
-          ref.onDispose(db.close);
-          return sync;
-        }),
-        photoCaptureProvider.overrideWith((ref) {
-          final queue = PhotoQueue(
-            db: db,
-            source: CameraImageSource(),
-            location: ref.watch(locationSourceProvider),
-            storageDir: photoDir,
+        };
+      }),
+      signatureSinkProvider.overrideWith((ref) {
+        final queue = PhotoQueue(
+          db: db,
+          source: CameraImageSource(),
+          location: ref.watch(locationSourceProvider),
+          storageDir: photoDir,
+        );
+        return ({required String workOrderId, required Uint8List png}) {
+          return queue.enqueueImageBytes(
+            png,
+            kind: 'signature',
+            workOrderId: workOrderId,
           );
-          return ({String? workOrderId, String? installationProjectId}) {
-            return queue.captureForJob(
-              workOrderId: workOrderId,
-              installationProjectId: installationProjectId,
-            );
-          };
-        }),
-        signatureSinkProvider.overrideWith((ref) {
-          final queue = PhotoQueue(
-            db: db,
-            source: CameraImageSource(),
-            location: ref.watch(locationSourceProvider),
-            storageDir: photoDir,
-          );
-          return ({required String workOrderId, required Uint8List png}) {
-            return queue.enqueueImageBytes(
-              png,
-              kind: 'signature',
-              workOrderId: workOrderId,
-            );
-          };
-        }),
-      ],
-      child: const DotmacFieldApp(),
-    ),
+        };
+      }),
+    ],
+    child: const DotmacFieldApp(),
   );
+}
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final root = await buildFieldAppRoot();
+  void runTheApp() => runApp(root);
 
   if (_sentryDsn.isEmpty) {
     // No DSN configured (local/dev): run without telemetry.
@@ -93,12 +99,9 @@ Future<void> main() async {
     return;
   }
 
-  await SentryFlutter.init(
-    (options) {
-      options.dsn = _sentryDsn;
-      options.tracesSampleRate = 0.2;
-      options.release = 'dotmac_field@$appVersion';
-    },
-    appRunner: runTheApp,
-  );
+  await SentryFlutter.init((options) {
+    options.dsn = _sentryDsn;
+    options.tracesSampleRate = 0.2;
+    options.release = 'dotmac_field@$appVersion';
+  }, appRunner: runTheApp);
 }
