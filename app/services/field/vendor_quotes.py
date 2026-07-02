@@ -133,8 +133,10 @@ class FieldVendorQuotes:
             vendor_id=str(vendor_id),
         )
         if submit:
+            if not person_id:
+                raise HTTPException(status_code=400, detail="A person is required to submit a proposed route")
             revision = vendor_service.proposed_route_revisions.submit(
-                db, str(revision.id), str(person_id) if person_id else None, vendor_id=str(vendor_id)
+                db, str(revision.id), str(person_id), vendor_id=str(vendor_id)
             )
         return revision
 
