@@ -11,7 +11,7 @@ Read-only. Delete this module (and its script/doc) once convergence completes.
 
 from __future__ import annotations
 
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from app.models.person import Person
@@ -143,3 +143,53 @@ def dedupe_splynx_duplicates(db: Session, *, apply: bool = False) -> dict:
         "applied": apply,
         "soft_deleted": soft_deleted,
     }
+
+
+def backfill_person_selfcare_id(db: Session, *, apply: bool = False) -> dict:
+    """Backfill ``people.metadata.selfcare_id`` from a linked selfcare subscriber.
+
+    People that still carry only a legacy ``splynx_id`` converge onto selfcare
+    identity by copying the dotmac_sub UUID (the ``external_id`` of their linked
+    active selfcare subscriber) into ``metadata.selfcare_id``. Dry-run by default.
+
+    Only touches people that have a resolvable selfcare subscriber; those without
+    one are reported as ``unresolvable`` and left for separate handling. The
+    existing ``splynx_id`` is preserved.
+    """
+    rows = (
+        db.query(Person, Subscriber.external_id)
+        .join(
+            Subscriber,
+            and_(
+                Subscriber.person_id == Person.id,
+                Subscriber.external_system == "selfcare",
+                Subscriber.is_active.is_(True),
+            ),
+        )
+        .all()
+    )
+    seen: set[str] = set()
+    candidates: list[tuple[Person, str]] = []
+    for person, external_id in rows:
+        pid = str(person.id)
+        if pid in seen:
+            continue
+        meta = person.metadata_ if isinstance(person.metadata_, dict) else {}
+        if not str(meta.get("splynx_id") or "").strip():
+            continue
+        if str(meta.get("selfcare_id") or "").strip():
+            continue
+        if not external_id:
+            continue
+        seen.add(pid)
+        candidates.append((person, str(external_id)))
+
+    backfilled = 0
+    if apply:
+        for person, external_id in candidates:
+            meta = dict(person.metadata_ or {})
+            meta["selfcare_id"] = external_id
+            person.metadata_ = meta
+            backfilled += 1
+        db.commit()
+    return {"candidates": len(candidates), "applied": apply, "backfilled": backfilled}
