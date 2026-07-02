@@ -1,0 +1,139 @@
+name: Field App Release
+
+# Signed release builds for the dotmac_field technician app.
+# Manual (workflow_dispatch) or on a field-mobile version tag like
+# `field-mobile-v1.0.0`. Never runs on PRs — it needs signing + push secrets.
+#
+# iOS ships via Xcode Cloud → TestFlight (see mobile/ios/ci_scripts/), NOT this
+# workflow; the ios-release job here is a documented gate until Apple signing is
+# wired into GitHub Actions (if ever — Xcode Cloud is the intended path).
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: "Build artifact (appbundle for Play, apk for sideload)"
+        type: choice
+        options: [appbundle, apk]
+        default: appbundle
+  push:
+    tags:
+      - "field-mobile-v*"
+
+concurrency:
+  group: field-app-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android-release:
+    name: Android signed release
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Match field-app-ci.yml: stable channel, cached. The app tracks the
+      # Flutter revision recorded in mobile/.metadata.
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # The app uses drift; generated *.g.dart must exist before the build.
+      - name: Drift codegen
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      # Reconstruct the upload keystore + key.properties from secrets. The
+      # keystore is base64 in ANDROID_KEYSTORE_BASE64; gradle reads
+      # android/key.properties (see android/app/build.gradle.kts).
+      - name: Restore signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 secret is not set — cannot produce a shippable build."
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/release.jks
+          cat > android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=release.jks
+          EOF
+
+      # FCM is operator-gated. When ANDROID_GOOGLE_SERVICES_JSON_B64 is set, drop
+      # google-services.json into android/app/ so the google-services gradle
+      # plugin activates (see android/app/build.gradle.kts) and push works.
+      # Without it the build succeeds with push disabled (NoopPushSource).
+      - name: Materialize google-services.json (optional)
+        env:
+          ANDROID_GOOGLE_SERVICES_JSON_B64: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          if [ -n "$ANDROID_GOOGLE_SERVICES_JSON_B64" ]; then
+            echo "$ANDROID_GOOGLE_SERVICES_JSON_B64" | base64 -d > android/app/google-services.json
+            echo "google-services.json materialized — FCM enabled."
+          else
+            echo "ANDROID_GOOGLE_SERVICES_JSON_B64 not set — building with push disabled."
+          fi
+
+      # API_BASE_URL defaults to production (crm.dotmac.io) via the app's
+      # String.fromEnvironment default; SENTRY_DSN is injected from a secret.
+      - name: Build signed ${{ github.event.inputs.track || 'appbundle' }}
+        env:
+          SENTRY_DSN: ${{ secrets.MOBILE_SENTRY_DSN }}
+        run: |
+          TRACK="${{ github.event.inputs.track || 'appbundle' }}"
+          flutter build "$TRACK" --release \
+            --dart-define=API_BASE_URL="${API_BASE_URL:-https://crm.dotmac.io}" \
+            --dart-define=SENTRY_DSN="$SENTRY_DSN"
+
+      - name: Verify the artifact is not debug-signed
+        run: |
+          OUT=$(find build/app/outputs -name '*.aab' -o -name '*-release.apk' | head -1)
+          echo "Artifact: $OUT"
+          test -n "$OUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotmac-field-android-release
+          path: |
+            mobile/build/app/outputs/bundle/release/*.aab
+            mobile/build/app/outputs/flutter-apk/*-release.apk
+          if-no-files-found: warn
+
+      - name: Clean up signing material
+        if: always()
+        run: rm -f android/app/release.jks android/key.properties android/app/google-services.json
+
+  # iOS release archives are produced by Xcode Cloud (mobile/ios/ci_scripts/
+  # ci_post_clone.sh) → TestFlight, which owns Apple signing. This job is a
+  # documented gate so the pipeline shape is visible; it fails fast with guidance
+  # rather than pretending GitHub Actions builds iOS.
+  ios-release:
+    name: iOS signed archive (use Xcode Cloud)
+    runs-on: macos-latest
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - name: Point to Xcode Cloud
+        run: |
+          echo "::error::iOS release ships via Xcode Cloud → TestFlight, not this"
+          echo "workflow. Configure an Xcode Cloud workflow on Runner.xcworkspace;"
+          echo "mobile/ios/ci_scripts/ci_post_clone.sh bootstraps Flutter + FCM."
+          echo "See mobile/docs/RELEASE.md."
+          exit 1

@@ -7,6 +7,13 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// FCM google-services plugin is applied conditionally (not in the plugins block)
+// so a checkout without google-services.json still builds (push disabled). CI
+// materializes google-services.json from a secret before the release build.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Release signing is driven by android/key.properties (git-ignored). Provide it
 // on the build/CI host; without it, release builds fall back to the debug key so
 // `flutter run --release` still works locally. See android/key.properties.example.
