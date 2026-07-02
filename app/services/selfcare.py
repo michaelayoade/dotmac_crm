@@ -510,6 +510,23 @@ def fetch_online_customers(db: Session) -> list[dict[str, Any]]:
     return _list_paginated(db, "/subscribers/online")
 
 
+def fetch_affected_subscribers(
+    db: Session,
+    *,
+    node_id: str | None = None,
+    basestation_id: str | None = None,
+) -> dict[str, Any]:
+    """Subscribers affected by a failed monitored device / basestation, resolved
+    from the sub app's Zabbix-linked topology. Returns {subscribers, count,
+    coverage}; the coverage block flags where the e2e chain is incomplete."""
+    params = {k: v for k, v in {"node_id": node_id, "basestation_id": basestation_id}.items() if v}
+    payload = _request_json(db, "GET", "/outages/impact", params=params)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return {"subscribers": [], "count": 0, "coverage": {}}
+    return data
+
+
 def fetch_transactions(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
     rows = _rows(_request_json(db, "GET", "/finance/transactions", params={"offset": offset, "limit": limit}))
     return _warn_if_truncated(rows, limit, "/finance/transactions")
