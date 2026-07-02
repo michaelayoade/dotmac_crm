@@ -140,6 +140,10 @@ def test_add_proposed_route_creates_and_submits(db_session, vendor, person, inst
     routes = field_vendor_quotes.list_proposed_routes(db_session, str(vendor.id), str(quote.id))
     assert [r.id for r in routes] == [revision.id]
 
+    # The quote detail surfaces the attached route so the crew can see it.
+    detail = field_vendor_quotes.get_detail(db_session, str(vendor.id), str(quote.id))
+    assert [r.id for r in detail["proposed_routes"]] == [revision.id]
+
 
 def test_add_proposed_route_draft_without_submit(db_session, vendor, person, installation_project):
     quote = field_vendor_quotes.open_draft(db_session, str(vendor.id), str(installation_project.id), str(person.id))

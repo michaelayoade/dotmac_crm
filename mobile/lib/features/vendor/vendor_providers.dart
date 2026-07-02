@@ -169,17 +169,37 @@ class QuoteLine {
       );
 }
 
+/// A proposed-route revision attached to a quote — the map half of the bid.
+class ProposedRoute {
+  const ProposedRoute({required this.id, required this.revisionNumber, required this.status});
+
+  final String id;
+  final int revisionNumber;
+  final String status;
+
+  factory ProposedRoute.fromJson(Map<String, dynamic> json) => ProposedRoute(
+        id: json['id'] as String,
+        revisionNumber: (json['revision_number'] as num?)?.toInt() ?? 1,
+        status: json['status'] as String? ?? 'draft',
+      );
+}
+
 class VendorQuoteDetail {
-  const VendorQuoteDetail({required this.quote, this.lineItems = const []});
+  const VendorQuoteDetail({required this.quote, this.lineItems = const [], this.proposedRoutes = const []});
 
   final VendorQuote quote;
   final List<QuoteLine> lineItems;
+  final List<ProposedRoute> proposedRoutes;
 
   factory VendorQuoteDetail.fromJson(Map<String, dynamic> json) => VendorQuoteDetail(
         quote: VendorQuote.fromJson((json['quote'] as Map).cast<String, dynamic>()),
         lineItems: ((json['line_items'] as List?) ?? [])
             .cast<Map>()
             .map((i) => QuoteLine.fromJson(i.cast<String, dynamic>()))
+            .toList(),
+        proposedRoutes: ((json['proposed_routes'] as List?) ?? [])
+            .cast<Map>()
+            .map((r) => ProposedRoute.fromJson(r.cast<String, dynamic>()))
             .toList(),
       );
 }
