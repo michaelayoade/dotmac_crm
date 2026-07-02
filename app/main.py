@@ -27,7 +27,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy.orm import Session
-from starlette.responses import RedirectResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from app.api.ai import router as ai_router
 from app.api.analytics import router as analytics_router
@@ -234,8 +234,10 @@ async def branding_middleware(request: Request, call_next):
 
     Uses in-memory cache with 5-minute TTL to avoid DB query on every request.
     """
-    # Keep health/metrics fast and avoid DB during probes.
-    if request.url.path in ("/health", "/metrics"):
+    # Keep probes fast and self-contained: liveness/readiness/metrics must not
+    # depend on the branding middleware's DB call (readiness does its own bounded
+    # DB check and must return a clean 503, not a middleware 500, when DB is down).
+    if request.url.path in ("/health", "/health/ready", "/metrics"):
         return await call_next(request)
     db: Session = getattr(request.state, "middleware_db", None) or SessionLocal()
     owns_db = not hasattr(request.state, "middleware_db")
@@ -610,7 +612,28 @@ def favicon():
 
 @app.get("/health")
 def health_check():
+    # Liveness only — is the process up? Deliberately shallow (no DB/Redis) so a
+    # dependency blip never restarts a healthy process. Use /health/ready for
+    # dependency readiness.
     return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def readiness_check():
+    # Readiness — can this instance actually serve? Checks DB + Redis with short
+    # timeouts; 503 when degraded so orchestrators/LBs stop routing traffic here.
+    from app.services.readiness import readiness_report
+
+    payload, ready = readiness_report()
+    return JSONResponse(payload, status_code=200 if ready else 503)
+
+
+@app.head("/health/ready")
+def head_readiness_check():
+    from app.services.readiness import readiness_report
+
+    _, ready = readiness_report()
+    return Response(status_code=200 if ready else 503)
 
 
 @app.head("/")
