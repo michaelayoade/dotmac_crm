@@ -341,8 +341,17 @@ class VendorRepository {
     return VendorQuoteDetail.fromJson((response.data as Map).cast<String, dynamic>());
   }
 
+  /// Queue a bid line item through the offline outbox so it survives a
+  /// connectivity drop mid-bid; the unique client_ref makes the retried POST
+  /// idempotent server-side (no duplicate line). Flushes immediately when online.
   Future<void> addQuoteLineItem(String quoteId, AsBuiltLineItem item) async {
-    await _dio.post('/api/v1/field/quotes/$quoteId/line-items', data: item.toJson());
+    final clientRef = const Uuid().v4();
+    await _ref.read(syncServiceProvider).enqueue(
+      kind: 'quote_line_item',
+      clientRef: clientRef,
+      payload: {'quote_id': quoteId, 'client_ref': clientRef, ...item.toJson()},
+    );
+    await _ref.read(syncServiceProvider).flushOutbox();
   }
 
   Future<void> removeQuoteLineItem(String quoteId, String lineItemId) async {

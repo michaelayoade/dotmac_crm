@@ -1,5 +1,6 @@
 """Tests for vendor crew quoting (bid) endpoints in the field API."""
 
+import uuid
 from decimal import Decimal
 
 import pytest
@@ -78,6 +79,17 @@ def test_add_line_item_recalculates_and_lists(db_session, vendor, person, instal
     bundle = field_vendor_quotes.get_detail(db_session, str(vendor.id), str(quote.id))
     assert len(bundle["line_items"]) == 1
     assert bundle["quote"].total == Decimal("10000.00")
+
+
+def test_add_line_item_idempotent_by_client_ref(db_session, vendor, person, installation_project):
+    """An offline add that retries with the same client_ref must not duplicate."""
+    quote = field_vendor_quotes.open_draft(db_session, str(vendor.id), str(installation_project.id), str(person.id))
+    cref = uuid.uuid4()
+    first = field_vendor_quotes.add_line_item(db_session, str(vendor.id), str(quote.id), _line_item(client_ref=cref))
+    again = field_vendor_quotes.add_line_item(db_session, str(vendor.id), str(quote.id), _line_item(client_ref=cref))
+    assert first.id == again.id  # same row, not a duplicate
+    bundle = field_vendor_quotes.get_detail(db_session, str(vendor.id), str(quote.id))
+    assert len(bundle["line_items"]) == 1
 
 
 def test_get_detail_404_for_other_vendor(db_session, vendor, other_vendor, person, installation_project):

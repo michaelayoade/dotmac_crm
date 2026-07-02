@@ -92,6 +92,16 @@ class FieldVendorQuotes:
     @staticmethod
     def add_line_item(db: Session, vendor_id: str, quote_id: str, payload: QuoteLineItemCreateRequest) -> QuoteLineItem:
         quote = _scoped_quote(db, vendor_id, quote_id)
+        # Idempotent replay: an offline add that already landed returns the
+        # existing line rather than duplicating it.
+        if payload.client_ref is not None:
+            existing = (
+                db.query(QuoteLineItem)
+                .filter(QuoteLineItem.quote_id == quote.id, QuoteLineItem.client_ref == payload.client_ref)
+                .first()
+            )
+            if existing is not None:
+                return existing
         create = QuoteLineItemCreate(quote_id=quote.id, **payload.model_dump())
         return vendor_service.quote_line_items.create(db, create, vendor_id=str(vendor_id))
 
