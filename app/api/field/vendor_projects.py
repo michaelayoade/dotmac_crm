@@ -38,9 +38,7 @@ def get_vendor_project(
     return {
         "project": InstallationProjectRead.model_validate(bundle["project"]),
         "site": FieldProjectSite.model_validate(bundle["site"]) if bundle["site"] else None,
-        "lifecycle": (
-            VendorProjectLifecycle.model_validate(bundle["lifecycle"]) if bundle["lifecycle"] else None
-        ),
+        "lifecycle": (VendorProjectLifecycle.model_validate(bundle["lifecycle"]) if bundle["lifecycle"] else None),
         "submissions": [AsBuiltRouteRead.model_validate(s) for s in bundle["submissions"]],
         "rejected_for_resubmission": (
             AsBuiltRouteRead.model_validate(bundle["rejected_for_resubmission"])
