@@ -25,6 +25,43 @@ def _scoped_project(db: Session, vendor_id: str, project_id: str) -> Installatio
     return project
 
 
+def _site_bundle(db: Session, project: InstallationProject) -> dict | None:
+    """Customer + site context so a crew knows who to call and where to go.
+
+    Resolves from the project's linked subscriber, reusing the technician-side
+    contact/address helpers so both flows share one shape. Returns ``None`` for
+    projects with no subscriber (e.g. pure buildout work). Access notes come
+    from the project's own ``notes`` — a vendor project has no work order.
+    """
+    subscriber = project.subscriber
+    if subscriber is None:
+        return None
+    # Imported here to avoid pulling the technician job module (and its
+    # WorkOrder/Ticket imports) into the vendor path at module load.
+    from app.services.field.jobs import (
+        _additional_contacts,
+        _best_phone,
+        _recent_visits,
+        _site_address,
+    )
+
+    person = subscriber.person
+    return {
+        "subscriber_id": subscriber.id,
+        "name": (person.display_name or f"{person.first_name} {person.last_name}".strip()) if person else None,
+        "phone": _best_phone(person),
+        "email": person.email if person else None,
+        "address_text": _site_address(subscriber, person),
+        "service_plan": subscriber.service_plan,
+        "account_number": subscriber.account_number,
+        "status": subscriber.status.value if getattr(subscriber, "status", None) else None,
+        "access_notes": project.notes,
+        "additional_contacts": _additional_contacts(subscriber),
+        # No work order to exclude for a vendor project → pass a null id.
+        "recent_visits": _recent_visits(db, subscriber, None),
+    }
+
+
 class FieldVendorProjects:
     @staticmethod
     def list_mine(db: Session, vendor_id: str, *, limit: int = 50, offset: int = 0) -> list[InstallationProject]:
@@ -54,6 +91,7 @@ class FieldVendorProjects:
         )
         return {
             "project": project,
+            "site": _site_bundle(db, project),
             "submissions": submissions,
             "attachments": attachments,
             "rejected_for_resubmission": rejected_for_resubmission,
