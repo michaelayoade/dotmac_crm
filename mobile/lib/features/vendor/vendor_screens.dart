@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
 import '../execution/execution_controller.dart';
+import '../jobs/job_detail_screen.dart' show uriLauncherProvider;
 import 'trace_recorder.dart';
 import 'vendor_providers.dart';
 
@@ -24,11 +25,22 @@ class VendorProjectsScreen extends ConsumerWidget {
                 itemCount: items.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 12),
                 itemBuilder: (context, index) {
-                  final project = items[index];
+                  final item = items[index];
+                  final project = item.project;
                   return Card(
                     child: ListTile(
                       title: Text('Project ${project.id.substring(0, 8)}'),
-                      subtitle: Text(project.notes ?? ''),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (project.notes != null && project.notes!.isNotEmpty) Text(project.notes!),
+                          if (item.lifecycle != null) ...[
+                            const SizedBox(height: 6),
+                            VendorLifecycleChips(lifecycle: item.lifecycle!),
+                          ],
+                        ],
+                      ),
+                      isThreeLine: item.lifecycle != null,
                       trailing: Chip(
                         label: Text(project.status.replaceAll('_', ' ')),
                         backgroundColor: AppColors.status(project.status).withValues(alpha: 0.15),
@@ -61,6 +73,14 @@ class VendorProjectDetailScreen extends ConsumerWidget {
         data: (data) => ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            if (data.site != null && data.site!.hasContact) ...[
+              VendorSiteCard(site: data.site!),
+              const SizedBox(height: 12),
+            ],
+            if (data.lifecycle != null) ...[
+              VendorLifecycleChips(lifecycle: data.lifecycle!),
+              const SizedBox(height: 12),
+            ],
             if (data.rejectedForResubmission != null)
               Card(
                 color: Theme.of(context).colorScheme.errorContainer,
@@ -220,5 +240,102 @@ class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
         ),
       ),
     );
+  }
+}
+
+/// "Who to call, where to go" — the site bundle on a vendor project (#122).
+class VendorSiteCard extends ConsumerWidget {
+  const VendorSiteCard({super.key, required this.site});
+
+  final VendorSite site;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Site contact', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (site.name != null && site.name!.isNotEmpty) Text(site.name!),
+                      if (site.addressText != null && site.addressText!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(site.addressText!, style: theme.textTheme.bodySmall),
+                      ],
+                    ],
+                  ),
+                ),
+                if (site.phone != null)
+                  IconButton(
+                    key: const Key('vendor-call-button'),
+                    tooltip: 'Call site contact',
+                    icon: const Icon(Icons.call_outlined),
+                    onPressed: () => ref.read(uriLauncherProvider)(Uri.parse('tel:${site.phone}')),
+                  ),
+              ],
+            ),
+            if (site.accessNotes != null && site.accessNotes!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.vpn_key_outlined, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(site.accessNotes!, style: theme.textTheme.bodySmall)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Chips for the bid → approval → as-built → payment lifecycle (#123). Only the
+/// stages the crew has reached are shown.
+class VendorLifecycleChips extends StatelessWidget {
+  const VendorLifecycleChips({super.key, required this.lifecycle});
+
+  final VendorLifecycle lifecycle;
+
+  static Widget? _chip(String prefix, VendorStageState? stage) {
+    if (stage == null || !stage.isPresent) return null;
+    final status = stage.status!;
+    final text = stage.label != null ? '$prefix: ${status.replaceAll('_', ' ')} · ${stage.label}'
+        : '$prefix: ${status.replaceAll('_', ' ')}';
+    return Chip(
+      label: Text(text),
+      visualDensity: VisualDensity.compact,
+      backgroundColor: AppColors.status(status).withValues(alpha: 0.15),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final chips = <Widget?>[
+      _chip('Quote', lifecycle.quote),
+      _chip('As-built', lifecycle.asBuilt),
+      _chip('Billing', lifecycle.billing),
+    ].whereType<Widget>().toList();
+    if (chips.isEmpty) return const SizedBox.shrink();
+    return Wrap(spacing: 6, runSpacing: 6, children: chips);
   }
 }
