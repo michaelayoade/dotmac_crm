@@ -229,11 +229,14 @@ void main() {
       expect(quote.isEditable, isTrue);
     });
 
-    test('fetchQuote parses the quote and its line items', () async {
+    test('fetchQuote parses the quote, line items and proposed routes', () async {
       adapter.on('GET', '/api/v1/field/quotes/q-1', (_) => (200, {
             'quote': {'id': 'q-1', 'status': 'draft', 'total': 15000, 'currency': 'NGN'},
             'line_items': [
               {'id': 'li-1', 'description': 'Trenching', 'quantity': 3, 'unit_price': 5000, 'amount': 15000},
+            ],
+            'proposed_routes': [
+              {'id': 'rev-1', 'revision_number': 1, 'status': 'submitted'},
             ],
           }));
 
@@ -241,6 +244,19 @@ void main() {
       expect(detail.quote.total, 15000);
       expect(detail.lineItems.single.description, 'Trenching');
       expect(detail.lineItems.single.amount, 15000);
+      expect(detail.proposedRoutes.single.revisionNumber, 1);
+      expect(detail.proposedRoutes.single.status, 'submitted');
+    });
+
+    test('removeQuoteLineItem deletes the line', () async {
+      var deleted = false;
+      adapter.on('DELETE', '/api/v1/field/quotes/q-1/line-items/li-1', (_) {
+        deleted = true;
+        return (204, <String, dynamic>{});
+      });
+
+      await container.read(vendorRepositoryProvider).removeQuoteLineItem('q-1', 'li-1');
+      expect(deleted, isTrue);
     });
 
     test('addProposedRoute posts geojson and length', () async {

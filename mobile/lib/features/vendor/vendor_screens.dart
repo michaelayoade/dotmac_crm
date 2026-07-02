@@ -542,6 +542,11 @@ class VendorQuoteScreen extends ConsumerWidget {
     ref.invalidate(vendorProjectQuoteProvider(projectId));
   }
 
+  Future<void> _removeLineItem(WidgetRef ref, String quoteId, String lineItemId) async {
+    await ref.read(vendorRepositoryProvider).removeQuoteLineItem(quoteId, lineItemId);
+    ref.invalidate(vendorProjectQuoteProvider(projectId));
+  }
+
   Future<void> _captureRoute(BuildContext context, WidgetRef ref, String quoteId) async {
     final saved = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => _ProposedRouteCaptureScreen(quoteId: quoteId)),
@@ -613,14 +618,41 @@ class VendorQuoteScreen extends ConsumerWidget {
                     contentPadding: EdgeInsets.zero,
                     title: Text(line.description ?? 'Item'),
                     subtitle: Text('${line.quantity ?? 1} × ${line.unitPrice ?? 0}'),
-                    trailing: Text('${line.amount ?? 0}'),
+                    trailing: editable
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('${line.amount ?? 0}'),
+                              IconButton(
+                                key: Key('remove-line-${line.id}'),
+                                icon: const Icon(Icons.close, size: 18),
+                                tooltip: 'Remove',
+                                onPressed: () => _removeLineItem(ref, quote.id, line.id),
+                              ),
+                            ],
+                          )
+                        : Text('${line.amount ?? 0}'),
                   ),
               const SizedBox(height: 16),
+              Text('Proposed route', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 4),
+              if (data.proposedRoutes.isEmpty)
+                Text('Not attached yet', style: Theme.of(context).textTheme.bodySmall)
+              else
+                for (final route in data.proposedRoutes)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.route_outlined, color: AppColors.status(route.status)),
+                    title: Text('Revision ${route.revisionNumber}'),
+                    trailing: Text(route.status.replaceAll('_', ' ')),
+                  ),
+              const SizedBox(height: 8),
               OutlinedButton.icon(
                 key: const Key('quote-capture-route'),
                 onPressed: editable ? () => _captureRoute(context, ref, quote.id) : null,
                 icon: const Icon(Icons.route_outlined),
-                label: const Text('Capture proposed route'),
+                label: Text(data.proposedRoutes.isEmpty ? 'Capture proposed route' : 'Capture new revision'),
               ),
               const SizedBox(height: 24),
             ],

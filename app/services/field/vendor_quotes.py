@@ -76,7 +76,18 @@ class FieldVendorQuotes:
             limit=200,
             offset=0,
         )
-        return {"quote": quote, "line_items": line_items}
+        # Surface any proposed-route revisions so the crew can see the map half
+        # of the bid is attached (and its review state), not just the line items.
+        proposed_routes = vendor_service.proposed_route_revisions.list(
+            db,
+            quote_id=str(quote.id),
+            status=None,
+            order_by="revision_number",
+            order_dir="asc",
+            limit=100,
+            offset=0,
+        )
+        return {"quote": quote, "line_items": line_items, "proposed_routes": proposed_routes}
 
     @staticmethod
     def add_line_item(db: Session, vendor_id: str, quote_id: str, payload: QuoteLineItemCreateRequest) -> QuoteLineItem:

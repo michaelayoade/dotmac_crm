@@ -51,6 +51,7 @@ def get_vendor_quote(
     return {
         "quote": ProjectQuoteRead.model_validate(bundle["quote"]),
         "line_items": [QuoteLineItemRead.model_validate(i) for i in bundle["line_items"]],
+        "proposed_routes": [ProposedRouteRevisionRead.model_validate(r) for r in bundle["proposed_routes"]],
     }
 
 
