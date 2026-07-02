@@ -75,25 +75,56 @@ def get_scoped_work_order(db: Session, person_id: str | UUID, work_order_id: str
     return work_order
 
 
-def _customer_payload(work_order: WorkOrder) -> dict | None:
-    subscriber = work_order.subscriber
-    if not subscriber:
+def _best_phone(person: Person | None) -> str | None:
+    """A reachable number for the tech: person.phone, else a phone-type channel."""
+    if person is None:
         return None
-    person: Person | None = subscriber.person
-    address_parts = [
+    if isinstance(person.phone, str) and person.phone.strip():
+        return person.phone.strip()
+    from app.services.person import PHONE_CHANNEL_TYPES
+
+    for channel in person.channels or []:
+        if channel.channel_type in PHONE_CHANNEL_TYPES and isinstance(channel.address, str) and channel.address.strip():
+            return channel.address.strip()
+    return None
+
+
+def _site_address(subscriber: Subscriber, person: Person | None) -> str | None:
+    """The service/site address, falling back to the person's address so a
+    thin/migrated subscriber record never leaves the tech without somewhere to go."""
+    service_parts = [
         subscriber.service_address_line1,
         subscriber.service_address_line2,
         subscriber.service_city,
         subscriber.service_region,
         subscriber.service_postal_code,
     ]
-    address_text = ", ".join(part for part in address_parts if part) or None
+    text = ", ".join(part for part in service_parts if part) or None
+    if text:
+        return text
+    if person is not None:
+        person_parts = [
+            person.address_line1,
+            person.address_line2,
+            person.city,
+            person.region,
+            person.postal_code,
+        ]
+        return ", ".join(part for part in person_parts if part) or None
+    return None
+
+
+def _customer_payload(work_order: WorkOrder) -> dict | None:
+    subscriber = work_order.subscriber
+    if not subscriber:
+        return None
+    person: Person | None = subscriber.person
     return {
         "subscriber_id": subscriber.id,
         "name": (person.display_name or f"{person.first_name} {person.last_name}".strip()) if person else None,
-        "phone": person.phone if person else None,
+        "phone": _best_phone(person),
         "email": person.email if person else None,
-        "address_text": address_text,
+        "address_text": _site_address(subscriber, person),
         "service_plan": subscriber.service_plan,
         "account_number": subscriber.account_number,
         "status": subscriber.status.value if getattr(subscriber, "status", None) else None,
