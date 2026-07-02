@@ -399,6 +399,10 @@ def push_sales_order_payment_to_selfcare(db: Session, sales_order: object) -> No
     Best-effort: a selfcare outage must never break the sale. Idempotent — the
     payment external_ref dedups server-side, so repeated calls are safe.
     """
+    # Skip entirely (before any DB query) when the integration is off — keeps
+    # this out of environments/tests where selfcare isn't configured.
+    if not selfcare.is_customer_sync_enabled(db):
+        return
     try:
         amount_paid = getattr(sales_order, "amount_paid", None)
         if amount_paid is None or Decimal(str(amount_paid)) <= 0:

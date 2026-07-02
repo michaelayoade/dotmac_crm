@@ -151,6 +151,19 @@ def _get_config(db: Session) -> dict[str, Any] | None:
     }
 
 
+def is_customer_sync_enabled(db: Session) -> bool:
+    """True only when selfcare customer sync is turned on. Cheap guard so callers
+    can skip work (and DB queries) entirely when the integration is off."""
+    try:
+        return bool(
+            settings_spec.resolve_value(
+                db, SettingDomain.integration, "selfcare_customer_sync_enabled", use_cache=False
+            )
+        )
+    except Exception:
+        return False
+
+
 def _get_api_config(db: Session) -> dict[str, Any]:
     enabled = settings_spec.resolve_value(
         db, SettingDomain.integration, "selfcare_customer_sync_enabled", use_cache=False
