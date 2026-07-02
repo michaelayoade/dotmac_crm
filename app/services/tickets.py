@@ -75,6 +75,85 @@ def _as_utc(value: datetime | None) -> datetime | None:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
+def _resolution_confirmation_body(ticket: Ticket, customer_name: str | None, confirm_url, dispute_url, grace_hours):
+    ref = ticket.number or str(ticket.id)
+    greeting = f"Hi {customer_name}," if customer_name else "Hello,"
+    lines = [
+        greeting,
+        "",
+        f'We believe we\'ve resolved your ticket "{ticket.title}" ({ref}).',
+        "",
+    ]
+    if confirm_url:
+        lines += [f"Please confirm it's fixed: {confirm_url}"]
+    if dispute_url:
+        lines += [f"If it's still not working, tell us: {dispute_url}"]
+    lines += [
+        "",
+        f"If we don't hear back within {grace_hours} hours we'll assume it's resolved and close the ticket.",
+        "",
+        "Thank you.",
+    ]
+    subject = f"Please confirm your ticket {ref} is resolved"
+    return subject, "\n".join(lines)
+
+
+def _send_resolution_confirmation_notice(
+    db: Session,
+    ticket: Ticket,
+    *,
+    confirm_url: str | None,
+    dispute_url: str | None,
+    grace_hours: int,
+    actor_id: str | None,
+) -> None:
+    """Queue the customer's "please confirm your resolution" notice with the
+    magic-link — via the subscriber channel when the ticket has a subscriber
+    (also logs a SubscriberNotificationLog), else a direct email notification.
+    Best-effort: a delivery hiccup must not block the resolve transition."""
+    customer_name = _resolve_customer_name(ticket, db)
+    subject, body = _resolution_confirmation_body(ticket, customer_name, confirm_url, dispute_url, grace_hours)
+
+    if ticket.subscriber_id is not None:
+        try:
+            from app.services import subscriber_notifications
+
+            subscriber_notifications.queue_subscriber_notification(
+                db,
+                subscriber_id=ticket.subscriber_id,
+                channel_value="email",
+                email_subject=subject,
+                email_body=body,
+                sms_body=None,
+                scheduled_local_text=None,
+                sent_by_user_id=None,
+                sent_by_person_id=coerce_uuid(actor_id) if actor_id else None,
+            )
+            return
+        except Exception:
+            logger.warning("resolution_confirmation_subscriber_notice_failed ticket_id=%s", ticket.id, exc_info=True)
+            db.rollback()
+
+    email = _resolve_customer_email(ticket, db)
+    if not email:
+        logger.info("resolution_confirmation_no_recipient ticket_id=%s", ticket.id)
+        return
+    try:
+        db.add(
+            Notification(
+                channel=NotificationChannel.email,
+                recipient=email,
+                subject=subject,
+                body=body,
+                status=NotificationStatus.queued,
+            )
+        )
+        db.commit()
+    except Exception:
+        logger.warning("resolution_confirmation_email_notice_failed ticket_id=%s", ticket.id, exc_info=True)
+        db.rollback()
+
+
 RELATED_OUTAGE_LINK_TYPE = "related_outage"
 TICKET_SLA_POLICY_NAME = "Ticket Resolution SLA"
 TICKET_SLA_TERMINAL_STATUSES = {
@@ -1462,30 +1541,17 @@ class Tickets(ListResponseMixin):
         db.refresh(ticket)
 
         confirm_url, dispute_url = ticket_access_tokens.action_urls(db, token_row)
-        customer_name = _resolve_customer_name(ticket, db)
-        emit_event(
+        # Deliver the confirm/dispute link directly rather than via the
+        # ticket_resolved template (which may not carry the link). Deliberately
+        # do NOT emit ticket_resolved here: the ticket isn't closed yet, and the
+        # real ticket_resolved fires when confirm/auto-confirm closes it.
+        _send_resolution_confirmation_notice(
             db,
-            EventType.ticket_resolved,
-            {
-                "ticket_id": str(ticket.id),
-                "number": ticket.number,
-                "subject": ticket.title,
-                "status": ticket.status.value,
-                "customer_name": customer_name,
-                "email": _resolve_customer_email(ticket, db),
-                "awaiting_confirmation": True,
-                "confirm_url": confirm_url,
-                "dispute_url": dispute_url,
-                "grace_hours": grace_hours,
-                "doc": {
-                    "custom_customer_name": customer_name,
-                    "name": str(ticket.id),
-                    "subject": ticket.title,
-                    "status": ticket.status.value,
-                },
-            },
-            subscriber_id=ticket.subscriber_id,
-            ticket_id=ticket.id,
+            ticket,
+            confirm_url=confirm_url,
+            dispute_url=dispute_url,
+            grace_hours=grace_hours,
+            actor_id=str(actor_id) if actor_id else None,
         )
         return ticket
 
