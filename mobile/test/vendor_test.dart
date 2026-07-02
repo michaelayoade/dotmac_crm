@@ -214,5 +214,63 @@ void main() {
       expect(items.single['quantity'], 50);
       expect(items.single['unit_price'], 120);
     });
+
+    test('openQuoteDraft posts to the project quote endpoint', () async {
+      adapter.on('POST', '/api/v1/field/projects/p-1/quote', (_) => (200, {
+            'id': 'q-1',
+            'status': 'draft',
+            'total': 0,
+            'currency': 'NGN',
+          }));
+
+      final quote = await container.read(vendorRepositoryProvider).openQuoteDraft('p-1');
+      expect(quote.id, 'q-1');
+      expect(quote.status, 'draft');
+      expect(quote.isEditable, isTrue);
+    });
+
+    test('fetchQuote parses the quote and its line items', () async {
+      adapter.on('GET', '/api/v1/field/quotes/q-1', (_) => (200, {
+            'quote': {'id': 'q-1', 'status': 'draft', 'total': 15000, 'currency': 'NGN'},
+            'line_items': [
+              {'id': 'li-1', 'description': 'Trenching', 'quantity': 3, 'unit_price': 5000, 'amount': 15000},
+            ],
+          }));
+
+      final detail = await container.read(vendorRepositoryProvider).fetchQuote('q-1');
+      expect(detail.quote.total, 15000);
+      expect(detail.lineItems.single.description, 'Trenching');
+      expect(detail.lineItems.single.amount, 15000);
+    });
+
+    test('addProposedRoute posts geojson and length', () async {
+      Map<String, dynamic>? sent;
+      adapter.on('POST', '/api/v1/field/quotes/q-1/proposed-route', (options) {
+        sent = (options.data as Map).cast<String, dynamic>();
+        return (201, {'id': 'rev-1', 'quote_id': 'q-1', 'revision_number': 1, 'status': 'submitted'});
+      });
+
+      final recorder = TraceRecorder()..start();
+      recorder.addPoint((latitude: 6.0, longitude: 3.0));
+      recorder.addPoint((latitude: 6.001, longitude: 3.001));
+      recorder.stop();
+      await container.read(vendorRepositoryProvider).addProposedRoute('q-1', recorder.toGeoJson(), recorder.distanceMeters);
+
+      expect(sent?['geojson']['type'], 'LineString');
+      expect((sent?['length_meters'] as num) > 100, isTrue);
+    });
+
+    test('submitQuote posts to the submit endpoint', () async {
+      adapter.on('POST', '/api/v1/field/quotes/q-1/submit', (_) => (200, {
+            'id': 'q-1',
+            'status': 'submitted',
+            'total': 15000,
+            'currency': 'NGN',
+          }));
+
+      final quote = await container.read(vendorRepositoryProvider).submitQuote('q-1');
+      expect(quote.status, 'submitted');
+      expect(quote.isEditable, isFalse);
+    });
   });
 }

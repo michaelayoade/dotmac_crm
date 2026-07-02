@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -130,6 +131,59 @@ class AsBuiltSubmission {
       );
 }
 
+/// A quote (bid) the crew is preparing or has submitted.
+class VendorQuote {
+  const VendorQuote({required this.id, required this.status, this.total, this.currency});
+
+  final String id;
+  final String status;
+  final num? total;
+  final String? currency;
+
+  bool get isEditable => status == 'draft' || status == 'revision_requested';
+
+  factory VendorQuote.fromJson(Map<String, dynamic> json) => VendorQuote(
+        id: json['id'] as String,
+        status: json['status'] as String? ?? 'draft',
+        total: json['total'] as num?,
+        currency: json['currency'] as String?,
+      );
+}
+
+/// A saved line on a quote (as returned by the API, with its id + amount).
+class QuoteLine {
+  const QuoteLine({required this.id, this.description, this.quantity, this.unitPrice, this.amount});
+
+  final String id;
+  final String? description;
+  final num? quantity;
+  final num? unitPrice;
+  final num? amount;
+
+  factory QuoteLine.fromJson(Map<String, dynamic> json) => QuoteLine(
+        id: json['id'] as String,
+        description: json['description'] as String?,
+        quantity: json['quantity'] as num?,
+        unitPrice: json['unit_price'] as num?,
+        amount: json['amount'] as num?,
+      );
+}
+
+class VendorQuoteDetail {
+  const VendorQuoteDetail({required this.quote, this.lineItems = const []});
+
+  final VendorQuote quote;
+  final List<QuoteLine> lineItems;
+
+  factory VendorQuoteDetail.fromJson(Map<String, dynamic> json) => VendorQuoteDetail(
+        quote: VendorQuote.fromJson((json['quote'] as Map).cast<String, dynamic>()),
+        lineItems: ((json['line_items'] as List?) ?? [])
+            .cast<Map>()
+            .map((i) => QuoteLine.fromJson(i.cast<String, dynamic>()))
+            .toList(),
+      );
+}
+
 class VendorProjectDetail {
   const VendorProjectDetail({
     required this.project,
@@ -250,6 +304,43 @@ class VendorRepository {
     await _ref.read(syncServiceProvider).flushOutbox();
     return clientRef;
   }
+
+  // --- Quoting (bid). Online round-trips: the backend guards state, and the
+  // crew needs the server-assigned quote id before adding lines / submitting. ---
+
+  Dio get _dio => _ref.read(apiClientProvider).dio;
+
+  /// Open (or resume) this project's draft quote — the bid entry point.
+  Future<VendorQuote> openQuoteDraft(String projectId) async {
+    final response = await _dio.post('/api/v1/field/projects/$projectId/quote');
+    return VendorQuote.fromJson((response.data as Map).cast<String, dynamic>());
+  }
+
+  Future<VendorQuoteDetail> fetchQuote(String quoteId) async {
+    final response = await _dio.get('/api/v1/field/quotes/$quoteId');
+    return VendorQuoteDetail.fromJson((response.data as Map).cast<String, dynamic>());
+  }
+
+  Future<void> addQuoteLineItem(String quoteId, AsBuiltLineItem item) async {
+    await _dio.post('/api/v1/field/quotes/$quoteId/line-items', data: item.toJson());
+  }
+
+  Future<void> removeQuoteLineItem(String quoteId, String lineItemId) async {
+    await _dio.delete('/api/v1/field/quotes/$quoteId/line-items/$lineItemId');
+  }
+
+  /// Attach the proposed route (drawn/walked on the map) and submit it.
+  Future<void> addProposedRoute(String quoteId, Map<String, dynamic> geojson, double lengthMeters) async {
+    await _dio.post(
+      '/api/v1/field/quotes/$quoteId/proposed-route',
+      data: {'geojson': geojson, 'length_meters': double.parse(lengthMeters.toStringAsFixed(1))},
+    );
+  }
+
+  Future<VendorQuote> submitQuote(String quoteId) async {
+    final response = await _dio.post('/api/v1/field/quotes/$quoteId/submit');
+    return VendorQuote.fromJson((response.data as Map).cast<String, dynamic>());
+  }
 }
 
 final vendorRepositoryProvider = Provider<VendorRepository>(VendorRepository.new);
@@ -260,3 +351,11 @@ final vendorProjectsProvider =
 final vendorProjectDetailProvider = FutureProvider.family<VendorProjectDetail, String>(
   (ref, projectId) => ref.watch(vendorRepositoryProvider).fetchDetail(projectId),
 );
+
+/// Opens/resumes the project's draft quote then loads its detail — the quote
+/// screen watches this so a pull-to-refresh re-reads server state.
+final vendorProjectQuoteProvider = FutureProvider.family<VendorQuoteDetail, String>((ref, projectId) async {
+  final repo = ref.watch(vendorRepositoryProvider);
+  final quote = await repo.openQuoteDraft(projectId);
+  return repo.fetchQuote(quote.id);
+});

@@ -69,7 +69,19 @@ class VendorProjectDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final detail = ref.watch(vendorProjectDetailProvider(projectId));
     return Scaffold(
-      appBar: AppBar(title: const Text('Project')),
+      appBar: AppBar(
+        title: const Text('Project'),
+        actions: [
+          IconButton(
+            key: const Key('open-quote'),
+            tooltip: 'Prepare bid',
+            icon: const Icon(Icons.request_quote_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => VendorQuoteScreen(projectId: projectId)),
+            ),
+          ),
+        ],
+      ),
       body: detail.when(
         data: (data) => ListView(
           padding: const EdgeInsets.all(16),
@@ -509,5 +521,221 @@ class VendorLifecycleChips extends StatelessWidget {
     ].whereType<Widget>().toList();
     if (chips.isEmpty) return const SizedBox.shrink();
     return Wrap(spacing: 6, runSpacing: 6, children: chips);
+  }
+}
+
+/// The bid: line items + a proposed route on the map, then submit. Online —
+/// the crew needs the server-assigned quote id before adding lines / submitting.
+class VendorQuoteScreen extends ConsumerWidget {
+  const VendorQuoteScreen({super.key, required this.projectId});
+
+  final String projectId;
+
+  Future<void> _addLineItem(BuildContext context, WidgetRef ref, String quoteId) async {
+    final item = await showModalBottomSheet<AsBuiltLineItem>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const _LineItemSheet(),
+    );
+    if (item == null) return;
+    await ref.read(vendorRepositoryProvider).addQuoteLineItem(quoteId, item);
+    ref.invalidate(vendorProjectQuoteProvider(projectId));
+  }
+
+  Future<void> _captureRoute(BuildContext context, WidgetRef ref, String quoteId) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => _ProposedRouteCaptureScreen(quoteId: quoteId)),
+    );
+    if (saved == true) ref.invalidate(vendorProjectQuoteProvider(projectId));
+  }
+
+  Future<void> _submit(BuildContext context, WidgetRef ref, String quoteId) async {
+    try {
+      await ref.read(vendorRepositoryProvider).submitQuote(quoteId);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bid submitted')));
+        Navigator.of(context).pop();
+      }
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not submit — add a line item and try again')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final detail = ref.watch(vendorProjectQuoteProvider(projectId));
+    return Scaffold(
+      appBar: AppBar(title: const Text('Prepare bid')),
+      body: detail.when(
+        data: (data) {
+          final quote = data.quote;
+          final editable = quote.isEditable;
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      quote.total != null ? '${quote.currency ?? ''} ${quote.total}'.trim() : 'Draft bid',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                  Chip(
+                    label: Text(quote.status.replaceAll('_', ' ')),
+                    backgroundColor: AppColors.status(quote.status).withValues(alpha: 0.15),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(child: Text('Line items', style: Theme.of(context).textTheme.titleSmall)),
+                  if (editable)
+                    TextButton.icon(
+                      key: const Key('quote-add-line-item'),
+                      onPressed: () => _addLineItem(context, ref, quote.id),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add'),
+                    ),
+                ],
+              ),
+              if (data.lineItems.isEmpty)
+                Text('None yet', style: Theme.of(context).textTheme.bodySmall)
+              else
+                for (final line in data.lineItems)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(line.description ?? 'Item'),
+                    subtitle: Text('${line.quantity ?? 1} × ${line.unitPrice ?? 0}'),
+                    trailing: Text('${line.amount ?? 0}'),
+                  ),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                key: const Key('quote-capture-route'),
+                onPressed: editable ? () => _captureRoute(context, ref, quote.id) : null,
+                icon: const Icon(Icons.route_outlined),
+                label: const Text('Capture proposed route'),
+              ),
+              const SizedBox(height: 24),
+            ],
+          );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (_, _) => const Center(child: Text('Could not load the bid')),
+      ),
+      bottomNavigationBar: detail.maybeWhen(
+        data: (data) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: FilledButton(
+              key: const Key('submit-quote'),
+              onPressed: data.quote.isEditable && data.lineItems.isNotEmpty
+                  ? () => _submit(context, ref, data.quote.id)
+                  : null,
+              child: const Text('Submit bid'),
+            ),
+          ),
+        ),
+        orElse: () => null,
+      ),
+    );
+  }
+}
+
+/// Walk/draw the proposed route, then attach + submit it to the quote.
+class _ProposedRouteCaptureScreen extends ConsumerStatefulWidget {
+  const _ProposedRouteCaptureScreen({required this.quoteId});
+
+  final String quoteId;
+
+  @override
+  ConsumerState<_ProposedRouteCaptureScreen> createState() => _ProposedRouteCaptureScreenState();
+}
+
+class _ProposedRouteCaptureScreenState extends ConsumerState<_ProposedRouteCaptureScreen> {
+  final recorder = TraceRecorder();
+  Timer? _sampler;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _sampler?.cancel();
+    super.dispose();
+  }
+
+  void _toggleRecording() {
+    setState(() {
+      if (recorder.recording) {
+        recorder.stop();
+        _sampler?.cancel();
+      } else {
+        recorder.start();
+        _sampler = Timer.periodic(const Duration(seconds: 3), (_) async {
+          final point = await ref.read(locationSourceProvider).current();
+          if (point != null && mounted) setState(() => recorder.addPoint(point));
+        });
+      }
+    });
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await ref.read(vendorRepositoryProvider).addProposedRoute(
+            widget.quoteId,
+            recorder.toGeoJson(),
+            recorder.distanceMeters,
+          );
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save the route')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Proposed route')),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              '${recorder.points.length} points · ${recorder.distanceMeters.toStringAsFixed(0)} m',
+              key: const Key('proposed-trace-pill'),
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              key: const Key('proposed-record-toggle'),
+              onPressed: _toggleRecording,
+              icon: Icon(recorder.recording ? Icons.stop : Icons.fiber_manual_record),
+              label: Text(recorder.recording ? 'Stop recording' : 'Start walking the route'),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: FilledButton(
+            key: const Key('save-proposed-route'),
+            onPressed: !recorder.recording && recorder.hasUsableTrace && !_saving ? _save : null,
+            child: const Text('Attach to bid'),
+          ),
+        ),
+      ),
+    );
   }
 }
