@@ -168,3 +168,32 @@ class TicketSlaEventRead(TicketSlaEventBase):
 
     id: UUID
     created_at: datetime
+
+
+class InfrastructureTicketCreate(BaseModel):
+    """Create one ticket for an infrastructure fault and notify every customer
+    served by the affected asset."""
+
+    title: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    # The affected asset in dotmac_sub: a monitored device (OLT/switch/router)
+    # and/or a basestation. At least one asset id OR manual subscribers required.
+    node_id: str | None = None
+    basestation_id: str | None = None
+    manual_subscriber_ids: list[UUID] = Field(default_factory=list)
+    asset_label: str | None = Field(default=None, max_length=200)
+    region: str | None = Field(default=None, max_length=80)
+    priority: TicketPriority = TicketPriority.high
+    notify: bool = True
+    channel: str = Field(default="email")  # email | whatsapp | both
+    email_subject: str | None = None
+    email_body: str | None = None
+    sms_body: str | None = None
+
+
+class InfrastructureTicketResolveRequest(BaseModel):
+    notify: bool = True
+    channel: str = Field(default="email")
+    email_subject: str | None = None
+    email_body: str | None = None
+    sms_body: str | None = None
