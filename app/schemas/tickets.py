@@ -180,6 +180,8 @@ class InfrastructureTicketCreate(BaseModel):
     # and/or a basestation. At least one asset id OR manual subscribers required.
     node_id: str | None = None
     basestation_id: str | None = None
+    olt_id: str | None = None
+    pon_port_id: str | None = None
     manual_subscriber_ids: list[UUID] = Field(default_factory=list)
     asset_label: str | None = Field(default=None, max_length=200)
     region: str | None = Field(default=None, max_length=80)

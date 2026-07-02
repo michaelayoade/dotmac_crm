@@ -3555,3 +3555,133 @@ def edit_ticket_comment(
             {"request": request, "error": str(e), "current_user": current_user, "sidebar_stats": sidebar_stats},
             status_code=500,
         )
+
+
+# ---------------------------------------------------------------------------
+# Infrastructure ticket: one ticket for an asset, notify all affected customers
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/tickets/infrastructure/new",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("support:ticket:create"))],
+)
+def infrastructure_ticket_new(request: Request):
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+
+    current_user = get_current_user(request)
+    return templates.TemplateResponse(
+        "admin/tickets/infrastructure_form.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "sidebar_stats": get_sidebar_stats(SessionLocal()),
+            "active_page": "tickets",
+            "region_options": REGION_OPTIONS,
+        },
+    )
+
+
+@router.get(
+    "/tickets/infrastructure/assets",
+    dependencies=[Depends(require_permission("support:ticket:read"))],
+)
+def infrastructure_ticket_assets(q: str | None = Query(None), db: Session = Depends(get_db)):
+    from app.services import selfcare
+
+    try:
+        return {"items": selfcare.fetch_infrastructure_assets(db, q=q)}
+    except Exception:
+        logger.exception("infrastructure_assets_fetch_failed")
+        return {"items": [], "error": "Could not reach the network inventory."}
+
+
+@router.get(
+    "/tickets/infrastructure/impact-preview",
+    dependencies=[Depends(require_permission("support:ticket:read"))],
+)
+def infrastructure_ticket_impact_preview(
+    asset_type: str | None = Query(None),
+    asset_id: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    from app.services.infrastructure_tickets import infrastructure_tickets
+
+    kwargs = _asset_kwargs(asset_type, asset_id)
+    if not kwargs:
+        return {"affected_count": 0, "coverage": {}, "topology_count": 0, "unmatched_subscriber_numbers": []}
+    try:
+        affected = infrastructure_tickets.resolve_affected(db, **kwargs)
+    except Exception:
+        logger.exception("infrastructure_impact_preview_failed")
+        return {"affected_count": 0, "coverage": {}, "error": "Could not reach the network topology."}
+    return {
+        "affected_count": len(affected["crm_subscriber_ids"]),
+        "topology_count": affected.get("topology_count", 0),
+        "coverage": affected.get("coverage", {}),
+        "unmatched_subscriber_numbers": affected.get("unmatched_subscriber_numbers", []),
+    }
+
+
+def _asset_kwargs(asset_type: str | None, asset_id: str | None) -> dict:
+    if not asset_type or not asset_id:
+        return {}
+    field = {
+        "olt": "olt_id",
+        "pon_port": "pon_port_id",
+        "device": "node_id",
+        "node": "node_id",
+        "basestation": "basestation_id",
+    }.get(asset_type)
+    return {field: asset_id} if field else {}
+
+
+@router.post(
+    "/tickets/infrastructure",
+    dependencies=[Depends(require_permission("support:ticket:create"))],
+)
+def infrastructure_ticket_create(
+    request: Request,
+    title: str = Form(...),
+    description: str | None = Form(None),
+    asset_type: str | None = Form(None),
+    asset_id: str | None = Form(None),
+    asset_label: str | None = Form(None),
+    region: str | None = Form(None),
+    channel: str = Form("email"),
+    notify: bool = Form(False),
+    db: Session = Depends(get_db),
+):
+    from app.services.infrastructure_tickets import infrastructure_tickets
+    from app.web.admin._auth_helpers import get_current_user
+
+    current_user = get_current_user(request)
+    actor_id = _current_person_id(current_user)
+    kwargs = _asset_kwargs(asset_type, asset_id)
+    if not kwargs:
+        raise HTTPException(status_code=400, detail="Select an infrastructure asset.")
+
+    result = infrastructure_tickets.create(
+        db,
+        title=title,
+        description=description or None,
+        asset_label=asset_label or None,
+        region=region or None,
+        actor_id=actor_id,
+        notify=notify,
+        channel=channel,
+        **kwargs,
+    )
+    ticket = result["ticket"]
+    headers = {
+        "HX-Trigger": json.dumps(
+            {
+                "showToast": {
+                    "message": f"Infrastructure ticket raised — {result['notification'].get('queued', 0)} customers notified.",
+                    "type": "success",
+                }
+            }
+        )
+    }
+    return RedirectResponse(url=f"/admin/support/tickets/{ticket.id}", status_code=303, headers=headers)
