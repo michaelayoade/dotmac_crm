@@ -77,6 +77,20 @@ def _round_money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"))
 
 
+def _offers_for_form(db: Session) -> list:
+    """The dotmac_sub subscription-plan catalog for the sales-order line plan
+    picker. Empty when the integration is off or sub is unreachable — the form
+    still renders (plans just aren't offered)."""
+    from app.services import selfcare
+
+    if not selfcare.is_customer_sync_enabled(db):
+        return []
+    try:
+        return selfcare.fetch_offers(db, active_only=True)
+    except Exception:
+        return []
+
+
 def _parse_date_range(
     period_days: int | None,
     start_date: str | None,
@@ -213,6 +227,7 @@ def sales_order_new(
             },
             "order_lines": [],
             "inventory_items": inventory_items,
+            "offers": _offers_for_form(db),
             "person_label": "",
             "account_label": "",
             "statuses": [s.value for s in SalesOrderStatus],
@@ -249,12 +264,20 @@ async def sales_order_create(
     line_descriptions = _form_text_list(form, "line_item_description[]")
     line_quantities = _form_text_list(form, "line_item_quantity[]")
     line_unit_prices = _form_text_list(form, "line_item_unit_price[]")
+    line_sub_offer_ids = _form_text_list(form, "line_item_sub_offer_id[]")
 
     lines_payload: list[dict[str, object]] = []
-    line_count = max(len(line_item_ids), len(line_descriptions), len(line_quantities), len(line_unit_prices))
+    line_count = max(
+        len(line_item_ids),
+        len(line_descriptions),
+        len(line_quantities),
+        len(line_unit_prices),
+        len(line_sub_offer_ids),
+    )
     for idx in range(line_count):
         inventory_item_id = (line_item_ids[idx] if idx < len(line_item_ids) else "") or ""
         description = (line_descriptions[idx] if idx < len(line_descriptions) else "").strip()
+        sub_offer_id = (line_sub_offer_ids[idx] if idx < len(line_sub_offer_ids) else "").strip()
         quantity = _decimal_from_form(line_quantities[idx] if idx < len(line_quantities) else "", default=Decimal("1"))
         unit_price = _decimal_from_form(
             line_unit_prices[idx] if idx < len(line_unit_prices) else "", default=Decimal("0")
@@ -271,7 +294,7 @@ async def sales_order_create(
                 if item and item.name:
                     description = item.name
 
-        if not description and not inventory_item_id:
+        if not description and not inventory_item_id and not sub_offer_id:
             continue
 
         amount = _round_money(quantity * unit_price)
@@ -282,6 +305,9 @@ async def sales_order_create(
                 "quantity": quantity,
                 "unit_price": unit_price,
                 "amount": amount,
+                # A line tagged with a sub offer is a subscription (plan) charge —
+                # drives the sales-order → sub subscription sync.
+                "sub_offer_id": sub_offer_id,
             }
         )
 
@@ -333,6 +359,7 @@ async def sales_order_create(
         )
         order = sales_orders_service.sales_orders.create(db, payload)
         for line in lines_payload:
+            line_sub_offer = str(line.get("sub_offer_id") or "").strip()
             line_payload = SalesOrderLineCreate(
                 sales_order_id=order.id,
                 inventory_item_id=coerce_uuid(line["inventory_item_id"]) if line["inventory_item_id"] else None,
@@ -340,6 +367,7 @@ async def sales_order_create(
                 quantity=Decimal(str(line["quantity"])),
                 unit_price=Decimal(str(line["unit_price"])),
                 amount=Decimal(str(line["amount"])),
+                metadata_={"sub_offer_id": line_sub_offer} if line_sub_offer else None,
             )
             sales_orders_service.sales_order_lines.create(db, line_payload)
         return RedirectResponse(url=f"/admin/operations/sales-orders/{order.id}", status_code=303)
@@ -368,6 +396,7 @@ async def sales_order_create(
                 },
                 "order_lines": lines_payload,
                 "inventory_items": inventory_items,
+                "offers": _offers_for_form(db),
                 "person_label": person_label,
                 "account_label": "",
                 "statuses": [s.value for s in SalesOrderStatus],
@@ -491,6 +520,7 @@ def sales_order_edit(
             "order": order,
             "order_lines": lines,
             "inventory_items": inventory_items,
+            "offers": _offers_for_form(db),
             "account_label": "",
             "statuses": [s.value for s in SalesOrderStatus],
             "payment_statuses": [s.value for s in SalesOrderPaymentStatus],

@@ -126,8 +126,14 @@
                                     {% set line_qty = (line.quantity if line and line.quantity is defined else (line.get('quantity') if line else '1')) %}
                                     {% set line_unit = (line.unit_price if line and line.unit_price is defined else (line.get('unit_price') if line else '0')) %}
                                     {% set line_amt = (line.amount if line and line.amount is defined else (line.get('amount') if line else '0')) %}
+                                    {% set ns_line = namespace(sub_offer_id='') %}
+                                    {% if line %}
+                                        {% if line.get is defined %}{% set ns_line.sub_offer_id = line.get('sub_offer_id', '') %}
+                                        {% elif line.metadata_ %}{% set ns_line.sub_offer_id = line.metadata_.get('sub_offer_id', '') %}{% endif %}
+                                    {% endif %}
                                     <tr class="sales-order-line">
                                         <td class="px-3 py-2">
+                                            <input type="hidden" name="line_item_sub_offer_id[]" value="{{ ns_line.sub_offer_id or '' }}" class="line-item-sub-offer">
                                             <select name="line_item_inventory_item_id[]" class="line-item-select w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                                                 <option value="">Select item</option>
                                                 {% for item in inventory_items or [] %}
@@ -135,6 +141,16 @@
                                                     {{ item.name }}{% if item.sku %} ({{ item.sku }}){% endif %}
                                                 </option>
                                                 {% endfor %}
+                                                {% if offers %}
+                                                <optgroup label="Subscription plans">
+                                                    {% for offer in offers %}
+                                                    <option value="" data-offer-id="{{ offer.id }}" data-price="{{ offer.recurring_price or '' }}" data-plan-label="{{ offer.label }}"
+                                                            {% if ns_line.sub_offer_id and (ns_line.sub_offer_id|string) == (offer.id|string) %}selected{% endif %}>
+                                                        {{ offer.label }}{% if offer.recurring_price %} — {{ offer.currency or '' }}{{ offer.recurring_price }}{% endif %}
+                                                    </option>
+                                                    {% endfor %}
+                                                </optgroup>
+                                                {% endif %}
                                             </select>
                                         </td>
                                         <td class="px-3 py-2">
@@ -263,10 +279,21 @@
         row.querySelectorAll(".line-item-qty, .line-item-unit-price").forEach((el) => {
             el.addEventListener("input", recalc);
         });
-        if (select && desc) {
+        if (select) {
             select.addEventListener("change", () => {
-                if (!desc.value.trim()) {
-                    const opt = select.options[select.selectedIndex];
+                const opt = select.options[select.selectedIndex];
+                const subOfferInput = row.querySelector(".line-item-sub-offer");
+                const offerId = opt?.dataset?.offerId || "";
+                // A row resolves to EITHER a plan or an inventory item — the plan
+                // hidden field carries the offer id when a plan is chosen.
+                if (subOfferInput) subOfferInput.value = offerId;
+                if (offerId) {
+                    if (desc && !desc.value.trim()) desc.value = opt?.dataset?.planLabel || "";
+                    const price = opt?.dataset?.price || "";
+                    const unit = row.querySelector(".line-item-unit-price");
+                    if (price && unit) unit.value = price;
+                    recalc();
+                } else if (desc && !desc.value.trim()) {
                     desc.value = opt?.dataset?.name || "";
                 }
             });
