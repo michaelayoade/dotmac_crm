@@ -10,8 +10,8 @@ Both are **scaffolded and wired**; they need credentials + store records (below)
 before they can actually ship. Nothing else in the app blocks release.
 
 App identifiers:
-- Android `applicationId`: `io.dotmac.dotmac_field`
-- iOS bundle id: `io.dotmac.dotmacField`
+- Android `applicationId`: `io.dotmac.field`
+- iOS bundle id: `io.dotmac.field`
 - API base defaults to `https://crm.dotmac.io` (override with `--dart-define=API_BASE_URL=...`)
 
 ---
@@ -64,7 +64,7 @@ iOS release archives are built by **Xcode Cloud**, not GitHub Actions (the
 Cloud owns Apple signing via managed certificates.
 
 ### One-time setup
-1. **App Store Connect**: create an app record for bundle id `io.dotmac.dotmacField`.
+1. **App Store Connect**: create an app record for bundle id `io.dotmac.field`.
 2. **Xcode Cloud**: create a workflow on `ios/Runner.xcworkspace`.
    `ios/ci_scripts/ci_post_clone.sh` auto-runs after clone and bootstraps Flutter
    (pinned to the revision in `mobile/.metadata`), runs drift codegen, and builds.

@@ -34,8 +34,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "io.dotmac.dotmac_field"
+        // Store identity (unified with the iOS bundle id io.dotmac.field). The
+        // internal `namespace`/MainActivity package stays io.dotmac.dotmac_field.
+        applicationId = "io.dotmac.field"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
