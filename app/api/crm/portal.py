@@ -266,9 +266,7 @@ def portal_work_order_technician_location(
     (with a reason) otherwise so the client hides the map."""
     principal.require_scope("work_orders:read")
     subscriber_ids = resolve_subscriber_ids(db, principal)
-    payload = work_orders_service.portal_technician_location(
-        db, work_order_id, subscriber_ids
-    )
+    payload = work_orders_service.portal_technician_location(db, work_order_id, subscriber_ids)
     return PortalTechnicianLocation.model_validate(payload)
 
 

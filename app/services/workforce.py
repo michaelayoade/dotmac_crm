@@ -462,9 +462,7 @@ class WorkOrders(ListResponseMixin):
         return [build_work_order_portal_payload(db, w) for w in work_orders]
 
     @staticmethod
-    def portal_technician_location(
-        db: Session, work_order_id: str, subscriber_ids: list[str] | str
-    ) -> dict:
+    def portal_technician_location(db: Session, work_order_id: str, subscriber_ids: list[str] | str) -> dict:
         """Live location of the technician assigned to an active work order, for
         the customer "where's my technician" map.
 
@@ -500,9 +498,7 @@ class WorkOrders(ListResponseMixin):
             return {"available": False, "reason": "no_technician"}
 
         presence = (
-            db.query(FieldTechPresence)
-            .filter(FieldTechPresence.person_id == work_order.assigned_to_person_id)
-            .first()
+            db.query(FieldTechPresence).filter(FieldTechPresence.person_id == work_order.assigned_to_person_id).first()
         )
         if presence is None or not presence.location_sharing_enabled:
             return {"available": False, "reason": "sharing_off"}
@@ -515,15 +511,9 @@ class WorkOrders(ListResponseMixin):
             "latitude": presence.last_latitude,
             "longitude": presence.last_longitude,
             "accuracy_m": presence.last_location_accuracy_m,
-            "updated_at": (
-                presence.last_location_at.isoformat()
-                if presence.last_location_at
-                else None
-            ),
+            "updated_at": (presence.last_location_at.isoformat() if presence.last_location_at else None),
             "estimated_arrival_at": (
-                work_order.estimated_arrival_at.isoformat()
-                if work_order.estimated_arrival_at
-                else None
+                work_order.estimated_arrival_at.isoformat() if work_order.estimated_arrival_at else None
             ),
         }
 
