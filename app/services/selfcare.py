@@ -592,6 +592,19 @@ def fetch_affected_subscribers(
     return data
 
 
+def fetch_offers(db: Session, *, q: str | None = None, active_only: bool = True) -> list[dict[str, Any]]:
+    """The subscription plan catalog from dotmac_sub (the source of truth), so a
+    sales quote can pick a real offer (id + recurring price) instead of the CRM
+    keeping a parallel plan list. Each row: {id, code, name, recurring_price,
+    currency, billing_cycle, speed_download_mbps, speed_upload_mbps}."""
+    params: dict[str, Any] = {"active_only": "true" if active_only else "false"}
+    if q:
+        params["q"] = q
+    payload = _request_json(db, "GET", "/offers", params=params)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    return data if isinstance(data, list) else []
+
+
 def fetch_infrastructure_assets(db: Session, *, q: str | None = None) -> list[dict[str, Any]]:
     """Pickable infrastructure items (OLTs, PON ports, basestations) for the
     infrastructure-ticket asset picker."""
