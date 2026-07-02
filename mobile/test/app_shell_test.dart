@@ -90,7 +90,7 @@ void main() {
     expect(find.text('Schedule'), findsWidgets);
   });
 
-  testWidgets('vendor shell shows only Projects and Profile tabs', (tester) async {
+  testWidgets('vendor shell shows Projects, Map and Profile only', (tester) async {
     await tester.pumpWidget(_app(
       controller: _VendorController.new,
       extra: [
@@ -101,13 +101,13 @@ void main() {
 
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(find.text('Projects'), findsWidgets);
+    expect(find.text('Map'), findsOneWidget); // vendor-scoped nearby-plant map
     expect(find.text('Profile'), findsOneWidget);
-    // The require_technician tabs are hidden for vendors (would 403).
+    // The require_technician tabs stay hidden for vendors (would 403).
     expect(find.text('Schedule'), findsNothing);
     expect(find.text('Materials'), findsNothing);
     expect(find.text('Customers'), findsNothing);
     expect(find.text('Sales'), findsNothing);
-    expect(find.text('Map'), findsNothing);
   });
 
   testWidgets('start shift enables mobile location sharing', (tester) async {

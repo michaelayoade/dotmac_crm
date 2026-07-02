@@ -15,6 +15,7 @@ import '../features/sales/sales_screen.dart';
 import '../features/schedule/schedule_screen.dart';
 import '../features/today/map_screen.dart';
 import '../features/today/today_screen.dart';
+import '../features/vendor/vendor_map_screen.dart';
 import '../features/vendor/vendor_screens.dart';
 
 /// App shell: login gate + 4-tab bottom navigation per the visual plan.
@@ -78,7 +79,7 @@ GoRouter buildRouter(Ref ref) {
           ),
           StatefulShellBranch(
             routes: [
-              GoRoute(path: '/map', builder: (_, _) => const MapScreen()),
+              GoRoute(path: '/map', builder: (_, _) => const _MapSwitch()),
             ],
           ),
           StatefulShellBranch(
@@ -140,6 +141,21 @@ class _HomeSwitch extends ConsumerWidget {
   }
 }
 
+/// The Map tab shows vendors their vendor-scoped nearby plant; techs get the
+/// full technician map (job pins + editable assets).
+class _MapSwitch extends ConsumerWidget {
+  const _MapSwitch();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authControllerProvider);
+    if (auth is Authenticated && auth.mode == LoginMode.vendor) {
+      return const VendorMapScreen();
+    }
+    return const MapScreen();
+  }
+}
+
 /// A bottom-nav destination bound to a shell branch index. The visible set
 /// differs by login mode, but every entry maps to the same fixed branch so
 /// `shell.goBranch` stays correct regardless of what's shown.
@@ -162,11 +178,12 @@ const _staffNav = [
   _NavItem(6, Icons.person_outline, 'Profile'),
 ];
 
-// Vendors only get the tabs backed by vendor-aware endpoints. Schedule /
-// Materials / Customers / Sales are require_technician and would 403; the Map
-// tab arrives once the vendor-scoped map screen lands.
+// Vendors get the tabs backed by vendor-aware endpoints: Projects, the
+// vendor-scoped Map (nearby plant), and Profile. Schedule / Materials /
+// Customers / Sales are require_technician and would 403, so they stay hidden.
 const _vendorNav = [
   _NavItem(0, Icons.assignment_outlined, 'Projects'),
+  _NavItem(1, Icons.map_outlined, 'Map'),
   _NavItem(6, Icons.person_outline, 'Profile'),
 ];
 
