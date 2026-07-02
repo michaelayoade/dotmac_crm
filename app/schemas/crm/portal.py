@@ -146,6 +146,20 @@ class PortalTechnicianLocation(BaseModel):
     estimated_arrival_at: str | None = None
 
 
+class PortalTechnicianRatingRequest(BaseModel):
+    """Customer's rating of the technician after a completed work order."""
+
+    rating: int = Field(..., ge=1, le=5, description="1-5 star rating")
+    comment: str | None = Field(default=None, max_length=2000)
+
+
+class PortalTechnicianRatingResponse(BaseModel):
+    ok: bool = True
+    already_rated: bool = False
+    rating: int | None = None
+    work_order_id: str | None = None
+
+
 # --- Self-serve quotes (Sales/Quotes vertical) ----------------------------
 
 
