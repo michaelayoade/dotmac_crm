@@ -849,7 +849,11 @@ def queue_subscriber_notification(
     scheduled_local_text: str | None,
     sent_by_user_id: UUID | None,
     sent_by_person_id: UUID | None,
+    ticket_id: UUID | None = None,
 ) -> list[SubscriberNotificationLog]:
+    """When ticket_id is given, the SubscriberNotificationLog links to that
+    ticket (e.g. an infrastructure ticket) rather than the subscriber's own
+    context ticket — so the notification audit points at the right ticket."""
     prepared = prepare_subscriber_notification(db, subscriber_id)
     if sent_by_person_id and db.get(Person, sent_by_person_id) is None:
         sent_by_person_id = None
@@ -886,7 +890,7 @@ def queue_subscriber_notification(
         logs.append(
             SubscriberNotificationLog(
                 subscriber_id=prepared.subscriber.id,
-                ticket_id=prepared.ticket.id if prepared.ticket else None,
+                ticket_id=ticket_id if ticket_id is not None else (prepared.ticket.id if prepared.ticket else None),
                 notification_id=None,
                 channel=NotificationChannel.email,
                 recipient=email_address or "",
@@ -901,7 +905,7 @@ def queue_subscriber_notification(
         logs.append(
             SubscriberNotificationLog(
                 subscriber_id=prepared.subscriber.id,
-                ticket_id=prepared.ticket.id if prepared.ticket else None,
+                ticket_id=ticket_id if ticket_id is not None else (prepared.ticket.id if prepared.ticket else None),
                 notification_id=None,
                 channel=NotificationChannel.whatsapp,
                 recipient=whatsapp_number or "",
@@ -931,8 +935,12 @@ def queue_bulk_subscriber_notifications(
     scheduled_local_text: str | None,
     sent_by_user_id: UUID | None,
     sent_by_person_id: UUID | None,
+    ticket_id: UUID | None = None,
 ) -> dict[str, int]:
-    """Queue notifications for multiple subscribers using per-subscriber token rendering."""
+    """Queue notifications for multiple subscribers using per-subscriber token
+    rendering. When ticket_id is given, each SubscriberNotificationLog links to
+    that ticket (e.g. the infrastructure ticket) rather than the subscriber's
+    own context ticket."""
     queued = 0
     skipped = 0
     seen: set[UUID] = set()
@@ -955,6 +963,7 @@ def queue_bulk_subscriber_notifications(
                 scheduled_local_text=scheduled_local_text,
                 sent_by_user_id=sent_by_user_id,
                 sent_by_person_id=sent_by_person_id,
+                ticket_id=ticket_id,
             )
             queued += len(logs)
         except HTTPException:

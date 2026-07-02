@@ -3651,6 +3651,7 @@ def infrastructure_ticket_create(
     region: str | None = Form(None),
     channel: str = Form("email"),
     notify: bool = Form(False),
+    confirm_large: bool = Form(False),
     db: Session = Depends(get_db),
 ):
     from app.services.infrastructure_tickets import infrastructure_tickets
@@ -3671,6 +3672,7 @@ def infrastructure_ticket_create(
         actor_id=actor_id,
         notify=notify,
         channel=channel,
+        confirm_large=confirm_large,
         **kwargs,
     )
     ticket = result["ticket"]

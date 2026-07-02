@@ -17,6 +17,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from fastapi import HTTPException
+
 from app.models.subscriber import Subscriber
 from app.models.tickets import TicketPriority, TicketStatus
 from app.schemas.tickets import TicketCreate, TicketUpdate
@@ -28,6 +30,9 @@ from app.services.tickets import tickets as tickets_service
 logger = logging.getLogger(__name__)
 
 INFRASTRUCTURE_TAG = "infrastructure"
+# Blast-radius guard: notifying more than this many customers requires an
+# explicit confirm_large acknowledgement.
+LARGE_IMPACT_THRESHOLD = 200
 
 
 def _match_by_subscriber_number(db, numbers: list[str]) -> dict[str, Subscriber]:
@@ -118,6 +123,7 @@ class InfrastructureTickets:
         email_subject: str | None = None,
         email_body: str | None = None,
         sms_body: str | None = None,
+        confirm_large: bool = False,
     ) -> dict[str, Any]:
         affected = InfrastructureTickets.resolve_affected(
             db,
@@ -128,6 +134,17 @@ class InfrastructureTickets:
             manual_subscriber_ids=manual_subscriber_ids,
         )
         ids = affected["crm_subscriber_ids"]
+
+        # Blast-radius guard: don't let a slip fan a message to hundreds of
+        # customers without an explicit acknowledgement.
+        if notify and len(ids) > LARGE_IMPACT_THRESHOLD and not confirm_large:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"This would notify {len(ids)} customers — over the "
+                    f"{LARGE_IMPACT_THRESHOLD} threshold. Re-submit with confirm_large=true to proceed."
+                ),
+            )
 
         ticket = tickets_service.create(
             db,
@@ -168,6 +185,7 @@ class InfrastructureTickets:
                 scheduled_local_text=None,
                 sent_by_user_id=None,
                 sent_by_person_id=coerce_uuid(str(actor_id)) if actor_id else None,
+                ticket_id=ticket.id,
             )
             meta = dict(ticket.metadata_ or {})
             meta["open_notification"] = fanout
@@ -216,6 +234,7 @@ class InfrastructureTickets:
                 scheduled_local_text=None,
                 sent_by_user_id=None,
                 sent_by_person_id=coerce_uuid(str(actor_id)) if actor_id else None,
+                ticket_id=ticket.id,
             )
             meta = dict(ticket.metadata_ or {})
             meta["resolve_notification"] = fanout

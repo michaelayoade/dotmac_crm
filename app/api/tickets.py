@@ -115,6 +115,7 @@ def create_infrastructure_ticket(
         olt_id=payload.olt_id,
         pon_port_id=payload.pon_port_id,
         manual_subscriber_ids=[str(s) for s in payload.manual_subscriber_ids],
+        confirm_large=payload.confirm_large,
         asset_label=payload.asset_label,
         region=payload.region,
         priority=payload.priority,
