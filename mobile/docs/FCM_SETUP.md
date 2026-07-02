@@ -19,7 +19,7 @@ server FCM sender lives in `app/services/push.py`.
    dart pub global activate flutterfire_cli
    flutterfire configure
    ```
-   (App ids: Android `io.dotmac.dotmac_field`, iOS bundle id to match.)
+   (App ids: Android `io.dotmac.field`, iOS bundle id to match.)
    `FcmPushSource.tryCreate()` calls `Firebase.initializeApp()` with no options,
    so it resolves from these native files — no code change needed after this.
    The Android `google-services` Gradle plugin is **already wired** (declared in
