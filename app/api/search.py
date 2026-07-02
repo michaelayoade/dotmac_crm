@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.schemas.common import ListResponse
-from app.schemas.typeahead import TypeaheadItem
+from app.schemas.typeahead import CatalogOfferItem, TypeaheadItem
 from app.services import customer_search as customer_search_service
 from app.services import typeahead as typeahead_service
 from app.services.response import list_response
@@ -158,10 +158,43 @@ def search_nas_devices(
     return _empty_typeahead(limit)
 
 
-@router.get("/catalog-offers", response_model=ListResponse[TypeaheadItem])
+@router.get("/catalog-offers", response_model=ListResponse[CatalogOfferItem])
 def search_catalog_offers(
-    q: str = Query(min_length=2),
+    # Allow empty queries so the plan picker can fetch on focus/click.
+    q: str = Query(default=""),
     limit: int = Query(default=20, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
-    return _empty_typeahead(limit)
+    """The dotmac_sub subscription-plan catalog (offers), for picking a plan on a
+    quote/sale. dotmac_sub is the source of truth — the CRM keeps no parallel
+    plan list. Returns [] when the integration is off."""
+    from app.services import selfcare
+
+    if not selfcare.is_customer_sync_enabled(db):
+        return _empty_typeahead(limit)
+
+    try:
+        offers = selfcare.fetch_offers(db, q=q or None, active_only=True)
+    except Exception:
+        return _empty_typeahead(limit)
+
+    items = [_offer_to_item(row) for row in offers[:limit] if row.get("id")]
+    return list_response(items, limit, 0)
+
+
+def _offer_to_item(row: dict) -> CatalogOfferItem:
+    code = str(row.get("code") or "").strip() or None
+    name = str(row.get("name") or "").strip()
+    price = str(row.get("recurring_price") or "").strip() or None
+    cycle = str(row.get("billing_cycle") or "").strip() or None
+    label = " — ".join(part for part in (code, name) if part) or name or str(row.get("id"))
+    return CatalogOfferItem(
+        id=str(row.get("id")),
+        code=code,
+        label=label,
+        recurring_price=price,
+        currency=str(row.get("currency") or "").strip() or None,
+        billing_cycle=cycle,
+        speed_download_mbps=row.get("speed_download_mbps"),
+        speed_upload_mbps=row.get("speed_upload_mbps"),
+    )
