@@ -205,6 +205,7 @@ class QuoteLineItemBase(BaseModel):
     unit_price: Decimal = Decimal("0.00")
     amount: Decimal = Decimal("0.00")
     notes: str | None = None
+    client_ref: UUID | None = None
     is_active: bool = True
 
 
@@ -222,6 +223,8 @@ class QuoteLineItemCreateRequest(BaseModel):
     unit_price: Decimal = Decimal("0.00")
     amount: Decimal = Decimal("0.00")
     notes: str | None = None
+    # Client-generated idempotency key for offline retries.
+    client_ref: UUID | None = None
     is_active: bool = True
 
 

@@ -276,6 +276,21 @@ void main() {
       expect((sent?['length_meters'] as num) > 100, isTrue);
     });
 
+    test('addQuoteLineItem queues an idempotent outbox entry', () async {
+      await container.read(vendorRepositoryProvider).addQuoteLineItem(
+            'q-1',
+            const AsBuiltLineItem(description: 'Trenching', quantity: 3, unitPrice: 5000),
+          );
+
+      final rows = await db.select(db.outboxEntries).get();
+      expect(rows.single.kind, 'quote_line_item');
+      final payload = (jsonDecode(rows.single.payloadJson) as Map).cast<String, dynamic>();
+      expect(payload['quote_id'], 'q-1');
+      expect(payload['description'], 'Trenching');
+      // client_ref is present and matches the outbox row's dedupe key.
+      expect(payload['client_ref'], rows.single.clientRef);
+    });
+
     test('submitQuote posts to the submit endpoint', () async {
       adapter.on('POST', '/api/v1/field/quotes/q-1/submit', (_) => (200, {
             'id': 'q-1',

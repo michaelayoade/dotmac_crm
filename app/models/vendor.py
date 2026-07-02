@@ -231,6 +231,9 @@ class QuoteLineItem(Base):
     unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0.00"))
     notes: Mapped[str | None] = mapped_column(Text)
+    # Unique client-supplied id so an offline mobile add that retries doesn't
+    # duplicate the line (mirrors FieldAttachment.client_ref).
+    client_ref: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
