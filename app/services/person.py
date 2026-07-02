@@ -412,6 +412,32 @@ class People(ListResponseMixin):
             {"primary_contact_id": target.id}, synchronize_session=False
         )
 
+        # 7. Move remaining customer-subject records (records that describe the
+        # person AS a customer/contact). Actor/audit references (*_by_person_id),
+        # RBAC/auth (roles, permissions, api_keys, mfa), and agent/field-tech
+        # rows are deliberately NOT reassigned — moving those would falsify
+        # history or grant the target the source's access.
+        from app.models.crm.campaign import CampaignRecipient
+        from app.models.crm.conversation import ConversationSummary
+        from app.models.crm.referral import Referral
+        from app.models.reseller_commission import ResellerCommission
+
+        db.query(ConversationSummary).filter(ConversationSummary.person_id == source.id).update(
+            {"person_id": target.id}, synchronize_session=False
+        )
+        db.query(CampaignRecipient).filter(CampaignRecipient.person_id == source.id).update(
+            {"person_id": target.id}, synchronize_session=False
+        )
+        db.query(ResellerCommission).filter(ResellerCommission.person_id == source.id).update(
+            {"person_id": target.id}, synchronize_session=False
+        )
+        db.query(Referral).filter(Referral.referrer_person_id == source.id).update(
+            {"referrer_person_id": target.id}, synchronize_session=False
+        )
+        db.query(Referral).filter(Referral.referred_person_id == source.id).update(
+            {"referred_person_id": target.id}, synchronize_session=False
+        )
+
         # Log the merge
         merge_log = PersonMergeLog(
             source_person_id=source.id,
