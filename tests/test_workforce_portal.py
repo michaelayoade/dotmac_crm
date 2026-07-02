@@ -6,8 +6,16 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from app.models.workforce import WorkOrderPriority, WorkOrderStatus, WorkOrderType
-from app.services.workforce import build_work_order_portal_payload
+from app.models.workforce import (
+    WorkOrder,
+    WorkOrderPriority,
+    WorkOrderStatus,
+    WorkOrderType,
+)
+from app.services.workforce import WorkOrders, build_work_order_portal_payload
+
+_WO_ID = "11111111-1111-1111-1111-111111111111"
+_SUB_ID = "22222222-2222-2222-2222-222222222222"
 
 
 def _work_order(**kw):
@@ -52,3 +60,67 @@ def test_payload_handles_no_technician():
     assert out["technician_name"] is None
     assert out["technician_phone"] is None
     db.get.assert_not_called()
+
+
+# --- technician live location (Start work → End work window) -----------------
+
+
+def _presence(**kw):
+    return SimpleNamespace(
+        location_sharing_enabled=kw.get("sharing", True),
+        last_latitude=kw.get("lat", 6.5),
+        last_longitude=kw.get("lng", 3.3),
+        last_location_accuracy_m=kw.get("acc", 12.0),
+        last_location_at=kw.get("at", datetime(2026, 6, 30, 9, 15, tzinfo=UTC)),
+    )
+
+
+def _loc_wo(**kw):
+    return SimpleNamespace(
+        id=_WO_ID,
+        status=kw.get("status", WorkOrderStatus.in_progress),
+        assigned_to_person_id=kw.get("assigned_to_person_id", "person-1"),
+        estimated_arrival_at=datetime(2026, 6, 30, 9, 30, tzinfo=UTC),
+    )
+
+
+def _db_for(work_order, presence):
+    """MagicMock db whose .query(Model).filter(...).first() yields the right row."""
+    db = MagicMock()
+
+    def _query(model):
+        chain = MagicMock()
+        chain.filter.return_value = chain
+        chain.first.return_value = work_order if model is WorkOrder else presence
+        return chain
+
+    db.query.side_effect = _query
+    return db
+
+
+def test_technician_location_available_when_in_progress_and_sharing():
+    db = _db_for(_loc_wo(), _presence())
+    out = WorkOrders.portal_technician_location(db, _WO_ID, _SUB_ID)
+    assert out["available"] is True
+    assert out["latitude"] == 6.5
+    assert out["longitude"] == 3.3
+    assert out["updated_at"].startswith("2026-06-30T09:15")
+    assert out["estimated_arrival_at"].startswith("2026-06-30T09:30")
+
+
+def test_technician_location_hidden_before_start_work():
+    db = _db_for(_loc_wo(status=WorkOrderStatus.dispatched), _presence())
+    out = WorkOrders.portal_technician_location(db, _WO_ID, _SUB_ID)
+    assert out == {"available": False, "reason": "not_in_progress"}
+
+
+def test_technician_location_hidden_when_sharing_off():
+    db = _db_for(_loc_wo(), _presence(sharing=False))
+    out = WorkOrders.portal_technician_location(db, _WO_ID, _SUB_ID)
+    assert out == {"available": False, "reason": "sharing_off"}
+
+
+def test_technician_location_not_found_for_wrong_subscriber():
+    db = _db_for(None, _presence())
+    out = WorkOrders.portal_technician_location(db, _WO_ID, _SUB_ID)
+    assert out == {"available": False, "reason": "not_found"}
