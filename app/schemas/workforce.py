@@ -25,6 +25,7 @@ class WorkOrderBase(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     tags: list | None = None
+    access_notes: str | None = Field(default=None, max_length=2000)
     metadata_: dict | None = Field(
         default=None,
         serialization_alias="metadata",
@@ -52,6 +53,7 @@ class WorkOrderUpdate(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     tags: list | None = None
+    access_notes: str | None = Field(default=None, max_length=2000)
     metadata_: dict | None = Field(
         default=None,
         serialization_alias="metadata",

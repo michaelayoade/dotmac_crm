@@ -61,6 +61,9 @@ class WorkOrder(Base):
     estimated_duration_minutes: Mapped[int | None] = mapped_column(Integer)
     estimated_arrival_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     tags: Mapped[list | None] = mapped_column(JSON)
+    # Structured site-access instructions for the technician (gate code, dog,
+    # call-on-arrival, parking, …) — surfaced in the field job detail.
+    access_notes: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

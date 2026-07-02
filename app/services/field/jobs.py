@@ -20,10 +20,13 @@ from app.models.field import FieldAttachment
 from app.models.inventory import WorkOrderMaterial
 from app.models.person import Person
 from app.models.subscriber import Subscriber
+from app.models.tickets import Ticket, TicketStatus
 from app.models.timecost import WorkLog
 from app.models.workforce import WorkOrder, WorkOrderAssignment, WorkOrderStatus
 from app.services.common import apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
+
+_TERMINAL_TICKET_STATUSES = (TicketStatus.closed, TicketStatus.canceled, TicketStatus.merged)
 
 _OPEN_STATUSES = (
     WorkOrderStatus.scheduled,
@@ -131,6 +134,81 @@ def _customer_payload(work_order: WorkOrder) -> dict | None:
     }
 
 
+def _additional_contacts(subscriber: Subscriber) -> list[dict]:
+    """Other people on the same account (org), so the tech has a site/secondary
+    contact — not just the primary. Empty for residential (no org)."""
+    person: Person | None = subscriber.person
+    org = person.organization if person and person.organization_id else None
+    if org is None:
+        return []
+    out: list[dict] = []
+    for other in org.people or []:
+        if person is not None and other.id == person.id:
+            continue
+        if not other.is_active:
+            continue
+        out.append(
+            {
+                "name": other.display_name or f"{other.first_name} {other.last_name}".strip(),
+                "phone": _best_phone(other),
+                "email": other.email,
+                "relationship": other.party_status.value if getattr(other, "party_status", None) else None,
+            }
+        )
+        if len(out) >= 5:
+            break
+    return out
+
+
+def _recent_visits(db: Session, subscriber: Subscriber, exclude_id) -> list[dict]:
+    """Prior completed work orders at this account — context to avoid repeat truck-rolls."""
+    rows = (
+        db.query(WorkOrder)
+        .filter(
+            WorkOrder.subscriber_id == subscriber.id,
+            WorkOrder.status == WorkOrderStatus.completed,
+            WorkOrder.id != exclude_id,
+        )
+        .order_by(WorkOrder.completed_at.desc().nullslast())
+        .limit(5)
+        .all()
+    )
+    return [
+        {
+            "work_order_id": w.id,
+            "title": w.title,
+            "work_type": w.work_type.value if w.work_type else None,
+            "status": w.status.value if w.status else None,
+            "completed_at": w.completed_at,
+        }
+        for w in rows
+    ]
+
+
+def _open_tickets(db: Session, subscriber: Subscriber) -> list[dict]:
+    """Other open tickets for this account, so the tech can address them on site."""
+    rows = (
+        db.query(Ticket)
+        .filter(
+            Ticket.subscriber_id == subscriber.id,
+            Ticket.is_active.is_(True),
+            Ticket.status.notin_(_TERMINAL_TICKET_STATUSES),
+        )
+        .order_by(Ticket.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    return [
+        {
+            "id": t.id,
+            "ref": t.number or str(t.id),
+            "subject": getattr(t, "title", None),
+            "status": t.status.value if t.status else None,
+        }
+        for t in rows
+    ]
+
+
 class FieldJobs(ListResponseMixin):
     @staticmethod
     def me(db: Session, person_id: str) -> dict:
@@ -221,12 +299,17 @@ class FieldJobs(ListResponseMixin):
         # geocoder; results are cached on the work order after the first call.
         from app.services.field.location import resolve_job_location
 
+        subscriber = work_order.subscriber
         return {
             "work_order": work_order,
             "customer": _customer_payload(work_order),
             "location": resolve_job_location(db, work_order),
             "ticket_ref": (ticket.number or str(ticket.id)) if ticket else None,
             "project_id": work_order.project_id,
+            "access_notes": work_order.access_notes,
+            "additional_contacts": _additional_contacts(subscriber) if subscriber else [],
+            "recent_visits": _recent_visits(db, subscriber, work_order.id) if subscriber else [],
+            "open_tickets": _open_tickets(db, subscriber) if subscriber else [],
             "notes": notes,
             "attachments": attachments,
             "materials": materials,
