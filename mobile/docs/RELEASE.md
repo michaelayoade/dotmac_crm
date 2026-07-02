@@ -89,6 +89,26 @@ Messaging so the server can deliver to iOS.
 
 ---
 
+## Screenshots (store listings)
+
+The listing copy lives in [store_listing.md](store_listing.md). Screenshots are
+captured by an integration-test harness that logs in and shoots each primary tab:
+
+```bash
+DEMO_USERNAME=tech@example.com DEMO_PASSWORD=secret tool/screenshots.sh -d <device-id>
+```
+
+- Output → `build/screenshots/` (`01_today.png` … `05_customers.png`)
+- App Store needs a **6.9" iPhone** (1320×2868) and a **13" iPad**; Play needs a
+  phone + tablet. Boot the matching simulator/emulator and run once per device
+  (`flutter devices` for ids).
+- Needs a **working technician demo account** (the same one App Review requires).
+- The harness reuses the production bootstrap via `buildFieldAppRoot()` in
+  `lib/main.dart`, so screens render exactly as shipped. Files:
+  `integration_test/screenshots_test.dart`, `test_driver/screenshot_driver.dart`.
+
+---
+
 ## What's still yours to provide (not code)
 1. Firebase project → `google-services.json` + `GoogleService-Info.plist` + backend
    `FCM_SERVICE_ACCOUNT_JSON` / `FCM_PROJECT_ID` (see [FCM_SETUP.md](FCM_SETUP.md))
