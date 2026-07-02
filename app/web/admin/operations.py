@@ -28,7 +28,7 @@ from app.models.workforce import WorkOrder, WorkOrderPriority, WorkOrderStatus, 
 from app.schemas.dispatch import TechnicianProfileCreate, TechnicianProfileUpdate
 from app.schemas.projects import ProjectTaskUpdate
 from app.schemas.sales_order import SalesOrderCreate, SalesOrderLineCreate
-from app.schemas.workforce import WorkOrderCreate, WorkOrderUpdate
+from app.schemas.workforce import WorkOrderCreate, WorkOrderNoteCreate, WorkOrderUpdate
 from app.services import dispatch as dispatch_service
 from app.services import projects as projects_service
 from app.services import sales_orders as sales_orders_service
@@ -1088,6 +1088,11 @@ def work_order_detail(
         limit=50,
         offset=0,
     )
+    roles = {str(role) for role in (user.get("roles") or [])}
+    permissions = {str(permission) for permission in (user.get("permissions") or user.get("scopes") or [])}
+    can_add_notes = bool(
+        "admin" in roles or "operations:work_order:update" in permissions or "support:ticket:update" in permissions
+    )
 
     return templates.TemplateResponse(
         "admin/operations/work_order_detail.html",
@@ -1100,8 +1105,51 @@ def work_order_detail(
             "work_order": order,
             "assignments": assignments,
             "notes": notes,
+            "can_add_notes": can_add_notes,
+            "csrf_token": get_csrf_token(request),
         },
     )
+
+
+@router.post(
+    "/work-orders/{order_id}/notes",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("operations:work_order:update", "support:ticket:update"))],
+)
+async def work_order_note_create(
+    request: Request,
+    order_id: UUID,
+    db: Session = Depends(get_db),
+):
+    """Create an admin work order note."""
+    user = get_current_user(request)
+    form = await request.form()
+    body = _form_text(form, "body")
+    is_internal = form.get("is_internal") in {"1", "true", "on", "yes"}
+    attachments = form.getlist("attachments")
+    if not body:
+        return RedirectResponse(url=f"/admin/operations/work-orders/{order_id}", status_code=303)
+
+    from app.services import ticket_attachments as ticket_attachment_service
+
+    prepared_attachments: list[dict] = []
+    try:
+        prepared_attachments = ticket_attachment_service.prepare_ticket_attachments(attachments)
+        saved_attachments = ticket_attachment_service.save_ticket_attachments(prepared_attachments)
+        workforce_service.work_order_notes.create(
+            db,
+            WorkOrderNoteCreate(
+                work_order_id=order_id,
+                author_person_id=user.get("person_id") or None,
+                body=body,
+                is_internal=is_internal,
+                attachments=saved_attachments or None,
+            ),
+        )
+    except Exception:
+        ticket_attachment_service.delete_ticket_attachments(prepared_attachments)
+        raise
+    return RedirectResponse(url=f"/admin/operations/work-orders/{order_id}", status_code=303)
 
 
 @router.post(
