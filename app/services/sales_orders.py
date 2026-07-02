@@ -80,14 +80,19 @@ def _generate_order_number(db: Session) -> str:
 
 
 def _sync_sales_order_payment_to_sub(db: Session, sales_order: SalesOrder) -> None:
-    """Push the customer's payment to dotmac_sub once the order is paid, so the
-    installation invoice settles and shows in the customer portal. Best-effort;
-    only fires on a paid order (the handler + server dedup make it idempotent)."""
+    """Push the customer's payment + subscription to dotmac_sub once the order is
+    paid, so the installation invoice settles and the plan (with its first
+    invoice) shows in the customer portal. Best-effort; only fires on a paid/part
+    order (the handlers + server dedup make it idempotent)."""
     if sales_order.payment_status not in {SalesOrderPaymentStatus.paid, SalesOrderPaymentStatus.partial}:
         return
-    from app.services.events.handlers.selfcare_customer import push_sales_order_payment_to_selfcare
+    from app.services.events.handlers.selfcare_customer import (
+        push_sales_order_payment_to_selfcare,
+        push_sales_order_subscription_to_selfcare,
+    )
 
     push_sales_order_payment_to_selfcare(db, sales_order)
+    push_sales_order_subscription_to_selfcare(db, sales_order)
 
 
 def _apply_payment_fields(sales_order: SalesOrder, data: dict) -> None:

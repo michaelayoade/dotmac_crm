@@ -357,19 +357,27 @@ def _ensure_subscriber(
 # ---------------------------------------------------------------------------
 
 
-def ensure_installation_invoice_for_sales_order(db: Session, sales_order_id: object) -> None:
-    """Best-effort retry for manual sales-order flows where lines are added
-    after project creation. Creates the dotmac_sub installation invoice."""
+def _resolve_project_for_sales_order(db: Session, sales_order_id: object) -> Project | None:
+    """The active project a sales order spawned (project.metadata_.sales_order_id).
+    Shared by the installation-invoice, payment and subscription push paths."""
     if not sales_order_id:
-        return
-
-    project = (
+        return None
+    return (
         db.query(Project)
         .filter(Project.is_active.is_(True))
         .filter(func.json_extract_path_text(Project.metadata_, "sales_order_id") == str(sales_order_id))
         .order_by(Project.created_at.desc())
         .first()
     )
+
+
+def ensure_installation_invoice_for_sales_order(db: Session, sales_order_id: object) -> None:
+    """Best-effort retry for manual sales-order flows where lines are added
+    after project creation. Creates the dotmac_sub installation invoice."""
+    if not sales_order_id:
+        return
+
+    project = _resolve_project_for_sales_order(db, sales_order_id)
     if not project:
         return
 
@@ -414,13 +422,7 @@ def push_sales_order_payment_to_selfcare(db: Session, sales_order: object) -> No
         # Ensure the installation invoice exists first, so the payment allocates.
         ensure_installation_invoice_for_sales_order(db, sales_order_id)
 
-        project = (
-            db.query(Project)
-            .filter(Project.is_active.is_(True))
-            .filter(func.json_extract_path_text(Project.metadata_, "sales_order_id") == str(sales_order_id))
-            .order_by(Project.created_at.desc())
-            .first()
-        )
+        project = _resolve_project_for_sales_order(db, sales_order_id)
         if not project:
             return
         person = _resolve_person_for_project(db, project)
@@ -440,6 +442,94 @@ def push_sales_order_payment_to_selfcare(db: Session, sales_order: object) -> No
     except Exception:
         logger.warning(
             "selfcare_sales_order_payment_push_failed sales_order_id=%s",
+            getattr(sales_order, "id", None),
+            exc_info=True,
+        )
+        db.rollback()
+
+
+def _sales_order_lines(db: Session, sales_order_id: object) -> list[SalesOrderLine]:
+    return (
+        db.query(SalesOrderLine)
+        .filter(SalesOrderLine.sales_order_id == sales_order_id)
+        .filter(SalesOrderLine.is_active.is_(True))
+        .all()
+    )
+
+
+def _line_offer_ref(line: object) -> str | None:
+    """The dotmac_sub CatalogOffer id/code a sales-order line was tagged with at
+    quote time (metadata_.sub_offer_id), identifying a recurring subscription
+    charge vs a one-off installation line."""
+    meta = getattr(line, "metadata_", None)
+    if not isinstance(meta, dict):
+        return None
+    for key in ("sub_offer_id", "sub_offer_code", "offer_id", "offer_code"):
+        value = str(meta.get(key) or "").strip()
+        if value:
+            return value
+    return None
+
+
+def push_sales_order_subscription_to_selfcare(db: Session, sales_order: object) -> None:
+    """Create a dotmac_sub subscription (plus its first invoice) for each
+    sales-order line tagged with a sub offer, so the customer's plan and its
+    recurring charge show in the customer portal.
+
+    Best-effort: a selfcare outage must never break the sale. Idempotent — the
+    subscription external_ref dedups server-side and the resolved id is stored on
+    the line's metadata, so repeated calls are safe.
+    """
+    if not selfcare.is_customer_sync_enabled(db):
+        return
+    try:
+        sales_order_id = getattr(sales_order, "id", None)
+        if not sales_order_id:
+            return
+
+        lines = _sales_order_lines(db, sales_order_id)
+        offer_lines = [(line, ref) for line in lines if (ref := _line_offer_ref(line))]
+        if not offer_lines:
+            return
+
+        project = _resolve_project_for_sales_order(db, sales_order_id)
+        if not project:
+            return
+        person = _resolve_person_for_project(db, project)
+        identity = _selfcare_identity(person) if person else None
+        if not identity or not identity.external_id:
+            return
+
+        for line, offer_ref in offer_lines:
+            meta = line.metadata_ if isinstance(line.metadata_, dict) else {}
+            if str(meta.get("selfcare_subscription_id") or "").strip():
+                continue  # already synced
+
+            result = selfcare.create_subscription(
+                db,
+                subscriber_id=identity.external_id,
+                offer_ref=offer_ref,
+                external_ref=f"sales_order:{sales_order_id}:subscription:{line.id}",
+                unit_price=getattr(line, "unit_price", None),
+            )
+            if not result or not result.get("subscription_id"):
+                continue
+            new_meta = dict(line.metadata_ or {})
+            new_meta["selfcare_subscription_id"] = str(result["subscription_id"])
+            if result.get("invoice_id"):
+                new_meta["selfcare_subscription_invoice_id"] = str(result["invoice_id"])
+            line.metadata_ = new_meta
+            db.add(line)
+            logger.info(
+                "selfcare_subscription_created sales_order_id=%s line_id=%s subscription_id=%s",
+                sales_order_id,
+                line.id,
+                result["subscription_id"],
+            )
+        db.commit()
+    except Exception:
+        logger.warning(
+            "selfcare_sales_order_subscription_push_failed sales_order_id=%s",
             getattr(sales_order, "id", None),
             exc_info=True,
         )
