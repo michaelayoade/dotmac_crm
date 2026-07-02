@@ -932,6 +932,17 @@ def build_beat_schedule() -> dict:
             interval_seconds=60,
         )
 
+        # Auto-confirm resolved tickets the customer never responded to, so a
+        # pending_confirmation ticket closes after its grace window (default 24h)
+        # rather than hanging forever.
+        _sync_scheduled_task(
+            session,
+            name="auto_confirm_resolved_tickets",
+            task_name="app.tasks.tickets.auto_confirm_resolved_tickets",
+            enabled=True,
+            interval_seconds=3600,
+        )
+
         # Chatwoot CRM sync - imports contacts, conversations, messages from Chatwoot
         chatwoot_sync_enabled = _effective_bool(
             session,

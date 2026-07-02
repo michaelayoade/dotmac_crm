@@ -14,6 +14,9 @@ class TicketStatus(enum.Enum):
     open = "open"
     pending = "pending"
     waiting_on_customer = "waiting_on_customer"
+    # Resolved by the team but awaiting the customer's confirmation before it
+    # closes (auto-confirms after a grace window). Non-terminal.
+    pending_confirmation = "pending_confirmation"
     lastmile_rerun = "lastmile_rerun"
     site_under_construction = "site_under_construction"
     on_hold = "on_hold"
@@ -210,3 +213,33 @@ class TicketLink(Base):
     from_ticket = relationship("Ticket", foreign_keys=[from_ticket_id])
     to_ticket = relationship("Ticket", foreign_keys=[to_ticket_id])
     created_by = relationship("Person")
+
+
+class TicketAccessToken(Base):
+    """Magic-link token letting a customer confirm (or dispute) a ticket's
+    resolution without logging in — the unguessable ``token`` is the capability,
+    the same pattern as the work-order "Track My Visit" link. One active token
+    per ticket resolution cycle (the service mints a fresh one on each resolve)."""
+
+    __tablename__ = "ticket_access_tokens"
+    __table_args__ = (
+        Index("ix_ticket_access_tokens_token", "token", unique=True),
+        Index("ix_ticket_access_tokens_ticket_id", "ticket_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ticket_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tickets.id"), nullable=False)
+    token: Mapped[str] = mapped_column(String(64), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(40), default="resolution_confirm", nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    accessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    ticket = relationship("Ticket")
