@@ -90,3 +90,33 @@ def test_dedupe_soft_deletes_only_duplicates_with_twin(db_session):
     assert dup.is_active is False  # duplicate retired
     assert twin.is_active is True  # canonical row untouched
     assert orphan.is_active is True  # no-twin splynx row left for review
+
+
+def test_backfill_person_selfcare_id(db_session):
+    from app.services.splynx_convergence import backfill_person_selfcare_id
+
+    # Person with splynx_id only, linked to a selfcare subscriber -> resolvable.
+    person = _person(db_session, splynx_id="17897")
+    sub = Subscriber(
+        person_id=person.id,
+        external_system="selfcare",
+        external_id="sub-uuid-1",
+        subscriber_number="100017897",
+    )
+    db_session.add(sub)
+    # Person with splynx_id only, no linked selfcare subscriber -> unresolvable.
+    _person(db_session, splynx_id="99999")
+    # Person already converged -> ignored.
+    _person(db_session, splynx_id="123", selfcare_id="already")
+    db_session.commit()
+
+    dry = backfill_person_selfcare_id(db_session, apply=False)
+    assert dry["candidates"] == 1  # only the resolvable one
+    db_session.refresh(person)
+    assert "selfcare_id" not in (person.metadata_ or {})  # dry run wrote nothing
+
+    applied = backfill_person_selfcare_id(db_session, apply=True)
+    assert applied["backfilled"] == 1
+    db_session.refresh(person)
+    assert person.metadata_["selfcare_id"] == "sub-uuid-1"
+    assert person.metadata_["splynx_id"] == "17897"  # preserved
