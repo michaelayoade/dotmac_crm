@@ -9,6 +9,21 @@ from app.models.tickets import TicketAccessToken, TicketStatus
 from app.services.tickets import ticket_access_tokens, tickets
 
 
+def test_confirmation_notice_queued_with_link(db_session, person):
+    """The customer gets a notice carrying the confirm link (email fallback path)."""
+    from app.models.notification import Notification
+    from app.schemas.tickets import TicketCreate
+    from app.services.tickets import tickets as tickets_service
+
+    ticket = tickets_service.create(db_session, TicketCreate(title="No internet", customer_person_id=person.id))
+    tickets_service.request_resolution_confirmation(db_session, str(ticket.id))
+
+    notices = db_session.query(Notification).filter(Notification.recipient == person.email).all()
+    assert len(notices) == 1
+    body = notices[0].body or ""
+    assert "/ticket-confirm/" in body  # the magic-link is in the message
+
+
 def test_request_confirmation_sets_pending_not_closed(db_session, ticket):
     result = tickets.request_resolution_confirmation(db_session, str(ticket.id))
     assert result.status == TicketStatus.pending_confirmation
