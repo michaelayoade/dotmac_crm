@@ -130,6 +130,22 @@ class PortalWorkOrdersResponse(BaseModel):
     total: int = 0
 
 
+class PortalTechnicianLocation(BaseModel):
+    """Live position of the technician on an active work order, for the customer
+    'where's my technician' map. ``available`` is False (with a ``reason``) when
+    the map should be hidden — outside the Start work → End work window, no
+    technician assigned, sharing off, or no GPS fix yet."""
+
+    available: bool = False
+    reason: str | None = None
+    work_order_id: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    accuracy_m: float | None = None
+    updated_at: str | None = None
+    estimated_arrival_at: str | None = None
+
+
 # --- Self-serve quotes (Sales/Quotes vertical) ----------------------------
 
 

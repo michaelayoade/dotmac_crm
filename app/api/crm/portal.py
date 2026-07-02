@@ -39,6 +39,7 @@ from app.schemas.crm.portal import (
     PortalReferResponse,
     PortalSessionMintRequest,
     PortalSessionMintResponse,
+    PortalTechnicianLocation,
     PortalWorkOrdersResponse,
 )
 from app.services.auth_dependencies import require_user_auth
@@ -248,6 +249,27 @@ def portal_list_work_orders(
     work_orders = work_orders_service.portal_list(db, subscriber_ids)
     payload = {"work_orders": work_orders, "total": len(work_orders)}
     return PortalWorkOrdersResponse.model_validate(payload)
+
+
+@router.get(
+    "/work-orders/{work_order_id}/technician-location",
+    response_model=PortalTechnicianLocation,
+)
+def portal_work_order_technician_location(
+    work_order_id: str,
+    principal: PortalPrincipal = Depends(require_portal_auth),
+    db: Session = Depends(get_db),
+) -> PortalTechnicianLocation:
+    """Live position of the technician on an *in-progress* work order, for the
+    customer 'where's my technician' map (polled). Gated to the Start work → End
+    work window with technician location-sharing on; returns available=False
+    (with a reason) otherwise so the client hides the map."""
+    principal.require_scope("work_orders:read")
+    subscriber_ids = resolve_subscriber_ids(db, principal)
+    payload = work_orders_service.portal_technician_location(
+        db, work_order_id, subscriber_ids
+    )
+    return PortalTechnicianLocation.model_validate(payload)
 
 
 # --- Self-serve quotes (Sales/Quotes vertical) ----------------------------

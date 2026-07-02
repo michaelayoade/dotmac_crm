@@ -462,6 +462,72 @@ class WorkOrders(ListResponseMixin):
         return [build_work_order_portal_payload(db, w) for w in work_orders]
 
     @staticmethod
+    def portal_technician_location(
+        db: Session, work_order_id: str, subscriber_ids: list[str] | str
+    ) -> dict:
+        """Live location of the technician assigned to an active work order, for
+        the customer "where's my technician" map.
+
+        Gated so the map only appears when it should: the work order must belong
+        to the caller's subscriber(s), be *in progress* (the Start work → End
+        work window — not merely dispatched, and not once completed), and the
+        technician must have location sharing enabled with a recent fix. Any
+        failed gate returns ``{"available": False, "reason": ...}`` so the client
+        hides the map without treating it as an error.
+        """
+        from app.models.field_location import FieldTechPresence
+
+        if isinstance(subscriber_ids, str):
+            subscriber_ids = [subscriber_ids]
+        uuids = [coerce_uuid(str(s)) for s in subscriber_ids]
+        uuids = [u for u in uuids if u is not None]
+        wo_uuid = coerce_uuid(work_order_id)
+        if not uuids or wo_uuid is None:
+            return {"available": False, "reason": "not_found"}
+
+        work_order = (
+            db.query(WorkOrder)
+            .filter(WorkOrder.id == wo_uuid)
+            .filter(WorkOrder.subscriber_id.in_(uuids))
+            .filter(WorkOrder.is_active.is_(True))
+            .first()
+        )
+        if work_order is None:
+            return {"available": False, "reason": "not_found"}
+        if work_order.status != WorkOrderStatus.in_progress:
+            return {"available": False, "reason": "not_in_progress"}
+        if work_order.assigned_to_person_id is None:
+            return {"available": False, "reason": "no_technician"}
+
+        presence = (
+            db.query(FieldTechPresence)
+            .filter(FieldTechPresence.person_id == work_order.assigned_to_person_id)
+            .first()
+        )
+        if presence is None or not presence.location_sharing_enabled:
+            return {"available": False, "reason": "sharing_off"}
+        if presence.last_latitude is None or presence.last_longitude is None:
+            return {"available": False, "reason": "no_fix"}
+
+        return {
+            "available": True,
+            "work_order_id": str(work_order.id),
+            "latitude": presence.last_latitude,
+            "longitude": presence.last_longitude,
+            "accuracy_m": presence.last_location_accuracy_m,
+            "updated_at": (
+                presence.last_location_at.isoformat()
+                if presence.last_location_at
+                else None
+            ),
+            "estimated_arrival_at": (
+                work_order.estimated_arrival_at.isoformat()
+                if work_order.estimated_arrival_at
+                else None
+            ),
+        }
+
+    @staticmethod
     def list(
         db: Session,
         subscriber_id: str | None,
