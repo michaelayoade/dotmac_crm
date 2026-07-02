@@ -8,6 +8,8 @@ from app.schemas.vendor import (
     AsBuiltRouteRead,
     FieldProjectSite,
     InstallationProjectRead,
+    VendorProjectLifecycle,
+    VendorProjectListItem,
 )
 from app.services.field.vendor_projects import field_vendor_projects
 from app.services.vendor_auth_tokens import require_vendor_token
@@ -15,14 +17,14 @@ from app.services.vendor_auth_tokens import require_vendor_token
 router = APIRouter(tags=["field-vendor-projects"])
 
 
-@router.get("/projects", response_model=ListResponse[InstallationProjectRead])
+@router.get("/projects", response_model=ListResponse[VendorProjectListItem])
 def list_vendor_projects(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     vendor=Depends(require_vendor_token),
     db: Session = Depends(get_db),
 ):
-    items = field_vendor_projects.list_mine(db, vendor["vendor_id"], limit=limit, offset=offset)
+    items = field_vendor_projects.list_mine_detailed(db, vendor["vendor_id"], limit=limit, offset=offset)
     return {"items": items, "count": len(items), "limit": limit, "offset": offset}
 
 
@@ -36,6 +38,9 @@ def get_vendor_project(
     return {
         "project": InstallationProjectRead.model_validate(bundle["project"]),
         "site": FieldProjectSite.model_validate(bundle["site"]) if bundle["site"] else None,
+        "lifecycle": (
+            VendorProjectLifecycle.model_validate(bundle["lifecycle"]) if bundle["lifecycle"] else None
+        ),
         "submissions": [AsBuiltRouteRead.model_validate(s) for s in bundle["submissions"]],
         "rejected_for_resubmission": (
             AsBuiltRouteRead.model_validate(bundle["rejected_for_resubmission"])
