@@ -57,6 +57,7 @@ class QuoteUpsertInput:
     item_unit_price: list[str] | None = None
     item_discount_percent: list[str] | None = None
     item_inventory_item_id: list[str] | None = None
+    item_sub_offer_id: list[str] | None = None
 
 
 def _coerce_uuid_optional(value: str | None):
@@ -101,8 +102,11 @@ def _as_quote_items(form: QuoteUpsertInput) -> list[dict[str, str]]:
     unit_prices = form.item_unit_price or []
     discounts = form.item_discount_percent or []
     inventory_ids = form.item_inventory_item_id or []
+    sub_offer_ids = form.item_sub_offer_id or []
 
-    max_len = max(len(descriptions), len(quantities), len(unit_prices), len(discounts), len(inventory_ids), 1)
+    max_len = max(
+        len(descriptions), len(quantities), len(unit_prices), len(discounts), len(inventory_ids), len(sub_offer_ids), 1
+    )
     items: list[dict[str, str]] = []
     for idx in range(max_len):
         description = descriptions[idx].strip() if idx < len(descriptions) and descriptions[idx] else ""
@@ -110,7 +114,8 @@ def _as_quote_items(form: QuoteUpsertInput) -> list[dict[str, str]]:
         unit_price = unit_prices[idx].strip() if idx < len(unit_prices) and unit_prices[idx] else ""
         discount = discounts[idx].strip() if idx < len(discounts) and discounts[idx] else ""
         inventory_item_id = inventory_ids[idx].strip() if idx < len(inventory_ids) and inventory_ids[idx] else ""
-        if not any([description, quantity, unit_price, inventory_item_id]):
+        sub_offer_id = sub_offer_ids[idx].strip() if idx < len(sub_offer_ids) and sub_offer_ids[idx] else ""
+        if not any([description, quantity, unit_price, inventory_item_id, sub_offer_id]):
             continue
         items.append(
             {
@@ -119,6 +124,7 @@ def _as_quote_items(form: QuoteUpsertInput) -> list[dict[str, str]]:
                 "unit_price": unit_price,
                 "discount_percent": discount,
                 "inventory_item_id": inventory_item_id,
+                "sub_offer_id": sub_offer_id,
             }
         )
     return items
@@ -131,6 +137,7 @@ def _parse_quote_line_items(items: list[dict[str, str]]) -> list[dict[str, Any]]
         quantity_raw = item.get("quantity", "").strip()
         unit_price_raw = item.get("unit_price", "").strip()
         inventory_item_id_raw = item.get("inventory_item_id", "").strip()
+        sub_offer_id_raw = item.get("sub_offer_id", "").strip()
 
         if not description:
             raise ValueError("Quote item description is required")
@@ -145,6 +152,12 @@ def _parse_quote_line_items(items: list[dict[str, str]]) -> list[dict[str, Any]]
         if discount < 0 or discount > 100:
             raise ValueError("Quote item discount must be between 0 and 100")
 
+        # A line tagged with a dotmac_sub offer is a subscription (plan) charge —
+        # store the offer id so the sales-order → sub subscription sync can pick it
+        # up. metadata_ is None (not {}) when absent so an update clears a removed
+        # plan rather than leaving a stale tag.
+        metadata = {"sub_offer_id": sub_offer_id_raw} if sub_offer_id_raw else None
+
         parsed.append(
             {
                 "description": description,
@@ -152,6 +165,7 @@ def _parse_quote_line_items(items: list[dict[str, str]]) -> list[dict[str, Any]]
                 "unit_price": unit_price,
                 "discount_percent": discount,
                 "inventory_item_id": _coerce_uuid_optional(inventory_item_id_raw),
+                "metadata_": metadata,
             }
         )
     return parsed
@@ -410,6 +424,7 @@ def create_quote(db: Session, *, form: QuoteUpsertInput, tax_rate_get, owner_per
             unit_price=item["unit_price"],
             discount_percent=item.get("discount_percent", Decimal("0")),
             inventory_item_id=item["inventory_item_id"],
+            metadata_=item.get("metadata_"),
         )
         crm_service.quote_line_items.create(db=db, payload=item_payload)
 
@@ -433,6 +448,7 @@ def edit_quote_form_data(
             "unit_price": str(item.unit_price or Decimal("0.00")),
             "discount_percent": str(item.discount_percent or Decimal("0.00")),
             "inventory_item_id": str(item.inventory_item_id) if item.inventory_item_id else "",
+            "sub_offer_id": (item.metadata_ or {}).get("sub_offer_id", "") if isinstance(item.metadata_, dict) else "",
         }
         for item in items
     ]
@@ -816,6 +832,7 @@ def update_quote(db: Session, *, quote_id: str, form: QuoteUpsertInput, tax_rate
                     unit_price=item["unit_price"],
                     discount_percent=item.get("discount_percent", Decimal("0")),
                     inventory_item_id=item["inventory_item_id"],
+                    metadata_=item.get("metadata_"),
                 ),
             )
         else:
@@ -828,6 +845,7 @@ def update_quote(db: Session, *, quote_id: str, form: QuoteUpsertInput, tax_rate
                     unit_price=item["unit_price"],
                     discount_percent=item.get("discount_percent", Decimal("0")),
                     inventory_item_id=item["inventory_item_id"],
+                    metadata_=item.get("metadata_"),
                 ),
             )
     for stale_item in existing_items[len(parsed_items) :]:

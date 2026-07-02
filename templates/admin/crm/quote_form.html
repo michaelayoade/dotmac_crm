@@ -110,6 +110,7 @@
                                 <tr data-line-item-row>
                                     <td class="{{ pad }}">
                                         <input type="hidden" name="item_inventory_item_id" value="{{ item.inventory_item_id or '' }}" data-inventory-item-id>
+                                        <input type="hidden" name="item_sub_offer_id" value="{{ item.sub_offer_id or '' }}" data-sub-offer-id>
                                         <input type="text" name="item_description" value="{{ item.description }}"
                                                list="inventory-item-suggestions" data-inventory-item-input
                                                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
@@ -171,6 +172,7 @@
                     <tr data-line-item-row>
                         <td class="{{ pad }}">
                             <input type="hidden" name="item_inventory_item_id" data-inventory-item-id>
+                            <input type="hidden" name="item_sub_offer_id" data-sub-offer-id>
                             <input type="text" name="item_description"
                                    list="inventory-item-suggestions" data-inventory-item-input
                                    class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
@@ -274,6 +276,12 @@
   const addButton = document.getElementById("add-quote-item");
   const datalist = document.getElementById("inventory-item-suggestions");
   const inventoryMap = new Map();
+  // dotmac_sub subscription plans (offers) share the same suggestion list as
+  // inventory items — a line is either an inventory item or a plan. offerMap:
+  // label -> { id, price }. offerOptions persist across inventory re-renders.
+  const offerMap = new Map();
+  let offerOptions = [];
+  let offersLoaded = false;
 
   if (!body || !template || !addButton || !datalist) {
     return;
@@ -287,9 +295,23 @@
   const contactSelect = document.getElementById("quote-contact-select");
   const quoteForm = body.closest("form");
 
+  const appendOfferOptions = () => {
+    offerOptions.forEach((offer) => {
+      const option = document.createElement("option");
+      option.value = offer.label;
+      if (offer.hint) {
+        option.label = offer.hint;
+      }
+      datalist.appendChild(option);
+    });
+  };
+
   const renderSuggestions = (items) => {
     datalist.replaceChildren();
     inventoryMap.clear();
+    // Plans first so they surface even before the user types (inventory is
+    // fetched on keystroke); both live in the one datalist.
+    appendOfferOptions();
     items.forEach((item) => {
       const name = item?.name || "";
       if (!name) {
@@ -303,6 +325,34 @@
       datalist.appendChild(option);
       inventoryMap.set(label, option.dataset.itemId || "");
     });
+  };
+
+  const loadOffers = async () => {
+    try {
+      const response = await fetch(`/api/v1/search/catalog-offers?q=&limit=100`, {
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        return;
+      }
+      const data = await response.json();
+      const rows = Array.isArray(data?.items) ? data.items : [];
+      offerMap.clear();
+      offerOptions = rows
+        .filter((row) => row?.id && row?.label)
+        .map((row) => {
+          const price = row.recurring_price ? String(row.recurring_price) : "";
+          const cycle = row.billing_cycle ? String(row.billing_cycle) : "";
+          const money = price ? `${row.currency || ""}${price}`.trim() : "";
+          const hint = ["Plan", money, cycle ? `/${cycle}` : ""].filter(Boolean).join(" · ");
+          offerMap.set(row.label, { id: String(row.id), price });
+          return { label: row.label, hint };
+        });
+      offersLoaded = true;
+      renderSuggestions([]);
+    } catch (err) {
+      console.warn("catalog_offers_fetch_failed", err);
+    }
   };
 
   let searchTimer = null;
@@ -395,14 +445,31 @@
     const amountInput = row.querySelector('input[name="item_amount_display"]');
     const descInput = row.querySelector('[data-inventory-item-input]');
     const inventoryIdInput = row.querySelector('[data-inventory-item-id]');
+    const subOfferIdInput = row.querySelector('[data-sub-offer-id]');
     const removeBtn = row.querySelector("[data-remove-line-item]");
 
-    const updateInventoryItem = () => {
-      if (!descInput || !inventoryIdInput) {
+    // A line resolves to EITHER a plan (offer) or an inventory item — never both.
+    // Picking a plan also fills the unit price from sub's catalog, but only when
+    // the plan selection actually changes, so a manually edited price survives.
+    const updateLineRef = () => {
+      if (!descInput) {
         return;
       }
-      const match = inventoryMap.get(descInput.value) || "";
-      inventoryIdInput.value = match;
+      const offer = offerMap.get(descInput.value);
+      if (offer) {
+        const changed = subOfferIdInput && subOfferIdInput.value !== offer.id;
+        if (subOfferIdInput) subOfferIdInput.value = offer.id;
+        if (inventoryIdInput) inventoryIdInput.value = "";
+        if (changed && offer.price && priceInput) {
+          priceInput.value = offer.price;
+          updateAmount();
+        }
+        return;
+      }
+      // Don't clear a server-set plan tag before the offer catalog has loaded
+      // (edit mode races the async fetch).
+      if (offersLoaded && subOfferIdInput) subOfferIdInput.value = "";
+      if (inventoryIdInput) inventoryIdInput.value = inventoryMap.get(descInput.value) || "";
     };
 
     const updateAmount = () => {
@@ -426,10 +493,10 @@
     descInput?.addEventListener("input", (event) => {
       scheduleSearch(event.target.value);
     });
-    descInput?.addEventListener("change", updateInventoryItem);
-    descInput?.addEventListener("blur", updateInventoryItem);
+    descInput?.addEventListener("change", updateLineRef);
+    descInput?.addEventListener("blur", updateLineRef);
     updateAmount();
-    updateInventoryItem();
+    updateLineRef();
 
     removeBtn?.addEventListener("click", () => {
       if (body.querySelectorAll("[data-line-item-row]").length > 1) {
@@ -448,6 +515,7 @@
   };
 
   body.querySelectorAll("[data-line-item-row]").forEach((row) => bindRow(row));
+  loadOffers();
 
   taxRateSelect?.addEventListener("change", recalcTotals);
   taxInput?.addEventListener("input", recalcTotals);
