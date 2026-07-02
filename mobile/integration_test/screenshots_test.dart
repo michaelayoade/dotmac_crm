@@ -14,7 +14,7 @@ import 'package:integration_test/integration_test.dart';
 ///   --dart-define=DEMO_USERNAME=... --dart-define=DEMO_PASSWORD=...
 /// Optionally --dart-define=API_BASE_URL=... to target staging.
 ///
-/// Screenshots are named NN_<tab>; the driver (test_driver/screenshot_driver.dart)
+/// Screenshots are named `NN_<tab>`; the driver (test_driver/screenshot_driver.dart)
 /// writes them to build/screenshots/.
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
