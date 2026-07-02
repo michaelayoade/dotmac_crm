@@ -74,7 +74,9 @@ def _presence(**kw):
         last_latitude=kw.get("lat", 6.5),
         last_longitude=kw.get("lng", 3.3),
         last_location_accuracy_m=kw.get("acc", 12.0),
-        last_location_at=kw.get("at", datetime(2026, 6, 30, 9, 15, tzinfo=UTC)),
+        # Default to a fresh fix so the freshness gate passes; override with a
+        # stale `at=` to exercise the staleness path.
+        last_location_at=kw.get("at", datetime.now(UTC)),
     )
 
 
@@ -107,8 +109,16 @@ def test_technician_location_available_when_in_progress_and_sharing():
     assert out["available"] is True
     assert out["latitude"] == 6.5
     assert out["longitude"] == 3.3
-    assert out["updated_at"].startswith("2026-06-30T09:15")
+    assert out["updated_at"]  # fresh isoformat timestamp present
     assert out["estimated_arrival_at"].startswith("2026-06-30T09:30")
+
+
+def test_technician_location_hidden_when_stale():
+    # A fix older than the freshness window must not be presented as live.
+    stale = datetime(2026, 6, 30, 9, 15, tzinfo=UTC)
+    db = _db_for(_loc_wo(), _presence(at=stale))
+    out = WorkOrders.portal_technician_location(db, _WO_ID, _SUB_ID)
+    assert out == {"available": False, "reason": "no_fix"}
 
 
 def test_technician_location_hidden_before_start_work():
@@ -133,13 +143,25 @@ def test_technician_location_not_found_for_wrong_subscriber():
 
 
 def _db_rating(work_order, existing_response):
-    """MagicMock db routing WorkOrder vs SurveyResponse queries."""
+    """MagicMock db routing WorkOrder / Survey / SurveyResponse queries.
+
+    The rating flow resolves the survey first (get-or-create) and then scopes the
+    dedup to that survey_id, so the mock must return a survey with an ``id``.
+    """
+    from app.models.comms import Survey
+
     db = MagicMock()
+    survey = SimpleNamespace(id="survey-1")
 
     def _query(model):
         chain = MagicMock()
         chain.filter.return_value = chain
-        chain.first.return_value = work_order if model is WorkOrder else existing_response
+        if model is WorkOrder:
+            chain.first.return_value = work_order
+        elif model is Survey:
+            chain.first.return_value = survey
+        else:  # SurveyResponse
+            chain.first.return_value = existing_response
         return chain
 
     db.query.side_effect = _query

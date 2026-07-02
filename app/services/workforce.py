@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -504,6 +504,20 @@ class WorkOrders(ListResponseMixin):
             return {"available": False, "reason": "sharing_off"}
         if presence.last_latitude is None or presence.last_longitude is None:
             return {"available": False, "reason": "no_fix"}
+        # Freshness bound: never present a stale fix as live. If the tech lost
+        # signal / closed the app, the pin would otherwise freeze and read as
+        # "where's my technician" forever. Mirrors the staleness gating used by
+        # field/location_tracking + crm/presence.
+        from app.services.field.location_tracking import DEFAULT_STALE_AFTER_SECONDS
+
+        last_at = presence.last_location_at
+        if last_at is None:
+            return {"available": False, "reason": "no_fix"}
+        if last_at.tzinfo is None:
+            last_at = last_at.replace(tzinfo=UTC)
+        cutoff = datetime.now(UTC) - timedelta(seconds=max(DEFAULT_STALE_AFTER_SECONDS, 60))
+        if last_at < cutoff:
+            return {"available": False, "reason": "no_fix"}
 
         return {
             "available": True,
@@ -562,15 +576,11 @@ class WorkOrders(ListResponseMixin):
         if work_order.status != WorkOrderStatus.completed:
             raise HTTPException(status_code=409, detail="Work order is not completed yet")
 
-        existing = db.query(SurveyResponse).filter(SurveyResponse.work_order_id == work_order.id).first()
-        if existing is not None:
-            return {
-                "ok": True,
-                "already_rated": True,
-                "rating": existing.rating,
-                "work_order_id": str(work_order.id),
-            }
-
+        # Resolve the technician-rating survey first, so the one-per-work-order
+        # dedup is scoped to THIS survey. (SurveyResponse.work_order_id is also
+        # set by CSAT/other survey flows; a bare work_order_id check would
+        # collide with those and either return a stranger survey's rating or
+        # silently drop the tech rating.)
         survey = (
             db.query(Survey)
             .filter(Survey.trigger_type == SurveyTriggerType.work_order_completed)
@@ -600,6 +610,20 @@ class WorkOrders(ListResponseMixin):
             )
             db.add(survey)
             db.flush()
+
+        existing = (
+            db.query(SurveyResponse)
+            .filter(SurveyResponse.survey_id == survey.id)
+            .filter(SurveyResponse.work_order_id == work_order.id)
+            .first()
+        )
+        if existing is not None:
+            return {
+                "ok": True,
+                "already_rated": True,
+                "rating": existing.rating,
+                "work_order_id": str(work_order.id),
+            }
 
         answers: dict = {"rating": str(rating)}
         if comment:
