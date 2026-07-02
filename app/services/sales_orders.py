@@ -91,8 +91,11 @@ def _sync_sales_order_payment_to_sub(db: Session, sales_order: SalesOrder) -> No
         push_sales_order_subscription_to_selfcare,
     )
 
-    push_sales_order_payment_to_selfcare(db, sales_order)
+    # Create the subscription (and its first invoice) BEFORE recording the
+    # payment, so the account-level payment can settle both the installation and
+    # subscription invoices in one go.
     push_sales_order_subscription_to_selfcare(db, sales_order)
+    push_sales_order_payment_to_selfcare(db, sales_order)
 
 
 def _apply_payment_fields(sales_order: SalesOrder, data: dict) -> None:

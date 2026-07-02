@@ -41,13 +41,15 @@ def backfill_sales_payments_to_sub(db: Session, *, limit: int = 500, offset: int
     )
     processed = 0
     for order in orders:
-        try:
-            push_sales_order_payment_to_selfcare(db, order)
-        except Exception:
-            logger.warning("backfill_sales_payment_failed sales_order_id=%s", order.id, exc_info=True)
+        # Subscription (+ its first invoice) before the payment, so the
+        # account-level payment settles both installation and subscription.
         try:
             push_sales_order_subscription_to_selfcare(db, order)
         except Exception:
             logger.warning("backfill_sales_subscription_failed sales_order_id=%s", order.id, exc_info=True)
+        try:
+            push_sales_order_payment_to_selfcare(db, order)
+        except Exception:
+            logger.warning("backfill_sales_payment_failed sales_order_id=%s", order.id, exc_info=True)
         processed += 1
     return {"processed": processed, "batch_size": len(orders)}

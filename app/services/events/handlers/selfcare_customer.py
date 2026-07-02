@@ -401,8 +401,13 @@ def ensure_installation_invoice_for_sales_order(db: Session, sales_order_id: obj
 
 
 def push_sales_order_payment_to_selfcare(db: Session, sales_order: object) -> None:
-    """When a sales order is paid, record the customer's payment in dotmac_sub so
-    the installation invoice settles and shows paid in the customer portal.
+    """When a sales order is paid, record the customer's payment against their
+    dotmac_sub account so it settles their open invoices and shows in the portal.
+
+    The payment is charged to the account, not pinned to one invoice — sub
+    auto-allocates it across the account's open invoices (installation + the
+    subscription's first invoice) oldest/soonest-due first. So a single upfront
+    payment settles whatever the sale covered.
 
     Best-effort: a selfcare outage must never break the sale. Idempotent — the
     payment external_ref dedups server-side, so repeated calls are safe.
@@ -419,7 +424,9 @@ def push_sales_order_payment_to_selfcare(db: Session, sales_order: object) -> No
         if not sales_order_id:
             return
 
-        # Ensure the installation invoice exists first, so the payment allocates.
+        # Ensure the installation invoice exists so the payment has something to
+        # settle. The subscription's first invoice is created by the subscription
+        # push, which runs before this so a single payment can settle both.
         ensure_installation_invoice_for_sales_order(db, sales_order_id)
 
         project = _resolve_project_for_sales_order(db, sales_order_id)
@@ -430,12 +437,13 @@ def push_sales_order_payment_to_selfcare(db: Session, sales_order: object) -> No
         if not identity or not identity.external_id:
             return
 
+        # No invoice_external_ref: settle the account (auto-allocate across all
+        # open invoices) rather than pinning to the installation invoice.
         selfcare.record_payment(
             db,
             subscriber_id=identity.external_id,
             amount=amount_paid,
             external_ref=f"sales_order:{sales_order_id}:payment",
-            invoice_external_ref=f"project:{project.id}",
             paid_at=getattr(sales_order, "paid_at", None),
             memo=f"CRM sales order {sales_order_id}",
         )
@@ -496,7 +504,19 @@ def push_sales_order_subscription_to_selfcare(db: Session, sales_order: object) 
         if not project:
             return
         person = _resolve_person_for_project(db, project)
-        identity = _selfcare_identity(person) if person else None
+        if not person:
+            return
+        if not _selfcare_identity(person):
+            # This push runs before the payment push, so it may be the first to
+            # need the customer — create it now (same lazy-create as the invoice).
+            sync_person_to_selfcare(
+                db,
+                person,
+                project_id=str(project.id),
+                sales_order_id=str(sales_order_id),
+                mode="sales_order_retry",
+            )
+        identity = _selfcare_identity(person)
         if not identity or not identity.external_id:
             return
 
