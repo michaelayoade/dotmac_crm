@@ -7,6 +7,8 @@ and the resubmission context the mobile capture flow needs.
 
 from __future__ import annotations
 
+import os
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -215,6 +217,25 @@ class FieldVendorProjects:
             vendor_id=str(vendor_id),
             submitted_by_person_id=str(person_id),
         )
+
+    @staticmethod
+    def get_as_built_report(db: Session, vendor_id: str, project_id: str, route_id: str) -> AsBuiltRoute:
+        """The generated as-built PDF for a route the vendor owns.
+
+        The report is produced admin-side on acceptance (vendors can't
+        self-generate); this only serves an existing one. 404s on a foreign
+        project/route or when no report has been generated yet, so route
+        existence never leaks across vendors.
+        """
+        project = _scoped_project(db, vendor_id, project_id)
+        route = db.get(AsBuiltRoute, coerce_uuid(route_id))
+        if not route or str(route.project_id) != str(project.id):
+            raise HTTPException(status_code=404, detail="Report not found")
+        if not route.report_file_path or not route.report_generated_at:
+            raise HTTPException(status_code=404, detail="Report not available yet")
+        if not os.path.isfile(route.report_file_path):
+            raise HTTPException(status_code=404, detail="Report file missing")
+        return route
 
     @staticmethod
     def paginate(db: Session, query, limit: int, offset: int):
