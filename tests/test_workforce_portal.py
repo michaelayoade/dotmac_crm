@@ -6,6 +6,9 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+from fastapi import HTTPException
+
 from app.models.workforce import (
     WorkOrder,
     WorkOrderPriority,
@@ -124,3 +127,48 @@ def test_technician_location_not_found_for_wrong_subscriber():
     db = _db_for(None, _presence())
     out = WorkOrders.portal_technician_location(db, _WO_ID, _SUB_ID)
     assert out == {"available": False, "reason": "not_found"}
+
+
+# --- technician rating (reuses CSAT/Survey) ---------------------------------
+
+
+def _db_rating(work_order, existing_response):
+    """MagicMock db routing WorkOrder vs SurveyResponse queries."""
+    db = MagicMock()
+
+    def _query(model):
+        chain = MagicMock()
+        chain.filter.return_value = chain
+        chain.first.return_value = work_order if model is WorkOrder else existing_response
+        return chain
+
+    db.query.side_effect = _query
+    return db
+
+
+def test_rating_not_found_for_wrong_subscriber():
+    db = _db_rating(None, None)
+    with pytest.raises(HTTPException) as exc:
+        WorkOrders.submit_technician_rating(db, _WO_ID, _SUB_ID, rating=5)
+    assert exc.value.status_code == 404
+
+
+def test_rating_rejected_when_not_completed():
+    wo = _loc_wo(status=WorkOrderStatus.in_progress)
+    db = _db_rating(wo, None)
+    with pytest.raises(HTTPException) as exc:
+        WorkOrders.submit_technician_rating(db, _WO_ID, _SUB_ID, rating=5)
+    assert exc.value.status_code == 409
+
+
+def test_rating_returns_existing_when_already_rated():
+    wo = _loc_wo(status=WorkOrderStatus.completed)
+    prior = SimpleNamespace(rating=4)
+    db = _db_rating(wo, prior)
+    out = WorkOrders.submit_technician_rating(db, _WO_ID, _SUB_ID, rating=5)
+    assert out == {
+        "ok": True,
+        "already_rated": True,
+        "rating": 4,
+        "work_order_id": _WO_ID,
+    }

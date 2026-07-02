@@ -40,6 +40,8 @@ from app.schemas.crm.portal import (
     PortalSessionMintRequest,
     PortalSessionMintResponse,
     PortalTechnicianLocation,
+    PortalTechnicianRatingRequest,
+    PortalTechnicianRatingResponse,
     PortalWorkOrdersResponse,
 )
 from app.services.auth_dependencies import require_user_auth
@@ -268,6 +270,30 @@ def portal_work_order_technician_location(
     subscriber_ids = resolve_subscriber_ids(db, principal)
     payload = work_orders_service.portal_technician_location(db, work_order_id, subscriber_ids)
     return PortalTechnicianLocation.model_validate(payload)
+
+
+@router.post(
+    "/work-orders/{work_order_id}/rate-technician",
+    response_model=PortalTechnicianRatingResponse,
+)
+def portal_rate_technician(
+    work_order_id: str,
+    payload: PortalTechnicianRatingRequest,
+    principal: PortalPrincipal = Depends(require_portal_auth),
+    db: Session = Depends(get_db),
+) -> PortalTechnicianRatingResponse:
+    """Rate the technician after a completed work order (1-5 + optional comment).
+    Stored via the CSAT Survey framework. One rating per work order."""
+    principal.require_scope("work_orders:write")
+    subscriber_ids = resolve_subscriber_ids(db, principal)
+    result = work_orders_service.submit_technician_rating(
+        db,
+        work_order_id,
+        subscriber_ids,
+        rating=payload.rating,
+        comment=payload.comment,
+    )
+    return PortalTechnicianRatingResponse.model_validate(result)
 
 
 # --- Self-serve quotes (Sales/Quotes vertical) ----------------------------

@@ -518,6 +518,110 @@ class WorkOrders(ListResponseMixin):
         }
 
     @staticmethod
+    def submit_technician_rating(
+        db: Session,
+        work_order_id: str,
+        subscriber_ids: list[str] | str,
+        *,
+        rating: int,
+        comment: str | None = None,
+    ) -> dict:
+        """Record a customer's rating of the technician on a completed work order.
+
+        Reuses the CSAT Survey framework (no new model): stores a SurveyResponse
+        linked to the work order + technician, under a get-or-created
+        ``work_order_completed`` survey. Gated: the work order must belong to the
+        caller's subscriber(s) and be completed. One rating per work order —
+        a second submit returns the existing rating (``already_rated``).
+        """
+        from app.models.comms import (
+            CustomerSurveyStatus,
+            Survey,
+            SurveyResponse,
+            SurveyTriggerType,
+        )
+        from app.services.surveys import survey_responses
+
+        if isinstance(subscriber_ids, str):
+            subscriber_ids = [subscriber_ids]
+        uuids = [coerce_uuid(str(s)) for s in subscriber_ids]
+        uuids = [u for u in uuids if u is not None]
+        wo_uuid = coerce_uuid(work_order_id)
+        if not uuids or wo_uuid is None:
+            raise HTTPException(status_code=404, detail="Work order not found")
+
+        work_order = (
+            db.query(WorkOrder)
+            .filter(WorkOrder.id == wo_uuid)
+            .filter(WorkOrder.subscriber_id.in_(uuids))
+            .filter(WorkOrder.is_active.is_(True))
+            .first()
+        )
+        if work_order is None:
+            raise HTTPException(status_code=404, detail="Work order not found")
+        if work_order.status != WorkOrderStatus.completed:
+            raise HTTPException(status_code=409, detail="Work order is not completed yet")
+
+        existing = db.query(SurveyResponse).filter(SurveyResponse.work_order_id == work_order.id).first()
+        if existing is not None:
+            return {
+                "ok": True,
+                "already_rated": True,
+                "rating": existing.rating,
+                "work_order_id": str(work_order.id),
+            }
+
+        survey = (
+            db.query(Survey)
+            .filter(Survey.trigger_type == SurveyTriggerType.work_order_completed)
+            .filter(Survey.status == CustomerSurveyStatus.active)
+            .first()
+        )
+        if survey is None:
+            survey = Survey(
+                name="Technician rating",
+                is_active=True,
+                status=CustomerSurveyStatus.active,
+                trigger_type=SurveyTriggerType.work_order_completed,
+                questions=[
+                    {
+                        "key": "rating",
+                        "type": "rating",
+                        "label": "How would you rate your technician?",
+                        "required": True,
+                    },
+                    {
+                        "key": "comment",
+                        "type": "free_text",
+                        "label": "Any comments?",
+                        "required": False,
+                    },
+                ],
+            )
+            db.add(survey)
+            db.flush()
+
+        answers: dict = {"rating": str(rating)}
+        if comment:
+            answers["comment"] = comment
+        # person_id records the technician being rated (for performance rollups);
+        # submit() extracts the numeric rating + updates the survey counters.
+        response = survey_responses.submit(
+            db,
+            str(survey.id),
+            answers,
+            person_id=(str(work_order.assigned_to_person_id) if work_order.assigned_to_person_id else None),
+        )
+        response.work_order_id = work_order.id
+        db.commit()
+        return {
+            "ok": True,
+            "already_rated": False,
+            "rating": response.rating,
+            "work_order_id": str(work_order.id),
+        }
+
+    @staticmethod
     def list(
         db: Session,
         subscriber_id: str | None,
