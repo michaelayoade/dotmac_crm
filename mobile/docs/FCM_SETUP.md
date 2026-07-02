@@ -12,10 +12,9 @@ server FCM sender lives in `app/services/push.py`.
 
 ## What remains (needs your Firebase project — credential-bearing)
 
-1. **Generate native config** with the FlutterFire CLI. This adds
-   `android/app/google-services.json`, `ios/Runner/GoogleService-Info.plist`,
-   `lib/firebase_options.dart`, and applies the Android `google-services` Gradle
-   plugin — the pieces only your Firebase account can produce:
+1. **Generate native config** with the FlutterFire CLI. This produces
+   `android/app/google-services.json`, `ios/Runner/GoogleService-Info.plist`, and
+   `lib/firebase_options.dart` — the pieces only your Firebase account can produce:
    ```bash
    dart pub global activate flutterfire_cli
    flutterfire configure
@@ -23,6 +22,11 @@ server FCM sender lives in `app/services/push.py`.
    (App ids: Android `io.dotmac.dotmac_field`, iOS bundle id to match.)
    `FcmPushSource.tryCreate()` calls `Firebase.initializeApp()` with no options,
    so it resolves from these native files — no code change needed after this.
+   The Android `google-services` Gradle plugin is **already wired** (declared in
+   `settings.gradle.kts`, applied conditionally in `app/build.gradle.kts` when the
+   JSON is present), so you don't need to let `flutterfire configure` edit Gradle —
+   if it does, keep the conditional version. See [RELEASE.md](RELEASE.md) for the
+   CI path that injects these files from secrets instead of committing them.
 
 2. **Android minSdk**: ensure >= 23 (firebase_core 3.x). The app currently uses
    `flutter.minSdkVersion`; bump in `android/app/build.gradle.kts` if needed.

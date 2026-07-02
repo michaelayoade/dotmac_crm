@@ -44,3 +44,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Signing + FCM secrets — provisioned on the build/CI host, never committed.
+# The release pipeline reconstructs these from GitHub/Xcode Cloud secrets.
+/android/key.properties
+*.jks
+/android/app/google-services.json
+/ios/Runner/GoogleService-Info.plist
+/lib/firebase_options.dart
