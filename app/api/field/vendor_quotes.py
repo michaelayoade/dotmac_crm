@@ -3,7 +3,13 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.schemas.common import ListResponse
-from app.schemas.vendor import ProjectQuoteRead, QuoteLineItemCreateRequest, QuoteLineItemRead
+from app.schemas.vendor import (
+    ProjectQuoteRead,
+    ProposedRouteRevisionCreateRequest,
+    ProposedRouteRevisionRead,
+    QuoteLineItemCreateRequest,
+    QuoteLineItemRead,
+)
 from app.services.field.vendor_quotes import field_vendor_quotes
 from app.services.vendor_auth_tokens import require_vendor_token
 
@@ -80,3 +86,37 @@ def submit_vendor_quote(
     db: Session = Depends(get_db),
 ):
     return field_vendor_quotes.submit(db, vendor["vendor_id"], quote_id)
+
+
+@router.get("/quotes/{quote_id}/proposed-routes", response_model=ListResponse[ProposedRouteRevisionRead])
+def list_vendor_proposed_routes(
+    quote_id: str,
+    vendor=Depends(require_vendor_token),
+    db: Session = Depends(get_db),
+):
+    items = field_vendor_quotes.list_proposed_routes(db, vendor["vendor_id"], quote_id)
+    return {"items": items, "count": len(items), "limit": len(items), "offset": 0}
+
+
+@router.post(
+    "/quotes/{quote_id}/proposed-route",
+    response_model=ProposedRouteRevisionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_vendor_proposed_route(
+    quote_id: str,
+    payload: ProposedRouteRevisionCreateRequest,
+    submit: bool = Query(default=True, description="Submit the revision for review in the same call."),
+    vendor=Depends(require_vendor_token),
+    db: Session = Depends(get_db),
+):
+    """Attach a proposed route (the map half of a complete bid) to the quote."""
+    return field_vendor_quotes.add_proposed_route(
+        db,
+        vendor["vendor_id"],
+        quote_id,
+        vendor["person_id"],
+        geojson=payload.geojson,
+        length_meters=payload.length_meters,
+        submit=submit,
+    )
