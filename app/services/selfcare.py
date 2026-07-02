@@ -515,16 +515,37 @@ def fetch_affected_subscribers(
     *,
     node_id: str | None = None,
     basestation_id: str | None = None,
+    olt_id: str | None = None,
+    pon_port_id: str | None = None,
 ) -> dict[str, Any]:
-    """Subscribers affected by a failed monitored device / basestation, resolved
-    from the sub app's Zabbix-linked topology. Returns {subscribers, count,
-    coverage}; the coverage block flags where the e2e chain is incomplete."""
-    params = {k: v for k, v in {"node_id": node_id, "basestation_id": basestation_id}.items() if v}
+    """Subscribers affected by a failed infrastructure asset, resolved from the
+    sub app's Zabbix-linked topology. Pass one of node_id / basestation_id /
+    olt_id / pon_port_id. Returns {subscribers, count, coverage}; the coverage
+    block flags where the e2e chain is incomplete."""
+    params = {
+        k: v
+        for k, v in {
+            "node_id": node_id,
+            "basestation_id": basestation_id,
+            "olt_id": olt_id,
+            "pon_port_id": pon_port_id,
+        }.items()
+        if v
+    }
     payload = _request_json(db, "GET", "/outages/impact", params=params)
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, dict):
         return {"subscribers": [], "count": 0, "coverage": {}}
     return data
+
+
+def fetch_infrastructure_assets(db: Session, *, q: str | None = None) -> list[dict[str, Any]]:
+    """Pickable infrastructure items (OLTs, PON ports, basestations) for the
+    infrastructure-ticket asset picker."""
+    params = {"q": q} if q else None
+    payload = _request_json(db, "GET", "/infrastructure/assets", params=params)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    return data if isinstance(data, list) else []
 
 
 def fetch_transactions(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:

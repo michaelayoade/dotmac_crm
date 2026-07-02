@@ -1,0 +1,152 @@
+{% extends "layouts/admin.html" %}
+
+{% block title %}Infrastructure Ticket - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6 max-w-3xl" x-data="infraTicketForm()" x-init="loadAssets()">
+    <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+        <a href="/admin/support/tickets" class="hover:text-primary-600">Tickets</a>
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+        <span class="text-slate-900 dark:text-white">Infrastructure ticket</span>
+    </nav>
+
+    <div>
+        <h1 class="text-2xl font-display font-bold text-slate-900 dark:text-white">Raise an infrastructure ticket</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            One ticket for a fault on an OLT, PON port, device or basestation — every affected customer is notified, and again when it's resolved.
+        </p>
+    </div>
+
+    <form method="POST" action="/admin/support/tickets/infrastructure" class="space-y-6" data-prevent-double-submit="1">
+        {% include "components/forms/csrf_input.html" %}
+        <input type="hidden" name="asset_type" :value="assetType">
+        <input type="hidden" name="asset_id" :value="assetId">
+        <input type="hidden" name="asset_label" :value="assetLabel">
+
+        <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 p-6 space-y-4">
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Infrastructure asset</label>
+                <input type="search" x-model="search" @input.debounce.400ms="loadAssets()" placeholder="Search OLT / PON port / basestation…"
+                    class="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-700/50 px-3 py-2 text-sm mb-2">
+                <select @change="onAssetChange($event)" x-ref="assetSelect"
+                    class="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-700/50 px-3 py-2 text-sm">
+                    <option value="">Select an asset…</option>
+                    <template x-for="a in assets" :key="a.id">
+                        <option :value="a.type + '|' + a.id + '|' + a.label" x-text="typeLabel(a.type) + ' · ' + a.label"></option>
+                    </template>
+                </select>
+                <p class="text-xs text-slate-400 mt-1" x-show="assetError" x-text="assetError"></p>
+            </div>
+
+            <!-- Impact preview -->
+            <div x-show="assetId" x-cloak class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-slate-50/50 dark:bg-slate-700/30">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Impact</span>
+                    <span x-show="previewLoading" class="text-xs text-slate-400">Checking…</span>
+                </div>
+                <div class="mt-1 flex items-baseline gap-2">
+                    <span class="font-display text-3xl font-bold text-slate-900 dark:text-white" x-text="affectedCount"></span>
+                    <span class="text-sm text-slate-500 dark:text-slate-400">customers will be notified</span>
+                </div>
+                <p x-show="topologyGap" x-cloak class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                    ⚠ The topology for this asset looks incomplete — some customers may be missing. Add them manually on the ticket if needed.
+                </p>
+                <p x-show="unmatched > 0" x-cloak class="mt-1 text-xs text-slate-400">
+                    <span x-text="unmatched"></span> customer(s) found on the network aren't matched in the CRM.
+                </p>
+                <p x-show="previewError" x-cloak class="mt-1 text-xs text-rose-500" x-text="previewError"></p>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Title</label>
+                <input type="text" name="title" required maxlength="200" placeholder="e.g. Fibre cut affecting Ikeja FDH-3"
+                    class="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-700/50 px-3 py-2 text-sm">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Description (sent to customers)</label>
+                <textarea name="description" rows="3" placeholder="We're aware of an issue affecting your service and are working to restore it."
+                    class="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-700/50 px-3 py-2 text-sm"></textarea>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Region</label>
+                    <select name="region" class="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-700/50 px-3 py-2 text-sm">
+                        <option value="">—</option>
+                        {% for region in region_options %}
+                        <option value="{{ region }}">{{ region }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Notify via</label>
+                    <select name="channel" class="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-700/50 px-3 py-2 text-sm">
+                        <option value="email">Email</option>
+                        <option value="whatsapp">WhatsApp</option>
+                        <option value="both">Email + WhatsApp</option>
+                    </select>
+                </div>
+            </div>
+
+            <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                <input type="checkbox" name="notify" value="true" checked class="rounded border-slate-300">
+                Notify affected customers now
+            </label>
+        </div>
+
+        <div class="flex items-center justify-end gap-3">
+            <a href="/admin/support/tickets" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:text-slate-900">Cancel</a>
+            <button type="submit" :disabled="!assetId"
+                class="px-5 py-2 rounded-xl bg-primary-600 text-white text-sm font-semibold btn-hover disabled:opacity-50 disabled:cursor-not-allowed">
+                Raise ticket &amp; notify
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+function infraTicketForm() {
+    return {
+        assets: [], search: '', assetError: '',
+        assetType: '', assetId: '', assetLabel: '',
+        affectedCount: 0, topologyGap: false, unmatched: 0,
+        previewLoading: false, previewError: '',
+        typeLabel(t) {
+            return {olt: 'OLT', pon_port: 'PON port', basestation: 'Basestation', device: 'Device', node: 'Device'}[t] || t;
+        },
+        async loadAssets() {
+            this.assetError = '';
+            try {
+                const url = '/admin/support/tickets/infrastructure/assets' + (this.search ? ('?q=' + encodeURIComponent(this.search)) : '');
+                const res = await fetch(url, {headers: {'Accept': 'application/json'}});
+                const data = await res.json();
+                this.assets = data.items || [];
+                if (data.error) this.assetError = data.error;
+            } catch (e) { this.assetError = 'Could not load assets.'; }
+        },
+        onAssetChange(ev) {
+            const parts = (ev.target.value || '').split('|');
+            this.assetType = parts[0] || '';
+            this.assetId = parts[1] || '';
+            this.assetLabel = parts.slice(2).join('|') || '';
+            if (this.assetId) this.preview();
+        },
+        async preview() {
+            this.previewLoading = true; this.previewError = '';
+            try {
+                const url = '/admin/support/tickets/infrastructure/impact-preview?asset_type=' +
+                    encodeURIComponent(this.assetType) + '&asset_id=' + encodeURIComponent(this.assetId);
+                const res = await fetch(url, {headers: {'Accept': 'application/json'}});
+                const data = await res.json();
+                this.affectedCount = data.affected_count || 0;
+                this.topologyGap = !!(data.coverage && data.coverage.has_topology_gaps);
+                this.unmatched = (data.unmatched_subscriber_numbers || []).length;
+                if (data.error) this.previewError = data.error;
+            } catch (e) { this.previewError = 'Could not check impact.'; }
+            finally { this.previewLoading = false; }
+        }
+    };
+}
+</script>
+{% endblock %}

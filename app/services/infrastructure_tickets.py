@@ -45,6 +45,8 @@ class InfrastructureTickets:
         *,
         node_id: str | None = None,
         basestation_id: str | None = None,
+        olt_id: str | None = None,
+        pon_port_id: str | None = None,
         manual_subscriber_ids: list[str | UUID] | None = None,
     ) -> dict[str, Any]:
         """Affected CRM subscriber ids = topology impact (mapped by subscriber
@@ -55,8 +57,14 @@ class InfrastructureTickets:
         unmatched: list[str] = []
         topology_count = 0
 
-        if node_id or basestation_id:
-            impact = selfcare.fetch_affected_subscribers(db, node_id=node_id, basestation_id=basestation_id)
+        if node_id or basestation_id or olt_id or pon_port_id:
+            impact = selfcare.fetch_affected_subscribers(
+                db,
+                node_id=node_id,
+                basestation_id=basestation_id,
+                olt_id=olt_id,
+                pon_port_id=pon_port_id,
+            )
             coverage = impact.get("coverage") or {}
             rows = impact.get("subscribers") or []
             topology_count = len(rows)
@@ -98,6 +106,8 @@ class InfrastructureTickets:
         description: str | None = None,
         node_id: str | None = None,
         basestation_id: str | None = None,
+        olt_id: str | None = None,
+        pon_port_id: str | None = None,
         manual_subscriber_ids: list[str | UUID] | None = None,
         asset_label: str | None = None,
         priority: TicketPriority = TicketPriority.high,
@@ -113,6 +123,8 @@ class InfrastructureTickets:
             db,
             node_id=node_id,
             basestation_id=basestation_id,
+            olt_id=olt_id,
+            pon_port_id=pon_port_id,
             manual_subscriber_ids=manual_subscriber_ids,
         )
         ids = affected["crm_subscriber_ids"]
@@ -128,7 +140,13 @@ class InfrastructureTickets:
                 region=region,
                 metadata_={
                     "infrastructure": True,
-                    "asset": {"node_id": node_id, "basestation_id": basestation_id, "label": asset_label},
+                    "asset": {
+                        "node_id": node_id,
+                        "basestation_id": basestation_id,
+                        "olt_id": olt_id,
+                        "pon_port_id": pon_port_id,
+                        "label": asset_label,
+                    },
                     "affected_subscriber_ids": [str(i) for i in ids],
                     "affected_count": len(ids),
                     "impact_coverage": affected["coverage"],

@@ -50,6 +50,18 @@ def _impact_summary(affected: dict) -> dict:
 
 
 @router.get(
+    "/tickets/infrastructure/assets",
+    tags=["tickets"],
+    dependencies=[Depends(require_permission("support:ticket:read"))],
+)
+def list_infrastructure_assets(q: str | None = Query(default=None), db: Session = Depends(get_db)):
+    """Pickable infrastructure items (OLTs, PON ports, basestations) for the picker."""
+    from app.services import selfcare
+
+    return {"items": selfcare.fetch_infrastructure_assets(db, q=q)}
+
+
+@router.get(
     "/tickets/infrastructure/impact-preview",
     tags=["tickets"],
     dependencies=[Depends(require_permission("support:ticket:read"))],
@@ -57,12 +69,16 @@ def _impact_summary(affected: dict) -> dict:
 def preview_infrastructure_impact(
     node_id: str | None = Query(default=None),
     basestation_id: str | None = Query(default=None),
+    olt_id: str | None = Query(default=None),
+    pon_port_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     """Who would be notified for an asset — plus topology coverage — before creating."""
-    if not node_id and not basestation_id:
-        raise HTTPException(status_code=400, detail="node_id or basestation_id is required")
-    affected = infrastructure_tickets.resolve_affected(db, node_id=node_id, basestation_id=basestation_id)
+    if not any([node_id, basestation_id, olt_id, pon_port_id]):
+        raise HTTPException(status_code=400, detail="An infrastructure asset id is required")
+    affected = infrastructure_tickets.resolve_affected(
+        db, node_id=node_id, basestation_id=basestation_id, olt_id=olt_id, pon_port_id=pon_port_id
+    )
     return _impact_summary(affected)
 
 
@@ -78,10 +94,16 @@ def create_infrastructure_ticket(
     auth=Depends(get_current_user),
 ):
     """Create one ticket for an infrastructure asset and notify every affected customer."""
-    if not (payload.node_id or payload.basestation_id or payload.manual_subscriber_ids):
+    if not (
+        payload.node_id
+        or payload.basestation_id
+        or payload.olt_id
+        or payload.pon_port_id
+        or payload.manual_subscriber_ids
+    ):
         raise HTTPException(
             status_code=400,
-            detail="Provide an infrastructure asset (node_id/basestation_id) or manual subscribers.",
+            detail="Provide an infrastructure asset (OLT / PON port / device / basestation) or manual subscribers.",
         )
     actor_id = str(auth.get("person_id")) if auth else None
     result = infrastructure_tickets.create(
@@ -90,6 +112,8 @@ def create_infrastructure_ticket(
         description=payload.description,
         node_id=payload.node_id,
         basestation_id=payload.basestation_id,
+        olt_id=payload.olt_id,
+        pon_port_id=payload.pon_port_id,
         manual_subscriber_ids=[str(s) for s in payload.manual_subscriber_ids],
         asset_label=payload.asset_label,
         region=payload.region,

@@ -26,7 +26,7 @@ def _patch_impact(monkeypatch, subscribers, coverage=None):
     monkeypatch.setattr(
         infra_mod.selfcare,
         "fetch_affected_subscribers",
-        lambda db, *, node_id=None, basestation_id=None: {
+        lambda db, *, node_id=None, basestation_id=None, olt_id=None, pon_port_id=None: {
             "subscribers": subscribers,
             "count": len(subscribers),
             "coverage": coverage or {"has_topology_gaps": False, "resolved_node_count": 1},
