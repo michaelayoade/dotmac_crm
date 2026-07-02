@@ -13,6 +13,8 @@ from app.models.vendor import (
     ProjectQuote,
     ProjectQuoteStatus,
     Vendor,
+    VendorPurchaseInvoice,
+    VendorPurchaseInvoiceStatus,
 )
 from app.schemas.vendor import AsBuiltRouteCreate
 from app.services.field.vendor_projects import field_vendor_projects
@@ -199,6 +201,51 @@ def test_detail_site_bundle_from_subscriber(db_session, vendor, person, project)
     assert site["access_notes"] == "Gate code 4455; ask for the site foreman."
     assert site["additional_contacts"] == []
     assert site["recent_visits"] == []
+
+
+def test_list_detailed_includes_quote_lifecycle(db_session, vendor, installation_project, submitted_quote):
+    """The job list carries each project's lifecycle state (bid/approval)."""
+    from decimal import Decimal
+
+    submitted_quote.total = Decimal("150000.00")
+    db_session.commit()
+
+    items = field_vendor_projects.list_mine_detailed(db_session, str(vendor.id))
+    assert len(items) == 1
+    lc = items[0]["lifecycle"]
+    assert lc["quote"]["status"] == "submitted"
+    assert lc["quote"]["total"] == 150000.0
+    assert lc["as_built"] is None
+    assert lc["billing"] is None
+
+
+def test_detail_lifecycle_tracks_as_built_and_billing(
+    db_session, vendor, person, installation_project, submitted_quote
+):
+    """After an as-built and an invoice exist, the detail lifecycle reflects both."""
+    field_vendor_projects.submit_as_built(
+        db_session,
+        str(vendor.id),
+        str(person.id),
+        str(installation_project.id),
+        AsBuiltRouteCreate(project_id=installation_project.id, geojson=_geojson(), actual_length_meters=100.0),
+    )
+    invoice = VendorPurchaseInvoice(
+        project_id=installation_project.id,
+        vendor_id=vendor.id,
+        invoice_number="PINV-2001",
+        status=VendorPurchaseInvoiceStatus.submitted,
+    )
+    db_session.add(invoice)
+    db_session.commit()
+
+    bundle = field_vendor_projects.get_detail(db_session, str(vendor.id), str(installation_project.id))
+    lc = bundle["lifecycle"]
+    assert lc["quote"]["status"] == "submitted"
+    assert lc["as_built"]["status"] == "submitted"
+    assert lc["billing"]["status"] == "submitted"
+    assert lc["billing"]["invoice_number"] == "PINV-2001"
+    assert lc["billing"]["erp_synced"] is False
 
 
 def test_staff_token_rejected_on_vendor_routes(db_session, person):

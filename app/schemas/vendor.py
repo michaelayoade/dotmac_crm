@@ -120,6 +120,42 @@ class FieldProjectSite(BaseModel):
     recent_visits: list[FieldVisitHistoryItem] = []
 
 
+class VendorQuoteState(BaseModel):
+    status: str | None = None
+    total: float | None = None
+    currency: str | None = None
+    submitted_at: datetime | None = None
+
+
+class VendorAsBuiltState(BaseModel):
+    status: str | None = None
+    submitted_at: datetime | None = None
+    report_available: bool = False
+
+
+class VendorBillingState(BaseModel):
+    status: str | None = None
+    invoice_number: str | None = None
+    total: float | None = None
+    currency: str | None = None
+    erp_synced: bool = False
+    erp_synced_at: datetime | None = None
+
+
+class VendorProjectLifecycle(BaseModel):
+    """Per-job state across the vendor lifecycle: bid → approval → as-built →
+    payment. Any stage is ``None`` until the crew reaches it."""
+
+    quote: VendorQuoteState | None = None
+    as_built: VendorAsBuiltState | None = None
+    billing: VendorBillingState | None = None
+
+
+class VendorProjectListItem(BaseModel):
+    project: InstallationProjectRead
+    lifecycle: VendorProjectLifecycle | None = None
+
+
 class ProjectQuoteBase(BaseModel):
     project_id: UUID
     vendor_id: UUID | None = None
