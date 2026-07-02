@@ -93,11 +93,18 @@
                 <input type="checkbox" name="notify" value="true" checked class="rounded border-slate-300">
                 Notify affected customers now
             </label>
+
+            <!-- Large blast-radius acknowledgement -->
+            <label x-show="affectedCount > largeThreshold" x-cloak
+                class="flex items-center gap-2 text-sm rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-amber-800 dark:text-amber-200">
+                <input type="checkbox" name="confirm_large" value="true" x-model="confirmLarge" class="rounded border-amber-400">
+                <span>I understand this will notify <strong x-text="affectedCount"></strong> customers.</span>
+            </label>
         </div>
 
         <div class="flex items-center justify-end gap-3">
             <a href="/admin/support/tickets" class="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:text-slate-900">Cancel</a>
-            <button type="submit" :disabled="!assetId"
+            <button type="submit" :disabled="!assetId || (affectedCount > largeThreshold && !confirmLarge)"
                 class="px-5 py-2 rounded-xl bg-primary-600 text-white text-sm font-semibold btn-hover disabled:opacity-50 disabled:cursor-not-allowed">
                 Raise ticket &amp; notify
             </button>
@@ -111,6 +118,7 @@ function infraTicketForm() {
         assets: [], search: '', assetError: '',
         assetType: '', assetId: '', assetLabel: '',
         affectedCount: 0, topologyGap: false, unmatched: 0,
+        largeThreshold: 200, confirmLarge: false,
         previewLoading: false, previewError: '',
         typeLabel(t) {
             return {olt: 'OLT', pon_port: 'PON port', basestation: 'Basestation', device: 'Device', node: 'Device'}[t] || t;

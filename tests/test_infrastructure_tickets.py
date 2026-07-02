@@ -137,3 +137,44 @@ def test_create_without_notify_skips_fanout(db_session, monkeypatch):
     result = infrastructure_tickets.create(db_session, title="Planned works", node_id="n", notify=False)
     assert result["notification"] == {"queued": 0, "skipped": 0, "selected": 0}
     assert fanout == {}  # queue_bulk never called
+
+
+def test_fanout_links_log_to_infra_ticket(db_session, monkeypatch):
+    s1 = _subscriber(db_session, "SUB-50")
+    _patch_impact(monkeypatch, [{"subscriber_number": "SUB-50"}])
+    fanout = _capture_fanout(monkeypatch)
+    result = infrastructure_tickets.create(db_session, title="Cabinet down", node_id="n")
+    # The fan-out is told to log against the infra ticket, not the sub's own ticket.
+    assert fanout["ticket_id"] == result["ticket"].id
+    del s1
+
+
+def test_large_impact_requires_confirmation(db_session, monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+
+    _patch_impact(monkeypatch, [])
+    _capture_fanout(monkeypatch)
+    many = [str(uuid.uuid4()) for _ in range(infra_mod.LARGE_IMPACT_THRESHOLD + 1)]
+    with pytest.raises(HTTPException) as exc:
+        infrastructure_tickets.create(db_session, title="Big outage", manual_subscriber_ids=many)
+    assert exc.value.status_code == 409
+
+
+def test_large_impact_proceeds_with_confirm(db_session, monkeypatch):
+    _patch_impact(monkeypatch, [])
+    _capture_fanout(monkeypatch)
+    many = [str(uuid.uuid4()) for _ in range(infra_mod.LARGE_IMPACT_THRESHOLD + 1)]
+    result = infrastructure_tickets.create(
+        db_session, title="Big outage", manual_subscriber_ids=many, confirm_large=True
+    )
+    assert result["notification"]["queued"] == len(many)
+
+
+def test_large_impact_guard_skipped_when_not_notifying(db_session, monkeypatch):
+    _patch_impact(monkeypatch, [])
+    _capture_fanout(monkeypatch)
+    many = [str(uuid.uuid4()) for _ in range(infra_mod.LARGE_IMPACT_THRESHOLD + 5)]
+    # No notification → no blast radius → no guard.
+    result = infrastructure_tickets.create(db_session, title="Silent", manual_subscriber_ids=many, notify=False)
+    assert result["ticket"].metadata_["affected_count"] == len(many)

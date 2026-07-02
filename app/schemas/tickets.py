@@ -191,6 +191,8 @@ class InfrastructureTicketCreate(BaseModel):
     email_subject: str | None = None
     email_body: str | None = None
     sms_body: str | None = None
+    # Acknowledge a large blast radius (over the notify threshold).
+    confirm_large: bool = False
 
 
 class InfrastructureTicketResolveRequest(BaseModel):
