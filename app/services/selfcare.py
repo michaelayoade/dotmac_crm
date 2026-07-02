@@ -412,6 +412,42 @@ def record_payment(
     return payment_id or None
 
 
+def create_subscription(
+    db: Session,
+    *,
+    subscriber_id: str,
+    offer_ref: str,
+    external_ref: str,
+    unit_price: Any = None,
+    start_at: Any = None,
+) -> dict[str, Any] | None:
+    """Create a subscription in dotmac_sub from a CRM sale (plus its first
+    invoice), so the customer's plan and its recurring charge show in the portal.
+
+    ``offer_ref`` is a dotmac_sub CatalogOffer id or code (the CRM picks a real
+    offer from ``fetch_offers``). Returns ``{subscription_id, invoice_id, status,
+    created}`` or None when sync is disabled / the call fails. Idempotent
+    server-side on ``external_ref``."""
+    offer_ref = str(offer_ref or "").strip()
+    external_ref = str(external_ref or "").strip()
+    if not subscriber_id or not offer_ref or not external_ref:
+        return None
+
+    body: dict[str, Any] = {
+        "subscriber_id": str(subscriber_id),
+        "offer_ref": offer_ref,
+        "external_ref": external_ref,
+    }
+    if unit_price is not None:
+        body["unit_price"] = str(unit_price)
+    if start_at is not None:
+        body["start_at"] = start_at.isoformat() if hasattr(start_at, "isoformat") else start_at
+
+    data = _request_json(db, "POST", "/subscriptions", json_body=body)
+    row = _unwrap_data(data) or {}
+    return row if isinstance(row, dict) else None
+
+
 def create_account_credit(
     db: Session,
     *,
