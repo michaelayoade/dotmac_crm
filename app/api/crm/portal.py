@@ -59,6 +59,19 @@ logger = get_logger(__name__)
 
 _ALLOWED_ACTORS = {"subscriber", "reseller"}
 
+# Every scope any portal route enforces via require_scope(). The mint rejects
+# anything outside this set (referrals stay subscriber-only — enforced at the
+# referrals endpoint — so no per-actor split is needed here).
+_ALLOWED_PORTAL_SCOPES = {
+    "projects:read",
+    "quotes:read",
+    "quotes:write",
+    "referrals:read",
+    "referrals:write",
+    "work_orders:read",
+    "work_orders:write",
+}
+
 
 def require_portal_mint(
     auth: dict = Depends(require_user_auth),
@@ -99,6 +112,15 @@ def mint_portal_session(
     subject = (payload.crm_subscriber_id or "").strip()
     if not subject:
         raise HTTPException(status_code=422, detail="crm_subscriber_id is required")
+    # Allow-list requested scopes (defense in depth): the mint is already gated
+    # to the trusted service account, but this stops an unknown/escalated scope
+    # from being encoded into a portal token if that JWT is ever misused.
+    invalid_scopes = set(payload.scopes) - _ALLOWED_PORTAL_SCOPES
+    if invalid_scopes:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported scope(s): {', '.join(sorted(invalid_scopes))}",
+        )
     token, expires_at = create_portal_token(db, subject_id=subject, actor=payload.actor, scopes=payload.scopes)
     return PortalSessionMintResponse(portal_token=token, expires_at=expires_at)
 
