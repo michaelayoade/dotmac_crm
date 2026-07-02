@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
+import '../execution/completion_wizard.dart' show photoCaptureProvider;
 import '../execution/execution_controller.dart';
 import '../jobs/job_detail_screen.dart' show uriLauncherProvider;
 import 'trace_recorder.dart';
@@ -158,6 +159,10 @@ class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
   Timer? _sampler;
   bool _submitting = false;
 
+  String? _variationType;
+  final List<AsBuiltLineItem> _lineItems = [];
+  int _photoCount = 0;
+
   @override
   void dispose() {
     _sampler?.cancel();
@@ -179,12 +184,33 @@ class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
     });
   }
 
+  Future<void> _addPhoto() async {
+    final captured = await ref.read(photoCaptureProvider)(installationProjectId: widget.projectId);
+    if (captured && mounted) {
+      setState(() => _photoCount++);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Photo queued — uploads when online')),
+      );
+    }
+  }
+
+  Future<void> _addLineItem() async {
+    final item = await showModalBottomSheet<AsBuiltLineItem>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => const _LineItemSheet(),
+    );
+    if (item != null) setState(() => _lineItems.add(item));
+  }
+
   Future<void> _submit() async {
     setState(() => _submitting = true);
     await ref.read(vendorRepositoryProvider).submitAsBuilt(
           projectId: widget.projectId,
           geojson: recorder.toGeoJson(),
           actualLengthMeters: recorder.distanceMeters,
+          variationType: _variationType,
+          lineItems: _lineItems,
         );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -196,48 +222,194 @@ class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(title: const Text('As-built capture')),
-      body: Padding(
+      body: ListView(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (widget.prefillLengthMeters != null)
-              Text(
-                'Previous submission: ${widget.prefillLengthMeters!.toStringAsFixed(0)} m (rejected)',
-                key: const Key('prefill-banner'),
+        children: [
+          if (widget.prefillLengthMeters != null)
+            Text(
+              'Previous submission: ${widget.prefillLengthMeters!.toStringAsFixed(0)} m (rejected)',
+              key: const Key('prefill-banner'),
+            ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Text(
+                    '${recorder.points.length} points · ${recorder.distanceMeters.toStringAsFixed(0)} m',
+                    key: const Key('trace-pill'),
+                    style: theme.textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    key: const Key('record-toggle'),
+                    onPressed: _toggleRecording,
+                    icon: Icon(recorder.recording ? Icons.stop : Icons.fiber_manual_record),
+                    label: Text(recorder.recording ? 'Stop recording' : 'Start walking the route'),
+                  ),
+                ],
               ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    Text(
-                      '${recorder.points.length} points · ${recorder.distanceMeters.toStringAsFixed(0)} m',
-                      key: const Key('trace-pill'),
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton.icon(
-                      key: const Key('record-toggle'),
-                      onPressed: _toggleRecording,
-                      icon: Icon(recorder.recording ? Icons.stop : Icons.fiber_manual_record),
-                      label: Text(recorder.recording ? 'Stop recording' : 'Start walking the route'),
-                    ),
-                  ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Evidence photos — queued to the same offline outbox, uploaded
+          // against this installation project.
+          OutlinedButton.icon(
+            key: const Key('add-photo'),
+            onPressed: _addPhoto,
+            icon: const Icon(Icons.add_a_photo_outlined),
+            label: Text(_photoCount == 0 ? 'Add photo' : 'Add photo ($_photoCount)'),
+          ),
+          const SizedBox(height: 16),
+          Text('Variation (optional)', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 4),
+          DropdownButtonFormField<String?>(
+            key: const Key('variation-type'),
+            initialValue: _variationType,
+            decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+            items: [
+              const DropdownMenuItem(value: null, child: Text('None')),
+              for (final v in asBuiltVariationTypes)
+                DropdownMenuItem(value: v, child: Text(v.replaceAll('_', ' '))),
+            ],
+            onChanged: (v) => setState(() => _variationType = v),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(child: Text('Line items', style: theme.textTheme.titleSmall)),
+              TextButton.icon(
+                key: const Key('add-line-item'),
+                onPressed: _addLineItem,
+                icon: const Icon(Icons.add),
+                label: const Text('Add'),
+              ),
+            ],
+          ),
+          if (_lineItems.isEmpty)
+            Text('None', style: theme.textTheme.bodySmall)
+          else
+            for (var i = 0; i < _lineItems.length; i++)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(_lineItems[i].description ?? _lineItems[i].itemType ?? 'Item'),
+                subtitle: Text('${_lineItems[i].quantity} × ${_lineItems[i].unitPrice}'),
+                trailing: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() => _lineItems.removeAt(i)),
                 ),
               ),
-            ),
-            const Spacer(),
-            FilledButton(
-              key: const Key('submit-asbuilt'),
-              onPressed: !recorder.recording && recorder.hasUsableTrace && !_submitting ? _submit : null,
-              child: const Text('Review & submit'),
-            ),
-          ],
+          const SizedBox(height: 24),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: FilledButton(
+            key: const Key('submit-asbuilt'),
+            onPressed: !recorder.recording && recorder.hasUsableTrace && !_submitting ? _submit : null,
+            child: const Text('Review & submit'),
+          ),
         ),
+      ),
+    );
+  }
+}
+
+/// Bottom-sheet form for one as-built line item.
+class _LineItemSheet extends StatefulWidget {
+  const _LineItemSheet();
+
+  @override
+  State<_LineItemSheet> createState() => _LineItemSheetState();
+}
+
+class _LineItemSheetState extends State<_LineItemSheet> {
+  final _description = TextEditingController();
+  final _itemType = TextEditingController();
+  final _quantity = TextEditingController(text: '1');
+  final _unitPrice = TextEditingController(text: '0');
+
+  @override
+  void dispose() {
+    _description.dispose();
+    _itemType.dispose();
+    _quantity.dispose();
+    _unitPrice.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final qty = num.tryParse(_quantity.text.trim()) ?? 1;
+    Navigator.of(context).pop(
+      AsBuiltLineItem(
+        description: _description.text.trim().isEmpty ? null : _description.text.trim(),
+        itemType: _itemType.text.trim().isEmpty ? null : _itemType.text.trim(),
+        quantity: qty < 1 ? 1 : qty,
+        unitPrice: num.tryParse(_unitPrice.text.trim()) ?? 0,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Add line item', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('li-description'),
+            controller: _description,
+            decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _itemType,
+            decoration: const InputDecoration(labelText: 'Item type (optional)', border: OutlineInputBorder()),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  key: const Key('li-quantity'),
+                  controller: _quantity,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Qty', border: OutlineInputBorder()),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextField(
+                  key: const Key('li-unit-price'),
+                  controller: _unitPrice,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Unit price', border: OutlineInputBorder()),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            key: const Key('li-save'),
+            onPressed: _save,
+            child: const Text('Add'),
+          ),
+        ],
       ),
     );
   }

@@ -183,6 +183,36 @@ void main() {
       expect(payload['project_id'], 'p-1');
       expect(payload['geojson']['type'], 'LineString');
       expect(payload['actual_length_meters'], greaterThan(100));
+      // No variation / line items were supplied → keys omitted.
+      expect(payload.containsKey('variation_type'), isFalse);
+      expect(payload.containsKey('line_items'), isFalse);
+    });
+
+    test('submit includes variation type and line items when supplied', () async {
+      final recorder = TraceRecorder()..start();
+      recorder.addPoint((latitude: 6.0, longitude: 3.0));
+      recorder.addPoint((latitude: 6.001, longitude: 3.001));
+      recorder.stop();
+
+      await container.read(vendorRepositoryProvider).submitAsBuilt(
+            projectId: 'p-1',
+            geojson: recorder.toGeoJson(),
+            actualLengthMeters: recorder.distanceMeters,
+            variationType: 'route_deviation',
+            lineItems: const [
+              AsBuiltLineItem(description: 'Duct 50m', cableType: 'ADSS', fiberCount: 48, quantity: 50, unitPrice: 120),
+            ],
+          );
+
+      final rows = await db.select(db.outboxEntries).get();
+      final payload = (jsonDecode(rows.single.payloadJson) as Map).cast<String, dynamic>();
+      expect(payload['variation_type'], 'route_deviation');
+      final items = (payload['line_items'] as List).cast<Map>();
+      expect(items.single['description'], 'Duct 50m');
+      expect(items.single['cable_type'], 'ADSS');
+      expect(items.single['fiber_count'], 48);
+      expect(items.single['quantity'], 50);
+      expect(items.single['unit_price'], 120);
     });
   });
 }

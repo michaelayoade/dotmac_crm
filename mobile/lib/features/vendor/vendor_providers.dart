@@ -167,6 +167,48 @@ class VendorProjectDetail {
       );
 }
 
+/// A material/labour line on an as-built submission. Mirrors the backend
+/// AsBuiltLineItemInput; the crew captures what was actually installed so the
+/// reviewer can reconcile against the quote.
+class AsBuiltLineItem {
+  const AsBuiltLineItem({
+    this.itemType,
+    this.description,
+    this.cableType,
+    this.fiberCount,
+    this.spliceCount,
+    this.quantity = 1,
+    this.unitPrice = 0,
+  });
+
+  final String? itemType;
+  final String? description;
+  final String? cableType;
+  final int? fiberCount;
+  final int? spliceCount;
+  final num quantity;
+  final num unitPrice;
+
+  Map<String, dynamic> toJson() => {
+        'item_type': ?itemType,
+        'description': ?description,
+        'cable_type': ?cableType,
+        'fiber_count': ?fiberCount,
+        'splice_count': ?spliceCount,
+        'quantity': quantity,
+        'unit_price': unitPrice,
+      };
+}
+
+/// As-built variation types — matches the backend VariationType enum.
+const asBuiltVariationTypes = <String>[
+  'scope_change',
+  'route_deviation',
+  'material_change',
+  'additional_work',
+  'reduction',
+];
+
 class VendorRepository {
   VendorRepository(this._ref);
 
@@ -189,6 +231,8 @@ class VendorRepository {
     required Map<String, dynamic> geojson,
     required double actualLengthMeters,
     String? variationReason,
+    String? variationType,
+    List<AsBuiltLineItem> lineItems = const [],
   }) async {
     final clientRef = const Uuid().v4();
     await _ref.read(syncServiceProvider).enqueue(
@@ -199,6 +243,8 @@ class VendorRepository {
         'geojson': geojson,
         'actual_length_meters': double.parse(actualLengthMeters.toStringAsFixed(1)),
         'variation_reason': ?variationReason,
+        'variation_type': ?variationType,
+        if (lineItems.isNotEmpty) 'line_items': [for (final item in lineItems) item.toJson()],
       },
     );
     await _ref.read(syncServiceProvider).flushOutbox();
