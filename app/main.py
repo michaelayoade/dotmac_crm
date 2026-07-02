@@ -681,6 +681,11 @@ def _start_jobs():
                 str(resolve_value(db, SettingDomain.integration, "vllm_secondary_base_url") or ""),
             ]
         validate_deepseek_startup_env(base_urls=deepseek_startup_base_urls)
+        if not settings.metrics_token:
+            logger.warning(
+                "METRICS_TOKEN is not set — /metrics is publicly readable (auth fails open). "
+                "Set METRICS_TOKEN in production and have the scraper send it, or restrict /metrics at the ingress."
+            )
         seed_performance_settings(db)
         seed_sla_defaults(db)
         seed_bootstrap_admin_user(db)
