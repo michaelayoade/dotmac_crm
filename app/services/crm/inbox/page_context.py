@@ -445,7 +445,7 @@ def _build_manager_panel_context(
             "instagram": int(channel_stats.get("instagram_dm") or 0),
             "comments": int(channel_stats.get("comments") or 0),
         },
-        "agents": agent_rows[:12],
+        "agents": agent_rows,
         "active_conversations": active_conversations[:10],
     }
 
