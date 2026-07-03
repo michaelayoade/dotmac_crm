@@ -3382,6 +3382,12 @@ _NCC_TOWN_ALIASES = {
 _NCC_TOWN_LOOKUP = {_normalize_ncc_region(town): town for town in _NCC_ACCEPTED_TOWNS}
 _NCC_TOWN_LOOKUP.update(_NCC_TOWN_ALIASES)
 _NCC_TOWN_MATCHERS = sorted(_NCC_TOWN_LOOKUP.items(), key=lambda item: len(item[0]), reverse=True)
+
+
+def _ncc_town_tuple(value: str) -> tuple[str, ...]:
+    return tuple(part.strip() for part in value.split(";") if part.strip())
+
+
 _NCC_FCT_DISTRICT_ROWS = (
     (
         "Municipal Area Council",
@@ -3561,12 +3567,145 @@ _NCC_FCT_DISTRICT_ROWS = (
             "Wowo",
         ),
     ),
+    (
+        "Abaji",
+        "Abaji",
+        _ncc_town_tuple(
+            "Agyana; Bago; Bandagi; Dapala; Ebagi; Gbogbogo; Kebba; Manderegi; Nah. Tosho; "
+            "Nahalati Sabo; Nuku; Panagana; Rimba; Uboshenu; Yawule"
+        ),
+    ),
+    (
+        "Abaji",
+        "Yaba",
+        _ncc_town_tuple(
+            "Abuja; Adagba; Afo; Akori; Alampa; Allu; Ayaba; Bari-Bezi; Bazi-Bezi; Busga; "
+            "Chakun; Chundugo; Dabbare; Dara; Dewu; Domi; Dum; Madechi; Ekki; Fakon Tando; "
+            "Gadabiri; Gari; Gasakba; Gasukpa; Gawu; Gawun; Gidan Maisaye; Gurdi; Guruza; "
+            "Gwanda; Gwona; Jamigbe; Kafako; Kpace; Kularida; Kutara; Kwago; Kwakwa; Kyawu; "
+            "Lafia Yaba; Managi; Nadichi; Nagun; Nassarawa; Nowog; Nyembo; Pako Base; Panagu; "
+            "Pandaji; Pankuru; Panpari; Piowe; Sabongida; Sarowo-Abdu; Selifulyu; Shadad; "
+            "Soitan; Takpeshi; Talpa; Tanaga; Wapa; Yelwa; Yelwa Gawu; Zuwa"
+        ),
+    ),
+    (
+        "Bwari",
+        "Bwari",
+        _ncc_town_tuple(
+            "Apugye; Barago; Baran Rafi; Barangoni; Barapa; Bazango Bwari; Bunko; Byazhi; "
+            "Chikale; Dankoru; Dauda; Donabayi; Duba; Dutse Alhaji; Gaba; Galuwyi; "
+            "Gidan Babachi; Gidan Baushe; Gidan Pawa; Gudupe; Gutpo; Igu; Jigo; Kaima; "
+            "Karaku; Karawa; Kasaru; Katampe; Kawadashi; Kawu; Kikumi; Kimtaru; Kogo; Kubwa; "
+            "Kuchibuyi; Kuduru; Kurumin Daudu; Kute; Kwabwure; Panda; Panunuki; Paspa; Payi; "
+            "Piko; Rugan S/Fulani; Ruriji; Sabon Gari; Sagwari; Shere; Simape; Sumpe; "
+            "T/Danzaria; T/Manu; Tokulo; Tudun Wada; Tunga Bijimi; Tunga-Adoka; Tungan Sarkin; "
+            "Ushafa; Yaba; Yajida; Yaupe; Yayidna; Zango; Zuma"
+        ),
+    ),
+    (
+        "Gwagwalada",
+        "Gwagwalada",
+        _ncc_town_tuple(
+            "Agota; Akwayi; Akyakyata; Anguwar Hausawa; Anguwar Sarki; Atopi; Bargada Bassa; "
+            "Basan Zuba; Bassa; Biyu; Boka; Chaboda; Chitumu; Dabagayi; Dada; Dada Gongo; "
+            "Damin Kara; Dawaki; Diko; Dobi; Gidan Ango; Gidan Bala; Gidan Dandu; Gidan Gade; "
+            "Goi; Gongo; Gurebare; Gwako; Gwale; Gwari; Gwagwalada; Ibwa; Ibwa Sarki; Ikwa; "
+            "Kaburufi; Kace Bassa; Kace Sabo; Kace Sarki; Kaida Bassa; Kaida Gwari; Kalangu; "
+            "Kasanki; Kutunku; Lafiya; Ledi; Makama; Paiko; Pako; Paso Gwari; Sabon Gari; "
+            "Shaga I; Shaga II; Shida; Soko; Tungan Adamu; Tungan Auta; Tungan Giwa; "
+            "Tungan Jika; Tungan Salihu; Wuma; Wumi; Zuba"
+        ),
+    ),
+    (
+        "Kuje",
+        "Kuje",
+        _ncc_town_tuple(
+            "Damwa; Achmbi; Aduga; Agwai; Atsauna; Baban Kurmi; Bamishi; Banayi II; "
+            "Barayi Pada; Bugako; Buzunkure; Chegasu; Chibiri; Chida; Chukuku; Dafara; "
+            "Damakusa; Damangata; Dubia; Duma; Duriya; Gafere Sabo; Ganagu Sabo; Gando; "
+            "Gashe; Gaube; Gawu; Gbebasa; Gidan Jatau; Gidan-Bawa; Gwari; Iye; Jeli; Kabi; "
+            "Kabikasa; Kamo G.; Kanzo; Kapa; Kasada; Kiyi; Kuja Pada; Kusaki; Kutada; "
+            "Kwaku; Lafiya; Lafiya Gwari; Lamiga; Madatta; Mogada; Nufawa; Pasali; Peki; "
+            "Pima; Rubokya; Sabon Gwaria; Sauka; Shaji; Takwa Gwari; Takwa Hausawa; Tukpeki; "
+            "Tukuba I; Tukuba II; Wumi; Yalwa; Yamma; Yanga; Zangon Kara; Zilu"
+        ),
+    ),
+    (
+        "Kuje",
+        "Rubochi",
+        _ncc_town_tuple(
+            "Adegbe; Affa; Ahinza; Attako; Bida; Buga; Darika; Gabiya; Gidan Bawa; Gombe; "
+            "Gova; Gudun Karya; Gwagwada; Gyana; Huni-Gade; Huni-Gwari; Kujekwa; Kule; "
+            "Kutunbwa; Mabamade; Munu; Odun Bisa; Odun Kasa; Perri; Rubatu; Rubochi; Rugese; "
+            "Sabe; Sungba; Tika; Tuturutu; Ukya; Ungwar-Madaki; Ure; Yaba; Yewusa; Zagabutu; "
+            "Zoge; Zokutu"
+        ),
+    ),
+    (
+        "Kwali",
+        "Ashara",
+        _ncc_town_tuple(
+            "2 Tudu; Ahuwye; Akapo; Angun Tunga; Angun Wakili; Angun Woji Woji; Ashara; "
+            "Bassoni; Bodolo; Chekanci; Daganaruwa Bassa; Damakusa Gwari; Daniwayo; Eke; "
+            "Gomani; Gorgbe; Gulo; Gwaji; Gwan auta; Huton; Janruwa; Kona Mada; Kpessili; "
+            "Kukka; Kukka Bushe; Kundu Lele; Kunguni; Maikwari; Mumun; Nboni; Nzakpara; "
+            "Padama; Puka; Pukafa; Rarra; Riwaza; Sabo Gari Gurara; Sadaba; Sharra; "
+            "T. Sarki; Takuro Mallan; Tekpesse; Tudu Wada Mangu"
+        ),
+    ),
+    (
+        "Kwali",
+        "Dafa",
+        _ncc_town_tuple(
+            "Azaya; Dafa; Dafa SaboDaji; Galo; Gugwa; Kangon Adamu; Kpewuye; Kye; Puka; Tungan Galadima; Tungan Gani; Tungan Guli; Tungan Tofa"
+        ),
+    ),
+    (
+        "Kwali",
+        "Gumbo",
+        _ncc_town_tuple(
+            "Anini; Elle; Gidan Duniya; Gidan Makaniki; Gumbo; Kamadi; Kwaita Hausa; Lukoda; Piri; Shepikati; Tusun Fulani; Tutubwa"
+        ),
+    ),
+    ("Kwali", "Kilankwa", _ncc_town_tuple("Chukuku; Kilankwa I; Kilankwa II; Petti; Sheda Galadima; Sheda Sarki")),
+    (
+        "Kwali",
+        "Kwali",
+        _ncc_town_tuple(
+            "Bonugo; Dafara; Ebo; Farakuti; Farakuti I; Farakuti II; Fulani; Kigbe; Koda; Kwaida Tsoho; Kwaita Sabo; Kwali; Lambata; Leda; Police Barracks; Rugan Mal. Idris; Rugan Rabo; Sarki; Yambabu"
+        ),
+    ),
+    (
+        "Kwali",
+        "Pai",
+        _ncc_town_tuple(
+            "Bako; Bobota; Ceceyi; Dabi; Kuti Chichi; Leleyi; Leleyi Bassa; Pai Fulani; Pai Gwari; Tatu; Tukurwa"
+        ),
+    ),
+    (
+        "Kwali",
+        "Wako",
+        _ncc_town_tuple(
+            "(Ubosharu); Anguwar Baushe; Awawa; Azarachi; Bukpe; Chida; Dangara; Dapa; Gadabiyu; Kibuyi; Sa'adu; Sabon Gari; Ubo Saidu; Wako; Yewuti"
+        ),
+    ),
+    (
+        "Kwali",
+        "Yangoji",
+        _ncc_town_tuple(
+            "Adadu 1; Adadu 11; Bwoto; Daka; Ijah Dabuta; Ijah Sarki; Koroki; Kuyi; Nitse; Sukuku; Tampe; Yangoji"
+        ),
+    ),
+    ("Kwali", "Yebu", _ncc_town_tuple("Ebo; Kigbe; Yebu")),
 )
 _NCC_FCT_TABLE_LOOKUP: dict[str, tuple[str, str]] = {}
 for _lga, _district, _towns in _NCC_FCT_DISTRICT_ROWS:
     _NCC_FCT_TABLE_LOOKUP[_normalize_ncc_region(_district)] = (_lga, _district)
     for _town in _towns:
-        _NCC_FCT_TABLE_LOOKUP[_normalize_ncc_region(_town)] = (_lga, _town)
+        _normalized_town = _normalize_ncc_region(_town)
+        if _normalized_town == "abuja":
+            continue
+        _NCC_FCT_TABLE_LOOKUP[_normalized_town] = (_lga, _town)
 _NCC_FCT_TABLE_ALIASES = {
     "dei dei": ("Municipal Area Council", "Dei-die"),
     "garki 2": ("Municipal Area Council", "Garki"),

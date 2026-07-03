@@ -284,6 +284,29 @@ def test_ncc_location_uses_new_fct_table_before_old_list():
     )
 
 
+def test_ncc_location_maps_non_amac_fct_table_rows():
+    assert reports._map_ncc_location("No 7, Kubwa, Abuja") == (
+        "Bwari",
+        "Kubwa",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+    assert reports._map_ncc_location("Main Road, Zuba") == (
+        "Gwagwalada",
+        "Zuba",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+    assert reports._map_ncc_location("Market Road, Rubochi") == (
+        "Kuje",
+        "Rubochi",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+    assert reports._map_ncc_location("Behind Clinic, Dafa") == (
+        "Kwali",
+        "Dafa",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+
+
 def test_ncc_location_uses_region_when_address_has_no_accepted_town_match():
     ticket = SimpleNamespace(
         region="Gudu",
