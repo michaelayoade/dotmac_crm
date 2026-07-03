@@ -1,6 +1,8 @@
 """Tests for customer_search service."""
 
-from app.models.subscriber import Organization
+from app.models.subscriber import Organization, Subscriber, SubscriberStatus
+from app.models.tickets import Ticket, TicketStatus
+from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.services import customer_search as customer_search_service
 
 
@@ -79,6 +81,50 @@ class TestSearch:
         person_result = next((r for r in result if r["id"] == person.id), None)
         assert person_result is not None
         assert person.email in person_result["label"]
+
+    def test_person_result_includes_mobile_customer_detail_fields(self, db_session, person):
+        """Test person results include the mobile customer detail payload."""
+        person.phone = "+2348012345678"
+        person.address_line1 = "Fallback Street"
+        person.city = "Abuja"
+        subscriber = Subscriber(
+            person_id=person.id,
+            subscriber_number="SUB-SEARCH-1",
+            status=SubscriberStatus.active,
+            service_plan="Home Fiber 100",
+            service_address_line1="12 Fiber Street",
+            service_city="Lagos",
+        )
+        db_session.add(subscriber)
+        db_session.flush()
+        ticket = Ticket(
+            subscriber_id=subscriber.id,
+            customer_person_id=person.id,
+            title="Slow internet",
+            status=TicketStatus.open,
+            number="TCK-001",
+        )
+        job = WorkOrder(
+            subscriber_id=subscriber.id,
+            title="Install router",
+            status=WorkOrderStatus.completed,
+        )
+        db_session.add_all([ticket, job])
+        db_session.commit()
+
+        result = customer_search_service.search(db_session, person.first_name)
+        person_result = next((r for r in result if r["id"] == person.id), None)
+
+        assert person_result is not None
+        assert person_result["email"] == person.email
+        assert person_result["phone"] == "+2348012345678"
+        assert person_result["address_text"] == "12 Fiber Street, Lagos"
+        assert person_result["account_status"] == "active"
+        assert person_result["service_plan"] == "Home Fiber 100"
+        assert person_result["recent_jobs"][0]["title"] == "Install router"
+        assert person_result["recent_jobs"][0]["status"] == "completed"
+        assert person_result["recent_tickets"][0]["title"] == "Slow internet"
+        assert person_result["recent_tickets"][0]["reference"] == "TCK-001"
 
     def test_results_are_sorted_alphabetically(self, db_session):
         """Test results are sorted alphabetically by label."""

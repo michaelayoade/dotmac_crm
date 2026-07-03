@@ -6,6 +6,7 @@ import '../core/api/token_store.dart' show LoginMode;
 import '../features/auth/auth_state.dart';
 import '../features/auth/login_screen.dart';
 import '../features/auth/mfa_screen.dart';
+import '../features/customers/customer_models.dart';
 import '../features/customers/customer_lookup_screen.dart';
 import '../features/jobs/job_detail_screen.dart';
 import '../features/location/location_tracking_controller.dart';
@@ -67,6 +68,19 @@ GoRouter buildRouter(Ref ref) {
           initialCustomerId: state.uri.queryParameters['customerId'],
           initialCustomerLabel: state.uri.queryParameters['customerLabel'],
           initialCustomerRef: state.uri.queryParameters['customerRef'],
+        ),
+      ),
+      GoRoute(
+        path: '/sales/:id',
+        builder: (_, state) =>
+            SalesOrderDetailScreen(id: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/customers/:id',
+        builder: (_, state) => CustomerDetailScreen(
+          customer: state.extra is CustomerLookupResult
+              ? state.extra! as CustomerLookupResult
+              : CustomerLookupResult.fromQuery(state.uri.queryParameters),
         ),
       ),
       StatefulShellRoute.indexedStack(
@@ -199,7 +213,9 @@ class _AppShell extends ConsumerWidget {
     final items = isVendor ? _vendorNav : _staffNav;
     // Map the active branch to its position in the visible set (0 if the
     // current branch is hidden for this mode).
-    final selected = items.indexWhere((i) => i.branchIndex == shell.currentIndex);
+    final selected = items.indexWhere(
+      (i) => i.branchIndex == shell.currentIndex,
+    );
     return Scaffold(
       body: LocationTrackingHost(child: shell),
       bottomNavigationBar: NavigationBar(

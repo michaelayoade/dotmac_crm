@@ -176,6 +176,13 @@ class FieldCustomerSearchItem(BaseModel):
     type: Literal["person"]
     label: str
     ref: str
+    email: str | None = None
+    phone: str | None = None
+    address_text: str | None = None
+    account_status: str | None = None
+    service_plan: str | None = None
+    recent_jobs: list[dict] = Field(default_factory=list)
+    recent_tickets: list[dict] = Field(default_factory=list)
 
 
 class FieldSalesOrderLineCreate(BaseModel):

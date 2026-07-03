@@ -97,6 +97,191 @@ class _SalesOrderTile extends StatelessWidget {
           ].join(' · '),
         ),
         trailing: Text('${order.currency} ${order.total.toStringAsFixed(2)}'),
+        onTap: () => context.push('/sales/${order.id}'),
+      ),
+    );
+  }
+}
+
+class SalesOrderDetailScreen extends ConsumerWidget {
+  const SalesOrderDetailScreen({super.key, required this.id});
+
+  final String id;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final order = ref.watch(salesOrderProvider(id));
+    return Scaffold(
+      appBar: AppBar(title: const Text('Sales order')),
+      body: order.when(
+        data: (item) => RefreshIndicator(
+          onRefresh: () async {
+            ref
+              ..invalidate(salesOrdersProvider)
+              ..invalidate(salesOrderProvider(id));
+          },
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(
+                item.displayNumber,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                DateFormat(
+                  'd MMM yyyy, HH:mm',
+                ).format((item.createdAt ?? DateTime.now()).toLocal()),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 16),
+              _OrderSummaryCard(order: item),
+              const SizedBox(height: 12),
+              _OrderLinesCard(order: item),
+              if (item.notes != null && item.notes!.trim().isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Notes',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(item.notes!),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (_, _) =>
+            const Center(child: Text('Could not load this sales order')),
+      ),
+    );
+  }
+}
+
+class _OrderSummaryCard extends StatelessWidget {
+  const _OrderSummaryCard({required this.order});
+
+  final SalesOrder order;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Customer', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 6),
+            Text(order.customerDisplay),
+            const Divider(height: 24),
+            _SummaryRow(
+              label: 'Status',
+              value: order.status.replaceAll('_', ' '),
+            ),
+            _SummaryRow(
+              label: 'Payment',
+              value: order.paymentStatus.replaceAll('_', ' '),
+            ),
+            _SummaryRow(
+              label: 'Subtotal',
+              value: _money(order.currency, order.subtotal),
+            ),
+            _SummaryRow(
+              label: 'Total',
+              value: _money(order.currency, order.total),
+            ),
+            _SummaryRow(
+              label: 'Balance due',
+              value: _money(order.currency, order.balanceDue),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  const _SummaryRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(child: Text(label)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+}
+
+class _OrderLinesCard extends StatelessWidget {
+  const _OrderLinesCard({required this.order});
+
+  final SalesOrder order;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Lines', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            if (order.lines.isEmpty)
+              const Text('No line items')
+            else
+              for (final line in order.lines)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              line.description,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${_formatQuantity(line.quantity)} x ${_money(order.currency, line.unitPrice)}',
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(_money(order.currency, line.amount)),
+                    ],
+                  ),
+                ),
+          ],
+        ),
       ),
     );
   }
@@ -199,14 +384,30 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
     if (customer == null || _lines.isEmpty || _saving) return;
     setState(() => _saving = true);
     try {
-      await ref
+      final order = await ref
           .read(salesRepositoryProvider)
           .createOrder(customer: customer, lines: _lines, notes: _notes.text);
       ref.invalidate(salesOrdersProvider);
-      if (mounted) context.go('/sales');
+      if (mounted) context.go('/sales/${order.id}');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  void _editLine(int index) {
+    final line = _lines[index];
+    setState(() {
+      _lines.removeAt(index);
+      _selectedItem = line.item;
+      _itemSearch.text = line.item?.displayName ?? '';
+      _description.text = line.description;
+      _quantity.text = _formatQuantity(line.quantity);
+      _unitPrice.text = line.unitPrice.toStringAsFixed(2);
+    });
+  }
+
+  void _removeLine(int index) {
+    setState(() => _lines.removeAt(index));
   }
 
   @override
@@ -301,19 +502,37 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
           ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
+            key: const Key('add-sales-line-action'),
             onPressed: _addLine,
             icon: const Icon(Icons.add),
             label: const Text('Add line'),
           ),
           const SizedBox(height: 16),
-          for (final line in _lines)
+          for (final (index, line) in _lines.indexed)
             ListTile(
               contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.receipt_long_outlined),
               title: Text(line.description),
               subtitle: Text(
                 '${_formatQuantity(line.quantity)} x NGN ${line.unitPrice.toStringAsFixed(2)}',
               ),
-              trailing: Text('NGN ${line.amount.toStringAsFixed(2)}'),
+              trailing: Wrap(
+                spacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(_money('NGN', line.amount)),
+                  IconButton(
+                    tooltip: 'Edit line',
+                    onPressed: () => _editLine(index),
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Remove line',
+                    onPressed: () => _removeLine(index),
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+              ),
             ),
           if (_lines.isNotEmpty)
             Align(
@@ -346,6 +565,9 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
 String _formatQuantity(double value) => value == value.roundToDouble()
     ? value.toInt().toString()
     : value.toString();
+
+String _money(String currency, double value) =>
+    '$currency ${value.toStringAsFixed(2)}';
 
 class _CustomerSuggestions extends StatelessWidget {
   const _CustomerSuggestions({

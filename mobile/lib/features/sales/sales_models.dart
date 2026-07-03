@@ -71,11 +71,14 @@ class SalesOrderLine {
 class SalesOrder {
   const SalesOrder({
     required this.id,
+    required this.personId,
     required this.status,
     required this.paymentStatus,
     required this.currency,
+    required this.subtotal,
     required this.total,
     required this.balanceDue,
+    this.customerLabel,
     this.orderNumber,
     this.notes,
     this.createdAt,
@@ -83,11 +86,14 @@ class SalesOrder {
   });
 
   final String id;
+  final String personId;
   final String status;
   final String paymentStatus;
   final String currency;
+  final double subtotal;
   final double total;
   final double balanceDue;
+  final String? customerLabel;
   final String? orderNumber;
   final String? notes;
   final DateTime? createdAt;
@@ -95,11 +101,14 @@ class SalesOrder {
 
   factory SalesOrder.fromJson(Map<String, dynamic> json) => SalesOrder(
     id: json['id'].toString(),
+    personId: json['person_id']?.toString() ?? '',
     status: json['status'] as String? ?? 'draft',
     paymentStatus: json['payment_status'] as String? ?? 'pending',
     currency: json['currency'] as String? ?? 'NGN',
+    subtotal: _double(json['subtotal']),
     total: _double(json['total']),
     balanceDue: _double(json['balance_due']),
+    customerLabel: _customerLabel(json),
     orderNumber: json['order_number'] as String?,
     notes: json['notes'] as String?,
     createdAt: json['created_at'] is String
@@ -112,6 +121,7 @@ class SalesOrder {
   );
 
   String get displayNumber => orderNumber ?? id;
+  String get customerDisplay => customerLabel ?? 'Customer $personId';
 }
 
 double _double(Object? value) => switch (value) {
@@ -119,3 +129,16 @@ double _double(Object? value) => switch (value) {
   String() => double.tryParse(value) ?? 0,
   _ => 0,
 };
+
+String? _customerLabel(Map<String, dynamic> json) {
+  final direct = json['customer_label'];
+  if (direct is String && direct.trim().isNotEmpty) return direct.trim();
+  final customer = json['customer'];
+  if (customer is Map) {
+    for (final key in ['label', 'name', 'display_name']) {
+      final value = customer[key];
+      if (value is String && value.trim().isNotEmpty) return value.trim();
+    }
+  }
+  return null;
+}

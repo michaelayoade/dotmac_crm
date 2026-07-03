@@ -1,7 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../auth/auth_state.dart';
 import 'customer_models.dart';
+
+typedef UriLauncher = Future<bool> Function(Uri uri);
 
 class CustomerLookupRepository {
   const CustomerLookupRepository(this._ref);
@@ -41,6 +44,8 @@ List<Map<String, dynamic>> _items(Object? data) {
 final customerLookupRepositoryProvider = Provider<CustomerLookupRepository>(
   CustomerLookupRepository.new,
 );
+
+final customerUriLauncherProvider = Provider<UriLauncher>((ref) => launchUrl);
 
 final customerLookupQueryProvider = StateProvider.autoDispose<String>(
   (ref) => '',
