@@ -5,7 +5,7 @@ import json
 from typing import cast
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -169,6 +169,7 @@ def inbox_conversation_assignment(
 
     current_user = get_current_user(request) or {}
     assigned_by_id = (current_user.get("person_id") or "").strip() or None
+    wants_json = "application/json" in (request.headers.get("accept") or "").lower()
     conversation_result = assign_conversation(
         db,
         conversation_id=conversation_id,
@@ -180,17 +181,26 @@ def inbox_conversation_assignment(
         scopes=_get_current_scopes(request),
     )
     if conversation_result.kind == "forbidden":
+        if wants_json:
+            return JSONResponse(
+                {"ok": False, "error": conversation_result.error_detail or "Forbidden"},
+                status_code=403,
+            )
         return HTMLResponse(
             "<div class='p-6 text-center text-slate-500'>Forbidden</div>",
             status_code=403,
         )
     if conversation_result.kind == "not_found":
+        if wants_json:
+            return JSONResponse({"ok": False, "error": "Conversation not found"}, status_code=404)
         return HTMLResponse(
             "<div class='p-6 text-center text-slate-500'>Conversation not found</div>",
             status_code=404,
         )
     if conversation_result.kind == "invalid_input":
         detail = (conversation_result.error_detail or "Invalid agent or team selection.").strip()
+        if wants_json:
+            return JSONResponse({"ok": False, "error": detail}, status_code=400)
         safe_detail = html.escape(detail, quote=True)
         return HTMLResponse(
             f"<div class='p-4 text-sm text-red-500'>{safe_detail}</div>",
@@ -223,6 +233,11 @@ def inbox_conversation_assignment(
             contact_person_id,
             (conversation_result.error_detail or "Assignment failed").strip(),
         )
+        if wants_json:
+            return JSONResponse(
+                {"ok": False, "error": conversation_result.error_detail or "Assignment failed"},
+                status_code=500,
+            )
         if request.headers.get("HX-Request"):
             if not contact_person_id and conversation is not None:
                 try:
@@ -270,15 +285,28 @@ def inbox_conversation_assignment(
 
     contact = cast(Person | None, conversation_result.contact)
     if not contact:
+        if wants_json:
+            return JSONResponse({"ok": False, "error": "Contact not found"}, status_code=404)
         return RedirectResponse(
             url=f"/admin/crm/inbox?conversation_id={conversation_id}",
             status_code=303,
         )
     conversation = conversation_result.conversation
     if not conversation:
+        if wants_json:
+            return JSONResponse({"ok": False, "error": "Conversation not found"}, status_code=404)
         return RedirectResponse(
             url=f"/admin/crm/inbox?conversation_id={conversation_id}",
             status_code=303,
+        )
+    if wants_json:
+        return JSONResponse(
+            {
+                "ok": True,
+                "conversation_id": str(conversation.id),
+                "agent_id": (agent_id or "").strip() or None,
+                "team_id": (team_id or "").strip() or None,
+            }
         )
     contact_details = format_contact_for_template(contact, db)
     assignment_options = _load_crm_agent_team_options(db)

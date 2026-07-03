@@ -494,44 +494,44 @@
                 <div class="grid grid-cols-2 gap-2">
                     <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-500/30 dark:bg-emerald-500/10">
                         <p class="text-[11px] font-semibold uppercase text-emerald-700 dark:text-emerald-300">Online Agents</p>
-                        <p class="mt-1 text-2xl font-bold text-emerald-900 dark:text-emerald-100">{{ manager_panel.online_agents or 0 }}</p>
+                        <p class="mt-1 text-2xl font-bold text-emerald-900 dark:text-emerald-100" x-text="managerMetric('online_agents')">{{ manager_panel.online_agents or 0 }}</p>
                     </div>
                     <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-500/30 dark:bg-amber-500/10">
                         <p class="text-[11px] font-semibold uppercase text-amber-700 dark:text-amber-300">Chats With Online Agents</p>
-                        <p class="mt-1 text-2xl font-bold text-amber-900 dark:text-amber-100">{{ manager_panel.online_agent_active_chats or 0 }}</p>
+                        <p class="mt-1 text-2xl font-bold text-amber-900 dark:text-amber-100" x-text="managerMetric('online_agent_active_chats')">{{ manager_panel.online_agent_active_chats or 0 }}</p>
                     </div>
                     <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
                         <p class="text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400">Unassigned</p>
-                        <p class="mt-1 text-xl font-bold text-slate-900 dark:text-white">{{ manager_panel.unassigned_chats or 0 }}</p>
+                        <p class="mt-1 text-xl font-bold text-slate-900 dark:text-white" x-text="managerMetric('unassigned_chats')">{{ manager_panel.unassigned_chats or 0 }}</p>
                     </div>
                     <div class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 dark:border-rose-500/30 dark:bg-rose-500/10">
                         <p class="text-[11px] font-semibold uppercase text-rose-700 dark:text-rose-300">Needs Attention</p>
-                        <p class="mt-1 text-xl font-bold text-rose-900 dark:text-rose-100">{{ manager_panel.needs_attention or 0 }}</p>
+                        <p class="mt-1 text-xl font-bold text-rose-900 dark:text-rose-100" x-text="managerMetric('needs_attention')">{{ manager_panel.needs_attention or 0 }}</p>
                     </div>
                 </div>
 
                 <div class="mt-4 grid grid-cols-3 gap-2 text-center">
                     <div class="rounded-lg bg-slate-100 px-2 py-2 dark:bg-slate-800">
                         <p class="text-[11px] text-slate-500 dark:text-slate-400">Open</p>
-                        <p class="text-sm font-bold text-slate-900 dark:text-white">{{ manager_panel.open_chats or 0 }}</p>
+                        <p class="text-sm font-bold text-slate-900 dark:text-white" x-text="managerMetric('open_chats')">{{ manager_panel.open_chats or 0 }}</p>
                     </div>
                     <div class="rounded-lg bg-slate-100 px-2 py-2 dark:bg-slate-800">
                         <p class="text-[11px] text-slate-500 dark:text-slate-400">Pending</p>
-                        <p class="text-sm font-bold text-slate-900 dark:text-white">{{ manager_panel.pending_chats or 0 }}</p>
+                        <p class="text-sm font-bold text-slate-900 dark:text-white" x-text="managerMetric('pending_chats')">{{ manager_panel.pending_chats or 0 }}</p>
                     </div>
                     <div class="rounded-lg bg-slate-100 px-2 py-2 dark:bg-slate-800">
                         <p class="text-[11px] text-slate-500 dark:text-slate-400">Resolved Today</p>
-                        <p class="text-sm font-bold text-slate-900 dark:text-white">{{ manager_panel.resolved_today or 0 }}</p>
+                        <p class="text-sm font-bold text-slate-900 dark:text-white" x-text="managerMetric('resolved_today')">{{ manager_panel.resolved_today or 0 }}</p>
                     </div>
                 </div>
 
                 <div class="mt-4">
                     <div class="mb-2 flex items-center justify-between">
                         <h3 class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Agents</h3>
-                        <span class="text-[11px] text-slate-400">{{ manager_panel.total_agents or 0 }} total</span>
+                        <span class="text-[11px] text-slate-400"><span x-text="managerMetric('total_agents')">{{ manager_panel.total_agents or 0 }}</span> total</span>
                     </div>
                     <div class="space-y-2">
-                        {% for agent in manager_panel.agents or [] %}
+                        <template x-for="agent in managerPanelAgents()" :key="agent.id">
                         <div x-data="{ expanded: false }"
                              class="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
                             <button type="button"
@@ -540,14 +540,15 @@
                                     class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 dark:hover:bg-slate-800/70">
                                 <div class="min-w-0">
                                     <div class="flex items-center gap-2">
-                                        <span class="h-2 w-2 rounded-full {% if agent.status == 'online' %}bg-emerald-500{% elif agent.status == 'away' %}bg-amber-500{% else %}bg-slate-300 dark:bg-slate-600{% endif %}"></span>
-                                        <p class="truncate text-sm font-semibold text-slate-900 dark:text-white">{{ agent.label }}</p>
+                                        <span class="h-2 w-2 rounded-full"
+                                              :class="agent.status === 'online' ? 'bg-emerald-500' : (agent.status === 'away' ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-600')"></span>
+                                        <p class="truncate text-sm font-semibold text-slate-900 dark:text-white" x-text="agent.label || 'Agent'"></p>
                                     </div>
-                                    <p class="mt-0.5 text-[11px] capitalize text-slate-500 dark:text-slate-400">{{ agent.status | replace('_', ' ') }}</p>
+                                    <p class="mt-0.5 text-[11px] capitalize text-slate-500 dark:text-slate-400" x-text="managerStatusLabel(agent.status)"></p>
                                 </div>
                                 <div class="flex shrink-0 items-center gap-2">
                                     <div class="text-right">
-                                        <p class="text-sm font-bold text-slate-900 dark:text-white">{{ agent.active_chats }}{% if agent.cap %}/{{ agent.cap }}{% endif %}</p>
+                                        <p class="text-sm font-bold text-slate-900 dark:text-white" x-text="managerAgentLoadLabel(agent)"></p>
                                         <p class="text-[11px] text-slate-500 dark:text-slate-400">chats</p>
                                     </div>
                                     <svg class="h-4 w-4 text-slate-400 transition-transform"
@@ -563,21 +564,129 @@
                                  x-transition
                                  class="border-t border-slate-200 bg-slate-50/70 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50">
                                 <div class="space-y-1.5">
-                                    {% for chat in agent.active_conversations or [] %}
-                                    <a href="{{ chat.href }}"
-                                       class="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs transition hover:bg-white dark:hover:bg-slate-900/70">
-                                        <span class="min-w-0 truncate font-medium text-slate-700 dark:text-slate-200">{{ chat.contact }}</span>
-                                        <span class="shrink-0 text-[11px] text-slate-500 dark:text-slate-400">{{ chat.channel }}</span>
-                                    </a>
-                                    {% else %}
-                                    <p class="px-2 py-1.5 text-xs text-slate-500 dark:text-slate-400">No active chats assigned.</p>
-                                    {% endfor %}
+                                    <template x-for="chat in managerAgentChats(agent)" :key="chat.id">
+                                        <div class="rounded-md px-2 py-1.5 text-xs transition hover:bg-white dark:hover:bg-slate-900/70">
+                                            <div class="flex items-center justify-between gap-2">
+                                                <a :href="chat.href"
+                                                   class="min-w-0 truncate font-medium text-slate-700 dark:text-slate-200"
+                                                   x-text="chat.contact || 'Unknown'"></a>
+                                                <div class="flex shrink-0 items-center gap-1">
+                                                    <span class="text-[11px] text-slate-500 dark:text-slate-400" x-text="chat.channel || 'Inbox'"></span>
+                                                    <button type="button"
+                                                            x-show="managerPanelCanReassign()"
+                                                            @click.stop.prevent="toggleManagerReassign(chat)"
+                                                            class="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-amber-100 hover:text-amber-700 dark:hover:bg-amber-500/10 dark:hover:text-amber-300"
+                                                            aria-label="Reassign chat">
+                                                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h11m0 0-3-3m3 3-3 3M17 17H6m0 0 3 3m-3-3 3-3"/>
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div x-show="chat.reassign_open" x-transition class="mt-2">
+                                                <select class="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                                        :disabled="chat.reassigning"
+                                                        @change="reassignManagerChat(chat, $event.target.value); $event.target.value = ''">
+                                                    <option value="">Move to agent...</option>
+                                                    <template x-for="targetAgent in managerPanelAgents()" :key="targetAgent.id">
+                                                        <option :value="targetAgent.id"
+                                                                :disabled="targetAgent.id === chat.assigned_agent_id"
+                                                                x-text="managerAgentOptionLabel(targetAgent)"></option>
+                                                    </template>
+                                                </select>
+                                                <p x-show="chat.reassign_error" x-text="chat.reassign_error" class="mt-1 text-[11px] text-rose-600 dark:text-rose-400"></p>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <p x-show="!managerAgentChats(agent).length" class="px-2 py-1.5 text-xs text-slate-500 dark:text-slate-400">No active chats assigned.</p>
                                 </div>
                             </div>
                         </div>
-                        {% else %}
-                        <div class="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">No CRM agents found.</div>
-                        {% endfor %}
+                        </template>
+                        <div x-show="!managerPanelAgents().length" class="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">No CRM agents found.</div>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <div class="mb-2 flex items-center justify-between">
+                        <h3 class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Unassigned Chats</h3>
+                        <span class="text-[11px] text-slate-400" x-text="managerMetric('unassigned_chats')"></span>
+                    </div>
+                    <div class="space-y-1.5">
+                        <template x-for="chat in managerPanelChats('unassigned_conversations')" :key="chat.id">
+                            <div class="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700">
+                                <div class="flex items-center justify-between gap-2">
+                                    <a :href="chat.href" class="min-w-0 truncate font-semibold text-slate-800 dark:text-slate-100" x-text="chat.contact || 'Unknown'"></a>
+                                    <div class="flex shrink-0 items-center gap-1">
+                                        <span class="text-[11px] text-slate-500 dark:text-slate-400" x-text="chat.channel || 'Inbox'"></span>
+                                        <button type="button"
+                                                x-show="managerPanelCanReassign()"
+                                                @click.stop.prevent="toggleManagerReassign(chat)"
+                                                class="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-amber-100 hover:text-amber-700 dark:hover:bg-amber-500/10 dark:hover:text-amber-300"
+                                                aria-label="Reassign chat">
+                                            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h11m0 0-3-3m3 3-3 3M17 17H6m0 0 3 3m-3-3 3-3"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div x-show="chat.reassign_open" x-transition class="mt-2">
+                                    <select class="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                            :disabled="chat.reassigning"
+                                            @change="reassignManagerChat(chat, $event.target.value); $event.target.value = ''">
+                                        <option value="">Move to agent...</option>
+                                        <template x-for="targetAgent in managerPanelAgents()" :key="targetAgent.id">
+                                            <option :value="targetAgent.id" x-text="managerAgentOptionLabel(targetAgent)"></option>
+                                        </template>
+                                    </select>
+                                    <p x-show="chat.reassign_error" x-text="chat.reassign_error" class="mt-1 text-[11px] text-rose-600 dark:text-rose-400"></p>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="!managerPanelChats('unassigned_conversations').length" class="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">No unassigned chats in the current view.</div>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <div class="mb-2 flex items-center justify-between">
+                        <h3 class="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Needs Attention</h3>
+                        <span class="text-[11px] text-slate-400" x-text="managerMetric('needs_attention')"></span>
+                    </div>
+                    <div class="space-y-1.5">
+                        <template x-for="chat in managerPanelChats('attention_conversations')" :key="chat.id">
+                            <div class="rounded-lg border border-rose-200 px-3 py-2 text-xs dark:border-rose-500/30">
+                                <div class="flex items-center justify-between gap-2">
+                                    <a :href="chat.href" class="min-w-0 truncate font-semibold text-slate-800 dark:text-slate-100" x-text="chat.contact || 'Unknown'"></a>
+                                    <div class="flex shrink-0 items-center gap-1">
+                                        <span class="text-[11px] text-slate-500 dark:text-slate-400" x-text="chat.channel || 'Inbox'"></span>
+                                        <button type="button"
+                                                x-show="managerPanelCanReassign()"
+                                                @click.stop.prevent="toggleManagerReassign(chat)"
+                                                class="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-amber-100 hover:text-amber-700 dark:hover:bg-amber-500/10 dark:hover:text-amber-300"
+                                                aria-label="Reassign chat">
+                                            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h11m0 0-3-3m3 3-3 3M17 17H6m0 0 3 3m-3-3 3-3"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400" x-text="managerAssignedLabel(chat)"></div>
+                                <div x-show="chat.reassign_open" x-transition class="mt-2">
+                                    <select class="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                                            :disabled="chat.reassigning"
+                                            @change="reassignManagerChat(chat, $event.target.value); $event.target.value = ''">
+                                        <option value="">Move to agent...</option>
+                                        <template x-for="targetAgent in managerPanelAgents()" :key="targetAgent.id">
+                                            <option :value="targetAgent.id"
+                                                    :disabled="targetAgent.id === chat.assigned_agent_id"
+                                                    x-text="managerAgentOptionLabel(targetAgent)"></option>
+                                        </template>
+                                    </select>
+                                    <p x-show="chat.reassign_error" x-text="chat.reassign_error" class="mt-1 text-[11px] text-rose-600 dark:text-rose-400"></p>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="!managerPanelChats('attention_conversations').length" class="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">No attention chats in the current view.</div>
                     </div>
                 </div>
 
@@ -1579,6 +1688,7 @@ function inboxController() {
         paginationLimit: {{ (pagination_limit or 50) | tojson }},
         stats: {{ (stats or {}) | tojson }},
         assignmentCounts: {{ (assignment_counts or {}) | tojson }},
+        managerPanel: {{ (manager_panel or {}) | tojson }},
         showInboxStats: true,
         showManagerPanel: false,
         summaryCountsRefreshTimer: null,
@@ -2074,6 +2184,171 @@ function inboxController() {
             if (!this.assignmentCounts || typeof this.assignmentCounts !== 'object') return 0;
             const value = this.assignmentCounts[key];
             return Number.isFinite(Number(value)) ? Number(value) : 0;
+        },
+        managerMetric(key) {
+            if (!key || !this.managerPanel || typeof this.managerPanel !== 'object') return 0;
+            const value = this.managerPanel[key];
+            return Number.isFinite(Number(value)) ? Number(value) : 0;
+        },
+        managerPanelAgents() {
+            return Array.isArray(this.managerPanel?.agents) ? this.managerPanel.agents : [];
+        },
+        managerPanelChats(key) {
+            const chats = Array.isArray(this.managerPanel?.[key]) ? this.managerPanel[key] : [];
+            chats.forEach((chat) => this.ensureManagerChatState(chat));
+            return chats;
+        },
+        managerAgentChats(agent) {
+            const chats = Array.isArray(agent?.active_conversations) ? agent.active_conversations : [];
+            chats.forEach((chat) => this.ensureManagerChatState(chat));
+            return chats;
+        },
+        managerPanelCanReassign() {
+            return !!(this.managerPanel && this.managerPanel.can_reassign);
+        },
+        ensureManagerChatState(chat) {
+            if (!chat || typeof chat !== 'object') return;
+            if (!Object.prototype.hasOwnProperty.call(chat, 'reassign_open')) chat.reassign_open = false;
+            if (!Object.prototype.hasOwnProperty.call(chat, 'reassigning')) chat.reassigning = false;
+            if (!Object.prototype.hasOwnProperty.call(chat, 'reassign_error')) chat.reassign_error = '';
+        },
+        managerStatusLabel(status) {
+            return String(status || 'offline').replace(/_/g, ' ');
+        },
+        managerAgentLoadLabel(agent) {
+            const active = Number(agent?.active_chats || 0);
+            const cap = Number(agent?.cap || 0);
+            return cap ? `${active}/${cap}` : `${active}`;
+        },
+        managerAgentOptionLabel(agent) {
+            const label = agent?.label || 'Agent';
+            const status = this.managerStatusLabel(agent?.status || 'offline');
+            return `${label} · ${status} ${this.managerAgentLoadLabel(agent)}`;
+        },
+        managerAgentById(agentId) {
+            const id = String(agentId || '');
+            return this.managerPanelAgents().find((agent) => String(agent.id || '') === id) || null;
+        },
+        managerAssignedLabel(chat) {
+            const agent = this.managerAgentById(chat?.assigned_agent_id);
+            return agent ? `Assigned to ${agent.label || 'Agent'}` : 'Unassigned';
+        },
+        toggleManagerReassign(chat) {
+            this.ensureManagerChatState(chat);
+            chat.reassign_error = '';
+            chat.reassign_open = !chat.reassign_open;
+        },
+        adjustManagerMetric(key, delta) {
+            if (!this.managerPanel || typeof this.managerPanel !== 'object') return;
+            const current = Number(this.managerPanel[key] || 0);
+            this.managerPanel[key] = Math.max(0, current + delta);
+        },
+        adjustAssignmentCount(key, delta) {
+            if (!this.assignmentCounts || typeof this.assignmentCounts !== 'object') return;
+            const current = Number(this.assignmentCounts[key] || 0);
+            this.assignmentCounts[key] = Math.max(0, current + delta);
+        },
+        removeManagerChatFromList(listKey, chatId) {
+            if (!Array.isArray(this.managerPanel?.[listKey])) return null;
+            const index = this.managerPanel[listKey].findIndex((item) => String(item.id || '') === String(chatId || ''));
+            if (index < 0) return null;
+            return this.managerPanel[listKey].splice(index, 1)[0] || null;
+        },
+        removeManagerChatFromAgent(agentId, chatId) {
+            const agent = this.managerAgentById(agentId);
+            if (!agent || !Array.isArray(agent.active_conversations)) return null;
+            const index = agent.active_conversations.findIndex((item) => String(item.id || '') === String(chatId || ''));
+            if (index < 0) return null;
+            return agent.active_conversations.splice(index, 1)[0] || null;
+        },
+        updateManagerActiveConversation(chatId, agentId) {
+            if (!Array.isArray(this.managerPanel?.active_conversations)) return;
+            const chat = this.managerPanel.active_conversations.find((item) => String(item.id || '') === String(chatId || ''));
+            if (!chat) return;
+            const agent = this.managerAgentById(agentId);
+            chat.assigned_agent_id = agentId;
+            chat.agent = agent ? (agent.label || 'Agent') : 'Unassigned';
+        },
+        applyManagerReassignment(chat, targetAgentId) {
+            const chatId = String(chat?.id || '');
+            const previousAgentId = String(chat?.assigned_agent_id || '');
+            const targetId = String(targetAgentId || '');
+            const previousAgent = this.managerAgentById(previousAgentId);
+            const targetAgent = this.managerAgentById(targetId);
+            const removedFromUnassigned = this.removeManagerChatFromList('unassigned_conversations', chatId);
+            const removedFromAttention = this.removeManagerChatFromList('attention_conversations', chatId);
+            const removedFromAgent = previousAgentId ? this.removeManagerChatFromAgent(previousAgentId, chatId) : null;
+            const movedChat = {
+                ...(removedFromAgent || removedFromUnassigned || removedFromAttention || chat),
+                assigned_agent_id: targetId,
+                agent: targetAgent ? (targetAgent.label || 'Agent') : 'Agent',
+                reassign_open: false,
+                reassigning: false,
+                reassign_error: '',
+            };
+
+            if (previousAgent && previousAgent.active_chats > 0) {
+                previousAgent.active_chats = Number(previousAgent.active_chats || 0) - 1;
+            }
+            if (targetAgent) {
+                targetAgent.active_chats = Number(targetAgent.active_chats || 0) + 1;
+                targetAgent.active_conversations = Array.isArray(targetAgent.active_conversations)
+                    ? targetAgent.active_conversations
+                    : [];
+                if (!targetAgent.active_conversations.some((item) => String(item.id || '') === chatId)) {
+                    targetAgent.active_conversations.unshift(movedChat);
+                }
+            }
+            if (previousAgent?.is_online) this.adjustManagerMetric('online_agent_active_chats', -1);
+            if (targetAgent?.is_online) this.adjustManagerMetric('online_agent_active_chats', 1);
+            if (removedFromUnassigned) {
+                this.adjustManagerMetric('unassigned_chats', -1);
+                this.adjustAssignmentCount('unassigned', -1);
+            }
+            if (removedFromAttention) {
+                this.adjustManagerMetric('needs_attention', -1);
+                this.adjustAssignmentCount('needs_attention', -1);
+            }
+            this.updateManagerActiveConversation(chatId, targetId);
+        },
+        async reassignManagerChat(chat, targetAgentId) {
+            this.ensureManagerChatState(chat);
+            const chatId = String(chat?.id || '');
+            const agentId = String(targetAgentId || '');
+            if (!chatId || !agentId || chat.reassigning) return;
+            if (agentId === String(chat.assigned_agent_id || '')) {
+                chat.reassign_open = false;
+                return;
+            }
+            chat.reassigning = true;
+            chat.reassign_error = '';
+            try {
+                const body = new URLSearchParams();
+                body.set('agent_id', agentId);
+                const resp = await fetch(`/admin/crm/inbox/conversation/${encodeURIComponent(chatId)}/assignment`, {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'HX-Request': 'true',
+                    },
+                    body,
+                });
+                if (window.DotMacAuth && window.DotMacAuth.handleAuthResponse(resp, '/auth/login')) {
+                    chat.reassign_error = 'Your session expired. Please sign in again.';
+                    return;
+                }
+                const payload = await resp.json().catch(() => ({}));
+                if (!resp.ok || !payload.ok) {
+                    chat.reassign_error = payload.error || 'Failed to reassign chat.';
+                    return;
+                }
+                this.applyManagerReassignment(chat, agentId);
+            } catch (_err) {
+                chat.reassign_error = 'Failed to reassign chat. Please try again.';
+            } finally {
+                chat.reassigning = false;
+            }
         },
         scheduleSummaryCountsRefresh() {
             if (this.summaryCountsRefreshTimer) {

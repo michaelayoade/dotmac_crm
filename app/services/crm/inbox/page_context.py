@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, aliased, joinedload
 from app.logic import private_note_logic
 from app.models.connector import ConnectorType
 from app.models.crm.campaign import Campaign
-from app.models.crm.conversation import Conversation, ConversationAssignment, Message
+from app.models.crm.conversation import Conversation, ConversationAssignment, ConversationSummary, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.crm.team import CrmAgent, CrmTeam
 from app.models.customer_retention import CustomerRetentionEngagement
@@ -44,6 +44,7 @@ from app.services.crm.inbox.inboxes import get_email_channel_state, list_channel
 from app.services.crm.inbox.labels import enrich_formatted_conversations_with_labels
 from app.services.crm.inbox.listing import DEFAULT_INBOX_PAGE_SIZE, load_inbox_list
 from app.services.crm.inbox.macros import conversation_macros
+from app.services.crm.inbox.permissions import can_assign_conversation
 from app.services.crm.inbox.queries import get_assignment_counts
 from app.services.crm.inbox.templates import message_templates
 from app.services.settings_spec import resolve_value
@@ -332,7 +333,7 @@ def _build_conversation_list_format_maps(db: Session, conversations_raw: list[tu
 
 def _format_conversation_list_rows(db: Session, conversations_raw: list[tuple]) -> list[dict]:
     format_maps = _build_conversation_list_format_maps(db, conversations_raw)
-    return [
+    rows = [
         format_conversation_for_template(
             conv,
             db,
@@ -343,6 +344,29 @@ def _format_conversation_list_rows(db: Session, conversations_raw: list[tuple]) 
         )
         for conv, latest_message, unread_count, _failed_outbox in conversations_raw
     ]
+    conversation_ids = [conv.id for conv, *_rest in conversations_raw]
+    if conversation_ids:
+        summary_rows = (
+            db.query(
+                ConversationSummary.conversation_id,
+                ConversationSummary.needs_attention,
+                ConversationSummary.unreplied,
+            )
+            .filter(ConversationSummary.conversation_id.in_(conversation_ids))
+            .all()
+        )
+        summaries_by_id = {
+            str(conversation_id): {
+                "needs_attention": bool(needs_attention),
+                "unreplied": bool(unreplied),
+            }
+            for conversation_id, needs_attention, unreplied in summary_rows
+        }
+        for row in rows:
+            summary = summaries_by_id.get(str(row.get("id") or "")) or {}
+            row["needs_attention"] = bool(summary.get("needs_attention"))
+            row["unreplied"] = bool(summary.get("unreplied"))
+    return rows
 
 
 def _build_manager_panel_context(
@@ -354,6 +378,7 @@ def _build_manager_panel_context(
     assignment_counts: dict | None,
     channel_stats: dict | None,
     conversations: list[dict],
+    current_user: dict | None = None,
 ) -> dict:
     """Build lightweight operational metrics for the inbox manager popup."""
     agent_labels = agent_labels or {}
@@ -361,6 +386,14 @@ def _build_manager_panel_context(
     stats = stats or {}
     assignment_counts = assignment_counts or {}
     channel_stats = channel_stats or {}
+    current_roles = [str(role) for role in (current_user or {}).get("roles") or []]
+    current_scopes = [
+        str(scope)
+        for scope in [
+            *((current_user or {}).get("scopes") or []),
+            *((current_user or {}).get("permissions") or []),
+        ]
+    ]
 
     agent_rows = []
     for agent in agents or []:
@@ -417,6 +450,9 @@ def _build_manager_panel_context(
             "contact": contact.get("name") or "Unknown",
             "channel": str(conv.get("channel") or "inbox").replace("_", " ").title(),
             "status": conv.get("status") or "open",
+            "assigned_agent_id": str(conv.get("assigned_agent_id") or "").strip(),
+            "needs_attention": bool(conv.get("needs_attention")),
+            "unreplied": bool(conv.get("unreplied")),
             "agent": conv.get("assigned_agent_name") or (conv.get("assigned_team") or {}).get("name") or "Unassigned",
             "preview": conv.get("subject") or conv.get("preview") or "",
             "last_message_at_label": conv.get("last_message_at_label") or "",
@@ -432,14 +468,26 @@ def _build_manager_panel_context(
                     "href": conversation_row["href"],
                     "contact": conversation_row["contact"],
                     "channel": conversation_row["channel"],
+                    "status": conversation_row["status"],
+                    "assigned_agent_id": assigned_agent_id,
+                    "needs_attention": conversation_row["needs_attention"],
+                    "unreplied": conversation_row["unreplied"],
                 }
             )
 
     for agent_row in agent_rows:
         agent_row["active_conversations"] = active_conversations_by_agent.get(agent_row["id"], [])
 
+    unassigned_conversations = [
+        row
+        for row in active_conversations
+        if not row.get("assigned_agent_id") and row.get("status") in {"open", "pending"}
+    ]
+    attention_conversations = [row for row in active_conversations if row.get("needs_attention")]
+
     online_agents = [row for row in agent_rows if row["is_online"]]
     return {
+        "can_reassign": can_assign_conversation(current_roles, current_scopes),
         "online_agents": len(online_agents),
         "total_agents": len(agent_rows),
         "online_agent_active_chats": sum(row["active_chats"] for row in online_agents),
@@ -459,6 +507,8 @@ def _build_manager_panel_context(
         },
         "agents": agent_rows,
         "active_conversations": active_conversations[:10],
+        "unassigned_conversations": unassigned_conversations[:10],
+        "attention_conversations": attention_conversations[:10],
     }
 
 
@@ -805,6 +855,7 @@ async def build_inbox_page_context(
         assignment_counts=assignment_counts,
         channel_stats=channel_stats,
         conversations=conversations,
+        current_user=current_user,
     )
     templates = _load_message_template_choices(db) if selected_conversation else []
     macros = (
