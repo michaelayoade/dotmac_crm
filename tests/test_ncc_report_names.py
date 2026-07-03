@@ -253,15 +253,11 @@ def test_ncc_location_maps_area_from_full_service_address():
     )
 
 
-def test_ncc_location_uses_second_comma_segment_as_customer_town():
-    assert reports._map_ncc_location("12 Ukpabi Asika St, Asokoro, Abuja FCT") == (
-        "Municipal Area Council",
-        "Asokoro",
-        "FEDERAL CAPITAL TERRITORY",
-    )
+def test_ncc_location_ignores_town_not_in_accepted_list():
+    assert reports._map_ncc_location("12 Ukpabi Asika St, Asokoro, Abuja FCT") == ("", "", "")
 
 
-def test_ncc_location_fallback_town_uses_second_comma_segment():
+def test_ncc_location_does_not_fallback_to_comma_segment():
     ticket = SimpleNamespace(
         region="Gudu",
         customer=None,
@@ -273,7 +269,17 @@ def test_ncc_location_fallback_town_uses_second_comma_segment():
         ),
     )
 
-    assert reports._ticket_ncc_location(ticket) == ("", "Unknown Area", "")
+    assert reports._ticket_ncc_location(ticket) == ("", "", "")
+
+
+def test_ncc_location_matches_rightmost_accepted_town_in_address():
+    assert reports._map_ncc_location(
+        "Flat 201, Block D26, CBN Estate by Apo Bridge, 43 Birni Kebbi crescent, Garki 2 Abuja"
+    ) == (
+        "Municipal Area Council",
+        "Garki",
+        "FEDERAL CAPITAL TERRITORY",
+    )
 
 
 def test_ncc_ticket_location_prefers_subscriber_address_over_ticket_region():

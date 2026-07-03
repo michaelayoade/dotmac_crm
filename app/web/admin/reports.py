@@ -3227,140 +3227,166 @@ def _normalize_ncc_region(value: str | None) -> str:
     return " ".join(normalized.split())
 
 
+_NCC_ACCEPTED_TOWNS = (
+    "Angawa Bawa",
+    "Gbagarape",
+    "Kugbo",
+    "Nyanya Site-Area A-F",
+    "Nyanya Village/Gwandara",
+    "Nyanya Village/Gwari",
+    "Garki",
+    "Abacha Barracks",
+    "Apo",
+    "Damagaza",
+    "Dantata",
+    "Durumi I",
+    "Durumi II",
+    "Durumi III",
+    "Dutse",
+    "Garki Village",
+    "Gudu",
+    "Guzape",
+    "Kobi",
+    "Kurumduma",
+    "NEPA Village",
+    "Wumba",
+    "Gui",
+    "Airport",
+    "Barowa",
+    "Damakuba",
+    "Dandi",
+    "Dayisa",
+    "Dodo",
+    "Gbenduniya",
+    "Gbessa",
+    "Gora",
+    "Gosa",
+    "Gud Pasali",
+    "Gwako",
+    "Iddo Maaji",
+    "Iddo Pada",
+    "Iddo Sabo",
+    "Iddo Sarki",
+    "Iddo Tudunwada",
+    "Koloke",
+    "Makana",
+    "Makanima",
+    "Nuwalogye",
+    "Sauka",
+    "Takilogo",
+    "Toge",
+    "Tunga Kwaso",
+    "Tungan Jika",
+    "Tungan Wakili Isa",
+    "Zamani",
+    "Bagusa",
+    "Dei-Dei",
+    "Filin Dabo",
+    "Filin Dabo I",
+    "Filin Dabo II",
+    "Gwagwa",
+    "Kaba",
+    "Kagini",
+    "Karsana I",
+    "Karsana II",
+    "Karsana III",
+    "Saburi I",
+    "Saburi II",
+    "Tasha",
+    "Zaudna",
+    "Aleyita",
+    "Burum",
+    "Dogori Gada",
+    "Galadimawa",
+    "Kabusa",
+    "Ketti",
+    "Lekugoma",
+    "Lugbe",
+    "Piwoyi",
+    "Pykasa",
+    "Sabon Lugbe",
+    "Sheretti",
+    "Takushara",
+    "Wani",
+    "Zhidu",
+    "Zidna",
+    "Gwarinpa Fed. Housing",
+    "Gwarinpa Life Camp",
+    "Gwarinpa Village",
+    "Kado Federal Housing",
+    "Kado Village",
+    "Katampe",
+    "Kuchigoro",
+    "Mabushi",
+    "Utako",
+    "Ajata",
+    "Angwan Sako",
+    "Anka",
+    "Badna",
+    "Chori Bisa",
+    "Gidan Ajiya",
+    "Gidan Mangoro",
+    "Gugugu",
+    "Kpepegyi",
+    "Kurudu",
+    "Kurudu Gwandara",
+    "Kwoi",
+    "Madalla",
+    "Munapeyi Kasa",
+    "Munapeyi Sama",
+    "Orozo I",
+    "Orozo II",
+    "Sabon Gari",
+    "Wowo",
+    "Jikoyi",
+    "Karu Site (FHA)",
+    "Karu Village (FHA)",
+)
+_NCC_TOWN_ALIASES = {
+    "garki 2": "Garki",
+    "garki ii": "Garki",
+    "garki area 2": "Garki",
+    "garki district": "Garki",
+    "garki village": "Garki Village",
+    "gwarimpa fed housing": "Gwarinpa Fed. Housing",
+    "gwarinpa fed housing": "Gwarinpa Fed. Housing",
+    "gwarimpa federal housing": "Gwarinpa Fed. Housing",
+    "gwarinpa federal housing": "Gwarinpa Fed. Housing",
+    "gwarimpa life camp": "Gwarinpa Life Camp",
+    "gwarinpa life camp": "Gwarinpa Life Camp",
+    "gwarimpa village": "Gwarinpa Village",
+    "gwarinpa village": "Gwarinpa Village",
+    "jikwoyi": "Jikoyi",
+    "kpeyegyi": "Kpepegyi",
+    "nepa village": "NEPA Village",
+}
+_NCC_TOWN_LOOKUP = {_normalize_ncc_region(town): town for town in _NCC_ACCEPTED_TOWNS}
+_NCC_TOWN_LOOKUP.update(_NCC_TOWN_ALIASES)
+_NCC_TOWN_MATCHERS = sorted(_NCC_TOWN_LOOKUP.items(), key=lambda item: len(item[0]), reverse=True)
+
+
 def _map_ncc_location(ticket_region: str | None) -> tuple[str, str, str]:
     source = (ticket_region or "").strip()
-    normalized = _normalize_ncc_region(source)
-    town_candidate = _ncc_address_town_candidate(source)
-    if not normalized:
-        return "", town_candidate or source, ""
+    town = _ncc_town_from_address(source)
+    if not town:
+        return "", "", ""
+    return "Municipal Area Council", town, "FEDERAL CAPITAL TERRITORY"
 
-    area_council_aliases = {
-        "Municipal Area Council": {
-            "wuse",
-            "maitama",
-            "asokoro",
-            "garki",
-            "jabi",
-            "gudu",
-            "apo",
-            "durumi",
-            "utako",
-            "mabushi",
-            "gwarimpa",
-            "lugbe",
-            "lokogoma",
-            "life camp",
-            "lifecamp",
-            "katampe",
-            "katampe extension",
-            "kado",
-            "dakibiyu",
-            "wuye",
-            "wuye district",
-            "games village",
-            "guzape",
-            "guzape district",
-            "galadimawa",
-            "kabusa",
-            "wumba",
-            "wumba district",
-            "kyami",
-            "karmo",
-            "karmo district",
-            "jikwoyi",
-            "karshi",
-            "nyanya",
-            "orozo",
-            "kurudu",
-            "kpeyegyi",
-            "dakwo",
-            "duboyi",
-            "kaura",
-            "idu",
-            "idu industrial",
-            "jahi",
-            "jahi district",
-            "utako district",
-            "garki district",
-            "gudu district",
-            "jabi district",
-            "asokoro district",
-            "maitama district",
-            "wuse 2",
-            "wuse ii",
-            "wuse zone 1",
-            "wuse zone 2",
-            "wuse zone 3",
-            "wuse zone 4",
-            "wuse zone 5",
-            "wuse zone 6",
-            "wuse zone 7",
-        },
-        "Bwari": {
-            "kubwa",
-            "dutse",
-            "dutse alhaji",
-            "bwari",
-            "dei dei",
-            "mpape",
-            "dawaki",
-            "ushafa",
-            "byazhin",
-        },
-        "Gwagwalada": {
-            "gwagwalada",
-            "zuba",
-            "paiko",
-            "tunga maje",
-            "ibwa",
-        },
-        "Kuje": {
-            "kuje",
-            "chukuku",
-            "piyanko",
-            "rubochi",
-        },
-        "Abaji": {
-            "abaji",
-            "yaba",
-        },
-        "Kwali": {
-            "kwali",
-            "sheda",
-            "pai",
-            "yangoji",
-            "dafa",
-        },
-    }
 
-    for town in [town_candidate, source]:
-        town_normalized = _normalize_ncc_region(town)
-        if not town_normalized:
+def _ncc_town_from_address(value: object) -> str:
+    source = _clean_text(value)
+    if not source:
+        return ""
+    parts = [part for part in re.split(r"[,;\n\r]+", source) if part.strip()]
+    candidates = [*parts[::-1], source]
+    for candidate in candidates:
+        normalized = _normalize_ncc_region(candidate)
+        if not normalized:
             continue
-
-        for lga, aliases in area_council_aliases.items():
-            if town_normalized in aliases:
-                return lga, _ncc_location_alias_to_town(town_normalized), "FEDERAL CAPITAL TERRITORY"
-
-        for lga, aliases in area_council_aliases.items():
-            for alias in sorted(aliases, key=len, reverse=True):
-                if alias in town_normalized or town_normalized in alias:
-                    return lga, _ncc_location_alias_to_town(alias), "FEDERAL CAPITAL TERRITORY"
-
-    return "", town_candidate or source, ""
-
-
-def _ncc_location_alias_to_town(alias: str) -> str:
-    overrides = {
-        "lifecamp": "Life Camp",
-        "wuse ii": "Wuse II",
-    }
-    return overrides.get(alias, alias.title())
-
-
-def _ncc_address_town_candidate(value: str) -> str:
-    parts = [part.strip() for part in value.split(",") if part.strip()]
-    return parts[1] if len(parts) > 1 else value.strip()
+        for alias, town in _NCC_TOWN_MATCHERS:
+            if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized):
+                return town
+    return ""
 
 
 def _ticket_ncc_location(ticket: Ticket) -> tuple[str, str, str]:
@@ -3384,14 +3410,11 @@ def _ticket_ncc_location(ticket: Ticket) -> tuple[str, str, str]:
             ]
         )
 
-    fallback_town = ""
     for source in location_sources:
         lga, town, state = _map_ncc_location(source)
-        if town and not fallback_town:
-            fallback_town = town
         if lga and state:
             return lga, town, state
-    return "", _clean_text(fallback_town), ""
+    return "", "", ""
 
 
 _NCC_GENERIC_RESOLUTION_NOTE_MARKERS = (
