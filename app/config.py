@@ -127,6 +127,7 @@ class Settings:
     meta_webhook_debug_signatures: bool = field(
         default_factory=lambda: _env_bool("META_WEBHOOK_DEBUG_SIGNATURES", default=False)
     )
+    webhook_email_secret: str = field(default_factory=lambda: os.getenv("WEBHOOK_EMAIL_SECRET", ""))
 
     # Storage backend
     storage_backend: str = field(default_factory=lambda: os.getenv("STORAGE_BACKEND", "local"))  # "local" or "s3"
