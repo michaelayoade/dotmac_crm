@@ -3721,6 +3721,17 @@ _NCC_FCT_TABLE_ALIASES = {
     "karsana": ("Municipal Area Council", "Karsana I"),
     "kpeyegyi": ("Municipal Area Council", "Kpepegyi"),
     "nepa village": ("Municipal Area Council", "Garki"),
+    "wuse": ("Municipal Area Council", "Wuse"),
+    "wuse zone 1": ("Municipal Area Council", "Wuse"),
+    "wuse zone 2": ("Municipal Area Council", "Wuse"),
+    "wuse zone 3": ("Municipal Area Council", "Wuse"),
+    "wuse zone 4": ("Municipal Area Council", "Wuse"),
+    "wuse zone 5": ("Municipal Area Council", "Wuse"),
+    "zone 1": ("Municipal Area Council", "Wuse"),
+    "zone 2": ("Municipal Area Council", "Wuse"),
+    "zone 3": ("Municipal Area Council", "Wuse"),
+    "zone 4": ("Municipal Area Council", "Wuse"),
+    "zone 5": ("Municipal Area Council", "Wuse"),
 }
 _NCC_FCT_TABLE_LOOKUP.update(_NCC_FCT_TABLE_ALIASES)
 _NCC_FCT_TABLE_MATCHERS = sorted(_NCC_FCT_TABLE_LOOKUP.items(), key=lambda item: len(item[0]), reverse=True)

@@ -338,6 +338,19 @@ def test_ncc_location_maps_current_lagos_rows():
     )
 
 
+def test_ncc_location_maps_wuse_zones():
+    assert reports._map_ncc_location("Zone 3, Abuja") == (
+        "Municipal Area Council",
+        "Wuse",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+    assert reports._map_ncc_location("No 4, Wuse Zone 5, Abuja") == (
+        "Municipal Area Council",
+        "Wuse",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+
+
 def test_ncc_location_uses_region_when_address_has_no_accepted_town_match():
     ticket = SimpleNamespace(
         region="Gudu",
