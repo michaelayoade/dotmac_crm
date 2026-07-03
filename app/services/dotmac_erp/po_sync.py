@@ -63,13 +63,27 @@ class DotMacERPPurchaseOrderSync:
             response = self.client.create_purchase_order(payload, idempotency_key=idempotency_key)
             erp_po_id = response.get("purchase_order_id") if response else None
 
-            if erp_po_id:
-                metadata = dict(work_order.metadata_ or {})
-                metadata["erp_po_id"] = erp_po_id
-                work_order.metadata_ = metadata
-                if quote.project is not None:
-                    quote.project.erp_purchase_order_id = erp_po_id
-                self.session.commit()
+            if not erp_po_id:
+                msg = "ERP purchase-order sync returned no purchase_order_id"
+                logger.warning(
+                    "PO_SYNC_FAILED_NO_ID work_order_id=%s quote_id=%s response=%s",
+                    work_order.id,
+                    quote.id,
+                    response,
+                )
+                return PurchaseOrderSyncResult(
+                    success=False,
+                    work_order_id=str(work_order.id),
+                    error=msg,
+                    error_type="missing_purchase_order_id",
+                )
+
+            metadata = dict(work_order.metadata_ or {})
+            metadata["erp_po_id"] = erp_po_id
+            work_order.metadata_ = metadata
+            if quote.project is not None:
+                quote.project.erp_purchase_order_id = erp_po_id
+            self.session.commit()
 
             return PurchaseOrderSyncResult(
                 success=True,
