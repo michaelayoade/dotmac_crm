@@ -71,8 +71,9 @@ def test_can_write_inbox():
     assert not can_write_inbox(scopes=["crm:conversation:read"])
 
 
-def test_can_view_manager_dashboard_requires_explicit_scope():
+def test_can_view_manager_dashboard_allows_admin_or_scope():
     assert can_view_manager_dashboard(scopes=["crm:inbox:manager_dashboard:read"])
     assert can_view_manager_dashboard(scopes=["crm:inbox:manager_dashboard:*"])
-    assert not can_view_manager_dashboard(roles=["admin"], scopes=[])
-    assert not can_view_manager_dashboard(scopes=["crm:inbox:*"])
+    assert can_view_manager_dashboard(roles=["admin"], scopes=[])
+    assert can_view_manager_dashboard(scopes=["crm:inbox:*"])
+    assert not can_view_manager_dashboard(roles=["agent"], scopes=[])
