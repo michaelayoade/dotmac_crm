@@ -24,6 +24,7 @@ from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.domain_settings import SettingDomain
 from app.models.material_request import MaterialRequest
 from app.models.person import Person
+from app.models.rbac import PersonRole, Role
 from app.models.service_team import ServiceTeam
 from app.models.subscriber import Subscriber
 from app.models.tickets import Ticket, TicketChannel, TicketLink, TicketMerge, TicketPriority, TicketStatus
@@ -54,6 +55,10 @@ DEFAULT_TICKET_EXPORT_COLUMNS = (
     "status",
     "customer",
     "created",
+)
+TICKET_ROLE_NAMES = (
+    "noc",
+    "spc",
 )
 REQUIRED_TICKET_EXPORT_COLUMNS = ("ticket", "created")
 DETAIL_TICKET_EXPORT_COLUMNS = (
@@ -690,6 +695,59 @@ def _list_assignment_groups(db: Session, *, limit: int = 200) -> list[dict[str, 
         label = (team.name or "Group").strip() or "Group"
         items.append({"id": str(team.id), "label": label})
     return items
+
+
+def _person_option_label(person: Person) -> str:
+    display_name = (person.display_name or "").strip()
+    full_name = f"{person.first_name or ''} {person.last_name or ''}".strip()
+    return display_name or full_name or person.email or str(person.id)
+
+
+def _ticket_role_options(
+    db: Session,
+    technicians: list,
+    *,
+    selected_person_ids: tuple[object, ...] = (),
+) -> list[dict[str, str]]:
+    options_by_id: dict[str, dict[str, str]] = {}
+
+    def add_person(person: Person | None) -> None:
+        if not person:
+            return
+        person_id = str(person.id)
+        if person_id in options_by_id:
+            return
+        job_title = (person.job_title or "").strip()
+        name = _person_option_label(person)
+        options_by_id[person_id] = {
+            "person_id": person_id,
+            "label": f"{name} - {job_title}" if job_title else name,
+            "sort_label": name.lower(),
+        }
+
+    for technician in technicians:
+        add_person(getattr(technician, "person", None))
+
+    role_people = (
+        db.query(Person)
+        .join(PersonRole, PersonRole.person_id == Person.id)
+        .join(Role, Role.id == PersonRole.role_id)
+        .filter(Person.is_active.is_(True))
+        .filter(Role.is_active.is_(True))
+        .filter(func.lower(Role.name).in_(TICKET_ROLE_NAMES))
+        .order_by(Person.last_name.asc(), Person.first_name.asc(), Person.display_name.asc())
+        .all()
+    )
+    for person in role_people:
+        add_person(person)
+
+    selected_ids = [person_id for person_id in selected_person_ids if person_id]
+    if selected_ids:
+        selected_people = db.query(Person).filter(Person.id.in_(selected_ids)).all()
+        for person in selected_people:
+            add_person(person)
+
+    return sorted(options_by_id.values(), key=lambda item: item["sort_label"])
 
 
 def _load_ticket_region_options(db: Session) -> list[str]:
@@ -1717,6 +1775,7 @@ def ticket_create(
             (tech.person.first_name or "").lower() if tech.person else "",
         ),
     )
+    ticket_role_options = _ticket_role_options(db, technicians)
     ticket_types, ticket_type_priority_map = _load_ticket_types(db)
     ticket_types = [item for item in ticket_types if item.get("is_active")]
 
@@ -1729,6 +1788,7 @@ def ticket_create(
             "accounts": accounts,
             "technicians": technicians,
             "technician_options": _technician_typeahead_options(technicians),
+            "ticket_role_options": ticket_role_options,
             "assignment_groups": _list_assignment_groups(db),
             "region_options": REGION_OPTIONS,
             "region_ticket_assignments": _load_region_ticket_assignments(db),
@@ -2200,6 +2260,11 @@ async def ticket_create_post(
                 (tech.person.first_name or "").lower() if tech.person else "",
             ),
         )
+        ticket_role_options = _ticket_role_options(
+            db,
+            technicians,
+            selected_person_ids=(ticket_manager_person_id, assistant_manager_person_id),
+        )
         ticket_types, ticket_type_priority_map = _load_ticket_types(db)
         ticket_types = [item for item in ticket_types if item.get("is_active")]
         resolved_customer_label = ""
@@ -2241,6 +2306,7 @@ async def ticket_create_post(
                 "accounts": accounts,
                 "technicians": technicians,
                 "technician_options": _technician_typeahead_options(technicians),
+                "ticket_role_options": ticket_role_options,
                 "assignment_groups": _list_assignment_groups(db),
                 "region_options": REGION_OPTIONS,
                 "region_ticket_assignments": _load_region_ticket_assignments(db),
@@ -2311,6 +2377,11 @@ def ticket_edit(
             (tech.person.first_name or "").lower() if tech.person else "",
         ),
     )
+    ticket_role_options = _ticket_role_options(
+        db,
+        technicians,
+        selected_person_ids=(ticket.ticket_manager_person_id, ticket.assistant_manager_person_id),
+    )
     ticket_types, ticket_type_priority_map = _load_ticket_types(db)
     ticket_types = [item for item in ticket_types if item.get("is_active")]
     if ticket and ticket.ticket_type and not any(item.get("name") == ticket.ticket_type for item in ticket_types):
@@ -2328,6 +2399,7 @@ def ticket_edit(
             "accounts": accounts,
             "technicians": technicians,
             "technician_options": _technician_typeahead_options(technicians),
+            "ticket_role_options": ticket_role_options,
             "assignment_groups": _list_assignment_groups(db),
             "region_options": REGION_OPTIONS,
             "region_ticket_assignments": _load_region_ticket_assignments(db),
@@ -2419,6 +2491,11 @@ async def ticket_edit_post(
                 (tech.person.first_name or "").lower() if tech.person else "",
             ),
         )
+        ticket_role_options = _ticket_role_options(
+            db,
+            technicians,
+            selected_person_ids=(ticket.ticket_manager_person_id, ticket.assistant_manager_person_id),
+        )
         ticket_types, ticket_type_priority_map = _load_ticket_types(db)
         ticket_types = [item for item in ticket_types if item.get("is_active")]
         if ticket.ticket_type and not any(item.get("name") == ticket.ticket_type for item in ticket_types):
@@ -2431,6 +2508,7 @@ async def ticket_edit_post(
                 "accounts": accounts,
                 "technicians": technicians,
                 "technician_options": _technician_typeahead_options(technicians),
+                "ticket_role_options": ticket_role_options,
                 "assignment_groups": _list_assignment_groups(db),
                 "region_options": REGION_OPTIONS,
                 "region_ticket_assignments": _load_region_ticket_assignments(db),
@@ -2795,6 +2873,11 @@ async def ticket_edit_post(
                 (tech.person.first_name or "").lower() if tech.person else "",
             ),
         )
+        ticket_role_options = _ticket_role_options(
+            db,
+            technicians,
+            selected_person_ids=(ticket.ticket_manager_person_id, ticket.assistant_manager_person_id),
+        )
         ticket_types, ticket_type_priority_map = _load_ticket_types(db)
         ticket_types = [item for item in ticket_types if item.get("is_active")]
         if ticket and ticket.ticket_type and not any(item.get("name") == ticket.ticket_type for item in ticket_types):
@@ -2807,6 +2890,7 @@ async def ticket_edit_post(
                 "accounts": accounts,
                 "technicians": technicians,
                 "technician_options": _technician_typeahead_options(technicians),
+                "ticket_role_options": ticket_role_options,
                 "assignment_groups": _list_assignment_groups(db),
                 "region_options": REGION_OPTIONS,
                 "region_ticket_assignments": _load_region_ticket_assignments(db),
