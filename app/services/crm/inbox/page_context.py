@@ -392,6 +392,7 @@ def _build_manager_panel_context(
     )
 
     active_conversations = []
+    active_conversations_by_agent: dict[str, list[dict]] = {}
     for conv in conversations or []:
         if conv.get("kind") == "comment":
             platform = str(conv.get("platform") or "").title()
@@ -410,21 +411,32 @@ def _build_manager_panel_context(
             )
             continue
         contact = conv.get("contact") or {}
-        active_conversations.append(
-            {
-                "id": conv.get("id") or "",
-                "href": f"/admin/crm/inbox?conversation_id={conv.get('id')}",
-                "contact": contact.get("name") or "Unknown",
-                "channel": str(conv.get("channel") or "inbox").replace("_", " ").title(),
-                "status": conv.get("status") or "open",
-                "agent": conv.get("assigned_agent_name")
-                or (conv.get("assigned_team") or {}).get("name")
-                or "Unassigned",
-                "preview": conv.get("subject") or conv.get("preview") or "",
-                "last_message_at_label": conv.get("last_message_at_label") or "",
-                "unread_count": int(conv.get("unread_count") or 0),
-            }
-        )
+        conversation_row = {
+            "id": conv.get("id") or "",
+            "href": f"/admin/crm/inbox?conversation_id={conv.get('id')}",
+            "contact": contact.get("name") or "Unknown",
+            "channel": str(conv.get("channel") or "inbox").replace("_", " ").title(),
+            "status": conv.get("status") or "open",
+            "agent": conv.get("assigned_agent_name") or (conv.get("assigned_team") or {}).get("name") or "Unassigned",
+            "preview": conv.get("subject") or conv.get("preview") or "",
+            "last_message_at_label": conv.get("last_message_at_label") or "",
+            "unread_count": int(conv.get("unread_count") or 0),
+        }
+        active_conversations.append(conversation_row)
+
+        assigned_agent_id = str(conv.get("assigned_agent_id") or "").strip()
+        if assigned_agent_id:
+            active_conversations_by_agent.setdefault(assigned_agent_id, []).append(
+                {
+                    "id": conversation_row["id"],
+                    "href": conversation_row["href"],
+                    "contact": conversation_row["contact"],
+                    "channel": conversation_row["channel"],
+                }
+            )
+
+    for agent_row in agent_rows:
+        agent_row["active_conversations"] = active_conversations_by_agent.get(agent_row["id"], [])
 
     online_agents = [row for row in agent_rows if row["is_online"]]
     return {
