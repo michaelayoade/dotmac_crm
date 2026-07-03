@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import base64
 import binascii
+import fnmatch
+import ipaddress
 import logging
+import socket
 import time
 from dataclasses import dataclass
 from typing import Literal
@@ -28,6 +31,10 @@ logger = logging.getLogger(__name__)
 # so we can retry in case the issue was transient (e.g. token rotation).
 _FAILED_ATTACHMENT_CACHE: dict[str, tuple[int, float]] = {}
 _FAILED_CACHE_TTL = 3600  # seconds
+
+
+class UnsafeMediaUrlError(ValueError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -149,6 +156,11 @@ def fetch_inbox_attachment(
                 media_url = payload.get("url") or payload.get("media_url")
             if not media_url:
                 return AttachmentFetchResult(kind="not_found")
+            try:
+                _validate_media_url(media_url)
+            except UnsafeMediaUrlError as exc:
+                logger.warning("crm_inbox_attachment_media_url_blocked url=%s reason=%s", media_url, exc)
+                return AttachmentFetchResult(kind="not_found")
             media_response = httpx.get(
                 media_url,
                 headers={"Authorization": f"Bearer {token}"},
@@ -172,6 +184,11 @@ def fetch_inbox_attachment(
                 payload = response.json() if response.content else {}
                 media_url = payload.get("url") or payload.get("media_url")
             if not media_url:
+                return AttachmentFetchResult(kind="not_found")
+            try:
+                _validate_media_url(media_url)
+            except UnsafeMediaUrlError as exc:
+                logger.warning("crm_inbox_attachment_media_url_blocked url=%s reason=%s", media_url, exc)
                 return AttachmentFetchResult(kind="not_found")
             media_response = httpx.get(
                 media_url,
@@ -238,6 +255,55 @@ def fetch_stored_message_attachment(
         content_type=attachment.mime_type or "application/octet-stream",
         file_name=attachment.file_name,
     )
+
+
+def _host_matches_allowed_pattern(hostname: str, pattern: str) -> bool:
+    normalized_host = hostname.lower().rstrip(".")
+    normalized_pattern = pattern.lower().rstrip(".")
+    if normalized_pattern.startswith("*."):
+        suffix = normalized_pattern[1:]
+        return normalized_host.endswith(suffix) and normalized_host != normalized_pattern[2:]
+    return fnmatch.fnmatchcase(normalized_host, normalized_pattern)
+
+
+def _validate_media_url(url: str) -> None:
+    try:
+        parsed = urlparse(url)
+    except ValueError as exc:
+        raise UnsafeMediaUrlError("invalid URL") from exc
+
+    if parsed.scheme != "https":
+        raise UnsafeMediaUrlError("media URL must use https")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise UnsafeMediaUrlError("media URL host is missing")
+
+    allowed_hosts = settings.inbox_media_allowed_hosts
+    if not any(_host_matches_allowed_pattern(hostname, pattern) for pattern in allowed_hosts):
+        raise UnsafeMediaUrlError("media URL host is not allowed")
+
+    port = parsed.port or 443
+    try:
+        addr_info = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise UnsafeMediaUrlError("media URL host could not be resolved") from exc
+
+    resolved_ips = {
+        sockaddr[0]
+        for *_, sockaddr in addr_info
+        if isinstance(sockaddr, tuple) and sockaddr and isinstance(sockaddr[0], str)
+    }
+    if not resolved_ips:
+        raise UnsafeMediaUrlError("media URL host resolved no addresses")
+
+    for raw_ip in resolved_ips:
+        try:
+            ip = ipaddress.ip_address(raw_ip)
+        except ValueError as exc:
+            raise UnsafeMediaUrlError("media URL host resolved an invalid address") from exc
+        if not ip.is_global:
+            raise UnsafeMediaUrlError("media URL host resolved to a non-public address")
 
 
 def _normalize_storage_attachment_url(url: str | None) -> str | None:

@@ -1,7 +1,9 @@
 import uuid
+from types import SimpleNamespace
 
 from app.models.crm.conversation import Message, MessageAttachment
 from app.models.crm.enums import ChannelType, MessageDirection, MessageStatus
+from app.services.crm.inbox import attachments
 from app.services.crm.inbox.attachments import fetch_inbox_attachment, fetch_stored_message_attachment
 from app.services.crm.inbox.formatting import format_message_for_template
 
@@ -33,6 +35,96 @@ def test_fetch_inbox_attachment_rejects_invalid_message_id():
 
     assert result.kind == "not_found"
     assert db.pk is None
+
+
+def test_validate_media_url_allows_configured_public_https_host(monkeypatch):
+    monkeypatch.setattr(
+        attachments,
+        "settings",
+        SimpleNamespace(inbox_media_allowed_hosts=("*.fbcdn.net",)),
+    )
+    monkeypatch.setattr(
+        attachments.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (attachments.socket.AF_INET, attachments.socket.SOCK_STREAM, 6, "", ("31.13.71.36", 443))
+        ],
+    )
+
+    attachments._validate_media_url("https://scontent.xx.fbcdn.net/v/t39.30808/image.jpg")
+
+
+def test_validate_media_url_blocks_unconfigured_host(monkeypatch):
+    monkeypatch.setattr(
+        attachments,
+        "settings",
+        SimpleNamespace(inbox_media_allowed_hosts=("*.fbcdn.net",)),
+    )
+
+    try:
+        attachments._validate_media_url("https://example.com/file.jpg")
+    except attachments.UnsafeMediaUrlError as exc:
+        assert "host is not allowed" in str(exc)
+    else:
+        raise AssertionError("Expected unconfigured host to be blocked")
+
+
+def test_validate_media_url_blocks_private_resolution(monkeypatch):
+    monkeypatch.setattr(
+        attachments,
+        "settings",
+        SimpleNamespace(inbox_media_allowed_hosts=("*.fbcdn.net",)),
+    )
+    monkeypatch.setattr(
+        attachments.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (attachments.socket.AF_INET, attachments.socket.SOCK_STREAM, 6, "", ("10.0.0.5", 443))
+        ],
+    )
+
+    try:
+        attachments._validate_media_url("https://scontent.xx.fbcdn.net/v/t39.30808/image.jpg")
+    except attachments.UnsafeMediaUrlError as exc:
+        assert "non-public address" in str(exc)
+    else:
+        raise AssertionError("Expected private resolved address to be blocked")
+
+
+def test_fetch_inbox_attachment_blocks_unsafe_media_url_before_http_fetch(monkeypatch):
+    message_id = uuid.uuid4()
+    message = Message(
+        id=message_id,
+        conversation_id=uuid.uuid4(),
+        channel_type=ChannelType.facebook_messenger,
+        direction=MessageDirection.inbound,
+        status=MessageStatus.received,
+        body="Attachment test",
+        metadata_={
+            "page_id": "page-1",
+            "attachments": [{"id": "attachment-1", "payload": {"url": "https://example.com/private.jpg"}}],
+        },
+    )
+    db = _FakeDB()
+    db.records[(Message, message_id)] = message
+
+    monkeypatch.setattr(
+        attachments.meta_oauth, "get_token_for_page", lambda *_args: SimpleNamespace(access_token="token")
+    )
+    monkeypatch.setattr(attachments, "resolve_value", lambda *_args, **_kwargs: None)
+
+    http_called = {"called": False}
+
+    def _should_not_fetch(*_args, **_kwargs):
+        http_called["called"] = True
+        raise AssertionError("unsafe media URL should be blocked before httpx.get")
+
+    monkeypatch.setattr(attachments.httpx, "get", _should_not_fetch)
+
+    result = fetch_inbox_attachment(db, str(message_id), 0)
+
+    assert result.kind == "not_found"
+    assert http_called["called"] is False
 
 
 def test_fetch_stored_message_attachment_returns_decoded_content():
