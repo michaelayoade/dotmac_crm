@@ -1948,6 +1948,10 @@ def _ncc_validation_status(record: dict[str, str]) -> str:
         add_error("First Name", "must contain letters only")
     if not re.fullmatch(r"[A-Za-z-]+", _clean_text(record.get("Last Name"))):
         add_error("Last Name", "must contain letters only; hyphen is allowed")
+    if _ncc_name_contains_test(record.get("First Name")):
+        add_error("First Name", "must not contain test data")
+    if _ncc_name_contains_test(record.get("Last Name")):
+        add_error("Last Name", "must not contain test data")
     if _clean_text(record.get("Age")) != "N/A" and not _ncc_clean_age(record.get("Age")):
         add_error("Age", "must be N/A or a whole number from 13 to 150")
     if _clean_text(record.get("Gender")) not in {"Female", "Male", "N/A"}:
@@ -2704,6 +2708,10 @@ def _ncc_clean_name(value: object, *, allow_hyphen: bool = False) -> str:
 def _ncc_last_name_fallback(value: object) -> str:
     cleaned = _ncc_clean_name(value, allow_hyphen=True)
     return cleaned or "Unknown"
+
+
+def _ncc_name_contains_test(value: object) -> bool:
+    return bool(re.search(r"\btest\b", _clean_text(value), re.IGNORECASE))
 
 
 def _ncc_ticket_id(ticket: Ticket) -> str:
@@ -3617,6 +3625,8 @@ def _build_ncc_records(db: Session, start_dt: datetime, end_dt: datetime) -> lis
             }
         )
         if not record["First Name"] and not record["Last Name"]:
+            continue
+        if _ncc_name_contains_test(record["First Name"]) or _ncc_name_contains_test(record["Last Name"]):
             continue
         records.append(record)
     return records

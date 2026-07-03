@@ -160,6 +160,13 @@ def test_ncc_clean_record_fills_blank_last_name_with_unknown():
     assert cleaned["Last Name"] == "Ada"
 
 
+def test_ncc_name_contains_test_detects_first_or_last_name_test_data():
+    assert reports._ncc_name_contains_test("Test")
+    assert reports._ncc_name_contains_test("Customer Test")
+    assert reports._ncc_name_contains_test("test-customer")
+    assert not reports._ncc_name_contains_test("Contest")
+
+
 def test_ncc_ticket_id_uses_operator_date_and_number():
     ticket = SimpleNamespace(created_at=datetime(2026, 7, 3, 9, 15, tzinfo=UTC), number="19655", id="fallback")
 
@@ -188,6 +195,29 @@ def test_ncc_validation_status_has_specific_column_message():
     assert cleaned["VALIDATION STATUS"].startswith("[FAIL]")
     assert "Last Name is required" not in cleaned["VALIDATION STATUS"]
     assert "Ticket ID must use format DOTMAC-YYYYMMDD-Number (col M)" in cleaned["VALIDATION STATUS"]
+
+
+def test_ncc_validation_status_rejects_test_names():
+    cleaned = reports._clean_ncc_record(
+        {
+            "MSISDN": "2348012345678",
+            "First Name": "Test",
+            "Last Name": "Bello",
+            "Age": "N/A",
+            "Gender": "N/A",
+            "created date time": "03-07-2026 09:00:00",
+            "Category": "Billing",
+            "category code (auto)": "A",
+            "sub category code": "A50 - Others (Billing)",
+            "Ticket ID": "DOTMAC-20260703-19655",
+            "Complaint type": "First Level",
+            "Status": "Pending",
+            "Ticket source": "Phone Call",
+        }
+    )
+
+    assert cleaned["VALIDATION STATUS"].startswith("[FAIL]")
+    assert "First Name must not contain test data" in cleaned["VALIDATION STATUS"]
 
 
 def test_ncc_workbook_colors_rows_by_validation_status():
