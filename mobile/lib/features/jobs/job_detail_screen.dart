@@ -38,13 +38,35 @@ class JobDetailScreen extends ConsumerWidget {
   }
 }
 
-class _JobDetailView extends ConsumerWidget {
+class _JobDetailView extends ConsumerStatefulWidget {
   const _JobDetailView({required this.detail});
 
   final JobDetail detail;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_JobDetailView> createState() => _JobDetailViewState();
+}
+
+class _JobDetailViewState extends ConsumerState<_JobDetailView> {
+  late List<Map<String, dynamic>> _notes;
+
+  @override
+  void initState() {
+    super.initState();
+    _notes = [...widget.detail.notes];
+  }
+
+  @override
+  void didUpdateWidget(covariant _JobDetailView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.detail != widget.detail) {
+      _notes = [...widget.detail.notes];
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final detail = widget.detail;
     final job = detail.job;
     final action = primaryActionFor(job.status);
     final statusColor = AppColors.status(job.status);
@@ -154,7 +176,7 @@ class _JobDetailView extends ConsumerWidget {
               ),
             ),
           ],
-          if (detail.notes.isNotEmpty) ...[
+          if (_notes.isNotEmpty) ...[
             const SizedBox(height: 12),
             Card(
               child: Padding(
@@ -167,7 +189,7 @@ class _JobDetailView extends ConsumerWidget {
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: 8),
-                    for (final note in detail.notes)
+                    for (final note in _notes)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Text(_noteBody(note)),
@@ -270,26 +292,30 @@ class _JobDetailView extends ConsumerWidget {
                         isSaving = true;
                         errorText = '';
                       });
+                      late final String clientRef;
                       try {
-                        await ref
+                        clientRef = await ref
                             .read(executionControllerProvider.notifier)
                             .addNote(jobId, body);
-                        if (dialogContext.mounted) {
-                          Navigator.of(dialogContext).pop();
-                        }
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Note saved')),
-                          );
-                        }
-                        unawaited(_refreshJobDetail(ref, jobId));
                       } catch (_) {
-                        if (!context.mounted) return;
+                        if (!dialogContext.mounted) return;
                         setState(() {
                           isSaving = false;
                           errorText = 'Could not save note';
                         });
+                        return;
                       }
+                      if (!mounted) return;
+                      _addLocalNote(clientRef, body);
+                      if (dialogContext.mounted) {
+                        Navigator.of(dialogContext).pop();
+                      }
+                      if (mounted) {
+                        ScaffoldMessenger.of(this.context).showSnackBar(
+                          const SnackBar(content: Text('Note saved')),
+                        );
+                      }
+                      unawaited(_refreshJobDetail(jobId));
                     },
               child: isSaving
                   ? const SizedBox(
@@ -305,14 +331,28 @@ class _JobDetailView extends ConsumerWidget {
     );
     controller.dispose();
   }
-}
 
-Future<void> _refreshJobDetail(WidgetRef ref, String jobId) async {
-  try {
-    ref.invalidate(jobDetailProvider(jobId));
-    await ref.read(jobDetailProvider(jobId).future);
-  } catch (_) {
-    // The note is saved/queued; a refresh problem should not show as save failure.
+  void _addLocalNote(String clientRef, String body) {
+    setState(() {
+      _notes = [
+        {
+          'id': clientRef,
+          'body': body,
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+        },
+        ..._notes,
+      ];
+    });
+  }
+
+  Future<void> _refreshJobDetail(String jobId) async {
+    try {
+      final detail = await ref.read(jobsRepositoryProvider).fetchDetail(jobId);
+      if (!mounted) return;
+      setState(() => _notes = [...detail.notes]);
+    } catch (_) {
+      // The note is saved/queued; a refresh problem should not show as save failure.
+    }
   }
 }
 
