@@ -253,8 +253,12 @@ def test_ncc_location_maps_area_from_full_service_address():
     )
 
 
-def test_ncc_location_ignores_town_not_in_accepted_list():
-    assert reports._map_ncc_location("12 Ukpabi Asika St, Asokoro, Abuja FCT") == ("", "", "")
+def test_ncc_location_maps_newly_accepted_asokoro_town():
+    assert reports._map_ncc_location("12 Ukpabi Asika St, Asokoro, Abuja FCT") == (
+        "Municipal Area Council",
+        "Asokoro",
+        "FEDERAL CAPITAL TERRITORY",
+    )
 
 
 def test_ncc_location_does_not_fallback_to_comma_segment():
