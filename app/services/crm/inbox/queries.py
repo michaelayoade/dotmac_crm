@@ -98,7 +98,8 @@ def list_inbox_conversations(
         db.query(Conversation)
         .options(
             selectinload(Conversation.contact).selectinload(Person.channels),
-            selectinload(Conversation.assignments),
+            selectinload(Conversation.assignments).selectinload(ConversationAssignment.agent),
+            selectinload(Conversation.assignments).selectinload(ConversationAssignment.team),
             selectinload(Conversation.tags),
         )
         .select_from(Conversation)

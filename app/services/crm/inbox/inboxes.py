@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.connector import ConnectorConfig, ConnectorType
 from app.models.integration import (
@@ -66,16 +67,19 @@ def build_email_state_for_target(
     db: Session,
     target: IntegrationTarget,
     config: ConnectorConfig,
+    job: IntegrationJob | None = None,
+    lookup_job: bool = True,
 ) -> dict:
     metadata = config.metadata_ if isinstance(config.metadata_, dict) else {}
     auth_config = config.auth_config if isinstance(config.auth_config, dict) else {}
-    job = (
-        db.query(IntegrationJob)
-        .filter(IntegrationJob.target_id == target.id)
-        .filter(IntegrationJob.job_type == IntegrationJobType.import_)
-        .order_by(IntegrationJob.created_at.desc())
-        .first()
-    )
+    if job is None and lookup_job:
+        job = (
+            db.query(IntegrationJob)
+            .filter(IntegrationJob.target_id == target.id)
+            .filter(IntegrationJob.job_type == IntegrationJobType.import_)
+            .order_by(IntegrationJob.created_at.desc())
+            .first()
+        )
     poll_interval = None
     if job:
         if job.interval_seconds is not None:
@@ -124,19 +128,39 @@ def build_whatsapp_state_for_target(
 def list_channel_targets(db: Session, connector_type: ConnectorType) -> list[dict]:
     targets = (
         db.query(IntegrationTarget)
+        .options(joinedload(IntegrationTarget.connector_config))
         .join(ConnectorConfig, ConnectorConfig.id == IntegrationTarget.connector_config_id)
         .filter(IntegrationTarget.target_type == IntegrationTargetType.crm)
         .filter(ConnectorConfig.connector_type == connector_type)
         .order_by(IntegrationTarget.created_at.desc())
         .all()
     )
+    latest_import_job_by_target_id: dict[uuid.UUID, IntegrationJob] = {}
+    if connector_type == ConnectorType.email and targets:
+        target_ids = [target.id for target in targets]
+        jobs = (
+            db.query(IntegrationJob)
+            .filter(IntegrationJob.target_id.in_(target_ids))
+            .filter(IntegrationJob.job_type == IntegrationJobType.import_)
+            .order_by(IntegrationJob.target_id, IntegrationJob.created_at.desc())
+            .all()
+        )
+        for job in jobs:
+            latest_import_job_by_target_id.setdefault(job.target_id, job)
+
     results = []
     for target in targets:
         config = target.connector_config
         if not config:
             continue
         if connector_type == ConnectorType.email:
-            payload = build_email_state_for_target(db, target, config)
+            payload = build_email_state_for_target(
+                db,
+                target,
+                config,
+                job=latest_import_job_by_target_id.get(target.id),
+                lookup_job=False,
+            )
             payload["channel"] = connector_type.value
             payload["kind"] = "inbox"
             results.append(payload)

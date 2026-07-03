@@ -18,7 +18,7 @@ from app.models.crm.team import CrmAgent, CrmTeam
 from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.domain_settings import SettingDomain
 from app.models.person import Person
-from app.models.subscriber import Subscriber
+from app.models.subscriber import Organization, Subscriber
 from app.models.tickets import Ticket, TicketAssignee, TicketPriority, TicketStatus
 from app.services import crm as crm_service
 from app.services.common import coerce_uuid
@@ -286,6 +286,65 @@ def _annotate_conversation_time_labels(db: Session, conversations: list[dict]) -
                 logger.debug("Failed to annotate inbox conversation time label.", exc_info=True)
 
 
+def _build_conversation_list_format_maps(db: Session, conversations_raw: list[tuple]) -> dict[str, dict]:
+    agent_person_ids = set()
+    organization_ids = set()
+    ticket_ids = set()
+    for conv, *_rest in conversations_raw:
+        contact = getattr(conv, "contact", None)
+        organization_id = getattr(contact, "organization_id", None)
+        if organization_id:
+            organization_ids.add(organization_id)
+        ticket_id = getattr(conv, "ticket_id", None)
+        if ticket_id:
+            ticket_ids.add(ticket_id)
+        for assignment in getattr(conv, "assignments", None) or []:
+            if not getattr(assignment, "is_active", False):
+                continue
+            agent = getattr(assignment, "agent", None)
+            person_id = getattr(agent, "person_id", None)
+            if person_id:
+                agent_person_ids.add(person_id)
+
+    agent_people_by_id = {}
+    if agent_person_ids:
+        people = db.query(Person).filter(Person.id.in_(agent_person_ids)).all()
+        agent_people_by_id = {str(person.id): person for person in people}
+
+    organization_names_by_id = {}
+    if organization_ids:
+        organization_rows = (
+            db.query(Organization.id, Organization.name).filter(Organization.id.in_(organization_ids)).all()
+        )
+        organization_names_by_id = {str(org_id): name for org_id, name in organization_rows}
+
+    ticket_refs_by_id = {}
+    if ticket_ids:
+        ticket_rows = db.query(Ticket.id, Ticket.number).filter(Ticket.id.in_(ticket_ids)).all()
+        ticket_refs_by_id = {str(ticket_id): (number or str(ticket_id)) for ticket_id, number in ticket_rows}
+
+    return {
+        "agent_people_by_id": agent_people_by_id,
+        "organization_names_by_id": organization_names_by_id,
+        "ticket_refs_by_id": ticket_refs_by_id,
+    }
+
+
+def _format_conversation_list_rows(db: Session, conversations_raw: list[tuple]) -> list[dict]:
+    format_maps = _build_conversation_list_format_maps(db, conversations_raw)
+    return [
+        format_conversation_for_template(
+            conv,
+            db,
+            latest_message=latest_message,
+            unread_count=unread_count,
+            include_inbox_label=True,
+            **format_maps,
+        )
+        for conv, latest_message, unread_count, _failed_outbox in conversations_raw
+    ]
+
+
 def _load_assignment_activity(
     db: Session,
     *,
@@ -542,21 +601,12 @@ async def build_inbox_page_context(
             assigned_from=assigned_from,
             assigned_to=assigned_to,
             missing=missing,
-            offset=0,
+            offset=safe_offset,
             limit=page_limit,
             include_thread=False,
             fetch_comments=False,
         )
-        conversations = [
-            format_conversation_for_template(
-                conv,
-                db,
-                latest_message=latest_message,
-                unread_count=unread_count,
-                include_inbox_label=True,
-            )
-            for conv, latest_message, unread_count, _failed_outbox in listing.conversations_raw
-        ]
+        conversations = _format_conversation_list_rows(db, listing.conversations_raw)
         if outbox_status and str(outbox_status).strip().lower() == "failed":
             for idx, (_conv, _latest_message, _unread_count, failed_outbox) in enumerate(listing.conversations_raw):
                 if failed_outbox and idx < len(conversations):
@@ -630,15 +680,12 @@ async def build_inbox_page_context(
     facebook_comment_inboxes, instagram_comment_inboxes = list_comment_inboxes(db)
 
     assignment_options = crm_service.get_agent_team_options(db)
-    templates = []
-    if db:
-        templates = message_templates.list(
-            db,
-            channel_type=None,
-            is_active=True,
-            limit=200,
-            offset=0,
-        )
+    templates = _load_message_template_choices(db) if selected_conversation else []
+    macros = (
+        _load_macro_choices(db, str(current_agent_id) if current_agent_id else None) if selected_conversation else []
+    )
+    introduction_template = get_introduction_template(db, current_user) if selected_conversation else ""
+    rendered_introduction_template = render_introduction_template(db, current_user) if selected_conversation else ""
     notification_auto_dismiss_seconds = resolve_value(
         db, SettingDomain.notification, "crm_inbox_notification_auto_dismiss_seconds"
     )
@@ -712,11 +759,9 @@ async def build_inbox_page_context(
         "inbox_timezone": inbox_timezone,
         "inbox_time_hour12": inbox_time_hour12,
         "message_templates": templates,
-        "macros": conversation_macros.list_for_agent(db, str(current_agent_id))
-        if current_agent_id
-        else conversation_macros.list(db, visibility="shared", is_active=True, limit=200),
-        "introduction_template": get_introduction_template(db, current_user),
-        "rendered_introduction_template": render_introduction_template(db, current_user),
+        "macros": macros,
+        "introduction_template": introduction_template,
+        "rendered_introduction_template": rendered_introduction_template,
     }
 
 
@@ -761,16 +806,7 @@ async def build_inbox_conversations_partial_context(
         include_thread=False,
         fetch_comments=False,
     )
-    conversations = [
-        format_conversation_for_template(
-            conv,
-            db,
-            latest_message=latest_message,
-            unread_count=unread_count,
-            include_inbox_label=True,
-        )
-        for conv, latest_message, unread_count, _failed_outbox in listing.conversations_raw
-    ]
+    conversations = _format_conversation_list_rows(db, listing.conversations_raw)
     if outbox_status and str(outbox_status).strip().lower() == "failed":
         for idx, (_conv, _latest_message, _unread_count, failed_outbox) in enumerate(listing.conversations_raw):
             if failed_outbox and idx < len(conversations):
