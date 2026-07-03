@@ -151,6 +151,19 @@ def _get_config(db: Session) -> dict[str, Any] | None:
     }
 
 
+def is_customer_sync_enabled(db: Session) -> bool:
+    """True only when selfcare customer sync is turned on. Cheap guard so callers
+    can skip work (and DB queries) entirely when the integration is off."""
+    try:
+        return bool(
+            settings_spec.resolve_value(
+                db, SettingDomain.integration, "selfcare_customer_sync_enabled", use_cache=False
+            )
+        )
+    except Exception:
+        return False
+
+
 def _get_api_config(db: Session) -> dict[str, Any]:
     enabled = settings_spec.resolve_value(
         db, SettingDomain.integration, "selfcare_customer_sync_enabled", use_cache=False
@@ -359,6 +372,82 @@ def create_installation_invoice(
     return invoice_id or None
 
 
+def record_payment(
+    db: Session,
+    *,
+    subscriber_id: str,
+    amount: Any,
+    external_ref: str,
+    paid_at: Any = None,
+    memo: str | None = None,
+    invoice_external_ref: str | None = None,
+    currency: str = "NGN",
+) -> str | None:
+    """Record a payment a customer made in the CRM into dotmac_sub's ledger, so
+    it settles the matching invoice and shows in the customer portal. Returns the
+    new payment id, or None when the amount is invalid or sync is disabled.
+    Idempotent server-side on ``external_ref``."""
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        amt = Decimal(str(amount))
+    except (InvalidOperation, TypeError, ValueError):
+        logger.error("selfcare_payment_invalid_amount value=%s", amount)
+        return None
+    if amt <= 0:
+        return None
+
+    body = {
+        "subscriber_id": str(subscriber_id),
+        "amount": str(amt),
+        "external_ref": str(external_ref),
+        "invoice_external_ref": invoice_external_ref,
+        "memo": memo,
+        "currency": currency,
+        "paid_at": paid_at.isoformat() if hasattr(paid_at, "isoformat") else paid_at,
+    }
+    data = _request_json(db, "POST", "/payments", json_body=body)
+    row = _unwrap_data(data) or {}
+    payment_id = str(row.get("id") or "").strip() if isinstance(row, dict) else ""
+    return payment_id or None
+
+
+def create_subscription(
+    db: Session,
+    *,
+    subscriber_id: str,
+    offer_ref: str,
+    external_ref: str,
+    unit_price: Any = None,
+    start_at: Any = None,
+) -> dict[str, Any] | None:
+    """Create a subscription in dotmac_sub from a CRM sale (plus its first
+    invoice), so the customer's plan and its recurring charge show in the portal.
+
+    ``offer_ref`` is a dotmac_sub CatalogOffer id or code (the CRM picks a real
+    offer from ``fetch_offers``). Returns ``{subscription_id, invoice_id, status,
+    created}`` or None when sync is disabled / the call fails. Idempotent
+    server-side on ``external_ref``."""
+    offer_ref = str(offer_ref or "").strip()
+    external_ref = str(external_ref or "").strip()
+    if not subscriber_id or not offer_ref or not external_ref:
+        return None
+
+    body: dict[str, Any] = {
+        "subscriber_id": str(subscriber_id),
+        "offer_ref": offer_ref,
+        "external_ref": external_ref,
+    }
+    if unit_price is not None:
+        body["unit_price"] = str(unit_price)
+    if start_at is not None:
+        body["start_at"] = start_at.isoformat() if hasattr(start_at, "isoformat") else start_at
+
+    data = _request_json(db, "POST", "/subscriptions", json_body=body)
+    row = _unwrap_data(data) or {}
+    return row if isinstance(row, dict) else None
+
+
 def create_account_credit(
     db: Session,
     *,
@@ -537,6 +626,19 @@ def fetch_affected_subscribers(
     if not isinstance(data, dict):
         return {"subscribers": [], "count": 0, "coverage": {}}
     return data
+
+
+def fetch_offers(db: Session, *, q: str | None = None, active_only: bool = True) -> list[dict[str, Any]]:
+    """The subscription plan catalog from dotmac_sub (the source of truth), so a
+    sales quote can pick a real offer (id + recurring price) instead of the CRM
+    keeping a parallel plan list. Each row: {id, code, name, recurring_price,
+    currency, billing_cycle, speed_download_mbps, speed_upload_mbps}."""
+    params: dict[str, Any] = {"active_only": "true" if active_only else "false"}
+    if q:
+        params["q"] = q
+    payload = _request_json(db, "GET", "/offers", params=params)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    return data if isinstance(data, list) else []
 
 
 def fetch_infrastructure_assets(db: Session, *, q: str | None = None) -> list[dict[str, Any]]:

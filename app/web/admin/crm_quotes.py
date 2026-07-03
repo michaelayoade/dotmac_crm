@@ -242,6 +242,7 @@ def crm_quote_create(
     item_unit_price: list[str] = Form([]),
     item_discount_percent: list[str] = Form([]),
     item_inventory_item_id: list[str] = Form([]),
+    item_sub_offer_id: list[str] = Form([]),
     db: Session = Depends(get_db),
 ):
     form_input = QuoteUpsertInput(
@@ -262,6 +263,7 @@ def crm_quote_create(
         item_unit_price=item_unit_price,
         item_discount_percent=item_discount_percent,
         item_inventory_item_id=item_inventory_item_id,
+        item_sub_offer_id=item_sub_offer_id,
     )
     try:
         current_user = get_current_user(request)
@@ -341,6 +343,7 @@ def crm_quote_update(
     item_unit_price: list[str] = Form([]),
     item_discount_percent: list[str] = Form([]),
     item_inventory_item_id: list[str] = Form([]),
+    item_sub_offer_id: list[str] = Form([]),
     db: Session = Depends(get_db),
 ):
     form_input = QuoteUpsertInput(
@@ -361,6 +364,7 @@ def crm_quote_update(
         item_unit_price=item_unit_price,
         item_discount_percent=item_discount_percent,
         item_inventory_item_id=item_inventory_item_id,
+        item_sub_offer_id=item_sub_offer_id,
     )
     try:
         before, updated = update_quote(
