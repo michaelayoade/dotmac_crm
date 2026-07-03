@@ -121,6 +121,47 @@ void main() {
     expect(location.mapsUri, isNull);
   });
 
+  test('job detail accepts paginated notes and ignores malformed entries', () {
+    final detail = JobDetail.fromJson({
+      'job': {
+        'id': 'wo-1',
+        'title': 'Install',
+        'status': 'dispatched',
+        'work_type': 'install',
+        'priority': 'normal',
+      },
+      'location': {'source': 'none'},
+      'notes': {
+        'items': [
+          {'text': 'Stored note returned as text'},
+          null,
+          'unexpected',
+        ],
+      },
+      'materials': null,
+    });
+
+    expect(detail.notes, hasLength(1));
+    expect(detail.notes.single['text'], 'Stored note returned as text');
+  });
+
+  testWidgets('job detail renders notes returned with alternate body key', (tester) async {
+    final detail = JobDetail(
+      job: _job(),
+      location: const JobLocation(source: 'none'),
+      notes: const [
+        {'text': 'Stored note returned as text'},
+      ],
+    );
+    await tester.pumpWidget(_wrap(
+      const JobDetailScreen(jobId: 'wo-1'),
+      overrides: [jobDetailProvider('wo-1').overrideWith((ref) async => detail)],
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Stored note returned as text'), findsOneWidget);
+  });
+
   testWidgets('call button dials the customer', (tester) async {
     final launched = <Uri>[];
     await tester.pumpWidget(_wrap(

@@ -168,7 +168,7 @@ class _JobDetailView extends ConsumerWidget {
                     for (final note in detail.notes)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Text(note['body'] as String? ?? ''),
+                        child: Text(_noteBody(note)),
                       ),
                   ],
                 ),
@@ -291,6 +291,14 @@ class _JobDetailView extends ConsumerWidget {
     );
     controller.dispose();
   }
+}
+
+String _noteBody(Map<String, dynamic> note) {
+  for (final key in ['body', 'text', 'comment', 'note']) {
+    final value = note[key];
+    if (value is String && value.trim().isNotEmpty) return value;
+  }
+  return '';
 }
 
 /// Field outcomes for a visit that can't be completed. Keys mirror the backend

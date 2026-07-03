@@ -139,14 +139,8 @@ class JobDetail {
           )
         : null,
     ticketRef: json['ticket_ref'] as String?,
-    notes: ((json['notes'] as List?) ?? [])
-        .cast<Map>()
-        .map((n) => n.cast<String, dynamic>())
-        .toList(),
-    materials: ((json['materials'] as List?) ?? [])
-        .cast<Map>()
-        .map((m) => m.cast<String, dynamic>())
-        .toList(),
+    notes: _mapList(json['notes']),
+    materials: _mapList(json['materials']),
   );
 }
 
@@ -167,3 +161,15 @@ String actionLabel(String action) => switch (action) {
 
 DateTime? _date(Object? value) =>
     value is String ? DateTime.tryParse(value) : null;
+
+List<Map<String, dynamic>> _mapList(Object? value) {
+  final items = switch (value) {
+    final List list => list,
+    {'items': final List list} => list,
+    _ => const [],
+  };
+  return [
+    for (final item in items)
+      if (item is Map) item.cast<String, dynamic>(),
+  ];
+}
