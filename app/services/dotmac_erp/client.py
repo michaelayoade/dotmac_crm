@@ -125,6 +125,15 @@ class DotMacERPClient:
         except Exception:
             data = None
 
+        # Auth failures keep their dedicated error type even when the caller
+        # narrows expected_status_codes — task-level handlers classify on it.
+        if response.status_code == 401 or response.status_code == 403:
+            raise DotMacERPAuthError(
+                f"Authentication failed: {response.status_code}",
+                status_code=response.status_code,
+                response=data,
+            )
+
         if expected_status_codes and response.status_code not in expected_status_codes:
             raise DotMacERPError(
                 f"API unexpected status ({response.status_code}), expected {sorted(expected_status_codes)}",
@@ -134,13 +143,6 @@ class DotMacERPClient:
 
         if response.status_code == 204:
             return None
-
-        if response.status_code == 401 or response.status_code == 403:
-            raise DotMacERPAuthError(
-                f"Authentication failed: {response.status_code}",
-                status_code=response.status_code,
-                response=data,
-            )
 
         if response.status_code == 404:
             raise DotMacERPNotFoundError(
