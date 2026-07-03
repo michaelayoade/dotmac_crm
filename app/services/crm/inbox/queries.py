@@ -94,14 +94,16 @@ def list_inbox_conversations(
     last_message_at, message_type, has_attachments
     """
     _ensure_summary_rows(db)
+    # Loader options are applied only when entities are materialized (SQLite path /
+    # Postgres phase 2) so the filter/sort query stays a cheap id-only scan.
+    loader_options = (
+        selectinload(Conversation.contact).selectinload(Person.channels),
+        selectinload(Conversation.assignments).selectinload(ConversationAssignment.agent),
+        selectinload(Conversation.assignments).selectinload(ConversationAssignment.team),
+        selectinload(Conversation.tags),
+    )
     query = (
         db.query(Conversation)
-        .options(
-            selectinload(Conversation.contact).selectinload(Person.channels),
-            selectinload(Conversation.assignments).selectinload(ConversationAssignment.agent),
-            selectinload(Conversation.assignments).selectinload(ConversationAssignment.team),
-            selectinload(Conversation.tags),
-        )
         .select_from(Conversation)
         .outerjoin(ConversationSummary, ConversationSummary.conversation_id == Conversation.id)
         .filter(Conversation.is_active.is_(True))
@@ -356,7 +358,7 @@ def list_inbox_conversations(
                 Conversation.last_message_at.desc(),
                 Conversation.updated_at.desc(),
             )
-        conversations = query.limit(limit).offset(offset).all()
+        conversations = query.options(*loader_options).limit(limit).offset(offset).all()
         if not conversations:
             return []
 
@@ -436,6 +438,29 @@ def list_inbox_conversations(
             result.append((conv, latest_message, unread_map.get(conv.id, 0), failed_outbox))
         return result
 
+    # Phase 1: resolve just the page of conversation ids. The CASE in the ORDER BY
+    # defeats index-assisted sorting, so this scan touches every qualifying
+    # conversation — keeping it id-only means the expensive per-row work below
+    # (latest-message LATERAL, eager loads) runs for one page, not the whole inbox.
+    if sort_by == "priority":
+        order_exprs = [
+            priority_sort_expr,
+            status_sort_expr,
+            Conversation.last_message_at.desc().nullslast(),
+            Conversation.updated_at.desc(),
+        ]
+    else:
+        order_exprs = [
+            status_sort_expr,
+            Conversation.last_message_at.desc().nullslast(),
+            Conversation.updated_at.desc(),
+        ]
+    page_ids = [
+        row[0] for row in query.with_entities(Conversation.id).order_by(*order_exprs).limit(limit).offset(offset).all()
+    ]
+    if not page_ids:
+        return []
+
     last_message_ts = _message_activity_ts()
     has_attachments = db.query(MessageAttachment.id).filter(MessageAttachment.message_id == Message.id).exists()
 
@@ -461,9 +486,14 @@ def list_inbox_conversations(
         .limit(1)
     ).alias("latest_message")
 
-    query = query.outerjoin(
-        latest_message_subq,
-        true(),
+    # Phase 2: hydrate only the page — laterals and eager loads over `limit` rows.
+    page_query = (
+        db.query(Conversation)
+        .options(*loader_options)
+        .select_from(Conversation)
+        .outerjoin(ConversationSummary, ConversationSummary.conversation_id == Conversation.id)
+        .outerjoin(latest_message_subq, true())
+        .filter(Conversation.id.in_(page_ids))
     )
 
     if outbox_status_filter == outbox_service.STATUS_FAILED:
@@ -484,23 +514,9 @@ def list_inbox_conversations(
             )
             .limit(1)
         ).alias("failed_outbox")
-        query = query.outerjoin(
+        page_query = page_query.outerjoin(
             failed_outbox_subq,
             true(),
-        )
-
-    if sort_by == "priority":
-        query = query.order_by(
-            priority_sort_expr,
-            status_sort_expr,
-            Conversation.last_message_at.desc().nullslast(),
-            Conversation.updated_at.desc(),
-        )
-    else:
-        query = query.order_by(
-            status_sort_expr,
-            Conversation.last_message_at.desc().nullslast(),
-            Conversation.updated_at.desc(),
         )
 
     cols = [
@@ -525,7 +541,12 @@ def list_inbox_conversations(
             ]
         )
 
-    conversations_raw = query.add_columns(*cols).limit(limit).offset(offset).all()
+    # Restore phase-1 ordering exactly (ties and all) rather than re-sorting in SQL.
+    page_order = {conv_id: index for index, conv_id in enumerate(page_ids)}
+    conversations_raw = sorted(
+        page_query.add_columns(*cols).all(),
+        key=lambda row: page_order[row[0].id],
+    )
 
     result = []
     for row in conversations_raw:
