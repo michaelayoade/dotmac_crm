@@ -3,8 +3,11 @@ import 'package:dotmac_field/core/api/api_client.dart';
 import 'package:dotmac_field/core/api/token_store.dart';
 import 'package:dotmac_field/features/auth/auth_state.dart';
 import 'package:dotmac_field/features/materials/material_models.dart';
+import 'package:dotmac_field/features/materials/materials_providers.dart';
 import 'package:dotmac_field/features/sales/sales_models.dart';
 import 'package:dotmac_field/features/sales/sales_providers.dart';
+import 'package:dotmac_field/features/sales/sales_screen.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -79,10 +82,12 @@ void main() {
         201,
         {
           'id': 'order-1',
+          'person_id': 'customer-1',
           'order_number': 'SO-000001',
           'status': 'draft',
           'payment_status': 'pending',
           'currency': 'NGN',
+          'subtotal': '30000.00',
           'total': '30000.00',
           'balance_due': '30000.00',
           'lines': [
@@ -119,7 +124,147 @@ void main() {
         );
 
     expect(order.orderNumber, 'SO-000001');
+    expect(order.personId, 'customer-1');
     expect(order.total, 30000);
     expect(order.lines.single.description, 'Router');
+  });
+
+  test(
+    'fetchOrder resolves an order from the field sales order list',
+    () async {
+      adapter.on('GET', '/api/v1/field/sales-orders', (_) {
+        return (
+          200,
+          {
+            'items': [
+              {
+                'id': 'order-1',
+                'person_id': 'customer-1',
+                'customer_label': 'Ada Customer',
+                'order_number': 'SO-000001',
+                'status': 'draft',
+                'payment_status': 'pending',
+                'currency': 'NGN',
+                'subtotal': '30000.00',
+                'total': '30000.00',
+                'balance_due': '30000.00',
+                'lines': [
+                  {
+                    'id': 'line-1',
+                    'inventory_item_id': 'item-1',
+                    'description': 'Router',
+                    'quantity': '2.000',
+                    'unit_price': '15000.00',
+                    'amount': '30000.00',
+                  },
+                ],
+              },
+            ],
+          },
+        );
+      });
+
+      final order = await container
+          .read(salesRepositoryProvider)
+          .fetchOrder('order-1');
+
+      expect(order.customerDisplay, 'Ada Customer');
+      expect(order.subtotal, 30000);
+      expect(order.lines.single.amount, 30000);
+    },
+  );
+
+  testWidgets('sales order detail shows customer, status, payment and lines', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          salesOrderProvider('order-1').overrideWith(
+            (ref) async => SalesOrder.fromJson({
+              'id': 'order-1',
+              'person_id': 'customer-1',
+              'customer_label': 'Ada Customer',
+              'order_number': 'SO-000001',
+              'status': 'draft',
+              'payment_status': 'pending',
+              'currency': 'NGN',
+              'subtotal': '30000.00',
+              'total': '30000.00',
+              'balance_due': '30000.00',
+              'notes': 'New install',
+              'lines': [
+                {
+                  'id': 'line-1',
+                  'description': 'Router',
+                  'quantity': '2',
+                  'unit_price': '15000.00',
+                  'amount': '30000.00',
+                },
+              ],
+            }),
+          ),
+        ],
+        child: const MaterialApp(home: SalesOrderDetailScreen(id: 'order-1')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('SO-000001'), findsOneWidget);
+    expect(find.text('Ada Customer'), findsOneWidget);
+    expect(find.text('draft'), findsOneWidget);
+    expect(find.text('pending'), findsOneWidget);
+    expect(find.text('Router'), findsOneWidget);
+    expect(find.text('New install'), findsOneWidget);
+  });
+
+  testWidgets('new sales order draft lines can be edited and removed', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          customerSearchProvider.overrideWith((ref) async => const []),
+          inventorySearchProvider.overrideWith((ref) async => const []),
+        ],
+        child: const MaterialApp(home: NewSalesOrderScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final orderForm = find.byType(Scrollable).first;
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Description'),
+      'Router',
+    );
+    await tester.enterText(find.widgetWithText(TextField, 'Quantity'), '2');
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Unit price'),
+      '15000',
+    );
+    final addLine = find.byKey(const Key('add-sales-line-action'));
+    await tester.scrollUntilVisible(addLine, 120, scrollable: orderForm);
+    await tester.drag(orderForm, const Offset(0, -120));
+    await tester.pumpAndSettle();
+    await tester.tap(addLine);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Router'), findsOneWidget);
+    expect(find.text('NGN 30000.00'), findsWidgets);
+
+    await tester.tap(find.byTooltip('Edit line'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, 'Router'), findsOneWidget);
+    expect(find.text('NGN 30000.00'), findsNothing);
+
+    await tester.scrollUntilVisible(addLine, 120, scrollable: orderForm);
+    await tester.drag(orderForm, const Offset(0, -120));
+    await tester.pumpAndSettle();
+    await tester.tap(addLine);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Remove line'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Router'), findsNothing);
   });
 }

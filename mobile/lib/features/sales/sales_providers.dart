@@ -27,6 +27,11 @@ class SalesRepository {
     return _items(response.data).map(SalesOrder.fromJson).toList();
   }
 
+  Future<SalesOrder> fetchOrder(String id) async {
+    final orders = await fetchOrders();
+    return orders.firstWhere((order) => order.id == id);
+  }
+
   Future<SalesOrder> createOrder({
     required SalesCustomer customer,
     required List<SalesOrderLineDraft> lines,
@@ -69,6 +74,10 @@ final salesRepositoryProvider = Provider<SalesRepository>(SalesRepository.new);
 
 final salesOrdersProvider = FutureProvider<List<SalesOrder>>(
   (ref) => ref.watch(salesRepositoryProvider).fetchOrders(),
+);
+
+final salesOrderProvider = FutureProvider.family<SalesOrder, String>(
+  (ref, id) => ref.watch(salesRepositoryProvider).fetchOrder(id),
 );
 
 final customerSearchQueryProvider = StateProvider.autoDispose<String>(
