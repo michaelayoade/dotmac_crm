@@ -162,6 +162,36 @@ def _parse_serial_number_form(form) -> dict[str, list[str]]:
     return serials_by_item
 
 
+def _parse_material_request_items(
+    item_id: list[str],
+    quantity: list[str],
+    item_notes: list[str],
+) -> list[MaterialRequestItemCreate]:
+    items: list[MaterialRequestItemCreate] = []
+    for idx, item_value in enumerate(item_id):
+        if not item_value:
+            continue
+
+        raw_qty = quantity[idx] if idx < len(quantity) else "1"
+        try:
+            qty = int(str(raw_qty).strip())
+        except ValueError:
+            continue
+
+        note = item_notes[idx] if idx < len(item_notes) else None
+        if qty < 1:
+            continue
+
+        items.append(
+            MaterialRequestItemCreate(
+                item_id=coerce_uuid(item_value),
+                quantity=qty,
+                notes=note,
+            )
+        )
+    return items
+
+
 def _load_available_serials_from_erp_db(
     db: Session,
     *,
@@ -523,7 +553,7 @@ def material_request_create(
     source_location_id: str | None = Form(None),
     destination_location_id: str | None = Form(None),
     item_id: list[str] = Form(default=[]),
-    quantity: list[int] = Form(default=[]),
+    quantity: list[str] = Form(default=[]),
     item_notes: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
@@ -535,22 +565,7 @@ def material_request_create(
     if not person_id:
         return RedirectResponse(url="/admin/operations/material-requests", status_code=303)
 
-    items: list[MaterialRequestItemCreate] = []
-    if item_id:
-        for idx, item_value in enumerate(item_id):
-            if not item_value:
-                continue
-            qty = quantity[idx] if idx < len(quantity) else 1
-            note = item_notes[idx] if idx < len(item_notes) else None
-            if qty is None or qty < 1:
-                continue
-            items.append(
-                MaterialRequestItemCreate(
-                    item_id=coerce_uuid(item_value),
-                    quantity=qty,
-                    notes=note,
-                )
-            )
+    items = _parse_material_request_items(item_id, quantity, item_notes)
 
     try:
         resolved_ticket_id = resolve_ticket_id(db, ticket_id)
