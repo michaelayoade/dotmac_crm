@@ -256,6 +256,7 @@ def test_ncc_location_maps_area_from_full_service_address():
 def test_ncc_ticket_location_prefers_subscriber_address_over_ticket_region():
     ticket = SimpleNamespace(
         region="Gudu",
+        customer=None,
         subscriber=SimpleNamespace(
             service_city="",
             service_region="",
@@ -269,6 +270,21 @@ def test_ncc_ticket_location_prefers_subscriber_address_over_ticket_region():
         "Guzape",
         "FEDERAL CAPITAL TERRITORY",
     )
+
+
+def test_ncc_ticket_location_does_not_use_ticket_region_as_customer_town():
+    ticket = SimpleNamespace(
+        region="Gudu",
+        customer=None,
+        subscriber=SimpleNamespace(
+            service_city="",
+            service_region="",
+            service_address_line1="",
+            service_address_line2="",
+        ),
+    )
+
+    assert reports._ticket_ncc_location(ticket) == ("", "", "")
 
 
 def test_ncc_workbook_colors_rows_by_validation_status():

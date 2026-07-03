@@ -3359,12 +3359,19 @@ def _ticket_ncc_location(ticket: Ticket) -> tuple[str, str, str]:
         location_sources.extend(
             [
                 subscriber.service_city,
-                subscriber.service_region,
                 subscriber.service_address_line2,
                 subscriber.service_address_line1,
             ]
         )
-    location_sources.append(ticket.region)
+    customer = ticket.customer
+    if customer is not None:
+        location_sources.extend(
+            [
+                customer.city,
+                customer.address_line2,
+                customer.address_line1,
+            ]
+        )
 
     for source in location_sources:
         lga, town, state = _map_ncc_location(source)
