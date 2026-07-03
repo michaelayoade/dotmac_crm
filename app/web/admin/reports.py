@@ -3395,6 +3395,7 @@ def _ncc_town_from_address(value: object) -> str:
 def _ticket_ncc_location(ticket: Ticket) -> tuple[str, str, str]:
     subscriber = ticket.subscriber
     location_sources = []
+    region_sources = []
     if subscriber is not None:
         location_sources.extend(
             [
@@ -3403,6 +3404,7 @@ def _ticket_ncc_location(ticket: Ticket) -> tuple[str, str, str]:
                 subscriber.service_address_line1,
             ]
         )
+        region_sources.append(subscriber.service_region)
     customer = ticket.customer
     if customer is not None:
         location_sources.extend(
@@ -3412,8 +3414,9 @@ def _ticket_ncc_location(ticket: Ticket) -> tuple[str, str, str]:
                 customer.address_line1,
             ]
         )
+        region_sources.append(customer.region)
 
-    for source in location_sources:
+    for source in [*location_sources, *region_sources, ticket.region]:
         lga, town, state = _map_ncc_location(source)
         if lga and state:
             return lga, town, state

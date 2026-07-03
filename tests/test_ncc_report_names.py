@@ -261,7 +261,7 @@ def test_ncc_location_maps_newly_accepted_asokoro_town():
     )
 
 
-def test_ncc_location_does_not_fallback_to_comma_segment():
+def test_ncc_location_uses_region_when_address_has_no_accepted_town_match():
     ticket = SimpleNamespace(
         region="Gudu",
         customer=None,
@@ -273,7 +273,11 @@ def test_ncc_location_does_not_fallback_to_comma_segment():
         ),
     )
 
-    assert reports._ticket_ncc_location(ticket) == ("", "", "")
+    assert reports._ticket_ncc_location(ticket) == (
+        "Municipal Area Council",
+        "Gudu",
+        "FEDERAL CAPITAL TERRITORY",
+    )
 
 
 def test_ncc_location_matches_rightmost_accepted_town_in_address():
@@ -317,7 +321,11 @@ def test_ncc_ticket_location_does_not_use_ticket_region_as_customer_town():
         ),
     )
 
-    assert reports._ticket_ncc_location(ticket) == ("", "", "")
+    assert reports._ticket_ncc_location(ticket) == (
+        "Municipal Area Council",
+        "Gudu",
+        "FEDERAL CAPITAL TERRITORY",
+    )
 
 
 def test_ncc_workbook_colors_rows_by_validation_status():
