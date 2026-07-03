@@ -470,8 +470,8 @@
              role="dialog"
              aria-modal="false"
              aria-labelledby="crm-manager-dashboard-title"
-             class="fixed right-4 top-20 z-[2147483600] w-[min(28rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/30">
-            <div class="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+             class="fixed left-4 right-4 top-20 z-[2147483600] flex max-h-[calc(100dvh-6rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/30 sm:left-auto sm:w-[28rem]">
+            <div class="shrink-0 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
                 <div class="flex items-center justify-between gap-3">
                     <div>
                         <h2 id="crm-manager-dashboard-title" class="text-sm font-bold text-slate-900 dark:text-white">Customer Relations Manager</h2>
@@ -487,7 +487,7 @@
                     </button>
                 </div>
             </div>
-            <div class="max-h-[calc(100vh-8rem)] overflow-y-auto p-4">
+            <div class="min-h-0 flex-1 overflow-y-auto p-4 overscroll-contain">
                 {% set manager_panel = manager_panel or {} %}
                 {% set manager_channel_stats = manager_panel.channel_stats or {} %}
                 <div class="grid grid-cols-2 gap-2">
@@ -583,6 +583,26 @@
                         <div class="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">No active chats in the current view.</div>
                         {% endfor %}
                     </div>
+                </div>
+            </div>
+            <div class="shrink-0 border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
+                <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <a href="/admin/crm/inbox"
+                       class="inline-flex items-center justify-center rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 dark:border-slate-700 dark:text-slate-200 dark:hover:border-amber-500/40 dark:hover:bg-amber-500/10 dark:hover:text-amber-300">
+                        All chats
+                    </a>
+                    <a href="/admin/crm/inbox?assignment=unassigned"
+                       class="inline-flex items-center justify-center rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 dark:border-slate-700 dark:text-slate-200 dark:hover:border-amber-500/40 dark:hover:bg-amber-500/10 dark:hover:text-amber-300">
+                        Unassigned
+                    </a>
+                    <a href="/admin/crm/inbox?assignment=needs_attention"
+                       class="inline-flex items-center justify-center rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 dark:border-slate-700 dark:text-slate-200 dark:hover:border-amber-500/40 dark:hover:bg-amber-500/10 dark:hover:text-amber-300">
+                        Attention
+                    </a>
+                    <a href="/admin/crm/inbox/settings"
+                       class="inline-flex items-center justify-center rounded-lg border border-slate-200 px-2.5 py-2 text-xs font-semibold text-slate-700 transition hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 dark:border-slate-700 dark:text-slate-200 dark:hover:border-amber-500/40 dark:hover:bg-amber-500/10 dark:hover:text-amber-300">
+                        Settings
+                    </a>
                 </div>
             </div>
         </div>
