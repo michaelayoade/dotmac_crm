@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+from types import SimpleNamespace
 
 from app.web.public import crm_webhooks
 
@@ -120,6 +121,129 @@ def test_meta_webhook_invalid_signature_blocks_before_payload_parse(monkeypatch)
 
     assert response.status_code == 401
     assert validated["called"] is False
+
+
+def test_whatsapp_webhook_requires_signature_before_normalized_payload_parse(monkeypatch):
+    body = (
+        b'{"message_id":"wamid.1","from_number":"+15550001111","to_number":"+15551234567","body":"hello","metadata":{}}'
+    )
+
+    class _Request:
+        def __init__(self):
+            self.headers = {}
+
+        async def body(self):
+            return body
+
+    monkeypatch.setattr(
+        crm_webhooks.meta_oauth,
+        "get_meta_settings",
+        lambda _db: {"meta_app_secret": "meta-secret", "whatsapp_app_secret": "wa-secret"},
+    )
+
+    parsed = {"called": False}
+
+    def _should_not_parse(_body):
+        parsed["called"] = True
+        raise AssertionError("normalized payload parse should not run before signature verification")
+
+    monkeypatch.setattr(crm_webhooks.WhatsAppWebhookPayload, "model_validate_json", _should_not_parse)
+
+    response = _run_async(crm_webhooks.whatsapp_webhook(_Request(), db=None))
+
+    assert response.status_code == 401
+    assert parsed["called"] is False
+
+
+def test_whatsapp_webhook_validates_signature_before_processing_normalized_payload(monkeypatch):
+    body = (
+        b'{"message_id":"wamid.1","from_number":"+15550001111","to_number":"+15551234567","body":"hello","metadata":{}}'
+    )
+
+    class _Request:
+        def __init__(self):
+            self.headers = {"X-Hub-Signature-256": "sha256=test"}
+
+        async def body(self):
+            return body
+
+    events: list[str] = []
+
+    monkeypatch.setattr(
+        crm_webhooks.meta_oauth,
+        "get_meta_settings",
+        lambda _db: {"meta_app_secret": "meta-secret", "whatsapp_app_secret": "wa-secret"},
+    )
+
+    def _verify(_body, _signature, _secret):
+        events.append("verify")
+        return True
+
+    def _parse(_body):
+        events.append("parse")
+        return SimpleNamespace(
+            message_id="wamid.1",
+            body="hello",
+            metadata={},
+            model_dump=lambda: {"message_id": "wamid.1", "body": "hello", "metadata": {}},
+        )
+
+    def _enqueue(*_args, **_kwargs):
+        events.append("enqueue")
+        return True, False
+
+    monkeypatch.setattr(crm_webhooks.meta_webhooks, "verify_webhook_signature", _verify)
+    monkeypatch.setattr(crm_webhooks.WhatsAppWebhookPayload, "model_validate_json", _parse)
+    monkeypatch.setattr(crm_webhooks, "_enqueue_webhook_task", _enqueue)
+
+    response = _run_async(crm_webhooks.whatsapp_webhook(_Request(), db=None))
+
+    assert response == {"status": "ok", "processed": 1}
+    assert events == ["verify", "parse", "enqueue"]
+
+
+def test_email_webhook_rejects_missing_secret_when_configured(monkeypatch):
+    payload = crm_webhooks.EmailWebhookPayload(
+        message_id="email-1",
+        contact_address="sender@example.com",
+        contact_name="Sender",
+        subject="Hello",
+        body="Body",
+        metadata={},
+    )
+    request = SimpleNamespace(headers={})
+
+    monkeypatch.setattr(crm_webhooks, "_email_webhook_secret", lambda: "secret")
+
+    enqueued = {"called": False}
+
+    def _should_not_enqueue(*_args, **_kwargs):
+        enqueued["called"] = True
+        raise AssertionError("email webhook should not enqueue without the configured secret")
+
+    monkeypatch.setattr(crm_webhooks, "_enqueue_webhook_task", _should_not_enqueue)
+
+    response = crm_webhooks.email_webhook(request, payload, db=None)
+
+    assert response.status_code == 401
+    assert enqueued["called"] is False
+
+
+def test_email_webhook_accepts_matching_secret(monkeypatch):
+    payload = crm_webhooks.EmailWebhookPayload(
+        message_id="email-1",
+        contact_address="sender@example.com",
+        contact_name="Sender",
+        subject="Hello",
+        body="Body",
+        metadata={},
+    )
+    request = SimpleNamespace(headers={"X-Webhook-Secret": "secret"})
+
+    monkeypatch.setattr(crm_webhooks, "_email_webhook_secret", lambda: "secret")
+    monkeypatch.setattr(crm_webhooks, "_enqueue_webhook_task", lambda *_args, **_kwargs: (True, False))
+
+    assert crm_webhooks.email_webhook(request, payload, db=None) == {"status": "ok"}
 
 
 def test_meta_webhook_debug_logs_signature_context_without_bypassing_validation(monkeypatch):
