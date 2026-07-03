@@ -461,15 +461,20 @@
             </div>
         </div>
 
+        <template x-teleport="body">
         <div x-show="showManagerPanel"
              x-cloak
              x-transition
              @click.outside="showManagerPanel = false"
-             class="absolute right-4 top-[4.75rem] z-40 w-[min(28rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/30">
+             @keydown.escape.window="showManagerPanel = false"
+             role="dialog"
+             aria-modal="false"
+             aria-labelledby="crm-manager-dashboard-title"
+             class="fixed right-4 top-20 z-[2147483600] w-[min(28rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/30">
             <div class="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
                 <div class="flex items-center justify-between gap-3">
                     <div>
-                        <h2 class="text-sm font-bold text-slate-900 dark:text-white">Customer Relations Manager</h2>
+                        <h2 id="crm-manager-dashboard-title" class="text-sm font-bold text-slate-900 dark:text-white">Customer Relations Manager</h2>
                         <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Live inbox workload and agent coverage</p>
                     </div>
                     <button type="button"
@@ -581,6 +586,7 @@
                 </div>
             </div>
         </div>
+        </template>
 
         <!-- Search -->
         <div class="px-4 py-3">
