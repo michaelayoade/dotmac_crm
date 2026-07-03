@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.crm.conversation import Conversation
+from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.enums import ChannelType, ConversationPriority, ConversationStatus
 from app.models.person import Person
 from app.services.common import coerce_uuid
@@ -74,7 +74,8 @@ def _hydrate_conversations_raw(db: Session, payload: list[dict]) -> list[tuple[A
         db.query(Conversation)
         .options(
             selectinload(Conversation.contact).selectinload(Person.channels),
-            selectinload(Conversation.assignments),
+            selectinload(Conversation.assignments).selectinload(ConversationAssignment.agent),
+            selectinload(Conversation.assignments).selectinload(ConversationAssignment.team),
             selectinload(Conversation.tags),
         )
         .filter(Conversation.id.in_(valid_ids))

@@ -119,10 +119,23 @@ def get_initials(name: str | None) -> str:
     return name[0:2].upper() if len(name) >= 2 else name[0].upper()
 
 
-def format_conversation_ticket(conv: Conversation, db: Session) -> dict | None:
+def format_conversation_ticket(
+    conv: Conversation,
+    db: Session,
+    *,
+    ticket_refs_by_id: dict | None = None,
+) -> dict | None:
     """Return linked ticket details for inbox templates when available."""
     if not getattr(conv, "ticket_id", None):
         return None
+    ticket_key = str(conv.ticket_id)
+    if ticket_refs_by_id and ticket_key in ticket_refs_by_id:
+        ticket_ref = ticket_refs_by_id[ticket_key]
+        return {
+            "id": ticket_key,
+            "reference": ticket_ref,
+            "href": f"/admin/support/tickets/{ticket_ref}",
+        }
     ticket = db.get(Ticket, conv.ticket_id)
     if not ticket:
         ticket_ref = str(conv.ticket_id)
@@ -398,6 +411,9 @@ def format_conversation_for_template(
     latest_message: dict | Message | None = None,
     unread_count: int | None = None,
     include_inbox_label: bool = False,
+    agent_people_by_id: dict | None = None,
+    organization_names_by_id: dict | None = None,
+    ticket_refs_by_id: dict | None = None,
 ) -> dict:
     """Transform a Conversation model into template-friendly dict."""
     contact = conv.contact
@@ -436,7 +452,11 @@ def format_conversation_for_template(
             if active_assignment.agent:
                 agent = active_assignment.agent
                 if agent.person_id:
-                    person = db.get(Person, agent.person_id)
+                    person = None
+                    if agent_people_by_id:
+                        person = agent_people_by_id.get(str(agent.person_id))
+                    if person is None:
+                        person = db.get(Person, agent.person_id)
                     if person:
                         full_name = (
                             person.display_name
@@ -458,9 +478,12 @@ def format_conversation_for_template(
 
     company = None
     if contact and contact.organization_id:
-        org = db.get(Organization, contact.organization_id)
-        if org:
-            company = org.name
+        if organization_names_by_id and str(contact.organization_id) in organization_names_by_id:
+            company = organization_names_by_id[str(contact.organization_id)]
+        else:
+            org = db.get(Organization, contact.organization_id)
+            if org:
+                company = org.name
 
     preview = "No messages yet"
     if latest_message:
@@ -669,7 +692,7 @@ def format_conversation_for_template(
                 "label": str(raw_resolution.get("label") or "").strip() or None,
                 "ticket_reference": str(raw_resolution.get("ticket_reference") or "").strip() or None,
             }
-    ticket = format_conversation_ticket(conv, db)
+    ticket = format_conversation_ticket(conv, db, ticket_refs_by_id=ticket_refs_by_id)
 
     return {
         "id": str(conv.id),
