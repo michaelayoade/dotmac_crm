@@ -21,14 +21,15 @@ JobSummary _job(String id, {String status = 'dispatched'}) => JobSummary(
   priority: 'normal',
 );
 
-String _detailWith({double? lat, double? lng}) => jsonEncode({
-  'location': {
-    'latitude': lat,
-    'longitude': lng,
-    'address_text': 'x',
-    'source': 'geocoded',
-  },
-});
+String _detailWith({double? lat, double? lng, String addressText = 'x'}) =>
+    jsonEncode({
+      'location': {
+        'latitude': lat,
+        'longitude': lng,
+        'address_text': addressText,
+        'source': 'geocoded',
+      },
+    });
 
 void main() {
   test('finite map camera constraint rejects non-finite camera centers', () {
@@ -62,6 +63,21 @@ void main() {
     );
     expect(pins.single.id, 'a');
     expect(pins.single.latitude, 6.5);
+  });
+
+  test('buildJobPins carries cached street address for search', () {
+    final pins = buildJobPins(
+      [_job('a')],
+      {
+        'a': _detailWith(
+          lat: 6.5,
+          lng: 3.4,
+          addressText: '12 Fiber Street, Lekki',
+        ),
+      },
+    );
+
+    expect(pins.single.addressText, '12 Fiber Street, Lekki');
   });
 
   test('buildJobPins skips out-of-range cached coordinates', () {
@@ -175,6 +191,71 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Edit pin location'), findsOneWidget);
+  });
+
+  testWidgets('map search finds a job pin by street address', (tester) async {
+    final pins = [
+      const JobPin(
+        id: 'a',
+        title: 'Install at Marina',
+        status: 'dispatched',
+        latitude: 6.5,
+        longitude: 3.4,
+        addressText: '12 Fiber Street, Lekki',
+      ),
+    ];
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          mapPinsProvider.overrideWith((ref) async => pins),
+          mapAssetsProvider.overrideWith((ref) async => []),
+        ],
+        child: const MaterialApp(home: MapScreen(showTiles: false)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('map-search-field')), 'fiber');
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('map-search-result-job-a')), findsOneWidget);
+    expect(find.text('12 Fiber Street, Lekki · dispatched'), findsOneWidget);
+  });
+
+  testWidgets('map search includes online street results', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          mapPinsProvider.overrideWith((ref) async => []),
+          mapAssetsProvider.overrideWith((ref) async => []),
+          mapPlaceSearchProvider.overrideWith((ref, query) async {
+            if (query != 'fiber') return const [];
+            return const [
+              MapPlaceSearchResult(
+                kind: 'job',
+                id: 'online-job',
+                title: 'Install at Fiber Street',
+                status: 'dispatched',
+                latitude: 6.5,
+                longitude: 3.4,
+                addressText: '12 Fiber Street, Lekki',
+              ),
+            ];
+          }),
+        ],
+        child: const MaterialApp(home: MapScreen(showTiles: false)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('map-search-field')), 'fiber');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('map-search-result-job-online-job')),
+      findsOneWidget,
+    );
+    expect(find.text('12 Fiber Street, Lekki · dispatched'), findsOneWidget);
   });
 
   testWidgets('map search finds a CRM asset and opens it', (tester) async {

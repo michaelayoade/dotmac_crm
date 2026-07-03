@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -217,7 +219,11 @@ class _JobDetailView extends ConsumerWidget {
     );
   }
 
-  Future<void> _showAddNoteDialog(BuildContext context, WidgetRef ref, String jobId) async {
+  Future<void> _showAddNoteDialog(
+    BuildContext context,
+    WidgetRef ref,
+    String jobId,
+  ) async {
     final controller = TextEditingController();
     var isSaving = false;
     var errorText = '';
@@ -245,7 +251,9 @@ class _JobDetailView extends ConsumerWidget {
           ),
           actions: [
             TextButton(
-              onPressed: isSaving ? null : () => Navigator.of(dialogContext).pop(),
+              onPressed: isSaving
+                  ? null
+                  : () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancel'),
             ),
             FilledButton(
@@ -263,12 +271,18 @@ class _JobDetailView extends ConsumerWidget {
                         errorText = '';
                       });
                       try {
-                        await ref.read(executionControllerProvider.notifier).addNote(jobId, body);
-                        ref.invalidate(jobDetailProvider(jobId));
-                        if (dialogContext.mounted) Navigator.of(dialogContext).pop();
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Note saved')));
+                        await ref
+                            .read(executionControllerProvider.notifier)
+                            .addNote(jobId, body);
+                        if (dialogContext.mounted) {
+                          Navigator.of(dialogContext).pop();
                         }
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Note saved')),
+                          );
+                        }
+                        unawaited(_refreshJobDetail(ref, jobId));
                       } catch (_) {
                         if (!context.mounted) return;
                         setState(() {
@@ -290,6 +304,15 @@ class _JobDetailView extends ConsumerWidget {
       ),
     );
     controller.dispose();
+  }
+}
+
+Future<void> _refreshJobDetail(WidgetRef ref, String jobId) async {
+  try {
+    ref.invalidate(jobDetailProvider(jobId));
+    await ref.read(jobDetailProvider(jobId).future);
+  } catch (_) {
+    // The note is saved/queued; a refresh problem should not show as save failure.
   }
 }
 

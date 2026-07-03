@@ -47,6 +47,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final pins = ref.watch(mapPinsProvider);
     final assets = ref.watch(mapAssetsProvider);
     final selectedTypes = ref.watch(selectedMapAssetTypesProvider);
+    final onlineSearch = ref.watch(mapPlaceSearchProvider(_searchQuery));
 
     return Scaffold(
       appBar: AppBar(
@@ -162,7 +163,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
               _MapSearchOverlay(
                 query: _searchQuery,
-                results: _searchResults(validPins, assetItems),
+                results: _searchResults(
+                  validPins,
+                  assetItems,
+                  onlineSearch.valueOrNull ?? const [],
+                ),
+                loadingOnline:
+                    _searchQuery.trim().length >= 2 && onlineSearch.isLoading,
                 onQueryChanged: (value) => setState(() => _searchQuery = value),
                 onSelected: _selectSearchResult,
               ),
@@ -192,23 +199,71 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   List<_MapSearchResult> _searchResults(
     List<JobPin> pins,
     List<MapAsset> assets,
+    List<MapPlaceSearchResult> onlineResults,
   ) {
     final query = _searchQuery.trim().toLowerCase();
     if (query.isEmpty) return const [];
-    final results = <_MapSearchResult>[
-      for (final pin in pins)
-        if (_matches(query, [pin.title, pin.status])) _MapSearchResult.job(pin),
-      for (final asset in assets)
-        if (_matches(query, [
-          asset.title,
-          asset.subtitle,
-          asset.status,
-          asset.type,
-          mapAssetTypeLabels[asset.type],
-        ]))
-          _MapSearchResult.asset(asset),
-    ];
+    final results = <_MapSearchResult>[];
+    final seen = <String>{};
+    for (final pin in pins) {
+      if (_matches(query, [pin.title, pin.status, pin.addressText])) {
+        _appendSearchResult(results, seen, _MapSearchResult.job(pin));
+      }
+    }
+    for (final asset in assets) {
+      if (_matches(query, [
+        asset.title,
+        asset.subtitle,
+        asset.status,
+        asset.type,
+        mapAssetTypeLabels[asset.type],
+      ])) {
+        _appendSearchResult(results, seen, _MapSearchResult.asset(asset));
+      }
+    }
+    for (final result in onlineResults) {
+      if (result.kind == 'job') {
+        _appendSearchResult(
+          results,
+          seen,
+          _MapSearchResult.job(
+            JobPin(
+              id: result.id,
+              title: result.title,
+              status: result.status ?? 'scheduled',
+              latitude: result.latitude,
+              longitude: result.longitude,
+              addressText: result.addressText ?? result.subtitle,
+            ),
+          ),
+        );
+      } else if (result.kind == 'asset' && result.assetType != null) {
+        _appendSearchResult(
+          results,
+          seen,
+          _MapSearchResult.asset(
+            MapAsset(
+              id: result.id,
+              type: result.assetType!,
+              title: result.title,
+              subtitle: result.subtitle,
+              latitude: result.latitude,
+              longitude: result.longitude,
+              status: result.status,
+            ),
+          ),
+        );
+      }
+    }
     return results.take(6).toList();
+  }
+
+  void _appendSearchResult(
+    List<_MapSearchResult> results,
+    Set<String> seen,
+    _MapSearchResult result,
+  ) {
+    if (seen.add(result.id)) results.add(result);
   }
 
   bool _matches(String query, Iterable<String?> values) {
@@ -417,7 +472,10 @@ class _JobSearchResult extends _MapSearchResult {
   String get title => pin.title;
 
   @override
-  String get subtitle => pin.status.replaceAll('_', ' ');
+  String get subtitle => [
+    if (pin.addressText != null) pin.addressText!,
+    pin.status.replaceAll('_', ' '),
+  ].join(' · ');
 
   @override
   IconData get icon => Icons.location_pin;
@@ -461,12 +519,14 @@ class _MapSearchOverlay extends StatelessWidget {
   const _MapSearchOverlay({
     required this.query,
     required this.results,
+    required this.loadingOnline,
     required this.onQueryChanged,
     required this.onSelected,
   });
 
   final String query;
   final List<_MapSearchResult> results;
+  final bool loadingOnline;
   final ValueChanged<String> onQueryChanged;
   final ValueChanged<_MapSearchResult> onSelected;
 
@@ -506,7 +566,16 @@ class _MapSearchOverlay extends StatelessWidget {
             if (hasQuery)
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 148),
-                child: results.isEmpty
+                child: loadingOnline && results.isEmpty
+                    ? const ListTile(
+                        dense: true,
+                        leading: SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        title: Text('Searching places'),
+                      )
+                    : results.isEmpty
                     ? const ListTile(
                         dense: true,
                         leading: Icon(Icons.search_off_outlined),

@@ -24,6 +24,7 @@ from app.services.field.map_assets import (
     revert_map_asset_location,
     update_map_asset_location,
 )
+from app.services.field.map_search import search_map_places
 from app.services.network_impl import fdh_cabinets
 
 
@@ -48,6 +49,17 @@ def test_list_map_assets_returns_compact_coordinate_payloads(db_session):
     assert items[0]["subtitle"] == "olt-alpha · olt"
     assert items[0]["latitude"] == 9.1
     assert items[0]["updated_at"] is not None
+
+
+def test_map_search_finds_assets_by_title(db_session, person):
+    db_session.add(OLTDevice(name="OLT Fiber Street", hostname="olt-fiber", latitude=9.1, longitude=7.4))
+    db_session.commit()
+
+    items = search_map_places(db_session, str(person.id), "Fiber Street")
+
+    assert items[0]["kind"] == "asset"
+    assert items[0]["asset_type"] == "olt"
+    assert items[0]["title"] == "OLT Fiber Street"
 
 
 def test_list_map_assets_filters_by_updated_since(db_session):

@@ -10,6 +10,7 @@ class JobPin {
     required this.status,
     required this.latitude,
     required this.longitude,
+    this.addressText,
   });
 
   final String id;
@@ -17,6 +18,7 @@ class JobPin {
   final String status;
   final double latitude;
   final double longitude;
+  final String? addressText;
 
   bool get hasValidCoordinates => isValidMapCoordinate(latitude, longitude);
 }
@@ -56,6 +58,45 @@ class MapAsset {
         ? DateTime.parse(json['updated_at'] as String).toUtc()
         : null,
   );
+}
+
+class MapPlaceSearchResult {
+  const MapPlaceSearchResult({
+    required this.kind,
+    required this.id,
+    required this.title,
+    required this.latitude,
+    required this.longitude,
+    this.assetType,
+    this.subtitle,
+    this.status,
+    this.addressText,
+  });
+
+  final String kind;
+  final String id;
+  final String title;
+  final double latitude;
+  final double longitude;
+  final String? assetType;
+  final String? subtitle;
+  final String? status;
+  final String? addressText;
+
+  bool get hasValidCoordinates => isValidMapCoordinate(latitude, longitude);
+
+  factory MapPlaceSearchResult.fromJson(Map<String, dynamic> json) =>
+      MapPlaceSearchResult(
+        kind: json['kind'] as String,
+        id: json['id'].toString(),
+        title: json['title'] as String,
+        latitude: (json['latitude'] as num).toDouble(),
+        longitude: (json['longitude'] as num).toDouble(),
+        assetType: json['asset_type'] as String?,
+        subtitle: json['subtitle'] as String?,
+        status: json['status'] as String?,
+        addressText: json['address_text'] as String?,
+      );
 }
 
 const mapAssetTypeLabels = {
@@ -99,6 +140,9 @@ List<JobPin> buildJobPins(
         status: job.status,
         latitude: lat,
         longitude: lng,
+        addressText:
+            (location?['address_text'] as String?) ??
+            ((detail['customer'] as Map?)?['address_text'] as String?),
       ),
     );
   }

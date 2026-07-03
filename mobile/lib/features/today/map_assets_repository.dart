@@ -237,6 +237,50 @@ class MapAssetsRepository {
   }
 }
 
+class MapPlaceSearchRepository {
+  const MapPlaceSearchRepository(this._ref);
+
+  final Ref _ref;
+
+  Future<List<MapPlaceSearchResult>> search(String query) async {
+    final term = query.trim();
+    if (term.length < 2) return const [];
+    try {
+      final sync = _ref.read(syncServiceProvider);
+      if (!await sync.connectivity.isOnline) return const [];
+      final response = await _ref
+          .read(apiClientProvider)
+          .dio
+          .get(
+            '/api/v1/field/map-assets/search',
+            queryParameters: {'q': term, 'limit': 12},
+          );
+      return _items(response.data)
+          .map(MapPlaceSearchResult.fromJson)
+          .where((place) => place.hasValidCoordinates)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+}
+
+List<Map<String, dynamic>> _items(Object? data) {
+  if (data is Map && data['items'] is List) {
+    return (data['items'] as List)
+        .cast<Map>()
+        .map((item) => item.cast<String, dynamic>())
+        .toList();
+  }
+  if (data is List) {
+    return data
+        .cast<Map>()
+        .map((item) => item.cast<String, dynamic>())
+        .toList();
+  }
+  return const [];
+}
+
 class _MapAssetFetch {
   const _MapAssetFetch({
     required this.assets,
@@ -262,6 +306,15 @@ class _DeletedMapAsset {
 final mapAssetsRepositoryProvider = Provider<MapAssetsRepository>(
   MapAssetsRepository.new,
 );
+
+final mapPlaceSearchRepositoryProvider = Provider<MapPlaceSearchRepository>(
+  MapPlaceSearchRepository.new,
+);
+
+final mapPlaceSearchProvider = FutureProvider.autoDispose
+    .family<List<MapPlaceSearchResult>, String>((ref, query) {
+      return ref.watch(mapPlaceSearchRepositoryProvider).search(query);
+    });
 
 final selectedMapAssetTypesProvider = StateProvider<Set<String>>(
   (ref) => {...defaultMapAssetTypes},

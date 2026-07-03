@@ -315,6 +315,25 @@ class FieldMapAssetNearbyResponse(BaseModel):
     server_time: datetime
 
 
+class FieldMapSearchResult(BaseModel):
+    kind: Literal["job", "asset"]
+    id: UUID
+    asset_type: str | None = None
+    title: str
+    subtitle: str | None = None
+    latitude: float
+    longitude: float
+    status: str | None = None
+    address_text: str | None = None
+
+
+class FieldMapSearchResponse(BaseModel):
+    items: list[FieldMapSearchResult]
+    count: int
+    limit: int
+    offset: int = 0
+
+
 class FieldSpliceCreate(BaseModel):
     closure_id: UUID
     from_strand_id: UUID
