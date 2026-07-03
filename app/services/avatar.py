@@ -5,6 +5,7 @@ from fastapi import HTTPException, UploadFile
 
 from app.config import settings
 from app.services.storage import storage
+from app.services.upload_validation import validate_upload_mime
 
 
 def get_allowed_types() -> set[str]:
@@ -33,6 +34,7 @@ async def save_avatar(file: UploadFile, person_id: str) -> str:
             status_code=400,
             detail=f"File too large. Maximum size: {settings.avatar_max_size_bytes // 1024 // 1024}MB",
         )
+    detected_type = validate_upload_mime(content, file.content_type, get_allowed_types(), "avatar")
 
     upload_dir = getattr(settings, "avatar_upload_dir", None)
     url_prefix = (getattr(settings, "avatar_url_prefix", "") or "").rstrip("/")
@@ -42,7 +44,7 @@ async def save_avatar(file: UploadFile, person_id: str) -> str:
         dest.write_bytes(content)
         return f"{url_prefix}/{filename}"
 
-    return storage.put(key, content, file.content_type or "")
+    return storage.put(key, content, detected_type)
 
 
 def delete_avatar(avatar_url: str | None) -> None:

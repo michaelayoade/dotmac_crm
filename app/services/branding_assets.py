@@ -7,6 +7,7 @@ from fastapi import HTTPException, UploadFile
 
 from app.config import settings
 from app.services.storage import storage
+from app.services.upload_validation import validate_upload_mime
 
 _LOGO_ALLOWED_TYPES = {
     "image/png",
@@ -52,6 +53,7 @@ def _validate_upload(file: UploadFile, content: bytes, kind: str) -> None:
             status_code=400,
             detail=f"{kind.title()} file too large (max {max_size} bytes).",
         )
+    validate_upload_mime(content, content_type, allowed, kind)
 
 
 def _delete_previous(previous_url: str | None) -> None:
