@@ -27,7 +27,7 @@ def test_mint_then_me_roundtrip(db_session, monkeypatch):
     client = _client(db_session, monkeypatch)
     r = client.post(
         "/portal/internal/session",
-        json={"crm_subscriber_id": "sub-123", "actor": "subscriber", "scopes": ["read:referrals"]},
+        json={"crm_subscriber_id": "sub-123", "actor": "subscriber", "scopes": ["referrals:read"]},
     )
     assert r.status_code == 200, r.text
     token = r.json()["portal_token"]
@@ -38,7 +38,7 @@ def test_mint_then_me_roundtrip(db_session, monkeypatch):
     body = me.json()
     assert body["subject_id"] == "sub-123"
     assert body["actor"] == "subscriber"
-    assert "read:referrals" in body["scopes"]
+    assert "referrals:read" in body["scopes"]
 
 
 def test_me_rejects_missing_and_bad_token(db_session, monkeypatch):
