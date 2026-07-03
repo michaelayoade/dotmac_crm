@@ -3228,10 +3228,11 @@ def _normalize_ncc_region(value: str | None) -> str:
 
 
 def _map_ncc_location(ticket_region: str | None) -> tuple[str, str, str]:
-    town = (ticket_region or "").strip()
-    normalized = _normalize_ncc_region(ticket_region)
+    source = (ticket_region or "").strip()
+    normalized = _normalize_ncc_region(source)
+    town_candidate = _ncc_address_town_candidate(source)
     if not normalized:
-        return "", town, ""
+        return "", town_candidate or source, ""
 
     area_council_aliases = {
         "Municipal Area Council": {
@@ -3332,16 +3333,21 @@ def _map_ncc_location(ticket_region: str | None) -> tuple[str, str, str]:
         },
     }
 
-    for lga, aliases in area_council_aliases.items():
-        if normalized in aliases:
-            return lga, town, "FEDERAL CAPITAL TERRITORY"
+    for town in [town_candidate, source]:
+        town_normalized = _normalize_ncc_region(town)
+        if not town_normalized:
+            continue
 
-    for lga, aliases in area_council_aliases.items():
-        for alias in sorted(aliases, key=len, reverse=True):
-            if alias in normalized or normalized in alias:
-                return lga, _ncc_location_alias_to_town(alias), "FEDERAL CAPITAL TERRITORY"
+        for lga, aliases in area_council_aliases.items():
+            if town_normalized in aliases:
+                return lga, _ncc_location_alias_to_town(town_normalized), "FEDERAL CAPITAL TERRITORY"
 
-    return "", town, ""
+        for lga, aliases in area_council_aliases.items():
+            for alias in sorted(aliases, key=len, reverse=True):
+                if alias in town_normalized or town_normalized in alias:
+                    return lga, _ncc_location_alias_to_town(alias), "FEDERAL CAPITAL TERRITORY"
+
+    return "", town_candidate or source, ""
 
 
 def _ncc_location_alias_to_town(alias: str) -> str:
@@ -3350,6 +3356,11 @@ def _ncc_location_alias_to_town(alias: str) -> str:
         "wuse ii": "Wuse II",
     }
     return overrides.get(alias, alias.title())
+
+
+def _ncc_address_town_candidate(value: str) -> str:
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    return parts[1] if len(parts) > 1 else value.strip()
 
 
 def _ticket_ncc_location(ticket: Ticket) -> tuple[str, str, str]:
@@ -3373,11 +3384,14 @@ def _ticket_ncc_location(ticket: Ticket) -> tuple[str, str, str]:
             ]
         )
 
+    fallback_town = ""
     for source in location_sources:
         lga, town, state = _map_ncc_location(source)
+        if town and not fallback_town:
+            fallback_town = town
         if lga and state:
             return lga, town, state
-    return "", _clean_text(next((source for source in location_sources if source), "")), ""
+    return "", _clean_text(fallback_town), ""
 
 
 _NCC_GENERIC_RESOLUTION_NOTE_MARKERS = (

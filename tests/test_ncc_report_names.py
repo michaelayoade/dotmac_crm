@@ -253,6 +253,29 @@ def test_ncc_location_maps_area_from_full_service_address():
     )
 
 
+def test_ncc_location_uses_second_comma_segment_as_customer_town():
+    assert reports._map_ncc_location("12 Ukpabi Asika St, Asokoro, Abuja FCT") == (
+        "Municipal Area Council",
+        "Asokoro",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+
+
+def test_ncc_location_fallback_town_uses_second_comma_segment():
+    ticket = SimpleNamespace(
+        region="Gudu",
+        customer=None,
+        subscriber=SimpleNamespace(
+            service_city="",
+            service_region="",
+            service_address_line1="12 Example Street, Unknown Area, Abuja FCT",
+            service_address_line2="",
+        ),
+    )
+
+    assert reports._ticket_ncc_location(ticket) == ("", "Unknown Area", "")
+
+
 def test_ncc_ticket_location_prefers_subscriber_address_over_ticket_region():
     ticket = SimpleNamespace(
         region="Gudu",
