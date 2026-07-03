@@ -119,6 +119,8 @@ def _sanitize_refresh_next(next_url: str | None, fallback: str) -> str:
     if not next_url or not next_url.startswith("/"):
         return fallback
     parsed = urlparse(next_url)
+    if parsed.scheme or parsed.netloc:
+        return fallback
     for segment in _UNSAFE_REFRESH_SEGMENTS:
         if segment in parsed.path:
             if parsed.path.startswith("/admin/crm/inbox"):
@@ -131,6 +133,13 @@ def _sanitize_refresh_next(next_url: str | None, fallback: str) -> str:
 
 def _safe_next(next_url: str | None, fallback: str = "/admin/dashboard") -> str:
     return _sanitize_refresh_next(next_url, fallback)
+
+
+def _login_url_with_safe_next(next_url: str | None) -> str:
+    safe_next = _safe_next(next_url, "")
+    if not safe_next:
+        return "/auth/login"
+    return f"/auth/login?next={quote(safe_next)}"
 
 
 def _set_refresh_cookie(response, db: Session, refresh_token: str):
@@ -276,7 +285,8 @@ def login_submit(
             provider=None,
         )
         if result.get("mfa_required"):
-            mfa_url = f"/auth/mfa?next={next_url}" if next_url else "/auth/mfa"
+            safe_mfa_next = _safe_next(next_url, "")
+            mfa_url = f"/auth/mfa?next={quote(safe_mfa_next)}" if safe_mfa_next else "/auth/mfa"
             response = RedirectResponse(url=mfa_url, status_code=303)
             response.set_cookie(
                 key="mfa_pending",
@@ -447,9 +457,7 @@ def refresh(request: Request, db: Session, next_url: str | None = None):
     refresh_tokens = _refresh_token_candidates(request, db)
     client_ip = request.client.host if request.client else None
     if not refresh_tokens:
-        login_url = "/auth/login"
-        if next_url and next_url.startswith("/"):
-            login_url = f"/auth/login?next={quote(next_url)}"
+        login_url = _login_url_with_safe_next(next_url)
         response = RedirectResponse(url=login_url, status_code=303)
         _clear_auth_cookies(response, db)
         if _should_log_refresh_event("missing_refresh_cookie", client_ip):
@@ -472,9 +480,7 @@ def refresh(request: Request, db: Session, next_url: str | None = None):
         if result is None:
             raise last_error or HTTPException(status_code=401, detail="Invalid refresh token")
     except Exception as exc:
-        login_url = "/auth/login"
-        if next_url and next_url.startswith("/"):
-            login_url = f"/auth/login?next={quote(next_url)}"
+        login_url = _login_url_with_safe_next(next_url)
         response = RedirectResponse(url=login_url, status_code=303)
         _clear_auth_cookies(response, db)
         if _should_log_refresh_event("refresh_failed", client_ip):
