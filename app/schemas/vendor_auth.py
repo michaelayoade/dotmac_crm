@@ -24,3 +24,13 @@ class VendorTokenResponse(BaseModel):
     vendor_id: str | None = None
     vendor_user_id: str | None = None
     vendor_role: str | None = None
+
+
+class VendorMeResponse(BaseModel):
+    person_id: str
+    vendor_id: str
+    vendor_user_id: str
+    name: str
+    email: str | None = None
+    vendor_name: str
+    vendor_role: str | None = None

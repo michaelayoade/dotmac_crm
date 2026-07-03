@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/token_store.dart';
 import '../../core/offline/database.dart';
 import '../auth/auth_state.dart';
 import '../execution/execution_controller.dart';
 import '../jobs/jobs_providers.dart';
+import 'vendor_profile_provider.dart';
 
 /// Live counts from the offline queues.
 final pendingOutboxProvider = StreamProvider<List<OutboxEntry>>((ref) {
@@ -34,7 +36,13 @@ class ProfileScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final me = ref.watch(meProvider);
+    final auth = ref.watch(authControllerProvider);
+    final me = auth is Authenticated && auth.mode == LoginMode.vendor
+        ? null
+        : ref.watch(meProvider);
+    final vendorMe = auth is Authenticated && auth.mode == LoginMode.vendor
+        ? ref.watch(vendorProfileProvider)
+        : null;
     final pending = ref.watch(pendingOutboxProvider).value ?? [];
     final conflicts = ref.watch(conflictOutboxProvider).value ?? [];
     final pendingPhotos = ref.watch(pendingPhotosProvider).value ?? 0;
@@ -44,21 +52,43 @@ class ProfileScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          me.when(
-            data: (data) => Card(
-              child: ListTile(
-                leading: CircleAvatar(
-                  child: Text(data.name.isEmpty ? '?' : data.name[0]),
-                ),
-                title: Text(data.name),
-                subtitle: Text(
-                  '${data.openJobs} open · ${data.completedToday} done today',
+          if (vendorMe != null)
+            vendorMe.when(
+              data: (data) => Card(
+                child: ListTile(
+                  leading: CircleAvatar(
+                    child: Text(data.name.isEmpty ? '?' : data.name[0]),
+                  ),
+                  title: Text(data.name),
+                  subtitle: Text(
+                    [
+                      data.vendorName,
+                      if (data.vendorRole != null &&
+                          data.vendorRole!.isNotEmpty)
+                        data.vendorRole,
+                    ].join(' · '),
+                  ),
                 ),
               ),
+              loading: () => const SizedBox(height: 72),
+              error: (_, _) => const SizedBox.shrink(),
+            )
+          else if (me != null)
+            me.when(
+              data: (data) => Card(
+                child: ListTile(
+                  leading: CircleAvatar(
+                    child: Text(data.name.isEmpty ? '?' : data.name[0]),
+                  ),
+                  title: Text(data.name),
+                  subtitle: Text(
+                    '${data.openJobs} open · ${data.completedToday} done today',
+                  ),
+                ),
+              ),
+              loading: () => const SizedBox(height: 72),
+              error: (_, _) => const SizedBox.shrink(),
             ),
-            loading: () => const SizedBox(height: 72),
-            error: (_, _) => const SizedBox.shrink(),
-          ),
           const SizedBox(height: 16),
           Card(
             child: Padding(

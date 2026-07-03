@@ -124,9 +124,10 @@ class JobsRepository {
 
 final jobsRepositoryProvider = Provider<JobsRepository>(JobsRepository.new);
 
-final meProvider = FutureProvider<MeSummary>(
-  (ref) => ref.watch(jobsRepositoryProvider).fetchMe(),
-);
+final meProvider = FutureProvider<MeSummary>((ref) {
+  ref.watch(authControllerProvider);
+  return ref.watch(jobsRepositoryProvider).fetchMe();
+});
 
 final jobsFilterProvider = StateProvider<String?>((ref) => null);
 
