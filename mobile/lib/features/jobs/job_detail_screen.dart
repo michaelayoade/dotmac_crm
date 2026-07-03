@@ -78,7 +78,8 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
           IconButton(
             tooltip: 'Request materials',
             onPressed: () => context.push(
-              '/materials/new?workOrderId=${Uri.encodeComponent(job.id)}',
+              '/materials/new?workOrderId=${Uri.encodeComponent(job.id)}'
+              '&workOrderLabel=${Uri.encodeComponent(job.title)}',
             ),
             icon: const Icon(Icons.inventory_2_outlined),
           ),
