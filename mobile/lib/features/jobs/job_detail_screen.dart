@@ -192,7 +192,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                     for (final note in _notes)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Text(_noteBody(note)),
+                        child: _NoteTile(note: note),
                       ),
                   ],
                 ),
@@ -338,6 +338,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
         {
           'id': clientRef,
           'body': body,
+          'author_name': 'You',
           'created_at': DateTime.now().toUtc().toIso8601String(),
         },
         ..._notes,
@@ -362,6 +363,51 @@ String _noteBody(Map<String, dynamic> note) {
     if (value is String && value.trim().isNotEmpty) return value;
   }
   return '';
+}
+
+class _NoteTile extends StatelessWidget {
+  const _NoteTile({required this.note});
+
+  final Map<String, dynamic> note;
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = _noteMeta(note);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (meta != null)
+          Text(
+            meta,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        Text(_noteBody(note)),
+      ],
+    );
+  }
+}
+
+String? _noteMeta(Map<String, dynamic> note) {
+  final author = _noteString(note, const [
+    'author_name',
+    'author',
+    'created_by_name',
+    'created_by',
+  ]);
+  final createdAt = _noteString(note, const ['created_at', 'createdAt']);
+  if (author == null && createdAt == null) return null;
+  if (author != null && createdAt != null) return '$author · $createdAt';
+  return author ?? createdAt;
+}
+
+String? _noteString(Map<String, dynamic> note, List<String> keys) {
+  for (final key in keys) {
+    final value = note[key];
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+  }
+  return null;
 }
 
 /// Field outcomes for a visit that can't be completed. Keys mirror the backend

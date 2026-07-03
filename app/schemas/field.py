@@ -122,6 +122,28 @@ class FieldNoteRead(BaseModel):
     is_internal: bool
     author_person_id: UUID | None
     created_at: datetime
+    author_name: str | None = None
+
+    @classmethod
+    def from_note(cls, note) -> FieldNoteRead:
+        return cls.model_validate(note).model_copy(update={"author_name": _person_label(getattr(note, "author", None))})
+
+
+def _person_label(person) -> str | None:
+    if person is None:
+        return None
+    display_name = getattr(person, "display_name", None)
+    if isinstance(display_name, str) and display_name.strip():
+        return display_name.strip()
+    name = " ".join(
+        part
+        for part in [
+            getattr(person, "first_name", None),
+            getattr(person, "last_name", None),
+        ]
+        if isinstance(part, str) and part.strip()
+    )
+    return name or None
 
 
 class FieldNoteCreate(BaseModel):
