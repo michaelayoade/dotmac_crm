@@ -148,6 +148,70 @@ void main() {
     expect(find.text('Edit pin location'), findsOneWidget);
   });
 
+  testWidgets('map search finds a job pin and opens it', (tester) async {
+    final pins = [
+      const JobPin(
+        id: 'a',
+        title: 'Install at Marina',
+        status: 'dispatched',
+        latitude: 6.5,
+        longitude: 3.4,
+      ),
+    ];
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          mapPinsProvider.overrideWith((ref) async => pins),
+          mapAssetsProvider.overrideWith((ref) async => []),
+        ],
+        child: const MaterialApp(home: MapScreen(showTiles: false)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('map-search-field')), 'marina');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('map-search-result-job-a')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit pin location'), findsOneWidget);
+  });
+
+  testWidgets('map search finds a CRM asset and opens it', (tester) async {
+    final assets = [
+      const MapAsset(
+        id: 'olt-1',
+        type: 'olt',
+        title: 'OLT Marina',
+        subtitle: 'Central office',
+        latitude: 6.52,
+        longitude: 3.39,
+      ),
+    ];
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          mapPinsProvider.overrideWith((ref) async => []),
+          mapAssetsProvider.overrideWith((ref) async => assets),
+        ],
+        child: const MaterialApp(home: MapScreen(showTiles: false)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('map-search-field')),
+      'central',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('map-search-result-asset-olt-olt-1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit asset location'), findsOneWidget);
+  });
+
   testWidgets('edit pins button opens pinned job list', (tester) async {
     final pins = [
       const JobPin(

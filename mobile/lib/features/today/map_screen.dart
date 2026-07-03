@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../app/theme.dart';
 import '../../core/location/map_coordinates.dart';
@@ -21,14 +22,28 @@ final mapPinsProvider = FutureProvider<List<JobPin>>((ref) async {
   return buildJobPins(jobs, detailById);
 });
 
-class MapScreen extends ConsumerWidget {
+class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key, this.showTiles = true});
 
   /// Disabled in widget tests so no tile HTTP requests are made.
   final bool showTiles;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MapScreen> createState() => _MapScreenState();
+}
+
+class _MapScreenState extends ConsumerState<MapScreen> {
+  final _mapController = MapController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final pins = ref.watch(mapPinsProvider);
     final assets = ref.watch(mapAssetsProvider);
     final selectedTypes = ref.watch(selectedMapAssetTypesProvider);
@@ -85,13 +100,14 @@ class MapScreen extends ConsumerWidget {
           return Stack(
             children: [
               FlutterMap(
+                mapController: _mapController,
                 options: MapOptions(
                   initialCenter: center,
                   initialZoom: 12,
                   cameraConstraint: finiteMapCameraConstraint,
                 ),
                 children: [
-                  if (showTiles)
+                  if (widget.showTiles)
                     TileLayer(
                       urlTemplate:
                           'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -131,7 +147,7 @@ class MapScreen extends ConsumerWidget {
                         ),
                     ],
                   ),
-                  if (showTiles)
+                  if (widget.showTiles)
                     const Align(
                       alignment: Alignment.bottomLeft,
                       child: Padding(
@@ -144,9 +160,16 @@ class MapScreen extends ConsumerWidget {
                     ),
                 ],
               ),
+              _MapSearchOverlay(
+                query: _searchQuery,
+                results: _searchResults(validPins, assetItems),
+                onQueryChanged: (value) => setState(() => _searchQuery = value),
+                onSelected: _selectSearchResult,
+              ),
               _LayerSelector(
                 selectedTypes: selectedTypes,
                 loadingAssets: assets.isLoading,
+                top: _searchQuery.trim().isEmpty ? 76 : 180,
                 onChanged: (type, selected) {
                   final next = {...selectedTypes};
                   if (selected) {
@@ -164,6 +187,47 @@ class MapScreen extends ConsumerWidget {
         error: (_, _) => const Center(child: Text('Could not load the map')),
       ),
     );
+  }
+
+  List<_MapSearchResult> _searchResults(
+    List<JobPin> pins,
+    List<MapAsset> assets,
+  ) {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return const [];
+    final results = <_MapSearchResult>[
+      for (final pin in pins)
+        if (_matches(query, [pin.title, pin.status])) _MapSearchResult.job(pin),
+      for (final asset in assets)
+        if (_matches(query, [
+          asset.title,
+          asset.subtitle,
+          asset.status,
+          asset.type,
+          mapAssetTypeLabels[asset.type],
+        ]))
+          _MapSearchResult.asset(asset),
+    ];
+    return results.take(6).toList();
+  }
+
+  bool _matches(String query, Iterable<String?> values) {
+    return values.any(
+      (value) => value != null && value.toLowerCase().contains(query),
+    );
+  }
+
+  void _selectSearchResult(_MapSearchResult result) {
+    final point = result.point;
+    _mapController.move(point, 16);
+    FocusScope.of(context).unfocus();
+    setState(() => _searchQuery = result.title);
+    switch (result) {
+      case _JobSearchResult(:final pin):
+        _showJobSheet(context, ref, pin);
+      case _AssetSearchResult(:final asset):
+        _showAssetSheet(context, ref, asset);
+    }
   }
 
   void _showJobSheet(BuildContext context, WidgetRef ref, JobPin pin) {
@@ -327,21 +391,168 @@ class MapScreen extends ConsumerWidget {
   }
 }
 
+sealed class _MapSearchResult {
+  const _MapSearchResult();
+
+  factory _MapSearchResult.job(JobPin pin) = _JobSearchResult;
+  factory _MapSearchResult.asset(MapAsset asset) = _AssetSearchResult;
+
+  String get id;
+  String get title;
+  String get subtitle;
+  IconData get icon;
+  Color get color;
+  LatLng get point;
+}
+
+class _JobSearchResult extends _MapSearchResult {
+  const _JobSearchResult(this.pin);
+
+  final JobPin pin;
+
+  @override
+  String get id => 'job-${pin.id}';
+
+  @override
+  String get title => pin.title;
+
+  @override
+  String get subtitle => pin.status.replaceAll('_', ' ');
+
+  @override
+  IconData get icon => Icons.location_pin;
+
+  @override
+  Color get color => AppColors.status(pin.status);
+
+  @override
+  LatLng get point => safeLatLng(pin.latitude, pin.longitude)!;
+}
+
+class _AssetSearchResult extends _MapSearchResult {
+  const _AssetSearchResult(this.asset);
+
+  final MapAsset asset;
+
+  @override
+  String get id => 'asset-${asset.type}-${asset.id}';
+
+  @override
+  String get title => asset.title;
+
+  @override
+  String get subtitle => [
+    mapAssetTypeLabels[asset.type] ?? asset.type,
+    if (asset.subtitle != null) asset.subtitle!,
+    if (asset.status != null) asset.status!,
+  ].join(' · ');
+
+  @override
+  IconData get icon => _assetIcon(asset.type);
+
+  @override
+  Color get color => _assetColor(asset.type);
+
+  @override
+  LatLng get point => safeLatLng(asset.latitude, asset.longitude)!;
+}
+
+class _MapSearchOverlay extends StatelessWidget {
+  const _MapSearchOverlay({
+    required this.query,
+    required this.results,
+    required this.onQueryChanged,
+    required this.onSelected,
+  });
+
+  final String query;
+  final List<_MapSearchResult> results;
+  final ValueChanged<String> onQueryChanged;
+  final ValueChanged<_MapSearchResult> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasQuery = query.trim().isNotEmpty;
+    return Positioned(
+      top: 12,
+      left: 12,
+      right: 12,
+      child: Material(
+        color: Theme.of(context).colorScheme.surface,
+        elevation: 3,
+        borderRadius: BorderRadius.circular(8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              key: const Key('map-search-field'),
+              onChanged: onQueryChanged,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'Search places',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: hasQuery
+                    ? IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: () => onQueryChanged(''),
+                        icon: const Icon(Icons.close),
+                      )
+                    : null,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+            if (hasQuery) const Divider(height: 1),
+            if (hasQuery)
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 148),
+                child: results.isEmpty
+                    ? const ListTile(
+                        dense: true,
+                        leading: Icon(Icons.search_off_outlined),
+                        title: Text('No matching places'),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        padding: EdgeInsets.zero,
+                        itemCount: results.length,
+                        itemBuilder: (context, index) {
+                          final result = results[index];
+                          return ListTile(
+                            key: Key('map-search-result-${result.id}'),
+                            dense: true,
+                            leading: Icon(result.icon, color: result.color),
+                            title: Text(result.title),
+                            subtitle: Text(result.subtitle),
+                            onTap: () => onSelected(result),
+                          );
+                        },
+                      ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _LayerSelector extends StatelessWidget {
   const _LayerSelector({
     required this.selectedTypes,
     required this.loadingAssets,
+    required this.top,
     required this.onChanged,
   });
 
   final Set<String> selectedTypes;
   final bool loadingAssets;
+  final double top;
   final void Function(String type, bool selected) onChanged;
 
   @override
   Widget build(BuildContext context) {
     return Positioned(
-      top: 12,
+      top: top,
       left: 12,
       right: 12,
       child: Material(
