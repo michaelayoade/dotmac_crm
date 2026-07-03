@@ -10,6 +10,8 @@ from fastapi import HTTPException, UploadFile
 
 from app.services import avatar
 
+JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x02"
+
 # =============================================================================
 # Helper Function Tests
 # =============================================================================
@@ -112,7 +114,7 @@ class TestSaveAvatar:
 
         mock_file = AsyncMock(spec=UploadFile)
         mock_file.content_type = "image/jpeg"
-        mock_file.read.return_value = b"fake image content"
+        mock_file.read.return_value = JPEG_BYTES
 
         person_id = str(uuid.uuid4())
         result = _run_async(avatar.save_avatar(mock_file, person_id))
@@ -151,11 +153,30 @@ class TestSaveAvatar:
 
         mock_file = AsyncMock(spec=UploadFile)
         mock_file.content_type = "image/jpeg"
-        mock_file.read.return_value = b"fake content"
+        mock_file.read.return_value = JPEG_BYTES
 
         _run_async(avatar.save_avatar(mock_file, "test-id"))
 
         assert upload_dir.exists()
+
+    def test_save_avatar_rejects_spoofed_content(self, tmp_path, monkeypatch):
+        """Test declared image upload with non-image bytes is rejected."""
+        mock_settings = MagicMock()
+        mock_settings.avatar_allowed_types = "image/jpeg"
+        mock_settings.avatar_upload_dir = str(tmp_path)
+        mock_settings.avatar_max_size_bytes = 10 * 1024 * 1024
+        mock_settings.avatar_url_prefix = "/avatars"
+        monkeypatch.setattr(avatar, "settings", mock_settings)
+
+        mock_file = AsyncMock(spec=UploadFile)
+        mock_file.content_type = "image/jpeg"
+        mock_file.read.return_value = b"not really an image"
+
+        with pytest.raises(HTTPException) as exc_info:
+            _run_async(avatar.save_avatar(mock_file, "test-id"))
+
+        assert exc_info.value.status_code == 400
+        assert "Invalid avatar content" in exc_info.value.detail
 
 
 # =============================================================================
