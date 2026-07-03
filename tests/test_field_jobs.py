@@ -10,7 +10,7 @@ from app.models.person import Person
 from app.models.tickets import TicketComment
 from app.models.timecost import WorkLog
 from app.models.workforce import WorkOrderAssignment
-from app.schemas.field import FieldJobDetail, FieldWorkLogRead
+from app.schemas.field import FieldJobDetail, FieldNoteRead, FieldWorkLogRead
 from app.schemas.workforce import WorkOrderNoteCreate, WorkOrderUpdate
 from app.services.field.jobs import field_jobs
 from app.services.workforce import work_order_notes, work_orders
@@ -80,6 +80,8 @@ def test_detail_bundle_contents(db_session, assigned_job, person, ticket):
     assert bundle["work_order"].id == assigned_job.id
     assert bundle["ticket_ref"] == (ticket.number or str(ticket.id))
     assert len(bundle["notes"]) == 1
+    note_read = FieldNoteRead.from_note(bundle["notes"][0])
+    assert note_read.author_name == f"{person.first_name} {person.last_name}"
     assert [m.item.name for m in bundle["materials"]] == ["Drop cable"]
     assert len(bundle["worklogs"]) == 1
 

@@ -10,28 +10,40 @@ import 'signature_pad.dart';
 /// Camera abstraction: returns true when a photo was captured and queued.
 /// The device build overrides this with PhotoQueue.captureForJob at
 /// bootstrap; the default no-op keeps headless environments safe.
-typedef PhotoCapture = Future<bool> Function({String? workOrderId, String? installationProjectId});
+typedef PhotoCapture =
+    Future<bool> Function({String? workOrderId, String? installationProjectId});
 
-final photoCaptureProvider =
-    Provider<PhotoCapture>((ref) => ({workOrderId, installationProjectId}) async => false);
+final photoCaptureProvider = Provider<PhotoCapture>(
+  (ref) =>
+      ({workOrderId, installationProjectId}) async => false,
+);
 
 /// Queues a rendered customer signature as a kind=signature attachment.
 /// Overridden at bootstrap with PhotoQueue.enqueueImageBytes; no-op in tests.
-typedef SignatureSink = Future<void> Function({required String workOrderId, required Uint8List png});
+typedef SignatureSink =
+    Future<void> Function({
+      required String workOrderId,
+      required Uint8List png,
+    });
 
-final signatureSinkProvider = Provider<SignatureSink>((ref) => ({required workOrderId, required png}) async {});
+final signatureSinkProvider = Provider<SignatureSink>(
+  (ref) => ({required workOrderId, required png}) async {},
+);
 
 /// Canvas size the signature is rendered at for upload.
 const _signatureCanvas = Size(800, 220);
 
 final completionStateProvider =
-    NotifierProvider.autoDispose<CompletionNotifier, CompletionState>(CompletionNotifier.new);
+    NotifierProvider.autoDispose<CompletionNotifier, CompletionState>(
+      CompletionNotifier.new,
+    );
 
 class CompletionNotifier extends AutoDisposeNotifier<CompletionState> {
   @override
   CompletionState build() => const CompletionState();
 
-  void update(CompletionState Function(CompletionState) change) => state = change(state);
+  void update(CompletionState Function(CompletionState) change) =>
+      state = change(state);
 }
 
 class CompletionWizard extends ConsumerStatefulWidget {
@@ -69,7 +81,10 @@ class _CompletionWizardState extends ConsumerState<CompletionWizard> {
     // photo+signature completion gate is satisfied.
     if (completion.hasSignature && _signature.hasInk) {
       final png = await _signature.toPng(_signatureCanvas);
-      await ref.read(signatureSinkProvider)(workOrderId: widget.jobId, png: png);
+      await ref.read(signatureSinkProvider)(
+        workOrderId: widget.jobId,
+        png: png,
+      );
     }
     if (_serial.text.trim().isNotEmpty) {
       // Record the installed ONT through the dedicated equipment endpoint,
@@ -87,7 +102,11 @@ class _CompletionWizardState extends ConsumerState<CompletionWizard> {
     // never races ahead of its attachments. Offline, the photos-before-outbox
     // ordering in flushAll preserves this on reconnect.
     await sync.flushPhotos();
-    await controller.transition(widget.jobId, 'complete', payload: completion.transitionPayload);
+    await controller.transition(
+      widget.jobId,
+      'complete',
+      payload: completion.transitionPayload,
+    );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Job completed — will sync when online')),
@@ -106,34 +125,37 @@ class _CompletionWizardState extends ConsumerState<CompletionWizard> {
         padding: const EdgeInsets.all(16),
         child: switch (_step) {
           0 => _ChecklistStep(
-              done: completion.checklistDone,
-              onChanged: (value) =>
-                  ref.read(completionStateProvider.notifier).update((s) => s.copyWith(checklistDone: value)),
-            ),
+            done: completion.checklistDone,
+            onChanged: (value) => ref
+                .read(completionStateProvider.notifier)
+                .update((s) => s.copyWith(checklistDone: value)),
+          ),
           1 => _EvidenceStep(
-              photoCount: completion.photoCount,
-              summary: _summary,
-              onAddPhoto: () async {
-                final captured = await ref.read(photoCaptureProvider)(workOrderId: widget.jobId);
-                if (captured) {
-                  ref
-                      .read(completionStateProvider.notifier)
-                      .update((s) => s.copyWith(photoCount: s.photoCount + 1));
-                }
-              },
-            ),
+            photoCount: completion.photoCount,
+            summary: _summary,
+            onAddPhoto: () async {
+              final captured = await ref.read(photoCaptureProvider)(
+                workOrderId: widget.jobId,
+              );
+              if (captured) {
+                ref
+                    .read(completionStateProvider.notifier)
+                    .update((s) => s.copyWith(photoCount: s.photoCount + 1));
+              }
+            },
+          ),
           _ => _SignOffStep(
-              signature: _signature,
-              signerName: _signerName,
-              fallbackReason: _fallbackReason,
-              serial: _serial,
-              onSigned: () => ref
-                  .read(completionStateProvider.notifier)
-                  .update((s) => s.copyWith(hasSignature: _signature.hasInk)),
-              onFallbackChanged: (value) => ref
-                  .read(completionStateProvider.notifier)
-                  .update((s) => s.copyWith(signatureUnavailableReason: value)),
-            ),
+            signature: _signature,
+            signerName: _signerName,
+            fallbackReason: _fallbackReason,
+            serial: _serial,
+            onSigned: () => ref
+                .read(completionStateProvider.notifier)
+                .update((s) => s.copyWith(hasSignature: _signature.hasInk)),
+            onFallbackChanged: (value) => ref
+                .read(completionStateProvider.notifier)
+                .update((s) => s.copyWith(signatureUnavailableReason: value)),
+          ),
         },
       ),
       bottomNavigationBar: SafeArea(
@@ -167,8 +189,11 @@ class _CompletionWizardState extends ConsumerState<CompletionWizard> {
                         ? FilledButton(
                             key: const Key('wizard-next'),
                             onPressed: () {
-                              ref.read(completionStateProvider.notifier).update(
-                                  (s) => s.copyWith(summary: _summary.text));
+                              ref
+                                  .read(completionStateProvider.notifier)
+                                  .update(
+                                    (s) => s.copyWith(summary: _summary.text),
+                                  );
                               setState(() => _step++);
                             },
                             child: const Text('Continue'),
@@ -199,13 +224,18 @@ class _ChecklistStep extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView(
       children: [
-        Text('Quality checklist', style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          'Quality checklist',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         const SizedBox(height: 8),
         CheckboxListTile(
           key: const Key('checklist-confirm'),
           value: done,
           onChanged: (value) => onChanged(value ?? false),
-          title: const Text('Work completed to spec, site tidy, customer informed'),
+          title: const Text(
+            'Work completed to spec, site tidy, customer informed',
+          ),
         ),
       ],
     );
@@ -213,7 +243,11 @@ class _ChecklistStep extends StatelessWidget {
 }
 
 class _EvidenceStep extends StatelessWidget {
-  const _EvidenceStep({required this.photoCount, required this.onAddPhoto, required this.summary});
+  const _EvidenceStep({
+    required this.photoCount,
+    required this.onAddPhoto,
+    required this.summary,
+  });
 
   final int photoCount;
   final Future<void> Function() onAddPhoto;
@@ -265,7 +299,10 @@ class _SignOffStep extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListView(
       children: [
-        Text('Customer sign-off', style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          'Customer sign-off',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         const SizedBox(height: 8),
         SignaturePad(controller: signature, onChanged: onSigned),
         const SizedBox(height: 8),
@@ -287,7 +324,9 @@ class _SignOffStep extends StatelessWidget {
         TextField(
           key: const Key('equipment-serial'),
           controller: serial,
-          decoration: const InputDecoration(labelText: 'Installed ONT serial (optional)'),
+          decoration: const InputDecoration(
+            labelText: 'Installed ONT serial (optional)',
+          ),
         ),
       ],
     );

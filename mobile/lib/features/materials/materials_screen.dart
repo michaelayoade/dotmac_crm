@@ -221,9 +221,14 @@ class MaterialRequestDetailScreen extends ConsumerWidget {
 }
 
 class NewMaterialRequestScreen extends ConsumerStatefulWidget {
-  const NewMaterialRequestScreen({super.key, this.initialWorkOrderId});
+  const NewMaterialRequestScreen({
+    super.key,
+    this.initialWorkOrderId,
+    this.initialWorkOrderLabel,
+  });
 
   final String? initialWorkOrderId;
+  final String? initialWorkOrderLabel;
 
   @override
   ConsumerState<NewMaterialRequestScreen> createState() =>
@@ -296,7 +301,12 @@ class _NewMaterialRequestScreenState
             items: _items,
           );
       ref.invalidate(materialRequestsProvider);
-      if (mounted) context.go('/materials/${request.id}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${request.displayNumber} submitted')),
+        );
+        context.go('/materials');
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -321,10 +331,19 @@ class _NewMaterialRequestScreenState
                 setState(() => _priority = value ?? _priority),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _workOrderId,
-            decoration: const InputDecoration(labelText: 'Work order ID'),
-          ),
+          if (widget.initialWorkOrderId != null &&
+              widget.initialWorkOrderLabel != null) ...[
+            TextFormField(
+              initialValue: widget.initialWorkOrderLabel,
+              readOnly: true,
+              decoration: const InputDecoration(labelText: 'Linked work order'),
+            ),
+          ] else ...[
+            TextField(
+              controller: _workOrderId,
+              decoration: const InputDecoration(labelText: 'Work order ID'),
+            ),
+          ],
           const SizedBox(height: 12),
           TextField(
             controller: _projectId,

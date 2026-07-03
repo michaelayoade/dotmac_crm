@@ -47,6 +47,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final pins = ref.watch(mapPinsProvider);
     final assets = ref.watch(mapAssetsProvider);
     final selectedTypes = ref.watch(selectedMapAssetTypesProvider);
+    final onlineSearch = ref.watch(mapPlaceSearchProvider(_searchQuery));
 
     return Scaffold(
       appBar: AppBar(
@@ -162,7 +163,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
               _MapSearchOverlay(
                 query: _searchQuery,
-                results: _searchResults(validPins, assetItems),
+                results: _searchResults(
+                  validPins,
+                  assetItems,
+                  onlineSearch.valueOrNull ?? const [],
+                ),
+                loadingOnline:
+                    _searchQuery.trim().length >= 2 && onlineSearch.isLoading,
                 onQueryChanged: (value) => setState(() => _searchQuery = value),
                 onSelected: _selectSearchResult,
               ),
@@ -192,23 +199,71 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   List<_MapSearchResult> _searchResults(
     List<JobPin> pins,
     List<MapAsset> assets,
+    List<MapPlaceSearchResult> onlineResults,
   ) {
     final query = _searchQuery.trim().toLowerCase();
     if (query.isEmpty) return const [];
-    final results = <_MapSearchResult>[
-      for (final pin in pins)
-        if (_matches(query, [pin.title, pin.status])) _MapSearchResult.job(pin),
-      for (final asset in assets)
-        if (_matches(query, [
-          asset.title,
-          asset.subtitle,
-          asset.status,
-          asset.type,
-          mapAssetTypeLabels[asset.type],
-        ]))
-          _MapSearchResult.asset(asset),
-    ];
+    final results = <_MapSearchResult>[];
+    final seen = <String>{};
+    for (final pin in pins) {
+      if (_matches(query, [pin.title, pin.status, pin.addressText])) {
+        _appendSearchResult(results, seen, _MapSearchResult.job(pin));
+      }
+    }
+    for (final asset in assets) {
+      if (_matches(query, [
+        asset.title,
+        asset.subtitle,
+        asset.status,
+        asset.type,
+        mapAssetTypeLabels[asset.type],
+      ])) {
+        _appendSearchResult(results, seen, _MapSearchResult.asset(asset));
+      }
+    }
+    for (final result in onlineResults) {
+      if (result.kind == 'job') {
+        _appendSearchResult(
+          results,
+          seen,
+          _MapSearchResult.job(
+            JobPin(
+              id: result.id,
+              title: result.title,
+              status: result.status ?? 'scheduled',
+              latitude: result.latitude,
+              longitude: result.longitude,
+              addressText: result.addressText ?? result.subtitle,
+            ),
+          ),
+        );
+      } else if (result.kind == 'asset' && result.assetType != null) {
+        _appendSearchResult(
+          results,
+          seen,
+          _MapSearchResult.asset(
+            MapAsset(
+              id: result.id,
+              type: result.assetType!,
+              title: result.title,
+              subtitle: result.subtitle,
+              latitude: result.latitude,
+              longitude: result.longitude,
+              status: result.status,
+            ),
+          ),
+        );
+      }
+    }
     return results.take(6).toList();
+  }
+
+  void _appendSearchResult(
+    List<_MapSearchResult> results,
+    Set<String> seen,
+    _MapSearchResult result,
+  ) {
+    if (seen.add(result.id)) results.add(result);
   }
 
   bool _matches(String query, Iterable<String?> values) {
@@ -230,8 +285,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
-  void _showJobSheet(BuildContext context, WidgetRef ref, JobPin pin) {
-    showModalBottomSheet<void>(
+  Future<void> _showJobSheet(
+    BuildContext context,
+    WidgetRef ref,
+    JobPin pin,
+  ) async {
+    final action = await showModalBottomSheet<_MapSheetAction>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Column(
@@ -246,39 +305,48 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               subtitle: Text(pin.status.replaceAll('_', ' ')),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
-                Navigator.pop(sheetContext);
-                context.push('/jobs/${pin.id}');
+                Navigator.pop(sheetContext, _MapSheetAction.open);
               },
             ),
             ListTile(
               leading: const Icon(Icons.push_pin_outlined),
               title: const Text('Edit pin location'),
-              onTap: () async {
-                Navigator.pop(sheetContext);
-                final changed = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(
-                    builder: (_) => LocationPinScreen(
-                      jobId: pin.id,
-                      initialLocation: JobLocation(
-                        latitude: pin.latitude,
-                        longitude: pin.longitude,
-                        source: 'cached',
-                      ),
-                    ),
-                  ),
-                );
-                if (changed == true) ref.invalidate(mapPinsProvider);
-              },
+              onTap: () => Navigator.pop(sheetContext, _MapSheetAction.edit),
             ),
           ],
         ),
       ),
     );
+    if (!context.mounted) return;
+    switch (action) {
+      case _MapSheetAction.open:
+        context.push('/jobs/${pin.id}');
+      case _MapSheetAction.edit:
+        final changed = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => LocationPinScreen(
+              jobId: pin.id,
+              initialLocation: JobLocation(
+                latitude: pin.latitude,
+                longitude: pin.longitude,
+                source: 'cached',
+              ),
+            ),
+          ),
+        );
+        if (changed == true) ref.invalidate(mapPinsProvider);
+      case null:
+        break;
+    }
   }
 
-  void _showAssetSheet(BuildContext context, WidgetRef ref, MapAsset asset) {
+  Future<void> _showAssetSheet(
+    BuildContext context,
+    WidgetRef ref,
+    MapAsset asset,
+  ) async {
     final label = mapAssetTypeLabels[asset.type] ?? asset.type;
-    showModalBottomSheet<void>(
+    final action = await showModalBottomSheet<_MapSheetAction>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Column(
@@ -301,29 +369,26 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ListTile(
               leading: const Icon(Icons.push_pin_outlined),
               title: const Text('Edit asset location'),
-              onTap: () async {
-                Navigator.pop(sheetContext);
-                final changed = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(
-                    builder: (_) => AssetPinScreen(asset: asset),
-                  ),
-                );
-                if (changed == true) ref.invalidate(mapAssetsProvider);
-              },
+              onTap: () => Navigator.pop(sheetContext, _MapSheetAction.edit),
             ),
           ],
         ),
       ),
     );
+    if (!context.mounted || action != _MapSheetAction.edit) return;
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => AssetPinScreen(asset: asset)),
+    );
+    if (changed == true) ref.invalidate(mapAssetsProvider);
   }
 
-  void _showPinListSheet(
+  Future<void> _showPinListSheet(
     BuildContext context,
     WidgetRef ref,
     List<JobPin> pins,
     List<MapAsset> assets,
-  ) {
-    showModalBottomSheet<void>(
+  ) async {
+    final selection = await showModalBottomSheet<_MapEditSelection>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: ListView(
@@ -349,22 +414,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
                 title: Text(pin.title),
                 subtitle: Text(pin.status.replaceAll('_', ' ')),
-                onTap: () async {
-                  Navigator.pop(sheetContext);
-                  final changed = await Navigator.of(context).push<bool>(
-                    MaterialPageRoute(
-                      builder: (_) => LocationPinScreen(
-                        jobId: pin.id,
-                        initialLocation: JobLocation(
-                          latitude: pin.latitude,
-                          longitude: pin.longitude,
-                          source: 'cached',
-                        ),
-                      ),
-                    ),
-                  );
-                  if (changed == true) ref.invalidate(mapPinsProvider);
-                },
+                onTap: () =>
+                    Navigator.pop(sheetContext, _JobEditSelection(pin)),
               ),
             for (final asset in assets)
               ListTile(
@@ -374,20 +425,35 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
                 title: Text(asset.title),
                 subtitle: Text(mapAssetTypeLabels[asset.type] ?? asset.type),
-                onTap: () async {
-                  Navigator.pop(sheetContext);
-                  final changed = await Navigator.of(context).push<bool>(
-                    MaterialPageRoute(
-                      builder: (_) => AssetPinScreen(asset: asset),
-                    ),
-                  );
-                  if (changed == true) ref.invalidate(mapAssetsProvider);
-                },
+                onTap: () =>
+                    Navigator.pop(sheetContext, _AssetEditSelection(asset)),
               ),
           ],
         ),
       ),
     );
+    if (!context.mounted || selection == null) return;
+    switch (selection) {
+      case _JobEditSelection(:final pin):
+        final changed = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => LocationPinScreen(
+              jobId: pin.id,
+              initialLocation: JobLocation(
+                latitude: pin.latitude,
+                longitude: pin.longitude,
+                source: 'cached',
+              ),
+            ),
+          ),
+        );
+        if (changed == true) ref.invalidate(mapPinsProvider);
+      case _AssetEditSelection(:final asset):
+        final changed = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(builder: (_) => AssetPinScreen(asset: asset)),
+        );
+        if (changed == true) ref.invalidate(mapAssetsProvider);
+    }
   }
 }
 
@@ -405,6 +471,24 @@ sealed class _MapSearchResult {
   LatLng get point;
 }
 
+enum _MapSheetAction { open, edit }
+
+sealed class _MapEditSelection {
+  const _MapEditSelection();
+}
+
+class _JobEditSelection extends _MapEditSelection {
+  const _JobEditSelection(this.pin);
+
+  final JobPin pin;
+}
+
+class _AssetEditSelection extends _MapEditSelection {
+  const _AssetEditSelection(this.asset);
+
+  final MapAsset asset;
+}
+
 class _JobSearchResult extends _MapSearchResult {
   const _JobSearchResult(this.pin);
 
@@ -417,7 +501,10 @@ class _JobSearchResult extends _MapSearchResult {
   String get title => pin.title;
 
   @override
-  String get subtitle => pin.status.replaceAll('_', ' ');
+  String get subtitle => [
+    if (pin.addressText != null) pin.addressText!,
+    pin.status.replaceAll('_', ' '),
+  ].join(' · ');
 
   @override
   IconData get icon => Icons.location_pin;
@@ -461,12 +548,14 @@ class _MapSearchOverlay extends StatelessWidget {
   const _MapSearchOverlay({
     required this.query,
     required this.results,
+    required this.loadingOnline,
     required this.onQueryChanged,
     required this.onSelected,
   });
 
   final String query;
   final List<_MapSearchResult> results;
+  final bool loadingOnline;
   final ValueChanged<String> onQueryChanged;
   final ValueChanged<_MapSearchResult> onSelected;
 
@@ -506,7 +595,16 @@ class _MapSearchOverlay extends StatelessWidget {
             if (hasQuery)
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 148),
-                child: results.isEmpty
+                child: loadingOnline && results.isEmpty
+                    ? const ListTile(
+                        dense: true,
+                        leading: SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        title: Text('Searching places'),
+                      )
+                    : results.isEmpty
                     ? const ListTile(
                         dense: true,
                         leading: Icon(Icons.search_off_outlined),

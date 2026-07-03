@@ -34,7 +34,9 @@ class VendorProjectsScreen extends ConsumerWidget {
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (project.notes != null && project.notes!.isNotEmpty) Text(project.notes!),
+                          if (project.notes != null &&
+                              project.notes!.isNotEmpty)
+                            Text(project.notes!),
                           if (item.lifecycle != null) ...[
                             const SizedBox(height: 6),
                             VendorLifecycleChips(lifecycle: item.lifecycle!),
@@ -44,10 +46,15 @@ class VendorProjectsScreen extends ConsumerWidget {
                       isThreeLine: item.lifecycle != null,
                       trailing: Chip(
                         label: Text(project.status.replaceAll('_', ' ')),
-                        backgroundColor: AppColors.status(project.status).withValues(alpha: 0.15),
+                        backgroundColor: AppColors.status(
+                          project.status,
+                        ).withValues(alpha: 0.15),
                       ),
                       onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => VendorProjectDetailScreen(projectId: project.id)),
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              VendorProjectDetailScreen(projectId: project.id),
+                        ),
                       ),
                     ),
                   );
@@ -77,7 +84,9 @@ class VendorProjectDetailScreen extends ConsumerWidget {
             tooltip: 'Prepare bid',
             icon: const Icon(Icons.request_quote_outlined),
             onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => VendorQuoteScreen(projectId: projectId)),
+              MaterialPageRoute(
+                builder: (_) => VendorQuoteScreen(projectId: projectId),
+              ),
             ),
           ),
         ],
@@ -102,9 +111,14 @@ class VendorProjectDetailScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Resubmission needed',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-                      if (data.rejectedForResubmission!.reviewNotes != null) ...[
+                      Text(
+                        'Resubmission needed',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (data.rejectedForResubmission!.reviewNotes !=
+                          null) ...[
                         const SizedBox(height: 4),
                         Text(data.rejectedForResubmission!.reviewNotes!),
                       ],
@@ -119,10 +133,15 @@ class VendorProjectDetailScreen extends ConsumerWidget {
             for (final submission in data.submissions)
               ListTile(
                 dense: true,
-                leading: Icon(Icons.route_outlined, color: AppColors.status(submission.status)),
+                leading: Icon(
+                  Icons.route_outlined,
+                  color: AppColors.status(submission.status),
+                ),
                 title: Text(submission.status.replaceAll('_', ' ')),
                 subtitle: submission.actualLengthMeters != null
-                    ? Text('${submission.actualLengthMeters!.toStringAsFixed(0)} m')
+                    ? Text(
+                        '${submission.actualLengthMeters!.toStringAsFixed(0)} m',
+                      )
                     : null,
               ),
             const SizedBox(height: 96),
@@ -138,12 +157,17 @@ class VendorProjectDetailScreen extends ConsumerWidget {
             child: FilledButton.icon(
               key: const Key('start-capture'),
               icon: const Icon(Icons.route),
-              label: Text(data.rejectedForResubmission != null ? 'Recapture as-built' : 'Capture as-built'),
+              label: Text(
+                data.rejectedForResubmission != null
+                    ? 'Recapture as-built'
+                    : 'Capture as-built',
+              ),
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => AsBuiltCaptureScreen(
                     projectId: projectId,
-                    prefillLengthMeters: data.rejectedForResubmission?.actualLengthMeters,
+                    prefillLengthMeters:
+                        data.rejectedForResubmission?.actualLengthMeters,
                   ),
                 ),
               ),
@@ -157,13 +181,18 @@ class VendorProjectDetailScreen extends ConsumerWidget {
 }
 
 class AsBuiltCaptureScreen extends ConsumerStatefulWidget {
-  const AsBuiltCaptureScreen({super.key, required this.projectId, this.prefillLengthMeters});
+  const AsBuiltCaptureScreen({
+    super.key,
+    required this.projectId,
+    this.prefillLengthMeters,
+  });
 
   final String projectId;
   final double? prefillLengthMeters;
 
   @override
-  ConsumerState<AsBuiltCaptureScreen> createState() => _AsBuiltCaptureScreenState();
+  ConsumerState<AsBuiltCaptureScreen> createState() =>
+      _AsBuiltCaptureScreenState();
 }
 
 class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
@@ -190,14 +219,18 @@ class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
         recorder.start();
         _sampler = Timer.periodic(const Duration(seconds: 3), (_) async {
           final point = await ref.read(locationSourceProvider).current();
-          if (point != null && mounted) setState(() => recorder.addPoint(point));
+          if (point != null && mounted) {
+            setState(() => recorder.addPoint(point));
+          }
         });
       }
     });
   }
 
   Future<void> _addPhoto() async {
-    final captured = await ref.read(photoCaptureProvider)(installationProjectId: widget.projectId);
+    final captured = await ref.read(photoCaptureProvider)(
+      installationProjectId: widget.projectId,
+    );
     if (captured && mounted) {
       setState(() => _photoCount++);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -217,7 +250,9 @@ class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
 
   Future<void> _submit() async {
     setState(() => _submitting = true);
-    await ref.read(vendorRepositoryProvider).submitAsBuilt(
+    await ref
+        .read(vendorRepositoryProvider)
+        .submitAsBuilt(
           projectId: widget.projectId,
           geojson: recorder.toGeoJson(),
           actualLengthMeters: recorder.distanceMeters,
@@ -226,7 +261,9 @@ class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
         );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('As-built submitted — will sync when online')),
+        const SnackBar(
+          content: Text('As-built submitted — will sync when online'),
+        ),
       );
       Navigator.of(context).pop(true);
     }
@@ -260,8 +297,16 @@ class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
                   FilledButton.icon(
                     key: const Key('record-toggle'),
                     onPressed: _toggleRecording,
-                    icon: Icon(recorder.recording ? Icons.stop : Icons.fiber_manual_record),
-                    label: Text(recorder.recording ? 'Stop recording' : 'Start walking the route'),
+                    icon: Icon(
+                      recorder.recording
+                          ? Icons.stop
+                          : Icons.fiber_manual_record,
+                    ),
+                    label: Text(
+                      recorder.recording
+                          ? 'Stop recording'
+                          : 'Start walking the route',
+                    ),
                   ),
                 ],
               ),
@@ -274,7 +319,9 @@ class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
             key: const Key('add-photo'),
             onPressed: _addPhoto,
             icon: const Icon(Icons.add_a_photo_outlined),
-            label: Text(_photoCount == 0 ? 'Add photo' : 'Add photo ($_photoCount)'),
+            label: Text(
+              _photoCount == 0 ? 'Add photo' : 'Add photo ($_photoCount)',
+            ),
           ),
           const SizedBox(height: 16),
           Text('Variation (optional)', style: theme.textTheme.titleSmall),
@@ -282,7 +329,10 @@ class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
           DropdownButtonFormField<String?>(
             key: const Key('variation-type'),
             initialValue: _variationType,
-            decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
             items: [
               const DropdownMenuItem(value: null, child: Text('None')),
               for (final v in asBuiltVariationTypes)
@@ -293,7 +343,9 @@ class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
           const SizedBox(height: 16),
           Row(
             children: [
-              Expanded(child: Text('Line items', style: theme.textTheme.titleSmall)),
+              Expanded(
+                child: Text('Line items', style: theme.textTheme.titleSmall),
+              ),
               TextButton.icon(
                 key: const Key('add-line-item'),
                 onPressed: _addLineItem,
@@ -309,8 +361,12 @@ class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
               ListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
-                title: Text(_lineItems[i].description ?? _lineItems[i].itemType ?? 'Item'),
-                subtitle: Text('${_lineItems[i].quantity} × ${_lineItems[i].unitPrice}'),
+                title: Text(
+                  _lineItems[i].description ?? _lineItems[i].itemType ?? 'Item',
+                ),
+                subtitle: Text(
+                  '${_lineItems[i].quantity} × ${_lineItems[i].unitPrice}',
+                ),
                 trailing: IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: () => setState(() => _lineItems.removeAt(i)),
@@ -324,7 +380,10 @@ class _AsBuiltCaptureScreenState extends ConsumerState<AsBuiltCaptureScreen> {
           padding: const EdgeInsets.all(16),
           child: FilledButton(
             key: const Key('submit-asbuilt'),
-            onPressed: !recorder.recording && recorder.hasUsableTrace && !_submitting ? _submit : null,
+            onPressed:
+                !recorder.recording && recorder.hasUsableTrace && !_submitting
+                ? _submit
+                : null,
             child: const Text('Review & submit'),
           ),
         ),
@@ -360,7 +419,9 @@ class _LineItemSheetState extends State<_LineItemSheet> {
     final qty = num.tryParse(_quantity.text.trim()) ?? 1;
     Navigator.of(context).pop(
       AsBuiltLineItem(
-        description: _description.text.trim().isEmpty ? null : _description.text.trim(),
+        description: _description.text.trim().isEmpty
+            ? null
+            : _description.text.trim(),
         itemType: _itemType.text.trim().isEmpty ? null : _itemType.text.trim(),
         quantity: qty < 1 ? 1 : qty,
         unitPrice: num.tryParse(_unitPrice.text.trim()) ?? 0,
@@ -386,12 +447,18 @@ class _LineItemSheetState extends State<_LineItemSheet> {
           TextField(
             key: const Key('li-description'),
             controller: _description,
-            decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              labelText: 'Description',
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: 8),
           TextField(
             controller: _itemType,
-            decoration: const InputDecoration(labelText: 'Item type (optional)', border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              labelText: 'Item type (optional)',
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: 8),
           Row(
@@ -401,7 +468,10 @@ class _LineItemSheetState extends State<_LineItemSheet> {
                   key: const Key('li-quantity'),
                   controller: _quantity,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Qty', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Qty',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -410,7 +480,10 @@ class _LineItemSheetState extends State<_LineItemSheet> {
                   key: const Key('li-unit-price'),
                   controller: _unitPrice,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Unit price', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Unit price',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
               ),
             ],
@@ -442,7 +515,12 @@ class VendorSiteCard extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Site contact', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+            Text(
+              'Site contact',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -450,10 +528,15 @@ class VendorSiteCard extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (site.name != null && site.name!.isNotEmpty) Text(site.name!),
-                      if (site.addressText != null && site.addressText!.isNotEmpty) ...[
+                      if (site.name != null && site.name!.isNotEmpty)
+                        Text(site.name!),
+                      if (site.addressText != null &&
+                          site.addressText!.isNotEmpty) ...[
                         const SizedBox(height: 2),
-                        Text(site.addressText!, style: theme.textTheme.bodySmall),
+                        Text(
+                          site.addressText!,
+                          style: theme.textTheme.bodySmall,
+                        ),
                       ],
                     ],
                   ),
@@ -463,7 +546,9 @@ class VendorSiteCard extends ConsumerWidget {
                     key: const Key('vendor-call-button'),
                     tooltip: 'Call site contact',
                     icon: const Icon(Icons.call_outlined),
-                    onPressed: () => ref.read(uriLauncherProvider)(Uri.parse('tel:${site.phone}')),
+                    onPressed: () => ref.read(uriLauncherProvider)(
+                      Uri.parse('tel:${site.phone}'),
+                    ),
                   ),
               ],
             ),
@@ -473,7 +558,9 @@ class VendorSiteCard extends ConsumerWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.4),
+                  color: theme.colorScheme.secondaryContainer.withValues(
+                    alpha: 0.4,
+                  ),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -481,7 +568,12 @@ class VendorSiteCard extends ConsumerWidget {
                   children: [
                     const Icon(Icons.vpn_key_outlined, size: 16),
                     const SizedBox(width: 8),
-                    Expanded(child: Text(site.accessNotes!, style: theme.textTheme.bodySmall)),
+                    Expanded(
+                      child: Text(
+                        site.accessNotes!,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -503,7 +595,8 @@ class VendorLifecycleChips extends StatelessWidget {
   static Widget? _chip(String prefix, VendorStageState? stage) {
     if (stage == null || !stage.isPresent) return null;
     final status = stage.status!;
-    final text = stage.label != null ? '$prefix: ${status.replaceAll('_', ' ')} · ${stage.label}'
+    final text = stage.label != null
+        ? '$prefix: ${status.replaceAll('_', ' ')} · ${stage.label}'
         : '$prefix: ${status.replaceAll('_', ' ')}';
     return Chip(
       label: Text(text),
@@ -531,7 +624,11 @@ class VendorQuoteScreen extends ConsumerWidget {
 
   final String projectId;
 
-  Future<void> _addLineItem(BuildContext context, WidgetRef ref, String quoteId) async {
+  Future<void> _addLineItem(
+    BuildContext context,
+    WidgetRef ref,
+    String quoteId,
+  ) async {
     final item = await showModalBottomSheet<AsBuiltLineItem>(
       context: context,
       isScrollControlled: true,
@@ -542,29 +639,49 @@ class VendorQuoteScreen extends ConsumerWidget {
     ref.invalidate(vendorProjectQuoteProvider(projectId));
   }
 
-  Future<void> _removeLineItem(WidgetRef ref, String quoteId, String lineItemId) async {
-    await ref.read(vendorRepositoryProvider).removeQuoteLineItem(quoteId, lineItemId);
+  Future<void> _removeLineItem(
+    WidgetRef ref,
+    String quoteId,
+    String lineItemId,
+  ) async {
+    await ref
+        .read(vendorRepositoryProvider)
+        .removeQuoteLineItem(quoteId, lineItemId);
     ref.invalidate(vendorProjectQuoteProvider(projectId));
   }
 
-  Future<void> _captureRoute(BuildContext context, WidgetRef ref, String quoteId) async {
+  Future<void> _captureRoute(
+    BuildContext context,
+    WidgetRef ref,
+    String quoteId,
+  ) async {
     final saved = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => _ProposedRouteCaptureScreen(quoteId: quoteId)),
+      MaterialPageRoute(
+        builder: (_) => _ProposedRouteCaptureScreen(quoteId: quoteId),
+      ),
     );
     if (saved == true) ref.invalidate(vendorProjectQuoteProvider(projectId));
   }
 
-  Future<void> _submit(BuildContext context, WidgetRef ref, String quoteId) async {
+  Future<void> _submit(
+    BuildContext context,
+    WidgetRef ref,
+    String quoteId,
+  ) async {
     try {
       await ref.read(vendorRepositoryProvider).submitQuote(quoteId);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bid submitted')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Bid submitted')));
         Navigator.of(context).pop();
       }
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not submit — add a line item and try again')),
+          const SnackBar(
+            content: Text('Could not submit — add a line item and try again'),
+          ),
         );
       }
     }
@@ -586,20 +703,29 @@ class VendorQuoteScreen extends ConsumerWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      quote.total != null ? '${quote.currency ?? ''} ${quote.total}'.trim() : 'Draft bid',
+                      quote.total != null
+                          ? '${quote.currency ?? ''} ${quote.total}'.trim()
+                          : 'Draft bid',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
                   Chip(
                     label: Text(quote.status.replaceAll('_', ' ')),
-                    backgroundColor: AppColors.status(quote.status).withValues(alpha: 0.15),
+                    backgroundColor: AppColors.status(
+                      quote.status,
+                    ).withValues(alpha: 0.15),
                   ),
                 ],
               ),
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Expanded(child: Text('Line items', style: Theme.of(context).textTheme.titleSmall)),
+                  Expanded(
+                    child: Text(
+                      'Line items',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
                   if (editable)
                     TextButton.icon(
                       key: const Key('quote-add-line-item'),
@@ -617,7 +743,9 @@ class VendorQuoteScreen extends ConsumerWidget {
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                     title: Text(line.description ?? 'Item'),
-                    subtitle: Text('${line.quantity ?? 1} × ${line.unitPrice ?? 0}'),
+                    subtitle: Text(
+                      '${line.quantity ?? 1} × ${line.unitPrice ?? 0}',
+                    ),
                     trailing: editable
                         ? Row(
                             mainAxisSize: MainAxisSize.min,
@@ -627,32 +755,48 @@ class VendorQuoteScreen extends ConsumerWidget {
                                 key: Key('remove-line-${line.id}'),
                                 icon: const Icon(Icons.close, size: 18),
                                 tooltip: 'Remove',
-                                onPressed: () => _removeLineItem(ref, quote.id, line.id),
+                                onPressed: () =>
+                                    _removeLineItem(ref, quote.id, line.id),
                               ),
                             ],
                           )
                         : Text('${line.amount ?? 0}'),
                   ),
               const SizedBox(height: 16),
-              Text('Proposed route', style: Theme.of(context).textTheme.titleSmall),
+              Text(
+                'Proposed route',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
               const SizedBox(height: 4),
               if (data.proposedRoutes.isEmpty)
-                Text('Not attached yet', style: Theme.of(context).textTheme.bodySmall)
+                Text(
+                  'Not attached yet',
+                  style: Theme.of(context).textTheme.bodySmall,
+                )
               else
                 for (final route in data.proposedRoutes)
                   ListTile(
                     dense: true,
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.route_outlined, color: AppColors.status(route.status)),
+                    leading: Icon(
+                      Icons.route_outlined,
+                      color: AppColors.status(route.status),
+                    ),
                     title: Text('Revision ${route.revisionNumber}'),
                     trailing: Text(route.status.replaceAll('_', ' ')),
                   ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
                 key: const Key('quote-capture-route'),
-                onPressed: editable ? () => _captureRoute(context, ref, quote.id) : null,
+                onPressed: editable
+                    ? () => _captureRoute(context, ref, quote.id)
+                    : null,
                 icon: const Icon(Icons.route_outlined),
-                label: Text(data.proposedRoutes.isEmpty ? 'Capture proposed route' : 'Capture new revision'),
+                label: Text(
+                  data.proposedRoutes.isEmpty
+                      ? 'Capture proposed route'
+                      : 'Capture new revision',
+                ),
               ),
               const SizedBox(height: 24),
             ],
@@ -687,10 +831,12 @@ class _ProposedRouteCaptureScreen extends ConsumerStatefulWidget {
   final String quoteId;
 
   @override
-  ConsumerState<_ProposedRouteCaptureScreen> createState() => _ProposedRouteCaptureScreenState();
+  ConsumerState<_ProposedRouteCaptureScreen> createState() =>
+      _ProposedRouteCaptureScreenState();
 }
 
-class _ProposedRouteCaptureScreenState extends ConsumerState<_ProposedRouteCaptureScreen> {
+class _ProposedRouteCaptureScreenState
+    extends ConsumerState<_ProposedRouteCaptureScreen> {
   final recorder = TraceRecorder();
   Timer? _sampler;
   bool _saving = false;
@@ -710,7 +856,9 @@ class _ProposedRouteCaptureScreenState extends ConsumerState<_ProposedRouteCaptu
         recorder.start();
         _sampler = Timer.periodic(const Duration(seconds: 3), (_) async {
           final point = await ref.read(locationSourceProvider).current();
-          if (point != null && mounted) setState(() => recorder.addPoint(point));
+          if (point != null && mounted) {
+            setState(() => recorder.addPoint(point));
+          }
         });
       }
     });
@@ -719,12 +867,16 @@ class _ProposedRouteCaptureScreenState extends ConsumerState<_ProposedRouteCaptu
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
-      await ref.read(vendorRepositoryProvider).addProposedRoute(
+      await ref
+          .read(vendorRepositoryProvider)
+          .addProposedRoute(
             widget.quoteId,
             recorder.toGeoJson(),
             recorder.distanceMeters,
           );
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) {
+        Navigator.of(context).pop(true);
+      }
     } catch (_) {
       if (mounted) {
         setState(() => _saving = false);
@@ -752,8 +904,14 @@ class _ProposedRouteCaptureScreenState extends ConsumerState<_ProposedRouteCaptu
             FilledButton.icon(
               key: const Key('proposed-record-toggle'),
               onPressed: _toggleRecording,
-              icon: Icon(recorder.recording ? Icons.stop : Icons.fiber_manual_record),
-              label: Text(recorder.recording ? 'Stop recording' : 'Start walking the route'),
+              icon: Icon(
+                recorder.recording ? Icons.stop : Icons.fiber_manual_record,
+              ),
+              label: Text(
+                recorder.recording
+                    ? 'Stop recording'
+                    : 'Start walking the route',
+              ),
             ),
           ],
         ),
@@ -763,7 +921,10 @@ class _ProposedRouteCaptureScreenState extends ConsumerState<_ProposedRouteCaptu
           padding: const EdgeInsets.all(16),
           child: FilledButton(
             key: const Key('save-proposed-route'),
-            onPressed: !recorder.recording && recorder.hasUsableTrace && !_saving ? _save : null,
+            onPressed:
+                !recorder.recording && recorder.hasUsableTrace && !_saving
+                ? _save
+                : null,
             child: const Text('Attach to bid'),
           ),
         ),

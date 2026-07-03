@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -32,6 +33,7 @@ from app.services import operations_sla_reports as operations_sla_reports_servic
 from app.services.auth_dependencies import require_any_permission
 from app.services.crm import reports as crm_reports_service
 from app.services.crm import team as crm_team_service
+from app.services.person_identity import is_placeholder_email
 from app.services.quarterly_reports import build_quarterly_report
 from app.tasks.subscribers import sync_subscribers_from_selfcare
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
@@ -96,7 +98,9 @@ class _ProjectTaskPersonAccumulator(TypedDict):
     effort_accuracy_count: int
 
 
-_NCC_EXPORT_FILENAME = "NCC REPORTS (DOTMAC).xlsx"
+_NCC_OPERATOR_NAME = "Dotmac"
+_NCC_OPERATOR_PREFIX = "DOTMAC"
+_NCC_EXPORT_TITLE = "Dotmac NCC Report"
 _NCC_COLUMNS = [
     "MSISDN",
     "First Name",
@@ -114,6 +118,7 @@ _NCC_COLUMNS = [
     "Complaint type",
     "Status",
     "Resolved date",
+    "Resolved within SLA",
     "Resolution Note",
     "User Note",
     "user notes datetime",
@@ -124,7 +129,1440 @@ _NCC_COLUMNS = [
     "State",
     "LGA",
     "Town",
+    "Phone Type",
+    "VALIDATION STATUS",
 ]
+_NCC_CATEGORY_SLA: dict[str, dict[str, int | str]] = {
+    "Billing": {"code": "A", "feedback_hours": 4, "resolution_hours": 24},
+    "Call Center / Customer Care": {"code": "B", "feedback_hours": 4, "resolution_hours": 24},
+    "Quality of Service (Voice)": {"code": "C", "feedback_hours": 4, "resolution_hours": 72},
+    "Quality of Service (Data)": {"code": "D", "feedback_hours": 4, "resolution_hours": 72},
+    "Quality of Experience": {"code": "E", "feedback_hours": 4, "resolution_hours": 72},
+    "Faulty Terminals": {"code": "F", "feedback_hours": 48, "resolution_hours": 72},
+    "BTS Issues": {"code": "G", "feedback_hours": 72, "resolution_hours": 720},
+    "Sales Promotions & Advertisement": {"code": "H", "feedback_hours": 2, "resolution_hours": 24},
+    "Recharge / Top-Up Issues": {"code": "I", "feedback_hours": 4, "resolution_hours": 24},
+    "SMS / MMS": {"code": "J", "feedback_hours": 4, "resolution_hours": 24},
+    "Other SIM-Related Issues": {"code": "K", "feedback_hours": 4, "resolution_hours": 24},
+    "SIM Replacement": {"code": "L", "feedback_hours": 2, "resolution_hours": 12},
+    "Value-Added Services (VAS)": {"code": "M", "feedback_hours": 4, "resolution_hours": 24},
+    "Mobile Number Portability (MNP)": {"code": "N", "feedback_hours": 4, "resolution_hours": 24},
+    "Do-Not-Disturb (DND) Service": {"code": "O", "feedback_hours": 4, "resolution_hours": 12},
+    "International Roaming": {"code": "P", "feedback_hours": 4, "resolution_hours": 72},
+    "Data Depletion": {"code": "Q", "feedback_hours": 4, "resolution_hours": 24},
+    "Failed Payment Transactions": {"code": "R", "feedback_hours": 2, "resolution_hours": 12},
+}
+_NCC_ACCEPTED_CATEGORIES = set(_NCC_CATEGORY_SLA)
+_NCC_ACCEPTED_CATEGORY_CODES = {str(value["code"]) for value in _NCC_CATEGORY_SLA.values()}
+_NCC_SUBCATEGORY_ROWS: tuple[dict[str, object], ...] = (
+    {
+        "category": "Billing",
+        "issue_code": "A1",
+        "name": "Dropped Balance / Unexplained Deduction",
+        "description": "Unexplained balance change, overcharging, silent-call charges, undelivered SMS charges, or recharge not reflecting.",
+    },
+    {
+        "category": "Billing",
+        "issue_code": "A2",
+        "name": "Inability to Change Tariff Plan",
+        "description": "Consumer is unable to migrate from one tariff plan to another.",
+    },
+    {
+        "category": "Billing",
+        "issue_code": "A3",
+        "name": "Suspension of Postpaid Line",
+        "description": "Consumer line is suspended due to a disputed bill.",
+    },
+    {
+        "category": "Billing",
+        "issue_code": "A4",
+        "name": "Renewal of Data Subscription",
+        "description": "Consumer is unable to renew a data subscription.",
+    },
+    {
+        "category": "Billing",
+        "issue_code": "A5",
+        "name": "Reduction in Validity Period",
+        "description": "Consumer data validity period is reduced arbitrarily.",
+    },
+    {
+        "category": "Billing",
+        "issue_code": "A6",
+        "name": "Data Subscription Not Rolled Over",
+        "description": "Consumer is unable to roll over unused data.",
+    },
+    {
+        "category": "Billing",
+        "issue_code": "A50",
+        "name": "Others (Billing)",
+        "description": "Any other billing related issue not captured above.",
+    },
+    {
+        "category": "Call Center / Customer Care",
+        "issue_code": "B1",
+        "name": "Inability to Connect to Call Center Helpline",
+        "description": "Consumer is unable to connect to the service provider customer care helpline.",
+    },
+    {
+        "category": "Call Center / Customer Care",
+        "issue_code": "B2",
+        "name": "Downtime of Service Provider's Call Centre",
+        "description": "Service provider call center is not operational.",
+    },
+    {
+        "category": "Call Center / Customer Care",
+        "issue_code": "B3",
+        "name": "Poor Customer Service",
+        "description": "Consumer is poorly attended to by a customer care representative or call center agent.",
+    },
+    {
+        "category": "Call Center / Customer Care",
+        "issue_code": "B4",
+        "name": "Incorrect Responses / Information from Agents",
+        "description": "Consumer is given wrong or misleading information by customer care representatives.",
+    },
+    {
+        "category": "Call Center / Customer Care",
+        "issue_code": "B5",
+        "name": "Inability to Connect to Live Agent",
+        "description": "Consumer is unable to connect to a live agent within the expected timeframe.",
+    },
+    {
+        "category": "Call Center / Customer Care",
+        "issue_code": "B50",
+        "name": "Others (Customer Care)",
+        "description": "Any other customer care related issue not captured above.",
+    },
+    {
+        "category": "Quality of Service (Voice)",
+        "issue_code": "C1",
+        "name": "Call Interference / Voice Clarity / Background Noise",
+        "description": "Consumer cannot clearly hear during a call or experiences call interference/background noise.",
+    },
+    {
+        "category": "Quality of Service (Voice)",
+        "issue_code": "C2",
+        "name": "Inability to Receive Calls",
+        "description": "Consumer cannot receive calls from same network, other networks, or outside the country.",
+    },
+    {
+        "category": "Quality of Service (Voice)",
+        "issue_code": "C3",
+        "name": "Inability to Make Calls",
+        "description": "Consumer cannot make successful calls within or outside the network/country despite sufficient airtime.",
+    },
+    {
+        "category": "Quality of Service (Voice)",
+        "issue_code": "C4",
+        "name": "Call Divert Issues",
+        "description": "Consumer is unable to activate call divert.",
+    },
+    {
+        "category": "Quality of Service (Voice)",
+        "issue_code": "C5",
+        "name": "Unauthorized Call Divert Activation",
+        "description": "Call divert is activated on the consumer line without request.",
+    },
+    {
+        "category": "Quality of Service (Voice)",
+        "issue_code": "C6",
+        "name": "Call Barring",
+        "description": "Consumer is prohibited from making or receiving calls for a period due to network-related barring.",
+    },
+    {
+        "category": "Quality of Service (Voice)",
+        "issue_code": "C7",
+        "name": "Poor Signal",
+        "description": "Consumer has poor reception at a particular location.",
+    },
+    {
+        "category": "Quality of Service (Voice)",
+        "issue_code": "C8",
+        "name": "No Network",
+        "description": "Consumer does not have network reception.",
+    },
+    {
+        "category": "Quality of Service (Voice)",
+        "issue_code": "C9",
+        "name": "Dropped Call",
+        "description": "Consumer call is abruptly disconnected and cannot successfully complete.",
+    },
+    {
+        "category": "Quality of Service (Voice)",
+        "issue_code": "C10",
+        "name": "Call Crossing (Wrong Routing)",
+        "description": "A call is routed to a wrong person or line.",
+    },
+    {
+        "category": "Quality of Service (Voice)",
+        "issue_code": "C50",
+        "name": "Others (QoS Voice)",
+        "description": "Any other call setup or voice quality issue not captured above.",
+    },
+    {
+        "category": "Quality of Service (Data)",
+        "issue_code": "D1",
+        "name": "Poor Internet Service",
+        "description": "Consumer experiences poor internet service.",
+    },
+    {
+        "category": "Quality of Service (Data)",
+        "issue_code": "D2",
+        "name": "No Internet Network",
+        "description": "Consumer does not have internet service.",
+    },
+    {
+        "category": "Quality of Service (Data)",
+        "issue_code": "D3",
+        "name": "Low / Poor Internet Speed",
+        "description": "Consumer has low or poor internet speed.",
+    },
+    {
+        "category": "Quality of Service (Data)",
+        "issue_code": "D4",
+        "name": "Others (QoS Data)",
+        "description": "Any other data related issue not captured above.",
+    },
+    {
+        "category": "Quality of Experience",
+        "issue_code": "E1",
+        "name": "Call Masking and Refiling",
+        "description": "Consumer receives an international call showing a local number.",
+    },
+    {
+        "category": "Quality of Experience",
+        "issue_code": "E2",
+        "name": "Disconnection of Internet Services",
+        "description": "Consumer internet service is disconnected.",
+    },
+    {
+        "category": "Quality of Experience",
+        "issue_code": "E3",
+        "name": "Installation of Internet Services Equipment",
+        "description": "Consumer internet service equipment is not installed at the agreed time.",
+    },
+    {
+        "category": "Quality of Experience",
+        "issue_code": "E4",
+        "name": "Others (Quality of Experience)",
+        "description": "Any other quality of experience issue not captured above.",
+    },
+    {
+        "category": "Faulty Terminals",
+        "issue_code": "F1",
+        "name": "Faulty Terminals (Phones, Routers, Modems)",
+        "description": "Consumer has problems with phones, routers, modems, or other terminals.",
+    },
+    {
+        "category": "Faulty Terminals",
+        "issue_code": "F50",
+        "name": "Others (Faulty Terminals)",
+        "description": "Any other faulty terminal related issue not captured above.",
+    },
+    {
+        "category": "BTS Issues",
+        "issue_code": "G1",
+        "name": "Base Station Issues",
+        "description": "Problems arising from installation or location of a base station, mast, or tower.",
+    },
+    {
+        "category": "BTS Issues",
+        "issue_code": "G2",
+        "name": "Pollution from BTS Site / Generator",
+        "description": "Consumer complains of environmental pollution from a BTS site generator.",
+    },
+    {
+        "category": "BTS Issues",
+        "issue_code": "G50",
+        "name": "Others (BTS)",
+        "description": "Any other BTS related issue not captured above.",
+    },
+    {
+        "category": "Sales Promotions & Advertisement",
+        "issue_code": "H1",
+        "name": "Bonus / Promotions Issues",
+        "description": "Consumer does not receive promotion bonus/incentive or receives misleading/incomplete offer information.",
+    },
+    {
+        "category": "Sales Promotions & Advertisement",
+        "issue_code": "H50",
+        "name": "Others (Promotions)",
+        "description": "Any other promotion related issue not captured above.",
+    },
+    {
+        "category": "Recharge / Top-Up Issues",
+        "issue_code": "I1",
+        "name": "Mutilated Vouchers",
+        "description": "Consumer is unable to identify numbers on a voucher.",
+    },
+    {
+        "category": "Recharge / Top-Up Issues",
+        "issue_code": "I2",
+        "name": "Recharge Barring",
+        "description": "Consumer is barred from recharging after several wrong attempts.",
+    },
+    {
+        "category": "Recharge / Top-Up Issues",
+        "issue_code": "I3",
+        "name": "Inability to Check Airtime / Data Balance",
+        "description": "Consumer cannot check data or airtime balance via USSD or IVR.",
+    },
+    {
+        "category": "Recharge / Top-Up Issues",
+        "issue_code": "I5",
+        "name": "Invalid Voucher",
+        "description": "Consumer purchases an invalid voucher or receives an invalid prompt when loading a voucher.",
+    },
+    {
+        "category": "Recharge / Top-Up Issues",
+        "issue_code": "I6",
+        "name": "Over Recharge",
+        "description": "Consumer recharges over the intended value where resolution is not third-party dependent.",
+    },
+    {
+        "category": "Recharge / Top-Up Issues",
+        "issue_code": "I50",
+        "name": "Others (Recharge)",
+        "description": "Any other recharge/top-up related issue not captured above.",
+    },
+    {
+        "category": "SMS / MMS",
+        "issue_code": "J1",
+        "name": "Inability to Send SMS",
+        "description": "Consumer is unable to send SMS or is charged for SMS that is not delivered.",
+    },
+    {
+        "category": "SMS / MMS",
+        "issue_code": "J2",
+        "name": "Inability to Receive SMS",
+        "description": "Consumer is unable to receive SMS locally or from outside the country.",
+    },
+    {
+        "category": "SMS / MMS",
+        "issue_code": "J3",
+        "name": "MMS Charges (Undelivered MMS)",
+        "description": "Consumer is charged for undelivered MMS.",
+    },
+    {
+        "category": "SMS / MMS",
+        "issue_code": "J50",
+        "name": "Others (SMS/MMS)",
+        "description": "Any other SMS/MMS related issue not captured above.",
+    },
+    {
+        "category": "Other SIM-Related Issues",
+        "issue_code": "K1",
+        "name": "Request for SIM Block",
+        "description": "Consumer requests that a SIM be blocked.",
+    },
+    {
+        "category": "Other SIM-Related Issues",
+        "issue_code": "K2",
+        "name": "SIM Blocked - PUK Required",
+        "description": "Consumer requires PUK from the service provider to unblock a SIM.",
+    },
+    {
+        "category": "Other SIM-Related Issues",
+        "issue_code": "K3",
+        "name": "Unauthorized Suspension of Mobile Line",
+        "description": "Consumer line is wrongfully suspended by the service provider.",
+    },
+    {
+        "category": "Other SIM-Related Issues",
+        "issue_code": "K4",
+        "name": "SIM Registration (Incorrect Details)",
+        "description": "Consumer SIM registration details are incorrect.",
+    },
+    {
+        "category": "Other SIM-Related Issues",
+        "issue_code": "K5",
+        "name": "Incomplete SIM Registration",
+        "description": "Consumer is asked to re-register a SIM.",
+    },
+    {
+        "category": "Other SIM-Related Issues",
+        "issue_code": "K6",
+        "name": "NIN-SIM Linkage Issues",
+        "description": "Consumer NIN is not successfully linked by the service provider.",
+    },
+    {
+        "category": "Other SIM-Related Issues",
+        "issue_code": "K7",
+        "name": "Inactive SIM",
+        "description": "Consumer SIM is barred, suspended, or deactivated due to inactivity/NIN-SIM linkage or in error.",
+    },
+    {
+        "category": "Other SIM-Related Issues",
+        "issue_code": "K50",
+        "name": "Others (SIM-Related)",
+        "description": "Any other SIM related issue not captured above.",
+    },
+    {
+        "category": "SIM Replacement",
+        "issue_code": "L1",
+        "name": "Fraudulent / Unauthorized SIM Swap",
+        "description": "Consumer SIM is reported swapped without consent.",
+    },
+    {
+        "category": "SIM Replacement",
+        "issue_code": "L2",
+        "name": "Inactive SIM Replacement",
+        "description": "SIM replacement is completed but the SIM remains inactive.",
+    },
+    {
+        "category": "SIM Replacement",
+        "issue_code": "L3",
+        "name": "Retrieval of Deceased Relative's SIM",
+        "description": "Consumer cannot complete SIM replacement for a deceased relative after providing requirements.",
+    },
+    {
+        "category": "SIM Replacement",
+        "issue_code": "L50",
+        "name": "Others (SIM Replacement)",
+        "description": "Any other SIM swap/replacement related issue.",
+    },
+    {
+        "category": "Value-Added Services (VAS)",
+        "issue_code": "M1",
+        "name": "Inability to Activate / Deactivate VAS",
+        "description": "Consumer is unable to opt in or opt out of VAS services.",
+    },
+    {
+        "category": "Value-Added Services (VAS)",
+        "issue_code": "M2",
+        "name": "VAS Charges (Unrendered / Wrong Service)",
+        "description": "Consumer is charged for VAS not rendered or receives the wrong VAS.",
+    },
+    {
+        "category": "Value-Added Services (VAS)",
+        "issue_code": "M3",
+        "name": "Forceful Activation of VAS",
+        "description": "Consumer is opted into VAS without consent.",
+    },
+    {
+        "category": "Value-Added Services (VAS)",
+        "issue_code": "M4",
+        "name": "Inability to Listen to Voice SMS / Voicemail",
+        "description": "Consumer is unable to listen to Voice SMS from the service provider network.",
+    },
+    {
+        "category": "Value-Added Services (VAS)",
+        "issue_code": "M5",
+        "name": "Inability to Access / Activate Voice SMS",
+        "description": "Consumer is unable to send Voice SMS.",
+    },
+    {
+        "category": "Value-Added Services (VAS)",
+        "issue_code": "M6",
+        "name": "Inability to Access Voice Mail",
+        "description": "Consumer is unable to recover voicemail.",
+    },
+    {
+        "category": "Value-Added Services (VAS)",
+        "issue_code": "M7",
+        "name": "Failed Voice SMS",
+        "description": "Consumer is charged for Voice SMS that is not delivered.",
+    },
+    {
+        "category": "Value-Added Services (VAS)",
+        "issue_code": "M8",
+        "name": "Inability to Activate / Deactivate Voicemail Box",
+        "description": "Consumer is unable to deactivate or activate voicemail.",
+    },
+    {
+        "category": "Value-Added Services (VAS)",
+        "issue_code": "M9",
+        "name": "Voicemail Password Reset / Retrieval",
+        "description": "Consumer is unable to change or recover voicemail password.",
+    },
+    {
+        "category": "Value-Added Services (VAS)",
+        "issue_code": "M50",
+        "name": "Others (VAS)",
+        "description": "Any other VAS related issue not captured above.",
+    },
+    {
+        "category": "Mobile Number Portability (MNP)",
+        "issue_code": "N1",
+        "name": "Porting Issues",
+        "description": "Consumer is unable to successfully port from one service provider to another within the porting timeline.",
+    },
+    {
+        "category": "Mobile Number Portability (MNP)",
+        "issue_code": "N50",
+        "name": "Others (MNP)",
+        "description": "Any other MNP related issue not captured above.",
+    },
+    {
+        "category": "Do-Not-Disturb (DND) Service",
+        "issue_code": "O1",
+        "name": "Inability to Opt In / Out of DND",
+        "description": "Consumer is unable to opt in or out of DND fully or partially.",
+    },
+    {
+        "category": "Do-Not-Disturb (DND) Service",
+        "issue_code": "O2",
+        "name": "Receipt of Unsolicited SMS / Calls After Full DND",
+        "description": "Consumer continues to receive unsolicited SMS/calls after activating full DND.",
+    },
+    {
+        "category": "Do-Not-Disturb (DND) Service",
+        "issue_code": "O50",
+        "name": "Others (DND)",
+        "description": "Any other DND related issue not captured above.",
+    },
+    {
+        "category": "International Roaming",
+        "issue_code": "P1",
+        "name": "Inability to Send / Receive SMS While Roaming",
+        "description": "Consumer is unable to send or receive SMS while outside the country.",
+    },
+    {
+        "category": "International Roaming",
+        "issue_code": "P2",
+        "name": "Inability to Make / Receive Calls While Roaming",
+        "description": "Consumer is unable to make or receive calls while outside the country.",
+    },
+    {
+        "category": "International Roaming",
+        "issue_code": "P3",
+        "name": "Inability to Roam",
+        "description": "Consumer is unable to roam.",
+    },
+    {
+        "category": "International Roaming",
+        "issue_code": "P4",
+        "name": "Internet Service Not Working While Roaming",
+        "description": "Consumer is unable to browse while outside the country.",
+    },
+    {
+        "category": "International Roaming",
+        "issue_code": "P5",
+        "name": "Inability to Recharge While Roaming",
+        "description": "Consumer is unable to recharge while outside the country.",
+    },
+    {
+        "category": "International Roaming",
+        "issue_code": "P6",
+        "name": "Overcharged While Roaming",
+        "description": "Consumer is overcharged for calls/data while outside the country.",
+    },
+    {
+        "category": "International Roaming",
+        "issue_code": "P50",
+        "name": "Others (Roaming)",
+        "description": "Any other roaming related issue.",
+    },
+    {
+        "category": "Data Depletion",
+        "issue_code": "Q1",
+        "name": "Data Depletion",
+        "description": "Consumer data gets used up or exhausted faster than expected.",
+    },
+    {
+        "category": "Data Depletion",
+        "issue_code": "Q50",
+        "name": "Others (Data Depletion)",
+        "description": "Any other data depletion related issue.",
+    },
+    {
+        "category": "Failed Payment Transactions",
+        "issue_code": "R1",
+        "name": "Inability to Recharge / Failed Sharing / Mobile App",
+        "description": "Consumer cannot purchase airtime/data via IVR/USSD, is debited for failed sharing, or is charged for failed third-party/mobile app top-up.",
+    },
+    {
+        "category": "Failed Payment Transactions",
+        "issue_code": "R50",
+        "name": "Others (Failed Payment Transactions)",
+        "description": "Any other failed payment transaction related issue.",
+    },
+)
+_NCC_SUBCATEGORY_BY_CODE = {str(row["issue_code"]): row for row in _NCC_SUBCATEGORY_ROWS}
+_NCC_ACCEPTED_SUBCATEGORY_CODES = {f"{row['issue_code']} - {row['name']}" for row in _NCC_SUBCATEGORY_ROWS}
+_NCC_SUBCATEGORY_ALIASES = {
+    value.replace(" - ", " - ").replace(" \u2013 ", " - "): value for value in _NCC_ACCEPTED_SUBCATEGORY_CODES
+}
+_NCC_SUBCATEGORY_ALIASES.update({value.replace(" - ", " \u2013 "): value for value in _NCC_ACCEPTED_SUBCATEGORY_CODES})
+_NCC_ACCEPTED_LANGUAGES = {"English", "Hausa", "Igbo", "Yoruba", "Pidgin", "Others"}
+_NCC_ACCEPTED_TICKET_SOURCES = {
+    "Phone Call",
+    "Email",
+    "Web Portal",
+    "Mobile App",
+    "Walk-in",
+    "SMS",
+    "Social Media",
+    "Other",
+}
+_NCC_REQUIRED_COLUMNS = {
+    "MSISDN",
+    "First Name",
+    "Last Name",
+    "Age",
+    "Gender",
+    "created date time",
+    "Category",
+    "sub category code",
+    "Ticket ID",
+    "Complaint type",
+    "Status",
+    "Language",
+    "Ticket source",
+    "State",
+    "LGA",
+}
+_NCC_REQUIRED_DROPDOWN_COLUMNS = {
+    "Gender",
+    "Category",
+    "sub category code",
+    "Complaint type",
+    "Status",
+    "Language",
+    "Ticket source",
+    "State",
+    "LGA",
+}
+_NCC_STATE_LGAS: dict[str, tuple[str, ...]] = {
+    "ABIA": (
+        "Aba North",
+        "Aba South",
+        "Arochukwu",
+        "Bende",
+        "Ikwuano",
+        "Isiala-Ngwa North",
+        "Isiala-Ngwa South",
+        "Isuikwuato",
+        "Obi Ngwa",
+        "Ohafia",
+        "Osisioma Ngwa",
+        "Ugwunagbo",
+        "Ukwa East",
+        "Ukwa West",
+        "Umuahia North",
+        "Umuahia South",
+        "Umu-Nneochi",
+    ),
+    "ADAMAWA": (
+        "Demsa",
+        "Fufore",
+        "Ganye",
+        "Girei",
+        "Gombi",
+        "Guyuk",
+        "Hong",
+        "Jada",
+        "Lamurde",
+        "Madagali",
+        "Maiha",
+        "Mayo-Belwa",
+        "Michika",
+        "Mubi North",
+        "Mubi South",
+        "Numan",
+        "Shelleng",
+        "Song",
+        "Toungo",
+        "Yola North",
+        "Yola South",
+    ),
+    "AKWA IBOM": (
+        "Abak",
+        "Eastern Obolo",
+        "Eket",
+        "Esit-Eket",
+        "Essien Udim",
+        "Etim Ekpo",
+        "Etinan",
+        "Ibeno",
+        "Ibesikpo Asutan",
+        "Ibiono-Ibom",
+        "Ika",
+        "Ikono",
+        "Ikot Abasi",
+        "Ikot Ekpene",
+        "Ini",
+        "Itu",
+        "Mbo",
+        "Mkpat-Enin",
+        "Nsit-Atai",
+        "Nsit-Ibom",
+        "Nsit-Ubium",
+        "Obot Akara",
+        "Okobo",
+        "Onna",
+        "Oron",
+        "Oruk Anam",
+        "Udung-Uko",
+        "Ukanafun",
+        "Uruan",
+        "Urue-Offong/Oruko",
+        "Uyo",
+    ),
+    "ANAMBRA": (
+        "Aguata",
+        "Anambra East",
+        "Anambra West",
+        "Anaocha",
+        "Awka North",
+        "Awka South",
+        "Ayamelum",
+        "Dunukofia",
+        "Ekwusigo",
+        "Idemili North",
+        "Idemili South",
+        "Ihiala",
+        "Njikoka",
+        "Nnewi North",
+        "Nnewi South",
+        "Ogbaru",
+        "Onitsha North",
+        "Onitsha South",
+        "Orumba North",
+        "Orumba South",
+        "Oyi",
+    ),
+    "BAUCHI": (
+        "Alkaleri",
+        "Bauchi",
+        "Bogoro",
+        "Damban",
+        "Darazo",
+        "Dass",
+        "Gamawa",
+        "Ganjuwa",
+        "Giade",
+        "Itas/Gadau",
+        "Jama'are",
+        "Katagum",
+        "Kirfi",
+        "Misau",
+        "Ningi",
+        "Shira",
+        "Tafawa Balewa",
+        "Toro",
+        "Warji",
+        "Zaki",
+    ),
+    "BAYELSA": ("Brass", "Ekeremor", "Kolokuma/Opokuma", "Nembe", "Ogbia", "Sagbama", "Southern Ijaw", "Yenagoa"),
+    "BENUE": (
+        "Ado",
+        "Agatu",
+        "Apa",
+        "Buruku",
+        "Gboko",
+        "Guma",
+        "Gwer East",
+        "Gwer West",
+        "Katsina-Ala",
+        "Konshisha",
+        "Kwande",
+        "Logo",
+        "Makurdi",
+        "Obi",
+        "Ogbadibo",
+        "Ohimini",
+        "Oju",
+        "Okpokwu",
+        "Otukpo",
+        "Tarka",
+        "Ukum",
+        "Ushongo",
+        "Vandeikya",
+    ),
+    "BORNO": (
+        "Abadam",
+        "Askira/Uba",
+        "Bama",
+        "Bayo",
+        "Biu",
+        "Chibok",
+        "Damboa",
+        "Dikwa",
+        "Gubio",
+        "Guzamala",
+        "Gwoza",
+        "Hawul",
+        "Jere",
+        "Kaga",
+        "Kala/Balge",
+        "Konduga",
+        "Kukawa",
+        "Kwaya Kusar",
+        "Mafa",
+        "Magumeri",
+        "Maiduguri",
+        "Marte",
+        "Mobbar",
+        "Monguno",
+        "Ngala",
+        "Nganzai",
+        "Shani",
+    ),
+    "CROSS RIVER": (
+        "Abi",
+        "Akamkpa",
+        "Akpabuyo",
+        "Bakassi",
+        "Bekwarra",
+        "Biase",
+        "Boki",
+        "Calabar Municipal",
+        "Calabar South",
+        "Etung",
+        "Ikom",
+        "Obanliku",
+        "Obubra",
+        "Obudu",
+        "Odukpani",
+        "Ogoja",
+        "Yakuur",
+        "Yala",
+    ),
+    "DELTA": (
+        "Aniocha North",
+        "Aniocha South",
+        "Bomadi",
+        "Burutu",
+        "Ethiope East",
+        "Ethiope West",
+        "Ika North-East",
+        "Ika South",
+        "Isoko North",
+        "Isoko South",
+        "Ndokwa East",
+        "Ndokwa West",
+        "Okpe",
+        "Oshimili North",
+        "Oshimili South",
+        "Patani",
+        "Sapele",
+        "Udu",
+        "Ughelli North",
+        "Ughelli South",
+        "Ukwuani",
+        "Uvwie",
+        "Warri North",
+        "Warri South",
+        "Warri South West",
+    ),
+    "EBONYI": (
+        "Abakaliki",
+        "Afikpo North",
+        "Afikpo South",
+        "Ebonyi",
+        "Ezza North",
+        "Ezza South",
+        "Ikwo",
+        "Ishielu",
+        "Ivo",
+        "Izzi",
+        "Ohaozara",
+        "Ohaukwu",
+        "Onicha",
+    ),
+    "EDO": (
+        "Akoko-Edo",
+        "Egor",
+        "Esan Central",
+        "Esan North-East",
+        "Esan South-East",
+        "Esan West",
+        "Etsako Central",
+        "Etsako East",
+        "Etsako West",
+        "Igueben",
+        "Ikpoba-Okha",
+        "Oredo",
+        "Orhionmwon",
+        "Ovia North-East",
+        "Ovia South-West",
+        "Owan East",
+        "Owan West",
+        "Uhunmwonde",
+    ),
+    "EKITI": (
+        "Ado-Ekiti",
+        "Efon",
+        "Ekiti East",
+        "Ekiti South-West",
+        "Ekiti West",
+        "Emure",
+        "Gbonyin",
+        "Ido-Osi",
+        "Ijero",
+        "Ikere",
+        "Ikole",
+        "Ilejemeje",
+        "Irepodun/Ifelodun",
+        "Ise/Orun",
+        "Moba",
+        "Oye",
+    ),
+    "ENUGU": (
+        "Aninri",
+        "Awgu",
+        "Enugu East",
+        "Enugu North",
+        "Enugu South",
+        "Ezeagu",
+        "Igbo-Etiti",
+        "Igbo-Eze North",
+        "Igbo-Eze South",
+        "Isi-Uzo",
+        "Nkanu East",
+        "Nkanu West",
+        "Nsukka",
+        "Oji-River",
+        "Udenu",
+        "Udi",
+        "Uzo-Uwani",
+    ),
+    "FEDERAL CAPITAL TERRITORY": ("Abaji", "Bwari", "Gwagwalada", "Kuje", "Kwali", "Municipal Area Council"),
+    "GOMBE": (
+        "Akko",
+        "Balanga",
+        "Billiri",
+        "Dukku",
+        "Funakaye",
+        "Gombe",
+        "Kaltungo",
+        "Kwami",
+        "Nafada",
+        "Shongom",
+        "Yamaltu/Deba",
+    ),
+    "IMO": (
+        "Aboh-Mbaise",
+        "Ahiazu-Mbaise",
+        "Ehime-Mbano",
+        "Ezinihitte",
+        "Ideato North",
+        "Ideato South",
+        "Ihitte/Uboma",
+        "Ikeduru",
+        "Isiala Mbano",
+        "Isu",
+        "Mbaitoli",
+        "Ngor-Okpala",
+        "Njaba",
+        "Nkwerre",
+        "Nwangele",
+        "Obowo",
+        "Oguta",
+        "Ohaji/Egbema",
+        "Okigwe",
+        "Onuimo",
+        "Orlu",
+        "Orsu",
+        "Oru East",
+        "Oru West",
+        "Owerri Municipal",
+        "Owerri North",
+        "Owerri West",
+    ),
+    "JIGAWA": (
+        "Auyo",
+        "Babura",
+        "Biriniwa",
+        "Birnin Kudu",
+        "Buji",
+        "Dutse",
+        "Gagarawa",
+        "Garki",
+        "Gumel",
+        "Guri",
+        "Gwaram",
+        "Gwiwa",
+        "Hadejia",
+        "Jahun",
+        "Kafin Hausa",
+        "Kaugama",
+        "Kazaure",
+        "Kiri Kasama",
+        "Kiyawa",
+        "Maigatari",
+        "Malam Madori",
+        "Miga",
+        "Ringim",
+        "Roni",
+        "Sule-Tankarkar",
+        "Taura",
+        "Yankwashi",
+    ),
+    "KADUNA": (
+        "Birnin Gwari",
+        "Chikun",
+        "Giwa",
+        "Igabi",
+        "Ikara",
+        "Jaba",
+        "Jema'a",
+        "Kachia",
+        "Kaduna North",
+        "Kaduna South",
+        "Kagarko",
+        "Kajuru",
+        "Kaura",
+        "Kauru",
+        "Kubau",
+        "Kudan",
+        "Lere",
+        "Makarfi",
+        "Sabon Gari",
+        "Sanga",
+        "Soba",
+        "Zangon Kataf",
+        "Zaria",
+    ),
+    "KANO": (
+        "Ajingi",
+        "Albasu",
+        "Bagwai",
+        "Bebeji",
+        "Bichi",
+        "Bunkure",
+        "Dala",
+        "Dambatta",
+        "Dawakin Kudu",
+        "Dawakin Tofa",
+        "Doguwa",
+        "Fagge",
+        "Gabasawa",
+        "Garko",
+        "Garum Mallam",
+        "Gaya",
+        "Gezawa",
+        "Gwale",
+        "Gwarzo",
+        "Kabo",
+        "Kano Municipal",
+        "Karaye",
+        "Kibiya",
+        "Kiru",
+        "Kumbotso",
+        "Kunchi",
+        "Kura",
+        "Madobi",
+        "Makoda",
+        "Minjibir",
+        "Nasarawa",
+        "Rano",
+        "Rimin Gado",
+        "Rogo",
+        "Shanono",
+        "Sumaila",
+        "Takai",
+        "Tarauni",
+        "Tofa",
+        "Tsanyawa",
+        "Tudun Wada",
+        "Ungogo",
+        "Warawa",
+        "Wudil",
+    ),
+    "KATSINA": (
+        "Bakori",
+        "Batagarawa",
+        "Batsari",
+        "Baure",
+        "Bindawa",
+        "Charanchi",
+        "Dan Musa",
+        "Dandume",
+        "Danja",
+        "Daura",
+        "Dutsi",
+        "Dutsin-Ma",
+        "Faskari",
+        "Funtua",
+        "Ingawa",
+        "Jibia",
+        "Kafur",
+        "Kaita",
+        "Kankara",
+        "Kankia",
+        "Katsina",
+        "Kurfi",
+        "Kusada",
+        "Mai'adua",
+        "Malumfashi",
+        "Mani",
+        "Mashi",
+        "Matazu",
+        "Musawa",
+        "Rimi",
+        "Sabuwa",
+        "Safana",
+        "Sandamu",
+        "Zango",
+    ),
+    "KEBBI": (
+        "Aleiro",
+        "Arewa Dandi",
+        "Argungu",
+        "Augie",
+        "Bagudo",
+        "Birnin Kebbi",
+        "Bunza",
+        "Dandi",
+        "Fakai",
+        "Gwandu",
+        "Jega",
+        "Kalgo",
+        "Koko/Besse",
+        "Maiyama",
+        "Ngaski",
+        "Sakaba",
+        "Shanga",
+        "Suru",
+        "Wasagu/Danko",
+        "Yauri",
+        "Zuru",
+    ),
+    "KOGI": (
+        "Adavi",
+        "Ajaokuta",
+        "Ankpa",
+        "Bassa",
+        "Dekina",
+        "Ibaji",
+        "Idah",
+        "Igalamela-Odolu",
+        "Ijumu",
+        "Kabba/Bunu",
+        "Kogi",
+        "Lokoja",
+        "Mopa-Muro",
+        "Ofu",
+        "Ogori/Magongo",
+        "Okehi",
+        "Okene",
+        "Olamaboro",
+        "Omala",
+        "Yagba East",
+        "Yagba West",
+    ),
+    "KWARA": (
+        "Asa",
+        "Baruten",
+        "Edu",
+        "Ekiti",
+        "Ifelodun",
+        "Ilorin East",
+        "Ilorin South",
+        "Ilorin West",
+        "Irepodun",
+        "Isin",
+        "Kaiama",
+        "Moro",
+        "Offa",
+        "Oke-Ero",
+        "Oyun",
+        "Pategi",
+    ),
+    "LAGOS": (
+        "Agege",
+        "Ajeromi-Ifelodun",
+        "Alimosho",
+        "Amuwo-Odofin",
+        "Apapa",
+        "Badagry",
+        "Epe",
+        "Eti-Osa",
+        "Ibeju-Lekki",
+        "Ifako-Ijaiye",
+        "Ikeja",
+        "Ikorodu",
+        "Kosofe",
+        "Lagos Island",
+        "Lagos Mainland",
+        "Mushin",
+        "Ojo",
+        "Oshodi-Isolo",
+        "Shomolu",
+        "Surulere",
+    ),
+    "NASARAWA": (
+        "Akwanga",
+        "Awe",
+        "Doma",
+        "Karu",
+        "Keana",
+        "Keffi",
+        "Kokona",
+        "Lafia",
+        "Nasarawa",
+        "Nasarawa Egon",
+        "Obi",
+        "Toto",
+        "Wamba",
+    ),
+    "NIGER": (
+        "Agaie",
+        "Agwara",
+        "Bida",
+        "Borgu",
+        "Bosso",
+        "Chanchaga",
+        "Edati",
+        "Gbako",
+        "Gurara",
+        "Katcha",
+        "Kontagora",
+        "Lapai",
+        "Lavun",
+        "Magama",
+        "Mariga",
+        "Mashegu",
+        "Mokwa",
+        "Moya",
+        "Paikoro",
+        "Rafi",
+        "Rijau",
+        "Shiroro",
+        "Suleja",
+        "Tafa",
+        "Wushishi",
+    ),
+    "OGUN": (
+        "Abeokuta North",
+        "Abeokuta South",
+        "Ado-Odo/Ota",
+        "Egbado North",
+        "Egbado South",
+        "Ewekoro",
+        "Ifo",
+        "Ijebu East",
+        "Ijebu North",
+        "Ijebu North-East",
+        "Ijebu Ode",
+        "Ikenne",
+        "Imeko-Afon",
+        "Ipokia",
+        "Obafemi-Owode",
+        "Odeda",
+        "Odogbolu",
+        "Ogun Waterside",
+        "Remo North",
+        "Shagamu",
+    ),
+    "ONDO": (
+        "Akoko North-East",
+        "Akoko North-West",
+        "Akoko South-East",
+        "Akoko South-West",
+        "Akure North",
+        "Akure South",
+        "Ese-Odo",
+        "Idanre",
+        "Ifedore",
+        "Ilaje",
+        "Ile-Oluji/Okeigbo",
+        "Irele",
+        "Odigbo",
+        "Okitipupa",
+        "Ondo East",
+        "Ondo West",
+        "Ose",
+        "Owo",
+    ),
+    "OSUN": (
+        "Atakumosa East",
+        "Atakumosa West",
+        "Ayedade",
+        "Ayedire",
+        "Boluwaduro",
+        "Boripe",
+        "Ede North",
+        "Ede South",
+        "Egbedore",
+        "Ejigbo",
+        "Ife Central",
+        "Ife East",
+        "Ife North",
+        "Ife South",
+        "Ifedayo",
+        "Ifelodun",
+        "Ila",
+        "Ilesa East",
+        "Ilesa West",
+        "Irepodun",
+        "Irewole",
+        "Isokan",
+        "Iwo",
+        "Obokun",
+        "Odo-Otin",
+        "Ola-Oluwa",
+        "Olorunda",
+        "Oriade",
+        "Orolu",
+        "Osogbo",
+    ),
+    "OYO": (
+        "Afijio",
+        "Akinyele",
+        "Atiba",
+        "Atisbo",
+        "Egbeda",
+        "Ibadan North",
+        "Ibadan North-East",
+        "Ibadan North-West",
+        "Ibadan South-East",
+        "Ibadan South-West",
+        "Ibarapa Central",
+        "Ibarapa East",
+        "Ibarapa North",
+        "Ido",
+        "Irepo",
+        "Iseyin",
+        "Itesiwaju",
+        "Iwajowa",
+        "Kajola",
+        "Lagelu",
+        "Ogbomosho North",
+        "Ogbomosho South",
+        "Ogo Oluwa",
+        "Olorunsogo",
+        "Oluyole",
+        "Ona-Ara",
+        "Orelope",
+        "Ori-Ire",
+        "Oyo East",
+        "Oyo West",
+        "Saki East",
+        "Saki West",
+        "Surulere",
+    ),
+    "PLATEAU": (
+        "Barkin Ladi",
+        "Bassa",
+        "Bokkos",
+        "Jos East",
+        "Jos North",
+        "Jos South",
+        "Kanam",
+        "Kanke",
+        "Langtang North",
+        "Langtang South",
+        "Mangu",
+        "Mikang",
+        "Pankshin",
+        "Qua'an Pan",
+        "Riyom",
+        "Shendam",
+        "Wase",
+    ),
+    "RIVERS": (
+        "Abua/Odual",
+        "Ahoada East",
+        "Ahoada West",
+        "Akuku-Toru",
+        "Andoni",
+        "Asari-Toru",
+        "Bonny",
+        "Degema",
+        "Eleme",
+        "Emohua",
+        "Etche",
+        "Gokana",
+        "Ikwerre",
+        "Khana",
+        "Obio/Akpor",
+        "Ogba/Egbema/Ndoni",
+        "Ogu/Bolo",
+        "Okrika",
+        "Omuma",
+        "Opobo/Nkoro",
+        "Oyigbo",
+        "Port Harcourt",
+        "Tai",
+    ),
+    "SOKOTO": (
+        "Binji",
+        "Bodinga",
+        "Dange-Shuni",
+        "Gada",
+        "Goronyo",
+        "Gudu",
+        "Gwadabawa",
+        "Illela",
+        "Isa",
+        "Kebbe",
+        "Kware",
+        "Rabah",
+        "Sabon Birni",
+        "Shagari",
+        "Silame",
+        "Sokoto North",
+        "Sokoto South",
+        "Tambuwal",
+        "Tangaza",
+        "Tureta",
+        "Wamako",
+        "Wurno",
+        "Yabo",
+    ),
+    "TARABA": (
+        "Ardo-Kola",
+        "Bali",
+        "Donga",
+        "Gashaka",
+        "Gassol",
+        "Ibi",
+        "Jalingo",
+        "Karim-Lamido",
+        "Kumi",
+        "Lau",
+        "Sardauna",
+        "Takum",
+        "Ussa",
+        "Wukari",
+        "Yorro",
+        "Zing",
+    ),
+    "YOBE": (
+        "Bade",
+        "Bursari",
+        "Damaturu",
+        "Fika",
+        "Fune",
+        "Geidam",
+        "Gujba",
+        "Gulani",
+        "Jakusko",
+        "Karasuwa",
+        "Machina",
+        "Nangere",
+        "Nguru",
+        "Potiskum",
+        "Tarmuwa",
+        "Yunusari",
+        "Yusufari",
+    ),
+    "ZAMFARA": (
+        "Anka",
+        "Bakura",
+        "Birnin Magaji/Kiyaw",
+        "Bukkuyum",
+        "Bungudu",
+        "Gummi",
+        "Gusau",
+        "Kaura Namoda",
+        "Maradun",
+        "Maru",
+        "Shinkafi",
+        "Talata-Mafara",
+        "Tsafe",
+        "Zurmi",
+    ),
+    "INTERNATIONAL": ("International",),
+}
+_NCC_STATE_ALIASES = {"FCT": "FEDERAL CAPITAL TERRITORY"}
+_NCC_LGA_LOOKUP_BY_STATE = {
+    state: {re.sub(r"[^a-z0-9]+", " ", lga.strip().lower()).strip(): lga for lga in lgas}
+    for state, lgas in _NCC_STATE_LGAS.items()
+}
 
 _ONLINE_LAST_24H_TICKET_STATUS_OPTIONS = [
     {"value": "all", "label": "All ticket states"},
@@ -388,6 +1826,9 @@ def _excel_column_letter(index: int) -> str:
     return result
 
 
+_NCC_COLUMN_LETTERS = {column: _excel_column_letter(index) for index, column in enumerate(_NCC_COLUMNS, start=1)}
+
+
 def _excel_serial_from_display_timestamp(value: str) -> float | None:
     cleaned = " ".join((value or "").strip().split())
     if not cleaned:
@@ -409,6 +1850,17 @@ def _xlsx_response(content: bytes, filename: str) -> Response:
     )
 
 
+def _ncc_submission_week(value: datetime) -> int:
+    return ((value.day - 1) // 7) + 1
+
+
+def _ncc_export_filename(value: datetime | None = None) -> str:
+    report_dt = value or datetime.now(UTC)
+    if report_dt.tzinfo is None:
+        report_dt = report_dt.replace(tzinfo=UTC)
+    return f"{_NCC_OPERATOR_NAME}_Week{_ncc_submission_week(report_dt)}_{report_dt:%Y%m}.xlsx"
+
+
 def _ncc_export_column_widths(records: list[dict[str, str]], columns: list[str]) -> list[float]:
     fixed_widths = {
         "MSISDN": 18,
@@ -427,6 +1879,7 @@ def _ncc_export_column_widths(records: list[dict[str, str]], columns: list[str])
         "Complaint type": 24,
         "Status": 18,
         "Resolved date": 22,
+        "Resolved within SLA": 20,
         "Resolution Note": 36,
         "User Note": 36,
         "user notes datetime": 22,
@@ -437,6 +1890,8 @@ def _ncc_export_column_widths(records: list[dict[str, str]], columns: list[str])
         "State": 14,
         "LGA": 14,
         "Town": 18,
+        "Phone Type": 28,
+        "VALIDATION STATUS": 28,
     }
     widths: list[float] = []
     for column in columns:
@@ -458,10 +1913,85 @@ def _ncc_status_style_id(status_variant: str) -> int:
     return mapping.get(status_variant, 9)
 
 
+def _ncc_workbook_dropdown_lists() -> dict[str, list[str]]:
+    return {
+        "Gender": ["Female", "Male", "N/A"],
+        "Category": list(_NCC_CATEGORY_SLA),
+        "category code (auto)": [str(value["code"]) for value in _NCC_CATEGORY_SLA.values()],
+        "sub category code": [f"{row['issue_code']} - {row['name']}" for row in _NCC_SUBCATEGORY_ROWS],
+        "Complaint type": ["First Level", "Second Level"],
+        "Status": ["Resolved", "Pending"],
+        "Resolved within SLA": ["Yes", "No"],
+        "Language": ["English", "Hausa", "Igbo", "Yoruba", "Pidgin", "Others"],
+        "Ticket source": ["Phone Call", "Email", "Web Portal", "Mobile App", "Walk-in", "SMS", "Social Media", "Other"],
+        "State": list(_NCC_STATE_LGAS),
+        "LGA": sorted({lga for lgas in _NCC_STATE_LGAS.values() for lga in lgas}),
+    }
+
+
+def _ncc_validation_status(record: dict[str, str]) -> str:
+    errors: list[str] = []
+
+    def add_error(column: str, message: str) -> None:
+        col_ref = _NCC_COLUMN_LETTERS.get(column, "?")
+        errors.append(f"{column} {message} (col {col_ref})")
+
+    for column in _NCC_REQUIRED_COLUMNS:
+        value = _clean_text(record.get(column))
+        if column in {"Age", "Gender"} and value == "N/A":
+            continue
+        if column == "Last Name" and value == "Unknown":
+            continue
+        if not value or not _ncc_clean_basic_text(value):
+            add_error(column, "is required")
+
+    msisdn = _clean_text(record.get("MSISDN"))
+    if msisdn and not (msisdn.startswith("234") or any(char.isalpha() for char in msisdn)):
+        add_error("MSISDN", "must start with 234")
+    if msisdn and msisdn.startswith("234") and len("".join(char for char in msisdn if char.isdigit())) != 13:
+        add_error("MSISDN", "must be 13 digits including 234")
+    if not re.fullmatch(r"[A-Za-z]+", _clean_text(record.get("First Name"))):
+        add_error("First Name", "must contain letters only")
+    if not re.fullmatch(r"[A-Za-z-]+", _clean_text(record.get("Last Name"))):
+        add_error("Last Name", "must contain letters only; hyphen is allowed")
+    if _ncc_name_contains_test(record.get("First Name")):
+        add_error("First Name", "must not contain test data")
+    if _ncc_name_contains_test(record.get("Last Name")):
+        add_error("Last Name", "must not contain test data")
+    if _clean_text(record.get("Age")) != "N/A" and not _ncc_clean_age(record.get("Age")):
+        add_error("Age", "must be N/A or a whole number from 13 to 150")
+    if _clean_text(record.get("Gender")) not in {"Female", "Male", "N/A"}:
+        add_error("Gender", "must be Female, Male, or N/A")
+    if _clean_text(record.get("Ticket ID")) and not re.fullmatch(
+        rf"{re.escape(_NCC_OPERATOR_PREFIX)}-\d{{8}}-[A-Za-z0-9-]+",
+        _clean_text(record.get("Ticket ID")),
+    ):
+        add_error("Ticket ID", f"must use format {_NCC_OPERATOR_PREFIX}-YYYYMMDD-Number")
+    if _clean_text(record.get("Category")) and not _ncc_clean_category(record.get("Category")):
+        add_error("Category", "must match an NCC accepted category")
+    if _clean_text(record.get("sub category code")) and not _ncc_clean_subcategory_code(
+        record.get("sub category code"),
+        category=record.get("Category"),
+    ):
+        add_error("sub category code", "must match the selected NCC category")
+    if _ncc_clean_status(record.get("Status")) == "Resolved":
+        if not _ncc_clean_basic_text(record.get("Resolved date")):
+            add_error("Resolved date", "is required when Status is Resolved")
+        if not _ncc_clean_basic_text(record.get("Resolved within SLA")):
+            add_error("Resolved within SLA", "is required when Status is Resolved")
+        if not _ncc_clean_basic_text(record.get("Resolution Note")):
+            add_error("Resolution Note", "is required when Status is Resolved")
+    if _ncc_clean_category(record.get("Category")) == "Data Depletion" and not _ncc_clean_basic_text(
+        record.get("Phone Type")
+    ):
+        add_error("Phone Type", "is required when Category is Data Depletion")
+    return f"[FAIL] {'; '.join(errors)}" if errors else "[OK] All validations passed"
+
+
 def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> bytes:
     long_text_columns = {"Description (auto)", "Resolution Note", "User Note"}
-    date_columns = {"created date time", "Resolved date", "user notes datetime"}
     widths = _ncc_export_column_widths(records, columns)
+    dropdown_lists = _ncc_workbook_dropdown_lists()
     output = io.BytesIO()
 
     def cell_xml(ref: str, value: str, style_id: int) -> str:
@@ -469,6 +1999,69 @@ def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> by
             f'<c r="{ref}" s="{style_id}" t="inlineStr"><is><t xml:space="preserve">'
             f"{escape(str(value or ''))}</t></is></c>"
         )
+
+    def dropdown_sheet_xml() -> str:
+        dropdown_columns = list(dropdown_lists)
+        max_values = max((len(values) for values in dropdown_lists.values()), default=0)
+        rows: list[str] = []
+        header_cells = [
+            cell_xml(f"{_excel_column_letter(index)}1", column, 1)
+            for index, column in enumerate(dropdown_columns, start=1)
+        ]
+        rows.append(f'<row r="1">{"".join(header_cells)}</row>')
+        for row_number in range(2, max_values + 2):
+            cells: list[str] = []
+            for column_index, dropdown_column in enumerate(dropdown_columns, start=1):
+                values = dropdown_lists[dropdown_column]
+                value_index = row_number - 2
+                if value_index >= len(values):
+                    continue
+                cells.append(cell_xml(f"{_excel_column_letter(column_index)}{row_number}", values[value_index], 2))
+            rows.append(f'<row r="{row_number}">{"".join(cells)}</row>')
+        last_column = _excel_column_letter(len(dropdown_columns))
+        last_row = max_values + 1
+        return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="A1:{last_column}{last_row}"/>
+  <sheetViews><sheetView workbookViewId="0"/></sheetViews>
+  <sheetFormatPr defaultRowHeight="18"/>
+  <sheetData>{"".join(rows)}</sheetData>
+</worksheet>"""
+
+    def data_validations_xml(max_row: int) -> str:
+        dropdown_columns = list(dropdown_lists)
+        validations: list[str] = []
+        if "Age" in columns:
+            age_letter = _excel_column_letter(columns.index("Age") + 1)
+            validations.append(  # nosec B608 - generated XLSX XML, not SQL
+                f'<dataValidation type="custom" allowBlank="0" showErrorMessage="1" '
+                f'errorTitle="Invalid Age" error="Age must be N/A or a whole number from 13 to 150." '
+                f'sqref="{age_letter}2:{age_letter}{max_row}">'
+                f'<formula1>OR({age_letter}2="N/A",AND(ISNUMBER({age_letter}2),'
+                f"{age_letter}2=INT({age_letter}2),{age_letter}2&gt;=13,{age_letter}2&lt;=150))</formula1>"
+                "</dataValidation>"
+            )
+        for column in columns:
+            values = dropdown_lists.get(column)
+            if not values:
+                continue
+            report_column_index = columns.index(column) + 1
+            list_column_index = dropdown_columns.index(column) + 1
+            report_letter = _excel_column_letter(report_column_index)
+            list_letter = _excel_column_letter(list_column_index)
+            formula = f"'_NCC_Dropdowns'!${list_letter}$2:${list_letter}${len(values) + 1}"
+            allow_blank = "0" if column in _NCC_REQUIRED_DROPDOWN_COLUMNS else "1"
+            validations.append(
+                f'<dataValidation type="list" allowBlank="{allow_blank}" showErrorMessage="1" '  # nosec B608 - generated XLSX XML, not SQL
+                f'errorTitle="Invalid {escape(column)}" '
+                f'error="Select an accepted NCC value from the dropdown." '
+                f'sqref="{report_letter}2:{report_letter}{max_row}">'
+                f"<formula1>{escape(formula)}</formula1>"
+                "</dataValidation>"
+            )
+        if not validations:
+            return ""
+        return f'<dataValidations count="{len(validations)}">{"".join(validations)}</dataValidations>'
 
     with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
         archive.writestr(
@@ -479,6 +2072,7 @@ def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> by
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
   <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
   <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
   <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
   <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
@@ -498,7 +2092,7 @@ def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> by
             "docProps/core.xml",
             f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dc:title>{escape(_NCC_EXPORT_FILENAME)}</dc:title>
+  <dc:title>{escape(_NCC_EXPORT_TITLE)}</dc:title>
   <dc:creator>Dotmac CRM</dc:creator>
   <cp:lastModifiedBy>Dotmac CRM</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">{generated_at}</dcterms:created>
@@ -517,7 +2111,8 @@ def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> by
             """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>""",
         )
         archive.writestr(
@@ -526,6 +2121,7 @@ def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> by
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheets>
     <sheet name="NCC Reports" sheetId="1" r:id="rId1"/>
+    <sheet name="_NCC_Dropdowns" sheetId="2" state="hidden" r:id="rId2"/>
   </sheets>
 </workbook>""",
         )
@@ -575,7 +2171,7 @@ def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> by
   <cellStyleXfs count="1">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
   </cellStyleXfs>
-  <cellXfs count="10">
+  <cellXfs count="12">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="top"/></xf>
@@ -586,6 +2182,8 @@ def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> by
     <xf numFmtId="0" fontId="0" fillId="5" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>
     <xf numFmtId="0" fontId="0" fillId="6" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="top"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="top" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="top" wrapText="1"/></xf>
   </cellXfs>
   <cellStyles count="1">
     <cellStyle name="Normal" xfId="0" builtinId="0"/>
@@ -595,6 +2193,7 @@ def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> by
 
         last_column_letter = _excel_column_letter(len(columns))
         last_row_number = len(records) + 1
+        validation_max_row = max(last_row_number, 1000)
         cols_xml = "".join(
             f'<col min="{index}" max="{index}" width="{width}" customWidth="1"/>'
             for index, width in enumerate(widths, start=1)
@@ -606,17 +2205,18 @@ def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> by
         rows_xml.append(f'<row r="1" ht="24" customHeight="1">{"".join(header_cells)}</row>')
         for row_number, row in enumerate(records, start=2):
             cells: list[str] = []
+            validation_status = _clean_text(row.get("VALIDATION STATUS"))
+            row_style_id = (
+                10 if validation_status.startswith("[OK]") else 11 if validation_status.startswith("[FAIL]") else None
+            )
             for column_index, column in enumerate(columns, start=1):
                 value = " ".join(str(row.get(column) or "").strip().split())
                 if not value:
                     continue
                 cell_ref = f"{_excel_column_letter(column_index)}{row_number}"
-                if column in date_columns:
-                    serial_value = _excel_serial_from_display_timestamp(value)
-                    if serial_value is not None:
-                        cells.append(f'<c r="{cell_ref}" s="4"><v>{serial_value}</v></c>')
-                        continue
-                if column == "Status":
+                if row_style_id is not None:
+                    style_id = row_style_id
+                elif column == "Status":
                     style_id = _ncc_status_style_id(str(row.get("_status_variant") or ""))
                 elif column in long_text_columns:
                     style_id = 3
@@ -640,8 +2240,11 @@ def _build_ncc_workbook(records: list[dict[str, str]], columns: list[str]) -> by
   <cols>{cols_xml}</cols>
   <sheetData>{"".join(rows_xml)}</sheetData>
   <autoFilter ref="A1:{last_column_letter}{last_row_number}"/>
+  {data_validations_xml(validation_max_row)}
 </worksheet>""",
         )
+        archive.writestr("xl/worksheets/sheet2.xml", dropdown_sheet_xml())
+
     return output.getvalue()
 
 
@@ -702,7 +2305,9 @@ def _display_timestamp(value: datetime | None) -> str:
     if value is None:
         return ""
     normalized = value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
-    return normalized.strftime("%Y-%m-%d %H:%M:%S UTC")
+    if normalized > datetime.now(UTC):
+        return ""
+    return normalized.strftime("%d-%m-%Y %H:%M:%S")
 
 
 def _display_enum(value: object | None) -> str:
@@ -753,6 +2358,121 @@ def _ticket_alt_phone(person: Person | None, channels: list[PersonChannel]) -> s
         if not address or address == normalized_primary:
             continue
         return address
+    return ""
+
+
+def _ticket_email(person: Person | None, channels: list[PersonChannel]) -> str:
+    primary_email = _ncc_clean_email(person.email if person else "")
+    if primary_email:
+        return primary_email
+    for channel in channels:
+        channel_type = getattr(channel.channel_type, "value", str(channel.channel_type))
+        if channel_type != "email":
+            continue
+        email = _ncc_clean_email(channel.address)
+        if email:
+            return email
+    return ""
+
+
+def _ticket_msisdn(person: Person | None, channels: list[PersonChannel]) -> str:
+    primary_msisdn = _complete_ncc_msisdn_or_empty(person.phone if person else None)
+    if primary_msisdn:
+        return primary_msisdn
+    for channel in channels:
+        channel_type = getattr(channel.channel_type, "value", str(channel.channel_type))
+        if channel_type not in {"phone", "sms", "whatsapp"}:
+            continue
+        msisdn = _complete_ncc_msisdn_or_empty(channel.address)
+        if msisdn:
+            return msisdn
+    return ""
+
+
+def _first_msisdn_from_people(people: list[Person]) -> str:
+    for person in people:
+        msisdn = _complete_ncc_msisdn_or_empty(person.phone)
+        if msisdn:
+            return msisdn
+    return ""
+
+
+def _normalized_person_match_label(value: object) -> str:
+    tokens = re.findall(r"[A-Za-z0-9]+", _clean_text(value).lower())
+    normalized_tokens = [
+        token for token in tokens if token not in _NCC_NAME_HONORIFICS and token not in _NCC_NAME_PLACEHOLDERS
+    ]
+    return " ".join(normalized_tokens)
+
+
+def _raw_person_match_label(value: object) -> str:
+    return _clean_text(value).lower()
+
+
+def _subscriber_person_match_labels(subscriber: Subscriber | None) -> list[str]:
+    if subscriber is None:
+        return []
+    values = [
+        getattr(subscriber, "display_name", ""),
+        subscriber.subscriber_number,
+        subscriber.external_id,
+        subscriber.organization.name if subscriber.organization else "",
+    ]
+    labels: list[str] = []
+    for value in values:
+        label = _normalized_person_match_label(value)
+        if label and label not in labels:
+            labels.append(label)
+    return labels
+
+
+def _ticket_ncc_person(ticket: Ticket, fallback_people_by_label: dict[str, list[Person]]) -> Person | None:
+    person = _ticket_primary_person(ticket)
+    if person is not None:
+        return person
+    for label in _subscriber_person_match_labels(ticket.subscriber):
+        fallback_people = fallback_people_by_label.get(label) or []
+        if fallback_people:
+            return fallback_people[0]
+    return None
+
+
+def _person_email_match_labels(person: Person | None) -> list[str]:
+    if person is None:
+        return []
+    labels: list[str] = []
+    for value in (person.email, person.display_name):
+        email = _ncc_clean_email(value)
+        if email and email not in labels:
+            labels.append(email)
+    return labels
+
+
+def _ticket_msisdn_from_exact_person_matches(
+    ticket: Ticket,
+    person: Person | None,
+    fallback_people_by_label: dict[str, list[Person]],
+    fallback_people_by_email: dict[str, list[Person]],
+) -> str:
+    labels: list[str] = []
+    if person is not None:
+        labels.extend(
+            label
+            for label in (
+                _normalized_person_match_label(person.display_name),
+                _normalized_person_match_label(f"{person.first_name} {person.last_name}"),
+            )
+            if label
+        )
+    labels.extend(_subscriber_person_match_labels(ticket.subscriber))
+    for label in labels:
+        msisdn = _first_msisdn_from_people(fallback_people_by_label.get(label, []))
+        if msisdn:
+            return msisdn
+    for email in _person_email_match_labels(person):
+        msisdn = _first_msisdn_from_people(fallback_people_by_email.get(email, []))
+        if msisdn:
+            return msisdn
     return ""
 
 
@@ -816,6 +2536,16 @@ def _normalize_msisdn(value: str | None) -> str:
     cleaned = _clean_text(value)
     if not cleaned:
         return ""
+    for candidate in re.findall(r"\+?\d+", cleaned):
+        digits = "".join(char for char in candidate if char.isdigit())
+        if digits.startswith("2340") and len(digits) == 14:
+            return f"234{digits[4:]}"
+        if digits.startswith("234") and len(digits) == 13:
+            return digits
+        if digits.startswith("0") and len(digits) == 11:
+            return f"234{digits[1:]}"
+        if len(digits) == 10:
+            return f"234{digits}"
     device_id = "".join(char for char in cleaned if char.isalnum())
     if (
         device_id
@@ -829,6 +2559,8 @@ def _normalize_msisdn(value: str | None) -> str:
         return ""
     if digits.startswith("234") and len(digits) == 13:
         return digits
+    if digits.startswith("2340") and len(digits) == 14:
+        return f"234{digits[4:]}"
     if digits.startswith("0") and len(digits) == 11:
         return f"234{digits[1:]}"
     if len(digits) == 10:
@@ -870,13 +2602,92 @@ def _ncc_clean_basic_text(value: object) -> str:
 
 
 def _ncc_clean_email(value: object) -> str:
-    email = _ncc_clean_basic_text(value).lower()
-    if not email or "@" not in email:
+    email_text = _ncc_clean_basic_text(value).lower()
+    candidates = [email_text, *re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", email_text)]
+    for email in candidates:
+        if email and not is_placeholder_email(email) and re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            return email
+    return ""
+
+
+def _ncc_clean_age(value: object) -> str:
+    age_text = _clean_text(value)
+    if age_text.lower() in {"n/a", "na"}:
+        return "N/A"
+    if not age_text or not age_text.isdigit():
         return ""
-    local_part, _separator, domain = email.partition("@")
-    if not local_part or "." not in domain:
+    age = int(age_text)
+    return str(age) if 13 <= age <= 150 else ""
+
+
+def _ncc_clean_gender(value: object) -> str:
+    normalized = _clean_text(value).lower()
+    if normalized in {"n/a", "na", "unknown"}:
+        return "N/A"
+    if normalized == "female":
+        return "Female"
+    if normalized == "male":
+        return "Male"
+    return ""
+
+
+def _ncc_status_value(ticket: Ticket) -> str:
+    status_value = str(getattr(ticket.status, "value", ticket.status) or "").strip().lower()
+    return "Resolved" if status_value == "closed" else "Pending"
+
+
+def _ncc_clean_status(value: object) -> str:
+    status = _ncc_clean_basic_text(value)
+    return status if status in {"Resolved", "Pending"} else ""
+
+
+def _ncc_resolved_within_sla_value(ticket: Ticket) -> str:
+    if _ncc_status_value(ticket) != "Resolved":
         return ""
-    return email
+    resolved_at = ticket.resolved_at or ticket.closed_at
+    due_at = ticket.due_at
+    if resolved_at is None or due_at is None:
+        return "No"
+    normalized_resolved = resolved_at.astimezone(UTC) if resolved_at.tzinfo else resolved_at.replace(tzinfo=UTC)
+    normalized_due = due_at.astimezone(UTC) if due_at.tzinfo else due_at.replace(tzinfo=UTC)
+    return "Yes" if normalized_resolved <= normalized_due else "No"
+
+
+def _ncc_clean_yes_no_for_status(value: object, *, status: object) -> str:
+    if _ncc_clean_status(status) != "Resolved":
+        return ""
+    cleaned = _ncc_clean_basic_text(value)
+    return cleaned if cleaned in {"Yes", "No"} else ""
+
+
+def _ncc_clean_timestamp(value: object) -> str:
+    timestamp_text = _ncc_clean_basic_text(value)
+    if not timestamp_text:
+        return ""
+    try:
+        timestamp = datetime.strptime(timestamp_text, "%d-%m-%Y %H:%M:%S").replace(tzinfo=UTC)
+    except ValueError:
+        return ""
+    if timestamp > datetime.now(UTC):
+        return ""
+    return timestamp.strftime("%d-%m-%Y %H:%M:%S")
+
+
+def _ncc_clean_resolved_timestamp(value: object, *, status: object, created_at: object) -> str:
+    if _ncc_clean_status(status) != "Resolved":
+        return ""
+    resolved = _ncc_clean_timestamp(value)
+    created = _ncc_clean_timestamp(created_at)
+    if not resolved or not created:
+        return ""
+    resolved_dt = datetime.strptime(resolved, "%d-%m-%Y %H:%M:%S").replace(tzinfo=UTC)
+    created_dt = datetime.strptime(created, "%d-%m-%Y %H:%M:%S").replace(tzinfo=UTC)
+    return resolved if resolved_dt >= created_dt else ""
+
+
+def _ncc_clean_subject(value: object) -> str:
+    subject = _ncc_clean_title_text(value)
+    return subject if len(subject) <= 200 else ""
 
 
 def _ncc_clean_title_text(value: object) -> str:
@@ -886,11 +2697,158 @@ def _ncc_clean_title_text(value: object) -> str:
     return _title_case_report_value(cleaned)
 
 
-def _ncc_clean_name(value: object) -> str:
+def _ncc_clean_name(value: object, *, allow_hyphen: bool = False) -> str:
     cleaned = _ncc_clean_basic_text(value)
     if not cleaned:
         return ""
-    return _title_case_name(cleaned)
+    titled = _title_case_name(cleaned)
+    if len(titled) > 50:
+        return ""
+    for char in titled:
+        if char.isalpha() or (allow_hyphen and char == "-"):
+            continue
+        return ""
+    return titled
+
+
+def _ncc_last_name_fallback(value: object) -> str:
+    cleaned = _ncc_clean_name(value, allow_hyphen=True)
+    return cleaned or "Unknown"
+
+
+def _ncc_name_contains_test(value: object) -> bool:
+    return bool(re.search(r"\btest\b", _clean_text(value), re.IGNORECASE))
+
+
+def _ncc_ticket_id(ticket: Ticket) -> str:
+    created_at = ticket.created_at
+    if created_at is None:
+        created_at = datetime.now(UTC)
+    normalized_created = created_at.astimezone(UTC) if created_at.tzinfo else created_at.replace(tzinfo=UTC)
+    raw_number = ticket.number or str(ticket.id)
+    cleaned_number = re.sub(r"[^A-Za-z0-9-]+", "", str(raw_number)) or str(ticket.id).replace("-", "")[:12]
+    return f"{_NCC_OPERATOR_PREFIX}-{normalized_created:%Y%m%d}-{cleaned_number}"
+
+
+def _normalized_ncc_category_key(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").strip().lower()).strip()
+
+
+def _ncc_category_value(ticket_type: object, *, subject: object = "", description: object = "") -> str:
+    searchable = " ".join(
+        part
+        for part in (
+            _normalized_ncc_category_key(ticket_type),
+            _normalized_ncc_category_key(subject),
+            _normalized_ncc_category_key(description),
+        )
+        if part
+    )
+    if any(term in searchable for term in ("failed payment", "payment failed", "payment transaction")):
+        return "Failed Payment Transactions"
+    if any(term in searchable for term in ("billing", "invoice", "charged", "charge", "balance", "refund")):
+        return "Billing"
+    if any(term in searchable for term in ("call down", "call center", "customer care", "support")):
+        return "Call Center / Customer Care"
+    if any(term in searchable for term in ("bts", "base station", "basestation")):
+        return "BTS Issues"
+    if any(term in searchable for term in ("router replacement", "faulty terminal", "cpe", "ont", "onu", "terminal")):
+        return "Faulty Terminals"
+    if "data depletion" in searchable:
+        return "Data Depletion"
+    return "Quality of Service (Data)"
+
+
+def _ncc_clean_category(value: object) -> str:
+    category = _ncc_clean_basic_text(value)
+    return category if category in _NCC_ACCEPTED_CATEGORIES else ""
+
+
+def _ncc_category_code_value(category: object) -> str:
+    cleaned_category = _ncc_clean_category(category)
+    return str(_NCC_CATEGORY_SLA[cleaned_category]["code"]) if cleaned_category else ""
+
+
+def _ncc_clean_category_code(value: object, *, category: object) -> str:
+    code = _ncc_clean_basic_text(value)
+    expected = _ncc_category_code_value(category)
+    return code if expected and code == expected and code in _NCC_ACCEPTED_CATEGORY_CODES else ""
+
+
+def _ncc_subcategory_dropdown_value(issue_code: str) -> str:
+    row = _NCC_SUBCATEGORY_BY_CODE.get(issue_code)
+    return f"{row['issue_code']} - {row['name']}" if row else ""
+
+
+def _ncc_subcategory_value(
+    category: object, ticket_type: object, *, subject: object = "", description: object = ""
+) -> str:
+    cleaned_category = _ncc_clean_category(category)
+    searchable = " ".join(
+        part
+        for part in (
+            _normalized_ncc_category_key(ticket_type),
+            _normalized_ncc_category_key(subject),
+            _normalized_ncc_category_key(description),
+        )
+        if part
+    )
+    if cleaned_category == "Billing":
+        return _ncc_subcategory_dropdown_value("A50")
+    if cleaned_category == "Call Center / Customer Care":
+        return _ncc_subcategory_dropdown_value("B50")
+    if cleaned_category == "Quality of Service (Data)":
+        if any(term in searchable for term in ("slow", "speed", "bandwidth")):
+            return _ncc_subcategory_dropdown_value("D3")
+        if any(term in searchable for term in ("outage", "disconnection", "no internet")):
+            return _ncc_subcategory_dropdown_value("D2")
+        if any(term in searchable for term in ("troubleshooting", "intermittent", "authentication")):
+            return _ncc_subcategory_dropdown_value("D1")
+        return _ncc_subcategory_dropdown_value("D4")
+    if cleaned_category == "Faulty Terminals":
+        return (
+            _ncc_subcategory_dropdown_value("F1") if "router" in searchable else _ncc_subcategory_dropdown_value("F50")
+        )
+    if cleaned_category == "BTS Issues":
+        return (
+            _ncc_subcategory_dropdown_value("G1")
+            if "bts" in searchable or "base station" in searchable
+            else _ncc_subcategory_dropdown_value("G50")
+        )
+    if cleaned_category == "Data Depletion":
+        return _ncc_subcategory_dropdown_value("Q1")
+    if cleaned_category == "Failed Payment Transactions":
+        return _ncc_subcategory_dropdown_value("R1")
+    code = _ncc_category_code_value(cleaned_category)
+    return _ncc_subcategory_dropdown_value(f"{code}50") if code else ""
+
+
+def _ncc_clean_subcategory_code(value: object, *, category: object) -> str:
+    subcategory = _ncc_clean_basic_text(value)
+    subcategory = _NCC_SUBCATEGORY_ALIASES.get(subcategory, subcategory)
+    if subcategory not in _NCC_ACCEPTED_SUBCATEGORY_CODES:
+        return ""
+    issue_code, _separator, _name = subcategory.partition(" - ")
+    row = _NCC_SUBCATEGORY_BY_CODE.get(issue_code)
+    return subcategory if row and row["category"] == _ncc_clean_category(category) else ""
+
+
+def _ncc_description_for_subcategory(value: object) -> str:
+    subcategory = _ncc_clean_basic_text(value)
+    issue_code, _separator, _name = subcategory.partition(" - ")
+    row = _NCC_SUBCATEGORY_BY_CODE.get(issue_code)
+    return _ncc_clean_long_text(row.get("description")) if row else ""
+
+
+def _ncc_complaint_type_value(ticket: Ticket) -> str:
+    return (
+        "Second Level" if ticket.service_team_id or ticket.assigned_to_person_id or ticket.assignees else "First Level"
+    )
+
+
+def _ncc_clean_complaint_type(value: object) -> str:
+    complaint_type = _ncc_clean_basic_text(value)
+    return complaint_type if complaint_type in {"First Level", "Second Level"} else ""
 
 
 def _ncc_clean_long_text(value: object) -> str:
@@ -902,65 +2860,195 @@ def _ncc_clean_long_text(value: object) -> str:
     return cleaned[:1].upper() + cleaned[1:]
 
 
+def _ncc_clean_phone_type(value: object, *, category: object) -> str:
+    cleaned = _ncc_clean_basic_text(value)
+    if not cleaned:
+        return ""
+    if cleaned.isupper():
+        cleaned = cleaned.lower()
+    return cleaned[:1].upper() + cleaned[1:]
+
+
+def _ncc_clean_resolution_note(value: object, *, status: object) -> str:
+    if _ncc_clean_status(status) != "Resolved":
+        return ""
+    cleaned = _ncc_clean_long_text(value)
+    return cleaned if cleaned and len(cleaned) <= 500 else ""
+
+
+def _ncc_clean_user_note(value: object) -> str:
+    cleaned = _ncc_clean_long_text(value)
+    return cleaned if len(cleaned) <= 300 else ""
+
+
+def _ncc_clean_language(value: object) -> str:
+    language = _ncc_clean_basic_text(value)
+    return language if language in _NCC_ACCEPTED_LANGUAGES else ""
+
+
+def _ncc_ticket_source_value(channel: object) -> str:
+    channel_value = str(getattr(channel, "value", channel) or "").strip().lower()
+    mapping = {
+        "phone": "Phone Call",
+        "email": "Email",
+        "web": "Web Portal",
+        "chat": "Web Portal",
+        "api": "Other",
+        "sms": "SMS",
+        "mobile_app": "Mobile App",
+        "walk_in": "Walk-in",
+        "walk-in": "Walk-in",
+        "social": "Social Media",
+        "social_media": "Social Media",
+    }
+    return mapping.get(channel_value, "Other")
+
+
+def _ncc_clean_ticket_source(value: object) -> str:
+    source = _ncc_clean_basic_text(value)
+    return source if source in _NCC_ACCEPTED_TICKET_SOURCES else ""
+
+
+def _ncc_clean_alt_phone(value: object) -> str:
+    digits = "".join(char for char in _ncc_clean_basic_text(value) if char.isdigit())
+    return digits if 10 <= len(digits) <= 15 else ""
+
+
+def _ncc_clean_state(value: object) -> str:
+    state = _ncc_clean_basic_text(value).upper()
+    state = _NCC_STATE_ALIASES.get(state, state)
+    return state if state in _NCC_STATE_LGAS else ""
+
+
+def _ncc_clean_lga(value: object, *, state: object) -> str:
+    cleaned_state = _ncc_clean_state(state)
+    lookup_key = re.sub(r"[^a-z0-9]+", " ", _ncc_clean_basic_text(value).lower()).strip()
+    return _NCC_LGA_LOOKUP_BY_STATE.get(cleaned_state, {}).get(lookup_key, "")
+
+
 def _clean_ncc_record(record: dict[str, str]) -> dict[str, str]:
     cleaned = {key: _ncc_clean_basic_text(value) for key, value in record.items()}
 
     cleaned["MSISDN"] = _complete_ncc_msisdn_or_empty(cleaned.get("MSISDN"))
-    cleaned["alt phone number"] = _complete_ncc_msisdn_or_empty(cleaned.get("alt phone number"))
-    cleaned["First Name"] = _ncc_clean_name(cleaned.get("First Name"))
-    cleaned["Last Name"] = _ncc_clean_name(cleaned.get("Last Name"))
+    cleaned["alt phone number"] = _ncc_clean_alt_phone(cleaned.get("alt phone number"))
+    first_name, last_name = _normalize_person_name_parts(cleaned.get("First Name", ""), cleaned.get("Last Name", ""))
+    cleaned["First Name"] = _ncc_clean_name(first_name)
+    cleaned["Last Name"] = _ncc_last_name_fallback(last_name)
     cleaned["Email"] = _ncc_clean_email(cleaned.get("Email"))
+    cleaned["Age"] = _ncc_clean_age(record.get("Age"))
+    cleaned["Gender"] = _ncc_clean_gender(record.get("Gender"))
+    cleaned["created date time"] = _ncc_clean_timestamp(cleaned.get("created date time"))
+    cleaned["Subject"] = _ncc_clean_subject(cleaned.get("Subject"))
+    cleaned["Status"] = _ncc_clean_status(cleaned.get("Status"))
+    cleaned["Resolved date"] = _ncc_clean_resolved_timestamp(
+        cleaned.get("Resolved date"),
+        status=cleaned.get("Status"),
+        created_at=cleaned.get("created date time"),
+    )
+    cleaned["Resolved within SLA"] = _ncc_clean_yes_no_for_status(
+        cleaned.get("Resolved within SLA"),
+        status=cleaned.get("Status"),
+    )
+    cleaned["Complaint type"] = _ncc_clean_complaint_type(cleaned.get("Complaint type"))
 
     for column in (
-        "Subject",
-        "Category",
-        "Complaint type",
-        "Status",
-        "Ticket source",
         "created by",
-        "State",
-        "LGA",
         "Town",
-        "Gender",
-        "Language",
     ):
         cleaned[column] = _ncc_clean_title_text(cleaned.get(column))
-
-    for column in ("Description (auto)", "Resolution Note", "User Note"):
-        cleaned[column] = _ncc_clean_long_text(cleaned.get(column))
+    cleaned["Category"] = _ncc_clean_category(cleaned.get("Category"))
+    cleaned["category code (auto)"] = _ncc_clean_category_code(
+        cleaned.get("category code (auto)"),
+        category=cleaned.get("Category"),
+    )
+    cleaned["sub category code"] = _ncc_clean_subcategory_code(
+        cleaned.get("sub category code"),
+        category=cleaned.get("Category"),
+    )
+    cleaned["Description (auto)"] = _ncc_description_for_subcategory(cleaned.get("sub category code"))
+    cleaned["Resolution Note"] = _ncc_clean_resolution_note(
+        cleaned.get("Resolution Note"), status=cleaned.get("Status")
+    )
+    cleaned["User Note"] = _ncc_clean_user_note(cleaned.get("User Note"))
+    cleaned["user notes datetime"] = (
+        _ncc_clean_timestamp(cleaned.get("user notes datetime")) if cleaned["User Note"] else ""
+    )
+    cleaned["Language"] = _ncc_clean_language(cleaned.get("Language"))
+    cleaned["Ticket source"] = _ncc_clean_ticket_source(cleaned.get("Ticket source"))
+    cleaned["State"] = _ncc_clean_state(cleaned.get("State"))
+    cleaned["LGA"] = _ncc_clean_lga(cleaned.get("LGA"), state=cleaned.get("State"))
+    cleaned["Phone Type"] = _ncc_clean_phone_type(cleaned.get("Phone Type"), category=cleaned.get("Category"))
+    cleaned["VALIDATION STATUS"] = _ncc_validation_status(cleaned)
 
     return cleaned
 
 
-def _normalize_person_name_parts(first_name: str, last_name: str) -> tuple[str, str]:
-    honorifics = {
-        "mr",
-        "mr.",
-        "mrs",
-        "mrs.",
-        "miss",
-        "ms",
-        "ms.",
-        "dr",
-        "dr.",
-        "prof",
-        "prof.",
-        "chief",
-        "chief.",
-        "alhaji",
-        "alh.",
-        "pastor",
-        "pastor.",
-    }
-    normalized_first = (first_name or "").strip()
-    normalized_last = (last_name or "").strip()
-    if normalized_first.lower() not in honorifics or not normalized_last:
-        return normalized_first, normalized_last
+_NCC_NAME_HONORIFICS = {
+    "mr",
+    "mrs",
+    "miss",
+    "ms",
+    "dr",
+    "prof",
+    "chief",
+    "alhaji",
+    "alh",
+    "pastor",
+    "barrister",
+    "hon",
+    "honourable",
+    "engr",
+    "eng",
+}
+_NCC_NAME_PLACEHOLDERS = {"unknown", "none", "null", "na", "n", "a"}
 
-    last_parts = normalized_last.split()
-    normalized_first = f"{normalized_first.rstrip('.')} {last_parts[0]}".strip()
-    normalized_last = " ".join(last_parts[1:]).strip()
-    return normalized_first, normalized_last
+
+def _ncc_name_tokens(value: object) -> list[str]:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return []
+    if "@" in cleaned:
+        cleaned = cleaned.split("@", 1)[0]
+    cleaned = cleaned.replace("'", "").replace("\u2019", "").replace("`", "")
+    tokens = re.findall(r"[A-Za-z]+", cleaned)
+    return [
+        token
+        for token in tokens
+        if token.strip(".").lower() not in _NCC_NAME_HONORIFICS
+        and token.strip(".").lower() not in _NCC_NAME_PLACEHOLDERS
+    ]
+
+
+def _normalize_person_name_parts(first_name: object, last_name: object) -> tuple[str, str]:
+    first_tokens = _ncc_name_tokens(first_name)
+    last_tokens = _ncc_name_tokens(last_name)
+    if first_tokens and last_tokens:
+        last_tokens = _ncc_strip_trailing_town_name_tokens(first_tokens, last_tokens)
+    elif len(first_tokens) > 1:
+        first_tokens = _ncc_strip_trailing_town_name_tokens([], first_tokens)
+    elif len(last_tokens) > 1:
+        last_tokens = _ncc_strip_trailing_town_name_tokens([], last_tokens)
+
+    if first_tokens and last_tokens:
+        return first_tokens[0], last_tokens[-1]
+    if len(first_tokens) > 1:
+        return first_tokens[0], first_tokens[-1]
+    if first_tokens:
+        return first_tokens[0], first_tokens[0]
+    if len(last_tokens) > 1:
+        return last_tokens[0], last_tokens[-1]
+    if last_tokens:
+        return last_tokens[0], last_tokens[0]
+    return "", ""
+
+
+def _ncc_strip_trailing_town_name_tokens(prefix_tokens: list[str], name_tokens: list[str]) -> list[str]:
+    if len(prefix_tokens) + len(name_tokens) <= 2 or not name_tokens:
+        return name_tokens
+    trailing = _normalize_ncc_region(name_tokens[-1])
+    if trailing in _NCC_TOWN_LOOKUP:
+        return name_tokens[:-1]
+    return name_tokens
 
 
 def _looks_like_business_name(value: str) -> bool:
@@ -1023,21 +3111,54 @@ def _label_to_name_parts(value: str, *, treat_as_business: bool = False) -> tupl
     cleaned = (value or "").strip()
     if not cleaned:
         return "", ""
-    if treat_as_business or _looks_like_business_name(cleaned):
-        return cleaned, ""
+    dash_parts = [part.strip() for part in re.split(r"\s+-\s+", cleaned) if part.strip()]
+    if dash_parts and any(term in dash_parts[0].lower() for term in ("customer", "complaint", "disconnection")):
+        cleaned = dash_parts[-1]
+    for prefix in ("customer link disconnection", "customer realignment"):
+        if cleaned.lower().startswith(prefix):
+            cleaned = cleaned[len(prefix) :].strip(" -")
+            break
     first_name, last_name = _split_name(cleaned)
     return _normalize_person_name_parts(first_name, last_name)
+
+
+def _looks_like_technical_ticket_name_source(value: object) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    if not normalized:
+        return False
+    if normalized in {"test", "this is a test"}:
+        return True
+    technical_phrases = {
+        "multiple cabinet disconnection",
+        "cabinet disconnection",
+        "cabinet migration",
+        "core link disconnection",
+        "lan troubleshooting",
+        "multiple bts down",
+        "bts down",
+        "ap outage",
+        "air fiber outage",
+        "access point outage",
+        "device configuration",
+        "router configuration",
+        "power optimization",
+        "power optimisation",
+        "fiber link optimization",
+        "fiber link optimisation",
+    }
+    if any(phrase in normalized for phrase in technical_phrases):
+        return True
+    tokens = set(normalized.split())
+    return bool(tokens & {"gpon", "pon", "olt", "lan", "port", "bts", "ap", "outage", "troubleshooting"})
 
 
 def _ticket_name_parts(ticket: Ticket, person: Person | None) -> tuple[str, str]:
     first_name = (person.first_name or "").strip() if person else ""
     last_name = (person.last_name or "").strip() if person else ""
     if first_name or last_name:
-        combined_name = " ".join(part for part in [first_name, last_name] if part).strip()
-        if _looks_like_business_name(combined_name):
-            return _title_case_name(combined_name), ""
         first_name, last_name = _normalize_person_name_parts(first_name, last_name)
-        return _title_case_name(first_name), _title_case_name(last_name)
+        if first_name and last_name:
+            return _title_case_name(first_name), _title_case_name(last_name)
 
     fallback_values: list[str] = []
     if person and person.display_name:
@@ -1054,11 +3175,17 @@ def _ticket_name_parts(ticket: Ticket, person: Person | None) -> tuple[str, str]
         fallback_values.append(ticket.subscriber.organization.name)
     if ticket.subscriber and ticket.subscriber.subscriber_number:
         fallback_values.append(ticket.subscriber.subscriber_number)
+    ticket_title = getattr(ticket, "title", "")
+    ticket_type = getattr(ticket, "ticket_type", "")
+    if ticket_title and not (
+        _looks_like_technical_ticket_name_source(ticket_title) or _looks_like_technical_ticket_name_source(ticket_type)
+    ):
+        fallback_values.append(ticket_title)
 
     for fallback in fallback_values:
         first_name, last_name = _label_to_name_parts(fallback)
         if first_name or last_name:
-            return _title_case_name(first_name), _title_case_name(last_name)
+            return _title_case_name(first_name), _ncc_last_name_fallback(last_name)
     return "", ""
 
 
@@ -1115,137 +3242,687 @@ def _normalize_ncc_region(value: str | None) -> str:
     return " ".join(normalized.split())
 
 
+_NCC_ACCEPTED_TOWNS = (
+    "Angawa Bawa",
+    "Gbagarape",
+    "Kugbo",
+    "Nyanya Site-Area A-F",
+    "Nyanya Village/Gwandara",
+    "Nyanya Village/Gwari",
+    "Asokoro",
+    "Garki",
+    "Jabi",
+    "Lokogoma",
+    "Maitama",
+    "Abacha Barracks",
+    "Apo",
+    "Damagaza",
+    "Dantata",
+    "Durumi I",
+    "Durumi II",
+    "Durumi III",
+    "Dutse",
+    "Garki Village",
+    "Gudu",
+    "Guzape",
+    "Kobi",
+    "Kurumduma",
+    "NEPA Village",
+    "Wumba",
+    "Gui",
+    "Airport",
+    "Barowa",
+    "Damakuba",
+    "Dandi",
+    "Dayisa",
+    "Dodo",
+    "Gbenduniya",
+    "Gbessa",
+    "Gora",
+    "Gosa",
+    "Gud Pasali",
+    "Gwako",
+    "Iddo Maaji",
+    "Iddo Pada",
+    "Iddo Sabo",
+    "Iddo Sarki",
+    "Iddo Tudunwada",
+    "Koloke",
+    "Makana",
+    "Makanima",
+    "Nuwalogye",
+    "Sauka",
+    "Takilogo",
+    "Toge",
+    "Tunga Kwaso",
+    "Tungan Jika",
+    "Tungan Wakili Isa",
+    "Zamani",
+    "Bagusa",
+    "Dei-Dei",
+    "Filin Dabo",
+    "Filin Dabo I",
+    "Filin Dabo II",
+    "Gwagwa",
+    "Kaba",
+    "Kagini",
+    "Karsana I",
+    "Karsana II",
+    "Karsana III",
+    "Saburi I",
+    "Saburi II",
+    "Tasha",
+    "Zaudna",
+    "Aleyita",
+    "Burum",
+    "Dogori Gada",
+    "Galadimawa",
+    "Kabusa",
+    "Ketti",
+    "Lekugoma",
+    "Lugbe",
+    "Piwoyi",
+    "Pykasa",
+    "Sabon Lugbe",
+    "Sheretti",
+    "Takushara",
+    "Wani",
+    "Zhidu",
+    "Zidna",
+    "Gwarinpa Fed. Housing",
+    "Gwarinpa Life Camp",
+    "Gwarinpa Village",
+    "Kado Federal Housing",
+    "Kado Village",
+    "Katampe",
+    "Kuchigoro",
+    "Mabushi",
+    "Utako",
+    "Ajata",
+    "Angwan Sako",
+    "Anka",
+    "Badna",
+    "Chori Bisa",
+    "Gidan Ajiya",
+    "Gidan Mangoro",
+    "Gugugu",
+    "Kpepegyi",
+    "Kurudu",
+    "Kurudu Gwandara",
+    "Kwoi",
+    "Madalla",
+    "Munapeyi Kasa",
+    "Munapeyi Sama",
+    "Orozo I",
+    "Orozo II",
+    "Sabon Gari",
+    "Wowo",
+    "Jikoyi",
+    "Karu Site (FHA)",
+    "Karu Village (FHA)",
+)
+_NCC_TOWN_ALIASES = {
+    "garki 2": "Garki",
+    "garki ii": "Garki",
+    "garki area 2": "Garki",
+    "garki district": "Garki",
+    "garki village": "Garki Village",
+    "gwarimpa fed housing": "Gwarinpa Fed. Housing",
+    "gwarinpa fed housing": "Gwarinpa Fed. Housing",
+    "gwarimpa federal housing": "Gwarinpa Fed. Housing",
+    "gwarinpa federal housing": "Gwarinpa Fed. Housing",
+    "gwarimpa life camp": "Gwarinpa Life Camp",
+    "gwarinpa life camp": "Gwarinpa Life Camp",
+    "gwarimpa village": "Gwarinpa Village",
+    "gwarinpa village": "Gwarinpa Village",
+    "jikwoyi": "Jikoyi",
+    "kpeyegyi": "Kpepegyi",
+    "nepa village": "NEPA Village",
+}
+_NCC_TOWN_LOOKUP = {_normalize_ncc_region(town): town for town in _NCC_ACCEPTED_TOWNS}
+_NCC_TOWN_LOOKUP.update(_NCC_TOWN_ALIASES)
+_NCC_TOWN_MATCHERS = sorted(_NCC_TOWN_LOOKUP.items(), key=lambda item: len(item[0]), reverse=True)
+
+
+def _ncc_town_tuple(value: str) -> tuple[str, ...]:
+    return tuple(part.strip() for part in value.split(";") if part.strip())
+
+
+_NCC_FCT_DISTRICT_ROWS = (
+    (
+        "Municipal Area Council",
+        "Garki",
+        (
+            "Abacha Barracks",
+            "Apo",
+            "Damagaza",
+            "Dantata",
+            "Durumi I",
+            "Durumi II",
+            "Durumi III",
+            "Dutse",
+            "Garki Village",
+            "Gudu",
+            "Guzape",
+            "Kobi",
+            "Kurumduma",
+            "NEPA Village",
+            "Wumba",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Gui",
+        (
+            "Airport",
+            "Barowa",
+            "Damakuba",
+            "Dandi",
+            "Dayisa",
+            "Dodo",
+            "Gbenduniya",
+            "Gbessa",
+            "Gora",
+            "Gosa",
+            "Gud Pasali",
+            "Gui",
+            "Gwako",
+            "Iddo Maaji",
+            "Iddo Pada",
+            "Iddo Sabo",
+            "Iddo Sarki",
+            "Iddo Tudunwada",
+            "Koloke",
+            "Makana",
+            "Makanima",
+            "Nuwalogye",
+            "Sauka",
+            "Takilogo",
+            "Toge",
+            "Tunga Kwaso",
+            "Tungan Jika",
+            "Tungan Wakili Isa",
+            "Zamani",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Gwagwa",
+        (
+            "Bagusa",
+            "Dei-die",
+            "Filin Dabo",
+            "Filin Dabo I",
+            "Filin Dabo II",
+            "Gwagwa",
+            "Kaba",
+            "Kagini",
+            "Karsana I",
+            "Karsana II",
+            "Karsana III",
+            "Saburi I",
+            "Saburi II",
+            "Tasha",
+            "Zaudna",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Gwarinpa",
+        (
+            "Gwarinpa Fed. Housing",
+            "Gwarinpa Life Camp",
+            "Gwarinpa Village",
+            "Kado Federal Housing",
+            "Kado Village",
+            "Katampe",
+            "Kuchigoro",
+            "Mabushi",
+            "Utako",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Jiwa",
+        (
+            "Basan Jiwa",
+            "Gyeda",
+            "Hulumi",
+            "Idu",
+            "Idu Gwari",
+            "Jiwa",
+            "Karmo Sabo",
+            "Karmo Tsoho",
+            "Paipe",
+            "Tungan Dallatu",
+            "Tungan Madaki",
+            "Zhidu",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Kabusa",
+        (
+            "Aleyita",
+            "Burum",
+            "Dogori Gada",
+            "Galadimawa",
+            "Kabusa",
+            "Ketti",
+            "Lokogoma",
+            "Lugbe",
+            "Piwoyi",
+            "Pykasa",
+            "Sabon Lugbe",
+            "Sheretti",
+            "Takushara",
+            "Wani",
+            "Zhidu",
+            "Zidna",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Karu",
+        (
+            "Jikwoyi",
+            "Karu Site (FHA)",
+            "Karu Village",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Nyanya",
+        (
+            "Angawa Bawa",
+            "Gbagarape",
+            "Kugbo",
+            "Nyanya Site-Area A-F",
+            "Nyanya Village/Gwandara",
+            "Nyanya Village/Gwari",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Orozo",
+        (
+            "Ajata",
+            "Angwan Sako",
+            "Anka",
+            "Badna",
+            "Chori Bisa",
+            "Gidan Ajiya",
+            "Gidan Mangoro",
+            "Gugugu",
+            "Kpepegyi",
+            "Kurudu",
+            "Kurudu Gwandara",
+            "Kwoi",
+            "Madalla",
+            "Munapeyi Kasa",
+            "Munapeyi Sama",
+            "Orozo I",
+            "Orozo II",
+            "Sabon Gari",
+            "Wowo",
+        ),
+    ),
+    (
+        "Abaji",
+        "Abaji",
+        _ncc_town_tuple(
+            "Agyana; Bago; Bandagi; Dapala; Ebagi; Gbogbogo; Kebba; Manderegi; Nah. Tosho; "
+            "Nahalati Sabo; Nuku; Panagana; Rimba; Uboshenu; Yawule"
+        ),
+    ),
+    (
+        "Abaji",
+        "Yaba",
+        _ncc_town_tuple(
+            "Abuja; Adagba; Afo; Akori; Alampa; Allu; Ayaba; Bari-Bezi; Bazi-Bezi; Busga; "
+            "Chakun; Chundugo; Dabbare; Dara; Dewu; Domi; Dum; Madechi; Ekki; Fakon Tando; "
+            "Gadabiri; Gari; Gasakba; Gasukpa; Gawu; Gawun; Gidan Maisaye; Gurdi; Guruza; "
+            "Gwanda; Gwona; Jamigbe; Kafako; Kpace; Kularida; Kutara; Kwago; Kwakwa; Kyawu; "
+            "Lafia Yaba; Managi; Nadichi; Nagun; Nassarawa; Nowog; Nyembo; Pako Base; Panagu; "
+            "Pandaji; Pankuru; Panpari; Piowe; Sabongida; Sarowo-Abdu; Selifulyu; Shadad; "
+            "Soitan; Takpeshi; Talpa; Tanaga; Wapa; Yelwa; Yelwa Gawu; Zuwa"
+        ),
+    ),
+    (
+        "Bwari",
+        "Bwari",
+        _ncc_town_tuple(
+            "Apugye; Barago; Baran Rafi; Barangoni; Barapa; Bazango Bwari; Bunko; Byazhi; "
+            "Chikale; Dankoru; Dauda; Donabayi; Duba; Dutse Alhaji; Gaba; Galuwyi; "
+            "Gidan Babachi; Gidan Baushe; Gidan Pawa; Gudupe; Gutpo; Igu; Jigo; Kaima; "
+            "Karaku; Karawa; Kasaru; Katampe; Kawadashi; Kawu; Kikumi; Kimtaru; Kogo; Kubwa; "
+            "Kuchibuyi; Kuduru; Kurumin Daudu; Kute; Kwabwure; Panda; Panunuki; Paspa; Payi; "
+            "Piko; Rugan S/Fulani; Ruriji; Sabon Gari; Sagwari; Shere; Simape; Sumpe; "
+            "T/Danzaria; T/Manu; Tokulo; Tudun Wada; Tunga Bijimi; Tunga-Adoka; Tungan Sarkin; "
+            "Ushafa; Yaba; Yajida; Yaupe; Yayidna; Zango; Zuma"
+        ),
+    ),
+    (
+        "Gwagwalada",
+        "Gwagwalada",
+        _ncc_town_tuple(
+            "Agota; Akwayi; Akyakyata; Anguwar Hausawa; Anguwar Sarki; Atopi; Bargada Bassa; "
+            "Basan Zuba; Bassa; Biyu; Boka; Chaboda; Chitumu; Dabagayi; Dada; Dada Gongo; "
+            "Damin Kara; Dawaki; Diko; Dobi; Gidan Ango; Gidan Bala; Gidan Dandu; Gidan Gade; "
+            "Goi; Gongo; Gurebare; Gwako; Gwale; Gwari; Gwagwalada; Ibwa; Ibwa Sarki; Ikwa; "
+            "Kaburufi; Kace Bassa; Kace Sabo; Kace Sarki; Kaida Bassa; Kaida Gwari; Kalangu; "
+            "Kasanki; Kutunku; Lafiya; Ledi; Makama; Paiko; Pako; Paso Gwari; Sabon Gari; "
+            "Shaga I; Shaga II; Shida; Soko; Tungan Adamu; Tungan Auta; Tungan Giwa; "
+            "Tungan Jika; Tungan Salihu; Wuma; Wumi; Zuba"
+        ),
+    ),
+    (
+        "Kuje",
+        "Kuje",
+        _ncc_town_tuple(
+            "Damwa; Achmbi; Aduga; Agwai; Atsauna; Baban Kurmi; Bamishi; Banayi II; "
+            "Barayi Pada; Bugako; Buzunkure; Chegasu; Chibiri; Chida; Chukuku; Dafara; "
+            "Damakusa; Damangata; Dubia; Duma; Duriya; Gafere Sabo; Ganagu Sabo; Gando; "
+            "Gashe; Gaube; Gawu; Gbebasa; Gidan Jatau; Gidan-Bawa; Gwari; Iye; Jeli; Kabi; "
+            "Kabikasa; Kamo G.; Kanzo; Kapa; Kasada; Kiyi; Kuja Pada; Kusaki; Kutada; "
+            "Kwaku; Lafiya; Lafiya Gwari; Lamiga; Madatta; Mogada; Nufawa; Pasali; Peki; "
+            "Pima; Rubokya; Sabon Gwaria; Sauka; Shaji; Takwa Gwari; Takwa Hausawa; Tukpeki; "
+            "Tukuba I; Tukuba II; Wumi; Yalwa; Yamma; Yanga; Zangon Kara; Zilu"
+        ),
+    ),
+    (
+        "Kuje",
+        "Rubochi",
+        _ncc_town_tuple(
+            "Adegbe; Affa; Ahinza; Attako; Bida; Buga; Darika; Gabiya; Gidan Bawa; Gombe; "
+            "Gova; Gudun Karya; Gwagwada; Gyana; Huni-Gade; Huni-Gwari; Kujekwa; Kule; "
+            "Kutunbwa; Mabamade; Munu; Odun Bisa; Odun Kasa; Perri; Rubatu; Rubochi; Rugese; "
+            "Sabe; Sungba; Tika; Tuturutu; Ukya; Ungwar-Madaki; Ure; Yaba; Yewusa; Zagabutu; "
+            "Zoge; Zokutu"
+        ),
+    ),
+    (
+        "Kwali",
+        "Ashara",
+        _ncc_town_tuple(
+            "2 Tudu; Ahuwye; Akapo; Angun Tunga; Angun Wakili; Angun Woji Woji; Ashara; "
+            "Bassoni; Bodolo; Chekanci; Daganaruwa Bassa; Damakusa Gwari; Daniwayo; Eke; "
+            "Gomani; Gorgbe; Gulo; Gwaji; Gwan auta; Huton; Janruwa; Kona Mada; Kpessili; "
+            "Kukka; Kukka Bushe; Kundu Lele; Kunguni; Maikwari; Mumun; Nboni; Nzakpara; "
+            "Padama; Puka; Pukafa; Rarra; Riwaza; Sabo Gari Gurara; Sadaba; Sharra; "
+            "T. Sarki; Takuro Mallan; Tekpesse; Tudu Wada Mangu"
+        ),
+    ),
+    (
+        "Kwali",
+        "Dafa",
+        _ncc_town_tuple(
+            "Azaya; Dafa; Dafa SaboDaji; Galo; Gugwa; Kangon Adamu; Kpewuye; Kye; Puka; Tungan Galadima; Tungan Gani; Tungan Guli; Tungan Tofa"
+        ),
+    ),
+    (
+        "Kwali",
+        "Gumbo",
+        _ncc_town_tuple(
+            "Anini; Elle; Gidan Duniya; Gidan Makaniki; Gumbo; Kamadi; Kwaita Hausa; Lukoda; Piri; Shepikati; Tusun Fulani; Tutubwa"
+        ),
+    ),
+    ("Kwali", "Kilankwa", _ncc_town_tuple("Chukuku; Kilankwa I; Kilankwa II; Petti; Sheda Galadima; Sheda Sarki")),
+    (
+        "Kwali",
+        "Kwali",
+        _ncc_town_tuple(
+            "Bonugo; Dafara; Ebo; Farakuti; Farakuti I; Farakuti II; Fulani; Kigbe; Koda; Kwaida Tsoho; Kwaita Sabo; Kwali; Lambata; Leda; Police Barracks; Rugan Mal. Idris; Rugan Rabo; Sarki; Yambabu"
+        ),
+    ),
+    (
+        "Kwali",
+        "Pai",
+        _ncc_town_tuple(
+            "Bako; Bobota; Ceceyi; Dabi; Kuti Chichi; Leleyi; Leleyi Bassa; Pai Fulani; Pai Gwari; Tatu; Tukurwa"
+        ),
+    ),
+    (
+        "Kwali",
+        "Wako",
+        _ncc_town_tuple(
+            "(Ubosharu); Anguwar Baushe; Awawa; Azarachi; Bukpe; Chida; Dangara; Dapa; Gadabiyu; Kibuyi; Sa'adu; Sabon Gari; Ubo Saidu; Wako; Yewuti"
+        ),
+    ),
+    (
+        "Kwali",
+        "Yangoji",
+        _ncc_town_tuple(
+            "Adadu 1; Adadu 11; Bwoto; Daka; Ijah Dabuta; Ijah Sarki; Koroki; Kuyi; Nitse; Sukuku; Tampe; Yangoji"
+        ),
+    ),
+    ("Kwali", "Yebu", _ncc_town_tuple("Ebo; Kigbe; Yebu")),
+)
+_NCC_FCT_TABLE_LOOKUP: dict[str, tuple[str, str]] = {}
+for _lga, _district, _towns in _NCC_FCT_DISTRICT_ROWS:
+    _NCC_FCT_TABLE_LOOKUP[_normalize_ncc_region(_district)] = (_lga, _district)
+    for _town in _towns:
+        _normalized_town = _normalize_ncc_region(_town)
+        if _normalized_town == "abuja":
+            continue
+        _NCC_FCT_TABLE_LOOKUP[_normalized_town] = (_lga, _town)
+_NCC_FCT_TABLE_ALIASES = {
+    "dei dei": ("Municipal Area Council", "Dei-die"),
+    "garki 2": ("Municipal Area Council", "Garki"),
+    "garki ii": ("Municipal Area Council", "Garki"),
+    "garki area 2": ("Municipal Area Council", "Garki"),
+    "gwarimpa": ("Municipal Area Council", "Gwarinpa"),
+    "gwarimpa fed housing": ("Municipal Area Council", "Gwarinpa Fed. Housing"),
+    "gwarimpa federal housing": ("Municipal Area Council", "Gwarinpa Fed. Housing"),
+    "gwarimpa life camp": ("Municipal Area Council", "Gwarinpa Life Camp"),
+    "gwarimpa village": ("Municipal Area Council", "Gwarinpa Village"),
+    "jahi": ("Municipal Area Council", "Jahi"),
+    "jikwoyi": ("Municipal Area Council", "Jikwoyi"),
+    "karsana": ("Municipal Area Council", "Karsana I"),
+    "kpeyegyi": ("Municipal Area Council", "Kpepegyi"),
+    "nepa village": ("Municipal Area Council", "Garki"),
+    "wuse": ("Municipal Area Council", "Wuse"),
+    "wuse zone 1": ("Municipal Area Council", "Wuse"),
+    "wuse zone 2": ("Municipal Area Council", "Wuse"),
+    "wuse zone 3": ("Municipal Area Council", "Wuse"),
+    "wuse zone 4": ("Municipal Area Council", "Wuse"),
+    "wuse zone 5": ("Municipal Area Council", "Wuse"),
+    "zone 1": ("Municipal Area Council", "Wuse"),
+    "zone 2": ("Municipal Area Council", "Wuse"),
+    "zone 3": ("Municipal Area Council", "Wuse"),
+    "zone 4": ("Municipal Area Council", "Wuse"),
+    "zone 5": ("Municipal Area Council", "Wuse"),
+}
+_NCC_FCT_TABLE_LOOKUP.update(_NCC_FCT_TABLE_ALIASES)
+_NCC_FCT_TABLE_MATCHERS = sorted(_NCC_FCT_TABLE_LOOKUP.items(), key=lambda item: len(item[0]), reverse=True)
+_NCC_NON_FCT_LOCATION_ALIASES = {
+    "agege": ("LAGOS", "Agege", "Agege"),
+    "igando": ("LAGOS", "Alimosho", "Igando"),
+}
+_NCC_NON_FCT_LOCATION_MATCHERS = sorted(
+    _NCC_NON_FCT_LOCATION_ALIASES.items(), key=lambda item: len(item[0]), reverse=True
+)
+
+
 def _map_ncc_location(ticket_region: str | None) -> tuple[str, str, str]:
-    town = (ticket_region or "").strip() or "-"
-    normalized = _normalize_ncc_region(ticket_region)
-    if not normalized:
-        return "-", town, "-"
+    source = (ticket_region or "").strip()
+    table_match = _ncc_fct_table_location_from_address(source)
+    if table_match:
+        lga, town = table_match
+        return lga, town, "FEDERAL CAPITAL TERRITORY"
+    non_fct_match = _ncc_non_fct_location_from_address(source)
+    if non_fct_match:
+        state, lga, town = non_fct_match
+        return lga, town, state
+    town = _ncc_town_from_address(source)
+    if not town:
+        return "", "", ""
+    return "Municipal Area Council", town, "FEDERAL CAPITAL TERRITORY"
 
-    area_council_aliases = {
-        "AMAC": {
-            "wuse",
-            "maitama",
-            "asokoro",
-            "garki",
-            "jabi",
-            "gudu",
-            "apo",
-            "durumi",
-            "utako",
-            "mabushi",
-            "gwarimpa",
-            "lugbe",
-            "lokogoma",
-            "life camp",
-            "lifecamp",
-            "katampe",
-            "katampe extension",
-            "kado",
-            "dakibiyu",
-            "wuye",
-            "wuye district",
-            "games village",
-            "guzape",
-            "guzape district",
-            "galadimawa",
-            "kabusa",
-            "wumba",
-            "wumba district",
-            "kyami",
-            "karmo",
-            "karmo district",
-            "jikwoyi",
-            "karshi",
-            "nyanya",
-            "orozo",
-            "kurudu",
-            "kpeyegyi",
-            "dakwo",
-            "duboyi",
-            "kaura",
-            "idu",
-            "idu industrial",
-            "jahi",
-            "jahi district",
-            "utako district",
-            "garki district",
-            "gudu district",
-            "jabi district",
-            "asokoro district",
-            "maitama district",
-            "wuse 2",
-            "wuse ii",
-            "wuse zone 1",
-            "wuse zone 2",
-            "wuse zone 3",
-            "wuse zone 4",
-            "wuse zone 5",
-            "wuse zone 6",
-            "wuse zone 7",
-        },
-        "Bwari": {
-            "kubwa",
-            "dutse",
-            "dutse alhaji",
-            "bwari",
-            "dei dei",
-            "mpape",
-            "dawaki",
-            "ushafa",
-            "byazhin",
-        },
-        "Gwagwalada": {
-            "gwagwalada",
-            "zuba",
-            "paiko",
-            "tunga maje",
-            "ibwa",
-        },
-        "Kuje": {
-            "kuje",
-            "chukuku",
-            "piyanko",
-            "rubochi",
-        },
-        "Abaji": {
-            "abaji",
-            "yaba",
-        },
-        "Kwali": {
-            "kwali",
-            "sheda",
-            "pai",
-            "yangoji",
-            "dafa",
-        },
-    }
 
-    for lga, aliases in area_council_aliases.items():
-        if normalized in aliases:
-            return lga, town, "FCT"
+def _ncc_fct_table_location_from_address(value: object) -> tuple[str, str] | None:
+    source = _clean_text(value)
+    if not source:
+        return None
+    parts = [part for part in re.split(r"[,;\n\r]+", source) if part.strip()]
+    candidates = [*parts[::-1], source]
+    for candidate in candidates:
+        normalized = _normalize_ncc_region(candidate)
+        if not normalized:
+            continue
+        for alias, location in _NCC_FCT_TABLE_MATCHERS:
+            if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized):
+                return location
+    return None
 
-    for lga, aliases in area_council_aliases.items():
-        for alias in aliases:
-            if alias in normalized or normalized in alias:
-                return lga, town, "FCT"
 
-    return "-", town, "-"
+def _ncc_non_fct_location_from_address(value: object) -> tuple[str, str, str] | None:
+    source = _clean_text(value)
+    if not source:
+        return None
+    parts = [part for part in re.split(r"[,;\n\r]+", source) if part.strip()]
+    candidates = [*parts[::-1], source]
+    for candidate in candidates:
+        normalized = _normalize_ncc_region(candidate)
+        if not normalized:
+            continue
+        for alias, location in _NCC_NON_FCT_LOCATION_MATCHERS:
+            if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized):
+                return location
+    return None
+
+
+def _ncc_town_from_address(value: object) -> str:
+    source = _clean_text(value)
+    if not source:
+        return ""
+    parts = [part for part in re.split(r"[,;\n\r]+", source) if part.strip()]
+    candidates = [*parts[::-1], source]
+    for candidate in candidates:
+        normalized = _normalize_ncc_region(candidate)
+        if not normalized:
+            continue
+        for alias, town in _NCC_TOWN_MATCHERS:
+            if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized):
+                return town
+    return ""
+
+
+def _ticket_ncc_location(ticket: Ticket) -> tuple[str, str, str]:
+    subscriber = ticket.subscriber
+    location_sources = []
+    region_sources = []
+    if subscriber is not None:
+        location_sources.extend(
+            [
+                subscriber.service_city,
+                subscriber.service_address_line2,
+                subscriber.service_address_line1,
+            ]
+        )
+        region_sources.append(subscriber.service_region)
+    customer = ticket.customer
+    if customer is not None:
+        location_sources.extend(
+            [
+                customer.city,
+                customer.address_line2,
+                customer.address_line1,
+            ]
+        )
+        region_sources.append(customer.region)
+
+    for source in [*location_sources, *region_sources, ticket.region]:
+        lga, town, state = _map_ncc_location(source)
+        if lga and state:
+            return lga, town, state
+    return "", "", ""
+
+
+_NCC_GENERIC_RESOLUTION_NOTE_MARKERS = (
+    "kindly treat",
+    "whats the update",
+    "what's the update",
+    "please treat",
+    "assigned",
+    "escalated",
+    "resolution sent to the customer for confirmation",
+)
+_NCC_NOTE_LEADING_GROUP_MENTION_RE = re.compile(r"^@\s*[^()\n\r]{1,120}\([^)]*\)\s*", re.IGNORECASE)
+_NCC_NOTE_LEADING_ROUTING_MENTION_RE = re.compile(r"^@\s*[^@\n\r,;:.]{1,80}\s*[,;:.+-]\s*", re.IGNORECASE)
+_NCC_NOTE_GROUP_MENTION_RE = re.compile(r"@\s*[^@,;:.\n\r]{1,120}\([^)]*\)", re.IGNORECASE)
+_NCC_NOTE_PERSON_MENTION_RE = re.compile(r"@\s*[A-Za-z][A-Za-z0-9.'_-]*(?:\s+[A-Z][A-Za-z.'_-]*)?")
+
+
+def _ncc_clean_note_text(value: object) -> str:
+    note = _clean_text(value)
+    note = _NCC_NOTE_GROUP_MENTION_RE.sub(" ", note)
+    note = _NCC_NOTE_PERSON_MENTION_RE.sub(" ", note)
+    note = re.sub(r"\s+([,;:.])", r"\1", note)
+    note = re.sub(r"(?:\s*[,;]\s*){2,}", ", ", note)
+    previous = None
+    while note and note != previous:
+        previous = note
+        note = _NCC_NOTE_LEADING_GROUP_MENTION_RE.sub("", note)
+        note = _NCC_NOTE_LEADING_ROUTING_MENTION_RE.sub("", note).strip(" ,;:-.")
+    return _ncc_clean_long_text(note.strip(" ,;:-."))
+
+
+def _ncc_meaningful_note(value: object) -> str:
+    note = _ncc_clean_note_text(value)
+    if not note:
+        return ""
+    lowered = note.lower()
+    if any(marker in lowered for marker in _NCC_GENERIC_RESOLUTION_NOTE_MARKERS):
+        return ""
+    return note
 
 
 def _ticket_notes(ticket: Ticket) -> tuple[str, str, str]:
-    latest_public: TicketComment | None = None
     latest_internal: TicketComment | None = None
+    latest_meaningful_internal = ""
+    latest_meaningful_any = ""
 
-    for comment in sorted(ticket.comments or [], key=lambda item: item.created_at or datetime.min.replace(tzinfo=UTC)):
+    comments = sorted(ticket.comments or [], key=lambda item: item.created_at or datetime.min.replace(tzinfo=UTC))
+    for comment in comments:
+        meaningful_body = _ncc_meaningful_note(comment.body)
+        if meaningful_body:
+            latest_meaningful_any = meaningful_body
+            if comment.is_internal:
+                latest_meaningful_internal = meaningful_body
         if comment.is_internal:
             latest_internal = comment
-        else:
-            latest_public = comment
 
-    resolution_note = (latest_internal.body or "").strip() if latest_internal else ""
-    user_note = (latest_public.body or "").strip() if latest_public else ""
-    user_note_dt = _display_timestamp(latest_public.created_at) if latest_public else ""
+    metadata = ticket.metadata_ if isinstance(ticket.metadata_, dict) else {}
+    resolution_note = ""
+    for key in ("resolution_note", "resolution_notes", "resolution_details", "resolution_summary", "closure_note"):
+        resolution_note = _ncc_meaningful_note(metadata.get(key))
+        if resolution_note:
+            break
+    if not resolution_note:
+        resolution_note = latest_meaningful_internal or latest_meaningful_any
+    user_note = _ncc_clean_note_text(latest_internal.body) if latest_internal else ""
+    user_note_dt = _display_timestamp(latest_internal.created_at) if latest_internal else ""
     return resolution_note, user_note, user_note_dt
+
+
+def _ticket_phone_type(ticket: Ticket) -> str:
+    metadata = ticket.metadata_ if isinstance(ticket.metadata_, dict) else {}
+    for key in (
+        "phone_type",
+        "phone type",
+        "device_make_model",
+        "device make model",
+        "device_model",
+        "device model",
+        "phone_model",
+        "phone model",
+        "device",
+    ):
+        value = metadata.get(key)
+        if value:
+            return _clean_text(value)
+    return ""
 
 
 def _default_ncc_date_values() -> tuple[str, str]:
@@ -1289,6 +3966,7 @@ def _build_ncc_records(db: Session, start_dt: datetime, end_dt: datetime) -> lis
                 joinedload(Ticket.subscriber).joinedload(Subscriber.person),
                 joinedload(Ticket.subscriber).joinedload(Subscriber.organization),
                 joinedload(Ticket.comments).joinedload(TicketComment.author),
+                selectinload(Ticket.assignees),
             )
             .where(Ticket.created_at >= start_dt, Ticket.created_at <= end_dt)
             .order_by(Ticket.created_at.asc())
@@ -1307,9 +3985,60 @@ def _build_ncc_records(db: Session, start_dt: datetime, end_dt: datetime) -> lis
             if conversation.ticket_id and conversation.subject and conversation.ticket_id not in conversation_subjects:
                 conversation_subjects[conversation.ticket_id] = conversation.subject.strip()
 
+    subscriber_person_match_labels: set[str] = set()
+    raw_person_match_labels: set[str] = set()
+    person_email_match_labels: set[str] = set()
+    for ticket in tickets:
+        primary_person = _ticket_primary_person(ticket)
+        if primary_person is not None:
+            raw_label = _raw_person_match_label(primary_person.display_name)
+            if raw_label:
+                raw_person_match_labels.add(raw_label)
+            label = _normalized_person_match_label(primary_person.display_name)
+            if label:
+                subscriber_person_match_labels.add(label)
+            raw_label = _raw_person_match_label(f"{primary_person.first_name} {primary_person.last_name}")
+            if raw_label:
+                raw_person_match_labels.add(raw_label)
+            label = _normalized_person_match_label(f"{primary_person.first_name} {primary_person.last_name}")
+            if label:
+                subscriber_person_match_labels.add(label)
+            person_email_match_labels.update(_person_email_match_labels(primary_person))
+        subscriber_person_match_labels.update(_subscriber_person_match_labels(ticket.subscriber))
+        for raw_value in (
+            getattr(ticket.subscriber, "display_name", "") if ticket.subscriber else "",
+            getattr(ticket.subscriber, "subscriber_number", "") if ticket.subscriber else "",
+            getattr(ticket.subscriber, "external_id", "") if ticket.subscriber else "",
+            ticket.subscriber.organization.name if ticket.subscriber and ticket.subscriber.organization else "",
+        ):
+            raw_label = _raw_person_match_label(raw_value)
+            if raw_label:
+                raw_person_match_labels.add(raw_label)
+
+    fallback_people_by_label: dict[str, list[Person]] = {}
+    person_display_lookup_labels = subscriber_person_match_labels | raw_person_match_labels
+    if person_display_lookup_labels:
+        fallback_people = db.scalars(
+            select(Person).where(func.lower(Person.display_name).in_(person_display_lookup_labels))
+        ).all()
+        for fallback_person in fallback_people:
+            label = _normalized_person_match_label(fallback_person.display_name)
+            if label:
+                fallback_people_by_label.setdefault(label, []).append(fallback_person)
+
+    fallback_people_by_email: dict[str, list[Person]] = {}
+    if person_email_match_labels:
+        fallback_email_people = db.scalars(
+            select(Person).where(func.lower(Person.email).in_(person_email_match_labels))
+        ).all()
+        for fallback_person in fallback_email_people:
+            email = _ncc_clean_email(fallback_person.email)
+            if email:
+                fallback_people_by_email.setdefault(email, []).append(fallback_person)
+
     people: list[Person] = []
     for ticket in tickets:
-        person = _ticket_primary_person(ticket)
+        person = _ticket_ncc_person(ticket, fallback_people_by_label)
         if person is not None:
             people.append(person)
 
@@ -1332,51 +4061,73 @@ def _build_ncc_records(db: Session, start_dt: datetime, end_dt: datetime) -> lis
             continue
         if "core link disconnection" in ticket_type.lower():
             continue
+        if _looks_like_technical_ticket_name_source(ticket.title) and _normalized_ncc_category_key(ticket.title) in {
+            "test",
+            "this is a test",
+        }:
+            continue
 
-        person = _ticket_primary_person(ticket)
+        person = _ticket_ncc_person(ticket, fallback_people_by_label)
         first_name, last_name = _ticket_name_parts(ticket, person)
         if not first_name and not last_name:
             continue
         person_channels = channels_by_person.get(person.id, []) if person is not None else []
+        msisdn = _ticket_msisdn(person, person_channels) or _ticket_msisdn_from_exact_person_matches(
+            ticket,
+            person,
+            fallback_people_by_label,
+            fallback_people_by_email,
+        )
         resolution_note, user_note, user_note_dt = _ticket_notes(ticket)
-        lga, town, state = _map_ncc_location(ticket.region)
+        lga, town, state = _ticket_ncc_location(ticket)
+        subject_text = conversation_subjects.get(ticket.id, "") or ticket.title
+        ncc_category = _ncc_category_value(ticket_type, subject=subject_text, description=ticket.description)
+        ncc_subcategory = _ncc_subcategory_value(
+            ncc_category,
+            ticket_type,
+            subject=subject_text,
+            description=ticket.description,
+        )
 
         record = _clean_ncc_record(
             {
-                "MSISDN": _complete_ncc_msisdn_or_empty(person.phone if person else None),
+                "MSISDN": msisdn,
                 "First Name": first_name,
                 "Last Name": last_name,
-                "Email": _clean_text(person.email).lower() if person and person.email else "",
+                "Email": _ticket_email(person, person_channels),
                 "Age": _calculate_age(person.date_of_birth if person else None, ticket.created_at),
                 "Gender": _display_enum(person.gender)
                 if person and getattr(person.gender, "value", "unknown") != "unknown"
                 else "N/A",
                 "created date time": _display_timestamp(ticket.created_at),
-                "Subject": _title_case_report_value(conversation_subjects.get(ticket.id, ""))
-                or _title_case_report_value(ticket.title),
-                "Category": _title_case_report_value(ticket_type),
-                "category code (auto)": "",
-                "sub category code": "",
-                "Description (auto)": _clean_text(ticket.description),
-                "Ticket ID": ticket.number or str(ticket.id),
-                "Complaint type": _title_case_report_value(ticket_type),
-                "Status": _display_enum(ticket.status),
-                "Resolved date": _display_timestamp(ticket.resolved_at),
+                "Subject": _title_case_report_value(subject_text),
+                "Category": ncc_category,
+                "category code (auto)": _ncc_category_code_value(ncc_category),
+                "sub category code": ncc_subcategory,
+                "Description (auto)": _ncc_description_for_subcategory(ncc_subcategory),
+                "Ticket ID": _ncc_ticket_id(ticket),
+                "Complaint type": _ncc_complaint_type_value(ticket),
+                "Status": _ncc_status_value(ticket),
+                "Resolved date": _display_timestamp(ticket.resolved_at or ticket.closed_at),
+                "Resolved within SLA": _ncc_resolved_within_sla_value(ticket),
                 "Resolution Note": _clean_text(resolution_note),
                 "User Note": _clean_text(user_note),
                 "user notes datetime": user_note_dt,
                 "Language": "English",
-                "Ticket source": _title_case_report_value(_display_enum(ticket.channel)),
-                "alt phone number": _complete_ncc_msisdn_or_empty(_ticket_alt_phone(person, person_channels)),
-                "created by": _title_case_report_value(_person_name(ticket.created_by)),
+                "Ticket source": _ncc_ticket_source_value(ticket.channel),
+                "alt phone number": _ticket_alt_phone(person, person_channels),
+                "created by": _title_case_report_value(_person_name(ticket.created_by)) or "Dotmac CRM",
                 "State": state,
                 "LGA": lga,
-                "Town": _title_case_report_value(town) if town != "-" else town,
+                "Town": town,
+                "Phone Type": _ticket_phone_type(ticket),
                 "_ticket_url": f"/admin/support/tickets/{ticket.number or ticket.id}",
                 "_status_variant": _ncc_status_variant(ticket),
             }
         )
         if not record["First Name"] and not record["Last Name"]:
+            continue
+        if _ncc_name_contains_test(record["First Name"]) or _ncc_name_contains_test(record["Last Name"]):
             continue
         records.append(record)
     return records
@@ -1387,6 +4138,17 @@ def _ncc_export_rows(records: list[dict[str, str]]) -> list[dict[str, str]]:
     for record in records:
         export_rows.append({key: value for key, value in record.items() if not key.startswith("_")})
     return export_rows
+
+
+def _filter_ncc_records(records: list[dict[str, str]], query: str | None) -> list[dict[str, str]]:
+    normalized_query = _clean_text(query).lower()
+    if not normalized_query:
+        return records
+    return [
+        record
+        for record in records
+        if normalized_query in " ".join(str(record.get(column, "")) for column in _NCC_COLUMNS).lower()
+    ]
 
 
 @router.get("/operations")
@@ -1442,13 +4204,22 @@ def ncc_reports_page(
     db: Session = Depends(get_db),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
+    q: str | None = Query(None),
 ):
     from app.services import ncc_report_email as ncc_report_email_service
 
     user = get_current_user(request)
     start_dt, end_dt, start_value, end_value = _parse_ncc_window(start_date, end_date)
-    records = _build_ncc_records(db, start_dt, end_dt)
+    search_query = _clean_text(q)
+    all_records = _build_ncc_records(db, start_dt, end_dt)
+    records = _filter_ncc_records(all_records, search_query)
     ncc_email_settings = ncc_report_email_service.get_settings_snapshot(db)
+    export_params = {"start_date": start_value, "end_date": end_value}
+    if search_query:
+        export_params["q"] = search_query
+    page_params = {"start_date": start_value, "end_date": end_value}
+    if search_query:
+        page_params["q"] = search_query
 
     return templates.TemplateResponse(
         "admin/reports/ncc_reports.html",
@@ -1461,8 +4232,12 @@ def ncc_reports_page(
             "active_menu": "reports",
             "columns": _NCC_COLUMNS,
             "records": records,
+            "total_records": len(all_records),
             "window_start": start_value,
             "window_end": end_value,
+            "search_query": search_query,
+            "ncc_export_url": f"/admin/reports/ncc/export?{urlencode(export_params)}",
+            "ncc_current_url": f"/admin/reports/ncc?{urlencode(page_params)}",
             "ncc_email_settings": ncc_email_settings,
         },
     )
@@ -1529,11 +4304,12 @@ def ncc_reports_export(
     db: Session = Depends(get_db),
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
+    q: str | None = Query(None),
 ):
     start_dt, end_dt, _start_value, _end_value = _parse_ncc_window(start_date, end_date)
-    records = _ncc_export_rows(_build_ncc_records(db, start_dt, end_dt))
+    records = _ncc_export_rows(_filter_ncc_records(_build_ncc_records(db, start_dt, end_dt), q))
     workbook = _build_ncc_workbook(records, _NCC_COLUMNS)
-    return _xlsx_response(workbook, _NCC_EXPORT_FILENAME)
+    return _xlsx_response(workbook, _ncc_export_filename(start_dt))
 
 
 @router.get("/operations-sla-violations", response_class=HTMLResponse)

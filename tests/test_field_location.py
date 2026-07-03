@@ -8,6 +8,7 @@ from app.schemas.workforce import WorkOrderUpdate
 from app.services.field import location as location_module
 from app.services.field.jobs import field_jobs
 from app.services.field.location import resolve_job_location, update_job_location
+from app.services.field.map_search import search_map_places
 from app.services.workforce import work_orders
 
 
@@ -142,3 +143,20 @@ def test_field_job_update_location_scopes_to_assigned_technician(db_session, wor
 
     assert result["source"] == "manual"
     assert result["longitude"] == 3.8
+
+
+def test_map_search_finds_assigned_job_by_street(db_session, work_order, person, monkeypatch):
+    _attach_subscriber(db_session, work_order, person, line1="12 Fiber Street", city="Lekki")
+    assigned = work_orders.update(db_session, str(work_order.id), WorkOrderUpdate(assigned_to_person_id=person.id))
+    monkeypatch.setattr(
+        location_module.geocoding_service,
+        "geocode_address",
+        lambda db, data: {**data, "latitude": 6.45, "longitude": 3.39},
+    )
+
+    results = search_map_places(db_session, str(person.id), "Fiber Street")
+
+    assert results[0]["kind"] == "job"
+    assert results[0]["id"] == assigned.id
+    assert results[0]["address_text"] == "12 Fiber Street, Lekki, Lagos"
+    assert results[0]["latitude"] == 6.45

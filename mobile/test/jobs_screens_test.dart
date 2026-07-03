@@ -7,7 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-JobSummary _job({String status = 'dispatched', String workType = 'install'}) => JobSummary(
+JobSummary _job({String status = 'dispatched', String workType = 'install'}) =>
+    JobSummary(
       id: 'wo-1',
       title: 'Install fiber — Adaeze Okafor',
       status: status,
@@ -17,20 +18,35 @@ JobSummary _job({String status = 'dispatched', String workType = 'install'}) => 
       estimatedDurationMinutes: 90,
     );
 
-JobDetail _detail({String status = 'dispatched', JobLocation? location}) => JobDetail(
+JobDetail _detail({String status = 'dispatched', JobLocation? location}) =>
+    JobDetail(
       job: _job(status: status),
-      location: location ?? const JobLocation(latitude: 6.43, longitude: 3.42, addressText: '12 Admiralty Way', source: 'geocoded'),
-      customer: const JobCustomer(name: 'Adaeze Okafor', phone: '+2348012345678', servicePlan: '100 Mbps'),
+      location:
+          location ??
+          const JobLocation(
+            latitude: 6.43,
+            longitude: 3.42,
+            addressText: '12 Admiralty Way',
+            source: 'geocoded',
+          ),
+      customer: const JobCustomer(
+        name: 'Adaeze Okafor',
+        phone: '+2348012345678',
+        servicePlan: '100 Mbps',
+      ),
       ticketRef: 'TCK-1001',
     );
 
-Widget _wrap(Widget child, {List<Override> overrides = const []}) => ProviderScope(
+Widget _wrap(Widget child, {List<Override> overrides = const []}) =>
+    ProviderScope(
       overrides: overrides,
       child: MaterialApp(theme: lightTheme, home: child),
     );
 
 void main() {
-  testWidgets('job card shows work-type color bar and status dot', (tester) async {
+  testWidgets('job card shows work-type color bar and status dot', (
+    tester,
+  ) async {
     await tester.pumpWidget(_wrap(JobCard(job: _job())));
 
     expect(find.text('INSTALL'), findsOneWidget);
@@ -38,8 +54,12 @@ void main() {
     expect(find.text('dispatched'), findsOneWidget);
     expect(find.text('~90 min'), findsOneWidget);
 
-    final bar = tester.widgetList<Container>(find.byType(Container)).firstWhere(
-          (c) => c.constraints?.maxWidth == 5 || c.color == AppColors.workType('install'),
+    final bar = tester
+        .widgetList<Container>(find.byType(Container))
+        .firstWhere(
+          (c) =>
+              c.constraints?.maxWidth == 5 ||
+              c.color == AppColors.workType('install'),
           orElse: () => tester.widget<Container>(find.byType(Container).first),
         );
     expect(bar.color, AppColors.workType('install'));
@@ -53,14 +73,22 @@ void main() {
     ]) {
       testWidgets(status, (tester) async {
         final detail = _detail(status: status);
-        await tester.pumpWidget(_wrap(
-          const SizedBox(),
-          overrides: [jobDetailProvider('wo-1').overrideWith((ref) async => detail)],
-        ));
-        await tester.pumpWidget(_wrap(
-          const JobDetailScreen(jobId: 'wo-1'),
-          overrides: [jobDetailProvider('wo-1').overrideWith((ref) async => detail)],
-        ));
+        await tester.pumpWidget(
+          _wrap(
+            const SizedBox(),
+            overrides: [
+              jobDetailProvider('wo-1').overrideWith((ref) async => detail),
+            ],
+          ),
+        );
+        await tester.pumpWidget(
+          _wrap(
+            const JobDetailScreen(jobId: 'wo-1'),
+            overrides: [
+              jobDetailProvider('wo-1').overrideWith((ref) async => detail),
+            ],
+          ),
+        );
         await tester.pumpAndSettle();
 
         expect(find.byKey(const Key('primary-action')), findsOneWidget);
@@ -70,46 +98,63 @@ void main() {
 
     testWidgets('completed jobs have no primary action', (tester) async {
       final detail = _detail(status: 'completed');
-      await tester.pumpWidget(_wrap(
-        const JobDetailScreen(jobId: 'wo-1'),
-        overrides: [jobDetailProvider('wo-1').overrideWith((ref) async => detail)],
-      ));
+      await tester.pumpWidget(
+        _wrap(
+          const JobDetailScreen(jobId: 'wo-1'),
+          overrides: [
+            jobDetailProvider('wo-1').overrideWith((ref) async => detail),
+          ],
+        ),
+      );
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('primary-action')), findsNothing);
     });
   });
 
-  testWidgets('navigate button launches geo uri from coordinates', (tester) async {
+  testWidgets('navigate button launches geo uri from coordinates', (
+    tester,
+  ) async {
     final launched = <Uri>[];
-    await tester.pumpWidget(_wrap(
-      const JobDetailScreen(jobId: 'wo-1'),
-      overrides: [
-        jobDetailProvider('wo-1').overrideWith((ref) async => _detail()),
-        uriLauncherProvider.overrideWithValue((uri) async {
-          launched.add(uri);
-          return true;
-        }),
-      ],
-    ));
+    await tester.pumpWidget(
+      _wrap(
+        const JobDetailScreen(jobId: 'wo-1'),
+        overrides: [
+          jobDetailProvider('wo-1').overrideWith((ref) async => _detail()),
+          uriLauncherProvider.overrideWithValue((uri) async {
+            launched.add(uri);
+            return true;
+          }),
+        ],
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('navigate-button')));
     expect(launched.single.toString(), 'geo:6.43,3.42?q=6.43,3.42');
   });
 
-  testWidgets('address-only location falls back to maps text search', (tester) async {
+  testWidgets('address-only location falls back to maps text search', (
+    tester,
+  ) async {
     final launched = <Uri>[];
-    const location = JobLocation(addressText: '12 Admiralty Way, Lekki', source: 'address_only');
-    await tester.pumpWidget(_wrap(
-      const JobDetailScreen(jobId: 'wo-1'),
-      overrides: [
-        jobDetailProvider('wo-1').overrideWith((ref) async => _detail(location: location)),
-        uriLauncherProvider.overrideWithValue((uri) async {
-          launched.add(uri);
-          return true;
-        }),
-      ],
-    ));
+    const location = JobLocation(
+      addressText: '12 Admiralty Way, Lekki',
+      source: 'address_only',
+    );
+    await tester.pumpWidget(
+      _wrap(
+        const JobDetailScreen(jobId: 'wo-1'),
+        overrides: [
+          jobDetailProvider(
+            'wo-1',
+          ).overrideWith((ref) async => _detail(location: location)),
+          uriLauncherProvider.overrideWithValue((uri) async {
+            launched.add(uri);
+            return true;
+          }),
+        ],
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('navigate-button')));
@@ -145,46 +190,64 @@ void main() {
     expect(detail.notes.single['text'], 'Stored note returned as text');
   });
 
-  testWidgets('job detail renders notes returned with alternate body key', (tester) async {
+  testWidgets('job detail renders notes returned with alternate body key', (
+    tester,
+  ) async {
     final detail = JobDetail(
       job: _job(),
       location: const JobLocation(source: 'none'),
       notes: const [
-        {'text': 'Stored note returned as text'},
+        {
+          'text': 'Stored note returned as text',
+          'author_name': 'Adaeze Okafor',
+        },
       ],
     );
-    await tester.pumpWidget(_wrap(
-      const JobDetailScreen(jobId: 'wo-1'),
-      overrides: [jobDetailProvider('wo-1').overrideWith((ref) async => detail)],
-    ));
+    await tester.pumpWidget(
+      _wrap(
+        const JobDetailScreen(jobId: 'wo-1'),
+        overrides: [
+          jobDetailProvider('wo-1').overrideWith((ref) async => detail),
+        ],
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Stored note returned as text'), findsOneWidget);
+    expect(find.text('Adaeze Okafor'), findsOneWidget);
   });
 
   testWidgets('call button dials the customer', (tester) async {
     final launched = <Uri>[];
-    await tester.pumpWidget(_wrap(
-      const JobDetailScreen(jobId: 'wo-1'),
-      overrides: [
-        jobDetailProvider('wo-1').overrideWith((ref) async => _detail()),
-        uriLauncherProvider.overrideWithValue((uri) async {
-          launched.add(uri);
-          return true;
-        }),
-      ],
-    ));
+    await tester.pumpWidget(
+      _wrap(
+        const JobDetailScreen(jobId: 'wo-1'),
+        overrides: [
+          jobDetailProvider('wo-1').overrideWith((ref) async => _detail()),
+          uriLauncherProvider.overrideWithValue((uri) async {
+            launched.add(uri);
+            return true;
+          }),
+        ],
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('call-button')));
     expect(launched.single.scheme, 'tel');
   });
 
-  testWidgets('technician can open add note dialog from job detail', (tester) async {
-    await tester.pumpWidget(_wrap(
-      const JobDetailScreen(jobId: 'wo-1'),
-      overrides: [jobDetailProvider('wo-1').overrideWith((ref) async => _detail())],
-    ));
+  testWidgets('technician can open add note dialog from job detail', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        const JobDetailScreen(jobId: 'wo-1'),
+        overrides: [
+          jobDetailProvider('wo-1').overrideWith((ref) async => _detail()),
+        ],
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('add-note-action')));

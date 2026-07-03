@@ -162,7 +162,7 @@ def test_scheduled_ncc_report_sends_xlsx_and_marks_sent(db_session, monkeypatch)
     assert sent["body_text"] == "Hello,\nAttached NCC report for 2026-06-15. Rows: 1."
     assert sent["body_html"] == "<p>Hello,<br>Attached NCC report for 2026-06-15. Rows: 1.</p>"
     attachment = sent["attachments"][0]
-    assert attachment["file_name"] == "NCC REPORTS (DOTMAC).xlsx"
+    assert attachment["file_name"] == "Dotmac_Week3_202606.xlsx"
     assert attachment["mime_type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     last_sent = (

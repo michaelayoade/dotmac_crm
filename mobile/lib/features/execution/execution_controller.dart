@@ -14,7 +14,9 @@ final locationSourceProvider = Provider<LocationSource>((ref) {
 });
 
 /// Provided at app bootstrap once the drift database is opened.
-final syncServiceProvider = Provider<SyncService>((ref) => throw UnimplementedError('overridden at bootstrap'));
+final syncServiceProvider = Provider<SyncService>(
+  (ref) => throw UnimplementedError('overridden at bootstrap'),
+);
 
 /// Local timer bookkeeping: server-side auto-stop is authoritative; the
 /// client records its own start/stop pair as a worklog entry.
@@ -61,7 +63,9 @@ class ExecutionController extends Notifier<ActiveTimer?> {
     if (event == 'start') {
       state = ActiveTimer(jobId: jobId, startedAt: DateTime.now().toUtc());
     }
-    if (event == 'hold' || event == 'complete' || event == 'unable_to_complete') {
+    if (event == 'hold' ||
+        event == 'complete' ||
+        event == 'unable_to_complete') {
       await _stopTimer(jobId);
     }
 
@@ -77,7 +81,12 @@ class ExecutionController extends Notifier<ActiveTimer?> {
     required String reason,
     String? note,
   }) {
-    return transition(jobId, 'unable_to_complete', note: note, payload: {'reason': reason});
+    return transition(
+      jobId,
+      'unable_to_complete',
+      note: note,
+      payload: {'reason': reason},
+    );
   }
 
   Future<String> addNote(
@@ -99,7 +108,12 @@ class ExecutionController extends Notifier<ActiveTimer?> {
         'attachment_ids': attachmentIds,
       },
     );
-    await _sync.flushOutbox();
+    try {
+      await _sync.flushOutbox();
+    } catch (_) {
+      // The note is already queued locally. A transient immediate-sync failure
+      // should not make the save action look failed to the technician.
+    }
     return clientRef;
   }
 
@@ -120,11 +134,14 @@ class ExecutionController extends Notifier<ActiveTimer?> {
             'client_ref': clientRef,
             'start_at': timer.startedAt.toIso8601String(),
             'end_at': DateTime.now().toUtc().toIso8601String(),
-          }
+          },
         ],
       },
     );
   }
 }
 
-final executionControllerProvider = NotifierProvider<ExecutionController, ActiveTimer?>(ExecutionController.new);
+final executionControllerProvider =
+    NotifierProvider<ExecutionController, ActiveTimer?>(
+      ExecutionController.new,
+    );

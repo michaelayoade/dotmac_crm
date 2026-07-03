@@ -366,7 +366,7 @@ def run_scheduled_ncc_report_email(db: Session, *, now_utc: datetime | None = No
     records = ncc_reports._ncc_export_rows(ncc_reports._build_ncc_records(db, start_dt, end_dt))
     workbook = ncc_reports._build_ncc_workbook(records, ncc_reports._NCC_COLUMNS)
     attachment = {
-        "file_name": ncc_reports._NCC_EXPORT_FILENAME,
+        "file_name": ncc_reports._ncc_export_filename(local_now),
         "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "content_base64": base64.b64encode(workbook).decode("ascii"),
     }

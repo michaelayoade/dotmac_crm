@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -36,13 +38,35 @@ class JobDetailScreen extends ConsumerWidget {
   }
 }
 
-class _JobDetailView extends ConsumerWidget {
+class _JobDetailView extends ConsumerStatefulWidget {
   const _JobDetailView({required this.detail});
 
   final JobDetail detail;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_JobDetailView> createState() => _JobDetailViewState();
+}
+
+class _JobDetailViewState extends ConsumerState<_JobDetailView> {
+  late List<Map<String, dynamic>> _notes;
+
+  @override
+  void initState() {
+    super.initState();
+    _notes = [...widget.detail.notes];
+  }
+
+  @override
+  void didUpdateWidget(covariant _JobDetailView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.detail != widget.detail) {
+      _notes = [...widget.detail.notes];
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final detail = widget.detail;
     final job = detail.job;
     final action = primaryActionFor(job.status);
     final statusColor = AppColors.status(job.status);
@@ -54,7 +78,8 @@ class _JobDetailView extends ConsumerWidget {
           IconButton(
             tooltip: 'Request materials',
             onPressed: () => context.push(
-              '/materials/new?workOrderId=${Uri.encodeComponent(job.id)}',
+              '/materials/new?workOrderId=${Uri.encodeComponent(job.id)}'
+              '&workOrderLabel=${Uri.encodeComponent(job.title)}',
             ),
             icon: const Icon(Icons.inventory_2_outlined),
           ),
@@ -152,7 +177,7 @@ class _JobDetailView extends ConsumerWidget {
               ),
             ),
           ],
-          if (detail.notes.isNotEmpty) ...[
+          if (_notes.isNotEmpty) ...[
             const SizedBox(height: 12),
             Card(
               child: Padding(
@@ -165,10 +190,10 @@ class _JobDetailView extends ConsumerWidget {
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: 8),
-                    for (final note in detail.notes)
+                    for (final note in _notes)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Text(_noteBody(note)),
+                        child: _NoteTile(note: note),
                       ),
                   ],
                 ),
@@ -217,12 +242,16 @@ class _JobDetailView extends ConsumerWidget {
     );
   }
 
-  Future<void> _showAddNoteDialog(BuildContext context, WidgetRef ref, String jobId) async {
+  Future<void> _showAddNoteDialog(
+    BuildContext context,
+    WidgetRef ref,
+    String jobId,
+  ) async {
     final controller = TextEditingController();
     var isSaving = false;
     var errorText = '';
 
-    await showDialog<void>(
+    final result = await showDialog<({String clientRef, String body})>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
@@ -245,7 +274,9 @@ class _JobDetailView extends ConsumerWidget {
           ),
           actions: [
             TextButton(
-              onPressed: isSaving ? null : () => Navigator.of(dialogContext).pop(),
+              onPressed: isSaving
+                  ? null
+                  : () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancel'),
             ),
             FilledButton(
@@ -262,19 +293,23 @@ class _JobDetailView extends ConsumerWidget {
                         isSaving = true;
                         errorText = '';
                       });
+                      late final String clientRef;
                       try {
-                        await ref.read(executionControllerProvider.notifier).addNote(jobId, body);
-                        ref.invalidate(jobDetailProvider(jobId));
-                        if (dialogContext.mounted) Navigator.of(dialogContext).pop();
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Note saved')));
-                        }
+                        clientRef = await ref
+                            .read(executionControllerProvider.notifier)
+                            .addNote(jobId, body);
                       } catch (_) {
-                        if (!context.mounted) return;
+                        if (!dialogContext.mounted) return;
                         setState(() {
                           isSaving = false;
                           errorText = 'Could not save note';
                         });
+                        return;
+                      }
+                      if (dialogContext.mounted) {
+                        Navigator.of(
+                          dialogContext,
+                        ).pop((clientRef: clientRef, body: body));
                       }
                     },
               child: isSaving
@@ -290,6 +325,36 @@ class _JobDetailView extends ConsumerWidget {
       ),
     );
     controller.dispose();
+    if (result == null || !mounted) return;
+    _addLocalNote(result.clientRef, result.body);
+    ScaffoldMessenger.of(
+      this.context,
+    ).showSnackBar(const SnackBar(content: Text('Note saved')));
+    unawaited(_refreshJobDetail(jobId));
+  }
+
+  void _addLocalNote(String clientRef, String body) {
+    setState(() {
+      _notes = [
+        {
+          'id': clientRef,
+          'body': body,
+          'author_name': 'You',
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+        },
+        ..._notes,
+      ];
+    });
+  }
+
+  Future<void> _refreshJobDetail(String jobId) async {
+    try {
+      final detail = await ref.read(jobsRepositoryProvider).fetchDetail(jobId);
+      if (!mounted) return;
+      setState(() => _notes = [...detail.notes]);
+    } catch (_) {
+      // The note is saved/queued; a refresh problem should not show as save failure.
+    }
   }
 }
 
@@ -299,6 +364,51 @@ String _noteBody(Map<String, dynamic> note) {
     if (value is String && value.trim().isNotEmpty) return value;
   }
   return '';
+}
+
+class _NoteTile extends StatelessWidget {
+  const _NoteTile({required this.note});
+
+  final Map<String, dynamic> note;
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = _noteMeta(note);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (meta != null)
+          Text(
+            meta,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        Text(_noteBody(note)),
+      ],
+    );
+  }
+}
+
+String? _noteMeta(Map<String, dynamic> note) {
+  final author = _noteString(note, const [
+    'author_name',
+    'author',
+    'created_by_name',
+    'created_by',
+  ]);
+  final createdAt = _noteString(note, const ['created_at', 'createdAt']);
+  if (author == null && createdAt == null) return null;
+  if (author != null && createdAt != null) return '$author · $createdAt';
+  return author ?? createdAt;
+}
+
+String? _noteString(Map<String, dynamic> note, List<String> keys) {
+  for (final key in keys) {
+    final value = note[key];
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+  }
+  return null;
 }
 
 /// Field outcomes for a visit that can't be completed. Keys mirror the backend

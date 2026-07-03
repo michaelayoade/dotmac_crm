@@ -55,6 +55,7 @@ GoRouter buildRouter(Ref ref) {
         path: '/materials/new',
         builder: (_, state) => NewMaterialRequestScreen(
           initialWorkOrderId: state.uri.queryParameters['workOrderId'],
+          initialWorkOrderLabel: state.uri.queryParameters['workOrderLabel'],
         ),
       ),
       GoRoute(

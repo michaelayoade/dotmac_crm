@@ -9,6 +9,7 @@ from app.schemas.field import (
     FieldMapAssetListResponse,
     FieldMapAssetLocationUpdate,
     FieldMapAssetNearbyResponse,
+    FieldMapSearchResponse,
 )
 from app.services.auth_dependencies import require_user_auth
 from app.services.field.map_assets import (
@@ -18,6 +19,7 @@ from app.services.field.map_assets import (
     revert_map_asset_location,
     update_map_asset_location,
 )
+from app.services.field.map_search import search_map_places
 
 router = APIRouter(prefix="/map-assets", tags=["field-map-assets"])
 
@@ -26,6 +28,17 @@ def _parse_types(types: str | None) -> list[str] | None:
     if not types:
         return None
     return [item.strip() for item in types.split(",") if item.strip()]
+
+
+@router.get("/search", response_model=FieldMapSearchResponse)
+def search_field_map_places(
+    q: str = Query(min_length=1),
+    limit: int = Query(default=20, ge=1, le=50),
+    auth=Depends(require_user_auth),
+    db: Session = Depends(get_db),
+):
+    items = search_map_places(db, auth["person_id"], q, limit=limit)
+    return {"items": items, "count": len(items), "limit": limit, "offset": 0}
 
 
 @router.get("/nearby", response_model=FieldMapAssetNearbyResponse)

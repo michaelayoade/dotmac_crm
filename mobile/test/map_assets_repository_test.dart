@@ -29,6 +29,7 @@ void main() {
 
   late AppDatabase db;
   late FakeHttpAdapter adapter;
+  late FakeConnectivity connectivity;
   late SyncService sync;
   late ProviderContainer container;
 
@@ -50,10 +51,11 @@ void main() {
       tokenStore: store,
       dio: dio,
     );
+    connectivity = FakeConnectivity();
     sync = SyncService(
       db: db,
       api: api,
-      connectivity: FakeConnectivity(),
+      connectivity: connectivity,
       delay: (_) async {},
     );
     container = ProviderContainer(
@@ -71,6 +73,9 @@ void main() {
   });
 
   MapAssetsRepository repo() => container.read(mapAssetsRepositoryProvider);
+
+  MapPlaceSearchRepository searchRepo() =>
+      container.read(mapPlaceSearchRepositoryProvider);
 
   test('first map asset load fetches the API and warms the cache', () async {
     adapter.on('GET', '/api/v1/field/map-assets', (options) {
@@ -98,6 +103,42 @@ void main() {
 
     expect(assets.single.id, 'olt-1');
     expect((await db.select(db.cachedMapAssets).get()).single.assetId, 'olt-1');
+  });
+
+  test('map place search reads online street results', () async {
+    adapter.on('GET', '/api/v1/field/map-assets/search', (options) {
+      expect(options.queryParameters['q'], 'Fiber Street');
+      return (
+        200,
+        {
+          'items': [
+            {
+              'kind': 'job',
+              'id': 'job-1',
+              'title': 'Install at Fiber Street',
+              'latitude': 6.5,
+              'longitude': 3.4,
+              'status': 'dispatched',
+              'address_text': '12 Fiber Street, Lekki',
+            },
+          ],
+          'count': 1,
+        },
+      );
+    });
+
+    final results = await searchRepo().search('Fiber Street');
+
+    expect(results.single.kind, 'job');
+    expect(results.single.addressText, '12 Fiber Street, Lekki');
+  });
+
+  test('map place search stays local when offline', () async {
+    connectivity.online = false;
+
+    final results = await searchRepo().search('Fiber Street');
+
+    expect(results, isEmpty);
   });
 
   test('fresh cached map assets return without another API request', () async {

@@ -20,7 +20,10 @@ import 'helpers/fake_http.dart';
 
 void main() {
   if (Platform.isLinux) {
-    open.overrideFor(OperatingSystem.linux, () => DynamicLibrary.open('libsqlite3.so.0'));
+    open.overrideFor(
+      OperatingSystem.linux,
+      () => DynamicLibrary.open('libsqlite3.so.0'),
+    );
   }
 
   late AppDatabase db;
@@ -31,7 +34,9 @@ void main() {
 
   setUp(() async {
     db = AppDatabase(NativeDatabase.memory());
-    connectivity = FakeConnectivity(online: false); // keep entries queued for inspection
+    connectivity = FakeConnectivity(
+      online: false,
+    ); // keep entries queued for inspection
     location = FakeLocation((latitude: 6.43, longitude: 3.42));
     final adapter = FakeHttpAdapter();
     final store = InMemoryTokenStore();
@@ -39,14 +44,20 @@ void main() {
     dio.httpClientAdapter = adapter;
     sync = SyncService(
       db: db,
-      api: ApiClient(baseUrl: 'https://test.local', tokenStore: store, dio: dio),
+      api: ApiClient(
+        baseUrl: 'https://test.local',
+        tokenStore: store,
+        dio: dio,
+      ),
       connectivity: connectivity,
       delay: (_) async {},
     );
-    container = ProviderContainer(overrides: [
-      syncServiceProvider.overrideWithValue(sync),
-      locationSourceProvider.overrideWithValue(location),
-    ]);
+    container = ProviderContainer(
+      overrides: [
+        syncServiceProvider.overrideWithValue(sync),
+        locationSourceProvider.overrideWithValue(location),
+      ],
+    );
   });
 
   tearDown(() async {
@@ -59,7 +70,9 @@ void main() {
     final rows = await db.select(db.outboxEntries).get();
     return rows
         .where((row) => row.kind == kind)
-        .map((row) => (jsonDecode(row.payloadJson) as Map).cast<String, dynamic>())
+        .map(
+          (row) => (jsonDecode(row.payloadJson) as Map).cast<String, dynamic>(),
+        )
         .toList();
   }
 
@@ -104,22 +117,49 @@ void main() {
       final controller = container.read(executionControllerProvider.notifier);
       await expectLater(controller.addNote('wo-1', '   '), throwsArgumentError);
     });
+
+    test('addNote still succeeds when immediate flush fails', () async {
+      await sync.dispose();
+      final failingSync = _FlushFailingSyncService(
+        db: db,
+        api: sync.api,
+        connectivity: connectivity,
+      );
+      sync = failingSync;
+      container.dispose();
+      container = ProviderContainer(
+        overrides: [
+          syncServiceProvider.overrideWithValue(failingSync),
+          locationSourceProvider.overrideWithValue(location),
+        ],
+      );
+
+      final controller = container.read(executionControllerProvider.notifier);
+      final clientRef = await controller.addNote('wo-1', '  ONT replaced  ');
+
+      final payloads = await queued('note');
+      expect(clientRef, isNotEmpty);
+      expect(payloads.single['body'], 'ONT replaced');
+    });
   });
 
   group('timer', () {
-    test('start opens a timer; hold queues a closed worklog and clears it', () async {
-      final controller = container.read(executionControllerProvider.notifier);
-      await controller.transition('wo-1', 'start');
-      expect(container.read(executionControllerProvider), isNotNull);
+    test(
+      'start opens a timer; hold queues a closed worklog and clears it',
+      () async {
+        final controller = container.read(executionControllerProvider.notifier);
+        await controller.transition('wo-1', 'start');
+        expect(container.read(executionControllerProvider), isNotNull);
 
-      await controller.transition('wo-1', 'hold');
-      expect(container.read(executionControllerProvider), isNull);
+        await controller.transition('wo-1', 'hold');
+        expect(container.read(executionControllerProvider), isNull);
 
-      final worklogs = await queued('worklog');
-      final entry = (worklogs.single['entries'] as List).single as Map;
-      expect(entry['start_at'], isNotNull);
-      expect(entry['end_at'], isNotNull);
-    });
+        final worklogs = await queued('worklog');
+        final entry = (worklogs.single['entries'] as List).single as Map;
+        expect(entry['start_at'], isNotNull);
+        expect(entry['end_at'], isNotNull);
+      },
+    );
 
     test('complete also stops the timer', () async {
       final controller = container.read(executionControllerProvider.notifier);
@@ -129,18 +169,30 @@ void main() {
       expect((await queued('worklog')).length, 1);
     });
 
-    test('unable to complete queues a cancel event with reason and clears the timer', () async {
-      final controller = container.read(executionControllerProvider.notifier);
-      await controller.transition('wo-1', 'start');
-      expect(container.read(executionControllerProvider), isNotNull);
+    test(
+      'unable to complete queues a cancel event with reason and clears the timer',
+      () async {
+        final controller = container.read(executionControllerProvider.notifier);
+        await controller.transition('wo-1', 'start');
+        expect(container.read(executionControllerProvider), isNotNull);
 
-      await controller.unableToComplete('wo-1', reason: 'no_access', note: 'gate locked');
-      expect(container.read(executionControllerProvider), isNull); // timer cleared
+        await controller.unableToComplete(
+          'wo-1',
+          reason: 'no_access',
+          note: 'gate locked',
+        );
+        expect(
+          container.read(executionControllerProvider),
+          isNull,
+        ); // timer cleared
 
-      final event = (await queued('transition')).firstWhere((p) => p['event'] == 'unable_to_complete');
-      expect((event['payload'] as Map)['reason'], 'no_access');
-      expect(event['note'], 'gate locked');
-    });
+        final event = (await queued(
+          'transition',
+        )).firstWhere((p) => p['event'] == 'unable_to_complete');
+        expect((event['payload'] as Map)['reason'], 'no_access');
+        expect(event['note'], 'gate locked');
+      },
+    );
   });
 
   group('completion gating mirrors the server gate', () {
@@ -157,16 +209,36 @@ void main() {
     });
 
     test('signature fallback reason satisfies sign-off', () {
-      final state = const CompletionState(checklistDone: true, photoCount: 1)
-          .copyWith(signatureUnavailableReason: 'customer absent');
+      final state = const CompletionState(
+        checklistDone: true,
+        photoCount: 1,
+      ).copyWith(signatureUnavailableReason: 'customer absent');
       expect(state.canComplete, isTrue);
-      expect(state.transitionPayload['signature_unavailable_reason'], 'customer absent');
+      expect(
+        state.transitionPayload['signature_unavailable_reason'],
+        'customer absent',
+      );
     });
 
     test('whitespace-only fallback does not count', () {
-      final state =
-          const CompletionState(checklistDone: true, photoCount: 1).copyWith(signatureUnavailableReason: '   ');
+      final state = const CompletionState(
+        checklistDone: true,
+        photoCount: 1,
+      ).copyWith(signatureUnavailableReason: '   ');
       expect(state.canComplete, isFalse);
     });
   });
+}
+
+class _FlushFailingSyncService extends SyncService {
+  _FlushFailingSyncService({
+    required super.db,
+    required super.api,
+    required super.connectivity,
+  });
+
+  @override
+  Future<int> flushOutbox() async {
+    throw StateError('simulated immediate flush failure');
+  }
 }
