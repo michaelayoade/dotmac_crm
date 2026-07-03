@@ -251,7 +251,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
     var isSaving = false;
     var errorText = '';
 
-    await showDialog<void>(
+    final result = await showDialog<({String clientRef, String body})>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
@@ -306,17 +306,11 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                         });
                         return;
                       }
-                      if (!mounted) return;
-                      _addLocalNote(clientRef, body);
                       if (dialogContext.mounted) {
-                        Navigator.of(dialogContext).pop();
+                        Navigator.of(
+                          dialogContext,
+                        ).pop((clientRef: clientRef, body: body));
                       }
-                      if (mounted) {
-                        ScaffoldMessenger.of(this.context).showSnackBar(
-                          const SnackBar(content: Text('Note saved')),
-                        );
-                      }
-                      unawaited(_refreshJobDetail(jobId));
                     },
               child: isSaving
                   ? const SizedBox(
@@ -331,6 +325,12 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
       ),
     );
     controller.dispose();
+    if (result == null || !mounted) return;
+    _addLocalNote(result.clientRef, result.body);
+    ScaffoldMessenger.of(
+      this.context,
+    ).showSnackBar(const SnackBar(content: Text('Note saved')));
+    unawaited(_refreshJobDetail(jobId));
   }
 
   void _addLocalNote(String clientRef, String body) {
