@@ -816,33 +816,34 @@ def _normalize_msisdn(value: str | None) -> str:
     cleaned = _clean_text(value)
     if not cleaned:
         return ""
-    if cleaned.startswith("+"):
-        digits = "".join(char for char in cleaned[1:] if char.isdigit())
-        return f"+{digits}" if digits else ""
+    device_id = "".join(char for char in cleaned if char.isalnum())
+    if (
+        device_id
+        and any(char.isalpha() for char in device_id)
+        and any(char.isdigit() for char in device_id)
+        and len(device_id) <= 40
+    ):
+        return device_id.upper()
     digits = "".join(char for char in cleaned if char.isdigit())
     if not digits:
         return ""
-    if digits.startswith("234") and len(digits) >= 13:
-        return f"+{digits}"
-    if digits.startswith("0"):
+    if digits.startswith("234") and len(digits) == 13:
         return digits
+    if digits.startswith("0") and len(digits) == 11:
+        return f"234{digits[1:]}"
     if len(digits) == 10:
-        return f"0{digits}"
-    if digits.startswith("234"):
-        return f"+{digits}"
-    return digits
+        return f"234{digits}"
+    return digits if digits.startswith("234") else ""
 
 
 def _complete_ncc_msisdn_or_empty(value: str | None) -> str:
     normalized = _normalize_msisdn(value)
     if not normalized:
         return ""
+    if any(char.isalpha() for char in normalized):
+        return normalized if normalized.isalnum() else ""
     digits = "".join(char for char in normalized if char.isdigit())
-    if normalized.startswith("+234"):
-        return normalized if len(digits) == 13 else ""
-    if normalized.startswith("0"):
-        return normalized if len(digits) == 11 else ""
-    return normalized if 10 <= len(digits) <= 15 else ""
+    return normalized if normalized.startswith("234") and len(digits) == 13 else ""
 
 
 _NCC_EMPTY_MARKERS = {
@@ -957,7 +958,7 @@ def _normalize_person_name_parts(first_name: str, last_name: str) -> tuple[str, 
         return normalized_first, normalized_last
 
     last_parts = normalized_last.split()
-    normalized_first = f"{normalized_first} {last_parts[0]}".strip()
+    normalized_first = f"{normalized_first.rstrip('.')} {last_parts[0]}".strip()
     normalized_last = " ".join(last_parts[1:]).strip()
     return normalized_first, normalized_last
 
@@ -1024,7 +1025,8 @@ def _label_to_name_parts(value: str, *, treat_as_business: bool = False) -> tupl
         return "", ""
     if treat_as_business or _looks_like_business_name(cleaned):
         return cleaned, ""
-    return _split_name(cleaned)
+    first_name, last_name = _split_name(cleaned)
+    return _normalize_person_name_parts(first_name, last_name)
 
 
 def _ticket_name_parts(ticket: Ticket, person: Person | None) -> tuple[str, str]:
