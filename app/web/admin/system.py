@@ -6,11 +6,13 @@ import io
 import json
 import logging
 import secrets
+import time
 from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import urlencode
 from uuid import UUID
 
+import redis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import ValidationError
@@ -91,11 +93,15 @@ from app.services.auth_flow import hash_password
 from app.services.common import coerce_uuid
 from app.services.crm.campaign_senders import campaign_senders
 from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
+from app.services.settings_cache import get_settings_redis
 from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter(prefix="/system", tags=["web-admin-system"])
 logger = logging.getLogger(__name__)
+_API_KEY_FLASH_TTL_SECONDS = 60
+_API_KEY_FLASH_PREFIX = "api_key_flash:"
+_API_KEY_FLASH_MEMORY: dict[str, tuple[str, str, float]] = {}
 
 
 def __getattr__(name: str):
@@ -112,6 +118,56 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _api_key_flash_cache_key(token: str) -> str:
+    return f"{_API_KEY_FLASH_PREFIX}{token}"
+
+
+def _store_api_key_flash(raw_key: str, person_id: str) -> str:
+    token = secrets.token_urlsafe(32)
+    payload = json.dumps({"key": raw_key, "person_id": person_id})
+    try:
+        redis_client = get_settings_redis()
+        redis_client.setex(_api_key_flash_cache_key(token), _API_KEY_FLASH_TTL_SECONDS, payload)
+        return token
+    except redis.RedisError as exc:
+        logger.warning("api_key_flash_redis_store_failed error=%s", exc)
+
+    _API_KEY_FLASH_MEMORY[token] = (raw_key, person_id, time.monotonic() + _API_KEY_FLASH_TTL_SECONDS)
+    return token
+
+
+def _consume_api_key_flash(token: str | None, person_id: str | None) -> str | None:
+    if not token or not person_id:
+        return None
+
+    try:
+        redis_client = get_settings_redis()
+        key = _api_key_flash_cache_key(token)
+        pipe = redis_client.pipeline()
+        pipe.get(key)
+        pipe.delete(key)
+        result = pipe.execute()
+        raw_payload = result[0] if result else None
+        if isinstance(raw_payload, str):
+            payload = json.loads(raw_payload)
+            if payload.get("person_id") == person_id and isinstance(payload.get("key"), str):
+                return payload["key"]
+        return None
+    except redis.RedisError as exc:
+        logger.warning("api_key_flash_redis_consume_failed error=%s", exc)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning("api_key_flash_payload_invalid error=%s", exc)
+        return None
+
+    cached = _API_KEY_FLASH_MEMORY.pop(token, None)
+    if not cached:
+        return None
+    raw_key, cached_person_id, expires_at = cached
+    if cached_person_id != person_id or expires_at < time.monotonic():
+        return None
+    return raw_key
 
 
 def _is_admin_request(request: Request) -> bool:
@@ -2747,14 +2803,15 @@ def permission_delete(request: Request, permission_id: str, db: Session = Depend
 
 
 @router.get("/api-keys", response_class=HTMLResponse)
-def api_keys_list(request: Request, new_key: str | None = None, db: Session = Depends(get_db)):
+def api_keys_list(request: Request, flash_token: str | None = None, db: Session = Depends(get_db)):
     from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
     current_user = get_current_user(request)
     api_keys = []
+    person_id = str(current_user["person_id"]) if current_user and current_user.get("person_id") else None
+    new_key = _consume_api_key_flash(flash_token, person_id)
 
-    if current_user and current_user.get("person_id"):
-        person_id = current_user["person_id"]
+    if person_id:
         api_keys = (
             db.query(ApiKey).filter(ApiKey.person_id == coerce_uuid(person_id)).order_by(ApiKey.created_at.desc()).all()
         )
@@ -2825,8 +2882,8 @@ def api_key_create(
         db.add(api_key)
         db.commit()
 
-        # Return to list with the new key shown
-        return RedirectResponse(url=f"/admin/system/api-keys?new_key={raw_key}", status_code=303)
+        flash_token = _store_api_key_flash(raw_key, str(current_user["person_id"]))
+        return RedirectResponse(url=f"/admin/system/api-keys?flash_token={flash_token}", status_code=303)
     except Exception as e:
         context: dict[str, object] = {
             "request": request,
