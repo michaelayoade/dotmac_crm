@@ -3337,11 +3337,40 @@ def _map_ncc_location(ticket_region: str | None) -> tuple[str, str, str]:
             return lga, town, "FEDERAL CAPITAL TERRITORY"
 
     for lga, aliases in area_council_aliases.items():
-        for alias in aliases:
+        for alias in sorted(aliases, key=len, reverse=True):
             if alias in normalized or normalized in alias:
-                return lga, town, "FEDERAL CAPITAL TERRITORY"
+                return lga, _ncc_location_alias_to_town(alias), "FEDERAL CAPITAL TERRITORY"
 
     return "", town, ""
+
+
+def _ncc_location_alias_to_town(alias: str) -> str:
+    overrides = {
+        "lifecamp": "Life Camp",
+        "wuse ii": "Wuse II",
+    }
+    return overrides.get(alias, alias.title())
+
+
+def _ticket_ncc_location(ticket: Ticket) -> tuple[str, str, str]:
+    subscriber = ticket.subscriber
+    location_sources = []
+    if subscriber is not None:
+        location_sources.extend(
+            [
+                subscriber.service_city,
+                subscriber.service_region,
+                subscriber.service_address_line2,
+                subscriber.service_address_line1,
+            ]
+        )
+    location_sources.append(ticket.region)
+
+    for source in location_sources:
+        lga, town, state = _map_ncc_location(source)
+        if lga and state:
+            return lga, town, state
+    return "", _clean_text(next((source for source in location_sources if source), "")), ""
 
 
 _NCC_GENERIC_RESOLUTION_NOTE_MARKERS = (
@@ -3584,7 +3613,7 @@ def _build_ncc_records(db: Session, start_dt: datetime, end_dt: datetime) -> lis
             fallback_people_by_email,
         )
         resolution_note, user_note, user_note_dt = _ticket_notes(ticket)
-        lga, town, state = _map_ncc_location(ticket.region)
+        lga, town, state = _ticket_ncc_location(ticket)
         subject_text = conversation_subjects.get(ticket.id, "") or ticket.title
         ncc_category = _ncc_category_value(ticket_type, subject=subject_text, description=ticket.description)
         ncc_subcategory = _ncc_subcategory_value(

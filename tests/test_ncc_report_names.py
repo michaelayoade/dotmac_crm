@@ -245,6 +245,32 @@ def test_ncc_validation_status_requires_language_state_and_lga():
     assert "LGA is required (col Z)" in cleaned["VALIDATION STATUS"]
 
 
+def test_ncc_location_maps_area_from_full_service_address():
+    assert reports._map_ncc_location("10 Clement Akpamgbo Close, Guzape") == (
+        "Municipal Area Council",
+        "Guzape",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+
+
+def test_ncc_ticket_location_prefers_subscriber_address_over_ticket_region():
+    ticket = SimpleNamespace(
+        region="Gudu",
+        subscriber=SimpleNamespace(
+            service_city="",
+            service_region="",
+            service_address_line1="10 Clement Akpamgbo Close, Guzape",
+            service_address_line2="",
+        ),
+    )
+
+    assert reports._ticket_ncc_location(ticket) == (
+        "Municipal Area Council",
+        "Guzape",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+
+
 def test_ncc_workbook_colors_rows_by_validation_status():
     workbook = reports._build_ncc_workbook(
         [
