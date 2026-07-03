@@ -3711,16 +3711,26 @@ _NCC_FCT_TABLE_ALIASES = {
     "garki 2": ("Municipal Area Council", "Garki"),
     "garki ii": ("Municipal Area Council", "Garki"),
     "garki area 2": ("Municipal Area Council", "Garki"),
+    "gwarimpa": ("Municipal Area Council", "Gwarinpa"),
     "gwarimpa fed housing": ("Municipal Area Council", "Gwarinpa Fed. Housing"),
     "gwarimpa federal housing": ("Municipal Area Council", "Gwarinpa Fed. Housing"),
     "gwarimpa life camp": ("Municipal Area Council", "Gwarinpa Life Camp"),
     "gwarimpa village": ("Municipal Area Council", "Gwarinpa Village"),
+    "jahi": ("Municipal Area Council", "Jahi"),
     "jikwoyi": ("Municipal Area Council", "Jikwoyi"),
+    "karsana": ("Municipal Area Council", "Karsana I"),
     "kpeyegyi": ("Municipal Area Council", "Kpepegyi"),
     "nepa village": ("Municipal Area Council", "Garki"),
 }
 _NCC_FCT_TABLE_LOOKUP.update(_NCC_FCT_TABLE_ALIASES)
 _NCC_FCT_TABLE_MATCHERS = sorted(_NCC_FCT_TABLE_LOOKUP.items(), key=lambda item: len(item[0]), reverse=True)
+_NCC_NON_FCT_LOCATION_ALIASES = {
+    "agege": ("LAGOS", "Agege", "Agege"),
+    "igando": ("LAGOS", "Alimosho", "Igando"),
+}
+_NCC_NON_FCT_LOCATION_MATCHERS = sorted(
+    _NCC_NON_FCT_LOCATION_ALIASES.items(), key=lambda item: len(item[0]), reverse=True
+)
 
 
 def _map_ncc_location(ticket_region: str | None) -> tuple[str, str, str]:
@@ -3729,6 +3739,10 @@ def _map_ncc_location(ticket_region: str | None) -> tuple[str, str, str]:
     if table_match:
         lga, town = table_match
         return lga, town, "FEDERAL CAPITAL TERRITORY"
+    non_fct_match = _ncc_non_fct_location_from_address(source)
+    if non_fct_match:
+        state, lga, town = non_fct_match
+        return lga, town, state
     town = _ncc_town_from_address(source)
     if not town:
         return "", "", ""
@@ -3746,6 +3760,22 @@ def _ncc_fct_table_location_from_address(value: object) -> tuple[str, str] | Non
         if not normalized:
             continue
         for alias, location in _NCC_FCT_TABLE_MATCHERS:
+            if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized):
+                return location
+    return None
+
+
+def _ncc_non_fct_location_from_address(value: object) -> tuple[str, str, str] | None:
+    source = _clean_text(value)
+    if not source:
+        return None
+    parts = [part for part in re.split(r"[,;\n\r]+", source) if part.strip()]
+    candidates = [*parts[::-1], source]
+    for candidate in candidates:
+        normalized = _normalize_ncc_region(candidate)
+        if not normalized:
+            continue
+        for alias, location in _NCC_NON_FCT_LOCATION_MATCHERS:
             if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized):
                 return location
     return None

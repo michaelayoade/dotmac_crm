@@ -307,6 +307,37 @@ def test_ncc_location_maps_non_amac_fct_table_rows():
     )
 
 
+def test_ncc_location_maps_common_fct_aliases_from_current_data():
+    assert reports._map_ncc_location("Plot 385 IPENT 7 Estate, Dr sanusi ohiari street Karsana Abuja") == (
+        "Municipal Area Council",
+        "Karsana I",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+    assert reports._map_ncc_location("Gwarimpa") == (
+        "Municipal Area Council",
+        "Gwarinpa",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+    assert reports._map_ncc_location("2402 Cadastral Zone, Jahi, Abuja") == (
+        "Municipal Area Council",
+        "Jahi",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+
+
+def test_ncc_location_maps_current_lagos_rows():
+    assert reports._map_ncc_location("1 Tunde Adesokan Close, igando Lagos") == (
+        "Alimosho",
+        "Igando",
+        "LAGOS",
+    )
+    assert reports._map_ncc_location("5,Sands Avenue,Agege Lagos State Nigeria") == (
+        "Agege",
+        "Agege",
+        "LAGOS",
+    )
+
+
 def test_ncc_location_uses_region_when_address_has_no_accepted_town_match():
     ticket = SimpleNamespace(
         region="Gudu",
