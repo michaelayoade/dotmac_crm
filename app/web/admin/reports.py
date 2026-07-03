@@ -3382,14 +3382,234 @@ _NCC_TOWN_ALIASES = {
 _NCC_TOWN_LOOKUP = {_normalize_ncc_region(town): town for town in _NCC_ACCEPTED_TOWNS}
 _NCC_TOWN_LOOKUP.update(_NCC_TOWN_ALIASES)
 _NCC_TOWN_MATCHERS = sorted(_NCC_TOWN_LOOKUP.items(), key=lambda item: len(item[0]), reverse=True)
+_NCC_FCT_DISTRICT_ROWS = (
+    (
+        "Municipal Area Council",
+        "Garki",
+        (
+            "Abacha Barracks",
+            "Apo",
+            "Damagaza",
+            "Dantata",
+            "Durumi I",
+            "Durumi II",
+            "Durumi III",
+            "Dutse",
+            "Garki Village",
+            "Gudu",
+            "Guzape",
+            "Kobi",
+            "Kurumduma",
+            "NEPA Village",
+            "Wumba",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Gui",
+        (
+            "Airport",
+            "Barowa",
+            "Damakuba",
+            "Dandi",
+            "Dayisa",
+            "Dodo",
+            "Gbenduniya",
+            "Gbessa",
+            "Gora",
+            "Gosa",
+            "Gud Pasali",
+            "Gui",
+            "Gwako",
+            "Iddo Maaji",
+            "Iddo Pada",
+            "Iddo Sabo",
+            "Iddo Sarki",
+            "Iddo Tudunwada",
+            "Koloke",
+            "Makana",
+            "Makanima",
+            "Nuwalogye",
+            "Sauka",
+            "Takilogo",
+            "Toge",
+            "Tunga Kwaso",
+            "Tungan Jika",
+            "Tungan Wakili Isa",
+            "Zamani",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Gwagwa",
+        (
+            "Bagusa",
+            "Dei-die",
+            "Filin Dabo",
+            "Filin Dabo I",
+            "Filin Dabo II",
+            "Gwagwa",
+            "Kaba",
+            "Kagini",
+            "Karsana I",
+            "Karsana II",
+            "Karsana III",
+            "Saburi I",
+            "Saburi II",
+            "Tasha",
+            "Zaudna",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Gwarinpa",
+        (
+            "Gwarinpa Fed. Housing",
+            "Gwarinpa Life Camp",
+            "Gwarinpa Village",
+            "Kado Federal Housing",
+            "Kado Village",
+            "Katampe",
+            "Kuchigoro",
+            "Mabushi",
+            "Utako",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Jiwa",
+        (
+            "Basan Jiwa",
+            "Gyeda",
+            "Hulumi",
+            "Idu",
+            "Idu Gwari",
+            "Jiwa",
+            "Karmo Sabo",
+            "Karmo Tsoho",
+            "Paipe",
+            "Tungan Dallatu",
+            "Tungan Madaki",
+            "Zhidu",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Kabusa",
+        (
+            "Aleyita",
+            "Burum",
+            "Dogori Gada",
+            "Galadimawa",
+            "Kabusa",
+            "Ketti",
+            "Lokogoma",
+            "Lugbe",
+            "Piwoyi",
+            "Pykasa",
+            "Sabon Lugbe",
+            "Sheretti",
+            "Takushara",
+            "Wani",
+            "Zhidu",
+            "Zidna",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Karu",
+        (
+            "Jikwoyi",
+            "Karu Site (FHA)",
+            "Karu Village",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Nyanya",
+        (
+            "Angawa Bawa",
+            "Gbagarape",
+            "Kugbo",
+            "Nyanya Site-Area A-F",
+            "Nyanya Village/Gwandara",
+            "Nyanya Village/Gwari",
+        ),
+    ),
+    (
+        "Municipal Area Council",
+        "Orozo",
+        (
+            "Ajata",
+            "Angwan Sako",
+            "Anka",
+            "Badna",
+            "Chori Bisa",
+            "Gidan Ajiya",
+            "Gidan Mangoro",
+            "Gugugu",
+            "Kpepegyi",
+            "Kurudu",
+            "Kurudu Gwandara",
+            "Kwoi",
+            "Madalla",
+            "Munapeyi Kasa",
+            "Munapeyi Sama",
+            "Orozo I",
+            "Orozo II",
+            "Sabon Gari",
+            "Wowo",
+        ),
+    ),
+)
+_NCC_FCT_TABLE_LOOKUP: dict[str, tuple[str, str]] = {}
+for _lga, _district, _towns in _NCC_FCT_DISTRICT_ROWS:
+    _NCC_FCT_TABLE_LOOKUP[_normalize_ncc_region(_district)] = (_lga, _district)
+    for _town in _towns:
+        _NCC_FCT_TABLE_LOOKUP[_normalize_ncc_region(_town)] = (_lga, _town)
+_NCC_FCT_TABLE_ALIASES = {
+    "dei dei": ("Municipal Area Council", "Dei-die"),
+    "garki 2": ("Municipal Area Council", "Garki"),
+    "garki ii": ("Municipal Area Council", "Garki"),
+    "garki area 2": ("Municipal Area Council", "Garki"),
+    "gwarimpa fed housing": ("Municipal Area Council", "Gwarinpa Fed. Housing"),
+    "gwarimpa federal housing": ("Municipal Area Council", "Gwarinpa Fed. Housing"),
+    "gwarimpa life camp": ("Municipal Area Council", "Gwarinpa Life Camp"),
+    "gwarimpa village": ("Municipal Area Council", "Gwarinpa Village"),
+    "jikwoyi": ("Municipal Area Council", "Jikwoyi"),
+    "kpeyegyi": ("Municipal Area Council", "Kpepegyi"),
+    "nepa village": ("Municipal Area Council", "Garki"),
+}
+_NCC_FCT_TABLE_LOOKUP.update(_NCC_FCT_TABLE_ALIASES)
+_NCC_FCT_TABLE_MATCHERS = sorted(_NCC_FCT_TABLE_LOOKUP.items(), key=lambda item: len(item[0]), reverse=True)
 
 
 def _map_ncc_location(ticket_region: str | None) -> tuple[str, str, str]:
     source = (ticket_region or "").strip()
+    table_match = _ncc_fct_table_location_from_address(source)
+    if table_match:
+        lga, town = table_match
+        return lga, town, "FEDERAL CAPITAL TERRITORY"
     town = _ncc_town_from_address(source)
     if not town:
         return "", "", ""
     return "Municipal Area Council", town, "FEDERAL CAPITAL TERRITORY"
+
+
+def _ncc_fct_table_location_from_address(value: object) -> tuple[str, str] | None:
+    source = _clean_text(value)
+    if not source:
+        return None
+    parts = [part for part in re.split(r"[,;\n\r]+", source) if part.strip()]
+    candidates = [*parts[::-1], source]
+    for candidate in candidates:
+        normalized = _normalize_ncc_region(candidate)
+        if not normalized:
+            continue
+        for alias, location in _NCC_FCT_TABLE_MATCHERS:
+            if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized):
+                return location
+    return None
 
 
 def _ncc_town_from_address(value: object) -> str:

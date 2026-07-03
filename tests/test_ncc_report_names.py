@@ -276,6 +276,14 @@ def test_ncc_location_maps_jabi_from_customer_address():
     )
 
 
+def test_ncc_location_uses_new_fct_table_before_old_list():
+    assert reports._map_ncc_location("Global Estate, Sabon Lugbe") == (
+        "Municipal Area Council",
+        "Sabon Lugbe",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+
+
 def test_ncc_location_uses_region_when_address_has_no_accepted_town_match():
     ticket = SimpleNamespace(
         region="Gudu",
