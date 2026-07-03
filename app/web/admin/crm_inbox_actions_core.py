@@ -14,6 +14,7 @@ from app.models.person import Person
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm.inbox.formatting import format_contact_for_template
+from app.services.crm.inbox.permissions import can_view_manager_dashboard
 from app.web.admin.crm_support import _get_current_roles, _get_current_scopes, _load_crm_agent_team_options
 from app.web.templates import Jinja2Templates
 
@@ -170,6 +171,13 @@ def inbox_conversation_assignment(
     current_user = get_current_user(request) or {}
     assigned_by_id = (current_user.get("person_id") or "").strip() or None
     wants_json = "application/json" in (request.headers.get("accept") or "").lower()
+    current_roles = _get_current_roles(request)
+    current_scopes = _get_current_scopes(request)
+    if wants_json and not can_view_manager_dashboard(current_roles, current_scopes):
+        return JSONResponse(
+            {"ok": False, "error": "Manager dashboard access is required to reassign from this panel."},
+            status_code=403,
+        )
     conversation_result = assign_conversation(
         db,
         conversation_id=conversation_id,
@@ -177,8 +185,8 @@ def inbox_conversation_assignment(
         team_id=team_id,
         assigned_by_id=assigned_by_id,
         note=note,
-        roles=_get_current_roles(request),
-        scopes=_get_current_scopes(request),
+        roles=current_roles,
+        scopes=current_scopes,
     )
     if conversation_result.kind == "forbidden":
         if wants_json:

@@ -44,7 +44,7 @@ from app.services.crm.inbox.inboxes import get_email_channel_state, list_channel
 from app.services.crm.inbox.labels import enrich_formatted_conversations_with_labels
 from app.services.crm.inbox.listing import DEFAULT_INBOX_PAGE_SIZE, load_inbox_list
 from app.services.crm.inbox.macros import conversation_macros
-from app.services.crm.inbox.permissions import can_assign_conversation
+from app.services.crm.inbox.permissions import can_assign_conversation, can_view_manager_dashboard
 from app.services.crm.inbox.queries import get_assignment_counts
 from app.services.crm.inbox.templates import message_templates
 from app.services.settings_spec import resolve_value
@@ -394,6 +394,7 @@ def _build_manager_panel_context(
             *((current_user or {}).get("permissions") or []),
         ]
     ]
+    can_view_manager = can_view_manager_dashboard(current_roles, current_scopes)
 
     agent_rows = []
     for agent in agents or []:
@@ -487,7 +488,8 @@ def _build_manager_panel_context(
 
     online_agents = [row for row in agent_rows if row["is_online"]]
     return {
-        "can_reassign": can_assign_conversation(current_roles, current_scopes),
+        "can_view": can_view_manager,
+        "can_reassign": can_view_manager and can_assign_conversation(current_roles, current_scopes),
         "online_agents": len(online_agents),
         "total_agents": len(agent_rows),
         "online_agent_active_chats": sum(row["active_chats"] for row in online_agents),
@@ -708,6 +710,7 @@ async def build_inbox_page_context(
     safe_offset = max(int(offset or ((safe_page - 1) * page_limit)), 0)
     assigned_person_id = (current_user or {}).get("person_id")
     current_agent_id = get_current_agent_id(db, assigned_person_id) if db else None
+    current_roles = list((current_user or {}).get("roles") or [])
 
     comments_mode = channel == "comments"
     force_refresh_thread = str(query_params.get("reply_sent") or "").strip() == "1"
@@ -820,7 +823,6 @@ async def build_inbox_page_context(
 
         if conversation_id:
             try:
-                current_roles = list((current_user or {}).get("roles") or [])
                 detail_context = build_inbox_conversation_detail_context(
                     db,
                     conversation_id=conversation_id,
@@ -847,16 +849,26 @@ async def build_inbox_page_context(
     facebook_comment_inboxes, instagram_comment_inboxes = list_comment_inboxes(db)
 
     assignment_options = crm_service.get_agent_team_options(db)
-    manager_panel = _build_manager_panel_context(
-        agents=assignment_options.get("agents") or [],
-        agent_labels=assignment_options.get("agent_labels"),
-        agent_availability=assignment_options.get("agent_availability"),
-        stats=stats,
-        assignment_counts=assignment_counts,
-        channel_stats=channel_stats,
-        conversations=conversations,
-        current_user=current_user,
-    )
+    current_scopes = [
+        str(scope)
+        for scope in [
+            *((current_user or {}).get("scopes") or []),
+            *((current_user or {}).get("permissions") or []),
+        ]
+    ]
+    can_view_manager = can_view_manager_dashboard(current_roles, current_scopes)
+    manager_panel = {"can_view": False, "can_reassign": False}
+    if can_view_manager:
+        manager_panel = _build_manager_panel_context(
+            agents=assignment_options.get("agents") or [],
+            agent_labels=assignment_options.get("agent_labels"),
+            agent_availability=assignment_options.get("agent_availability"),
+            stats=stats,
+            assignment_counts=assignment_counts,
+            channel_stats=channel_stats,
+            conversations=conversations,
+            current_user=current_user,
+        )
     templates = _load_message_template_choices(db) if selected_conversation else []
     macros = (
         _load_macro_choices(db, str(current_agent_id) if current_agent_id else None) if selected_conversation else []

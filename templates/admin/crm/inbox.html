@@ -439,16 +439,18 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 6l-12 12"/>
                     </svg>
                 </button>
-                <button type="button"
-                        @click="showManagerPanel = !showManagerPanel"
-                        :class="showManagerPanel ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'"
-                        aria-label="Customer relations manager dashboard"
-                        data-inbox-tooltip="Manager dashboard"
-                        class="inbox-sidebar-tooltip flex h-9 w-9 items-center justify-center rounded-lg transition-colors">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6m4 6V7m4 10v-3M4 19h16"/>
-                    </svg>
-                </button>
+                {% if manager_panel.can_view %}
+                    <button type="button"
+                            @click="showManagerPanel = !showManagerPanel"
+                            :class="showManagerPanel ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'"
+                            aria-label="Customer relations manager dashboard"
+                            data-inbox-tooltip="Manager dashboard"
+                            class="inbox-sidebar-tooltip flex h-9 w-9 items-center justify-center rounded-lg transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6m4 6V7m4 10v-3M4 19h16"/>
+                        </svg>
+                    </button>
+                {% endif %}
                 <a href="/admin/crm/inbox/settings"
                    aria-label="Inbox settings"
                    data-inbox-tooltip="Inbox settings"
@@ -461,6 +463,7 @@
             </div>
         </div>
 
+        {% if manager_panel.can_view %}
         <template x-teleport="body">
         <div x-show="showManagerPanel"
              x-cloak
@@ -747,6 +750,7 @@
             </div>
         </div>
         </template>
+        {% endif %}
 
         <!-- Search -->
         <div class="px-4 py-3">

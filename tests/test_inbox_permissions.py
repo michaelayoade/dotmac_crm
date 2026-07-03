@@ -2,6 +2,7 @@ from app.services.crm.inbox.permissions import (
     can_manage_inbox_settings,
     can_view_inbox,
     can_view_inbox_settings,
+    can_view_manager_dashboard,
     can_view_private_note,
     can_write_inbox,
     is_admin,
@@ -68,3 +69,10 @@ def test_can_write_inbox():
     assert can_write_inbox(scopes=["crm:conversation:write"])
     assert can_write_inbox(scopes=["crm:inbox:write"])
     assert not can_write_inbox(scopes=["crm:conversation:read"])
+
+
+def test_can_view_manager_dashboard_requires_explicit_scope():
+    assert can_view_manager_dashboard(scopes=["crm:inbox:manager_dashboard:read"])
+    assert can_view_manager_dashboard(scopes=["crm:inbox:manager_dashboard:*"])
+    assert not can_view_manager_dashboard(roles=["admin"], scopes=[])
+    assert not can_view_manager_dashboard(scopes=["crm:inbox:*"])
