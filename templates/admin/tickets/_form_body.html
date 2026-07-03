@@ -287,8 +287,11 @@
             <div>
                 <label for="ticket_manager_person_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Project Manager</label>
                 <select name="ticket_manager_person_id" id="ticket_manager_person_id"
-                    class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <option value="">-- Unassigned --</option>
+                    aria-readonly="true"
+                    tabindex="-1"
+                    title="Determined by selected region"
+                    class="pointer-events-none mt-1 block w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-600 shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    <option value="">-- Determined by region --</option>
                     {% for role_option in ticket_role_options or [] %}
                     <option value="{{ role_option.person_id }}" {% if (ticket and ticket.ticket_manager_person_id|string == role_option.person_id) or (not ticket and prefill.ticket_manager_person_id == role_option.person_id) %}selected{% endif %}>
                         {{ role_option.label }}
@@ -727,10 +730,9 @@
     (function () {
         const regionSelect = document.getElementById("region");
         const managerSelect = document.getElementById("ticket_manager_person_id");
-        const assistantSelect = document.getElementById("assistant_manager_person_id");
         const clearAssignmentInput = document.querySelector("[data-clear-region-assignment]");
         const clearAssignmentButton = document.querySelector("[data-clear-region-assignment-button]");
-        if (!regionSelect || (!managerSelect && !assistantSelect)) {
+        if (!regionSelect || !managerSelect) {
             return;
         }
         let assignments = {};
@@ -748,39 +750,23 @@
             select.dataset.autofill = "true";
         };
 
-        const markManual = (event) => {
-            const target = event.target;
-            if (target && target.dataset) {
-                target.dataset.autofill = "false";
-            }
-        };
-
         const applyAssignments = () => {
             const region = regionSelect.value;
             const entry = assignments ? assignments[region] : null;
             if (!entry || typeof entry !== "object") {
+                managerSelect.value = "";
+                managerSelect.dataset.autofill = "true";
                 return;
             }
-            if (managerSelect) {
-                const canFillManager = !managerSelect.value || managerSelect.dataset.autofill === "true";
-                if (canFillManager && entry.manager_person_id) {
-                    setSelectValue(managerSelect, entry.manager_person_id);
-                }
+            if (entry.manager_person_id) {
+                setSelectValue(managerSelect, entry.manager_person_id);
+            } else {
+                managerSelect.value = "";
+                managerSelect.dataset.autofill = "true";
             }
         };
 
-        if (managerSelect) {
-            if (managerSelect.value) {
-                managerSelect.dataset.autofill = "false";
-            }
-            managerSelect.addEventListener("change", markManual);
-        }
-        if (assistantSelect) {
-            if (assistantSelect.value) {
-                assistantSelect.dataset.autofill = "false";
-            }
-            assistantSelect.addEventListener("change", markManual);
-        }
+        managerSelect.dataset.autofill = "true";
 
         regionSelect.addEventListener("change", () => {
             if (clearAssignmentInput) {
@@ -793,11 +779,7 @@
                 regionSelect.value = "";
                 if (managerSelect) {
                     managerSelect.value = "";
-                    managerSelect.dataset.autofill = "false";
-                }
-                if (assistantSelect) {
-                    assistantSelect.value = "";
-                    assistantSelect.dataset.autofill = "false";
+                    managerSelect.dataset.autofill = "true";
                 }
                 if (clearAssignmentInput) {
                     clearAssignmentInput.value = "1";
