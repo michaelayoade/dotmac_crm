@@ -220,6 +220,31 @@ def test_ncc_validation_status_rejects_test_names():
     assert "First Name must not contain test data" in cleaned["VALIDATION STATUS"]
 
 
+def test_ncc_validation_status_requires_language_state_and_lga():
+    cleaned = reports._clean_ncc_record(
+        {
+            "MSISDN": "2348012345678",
+            "First Name": "Ada",
+            "Last Name": "Bello",
+            "Age": "N/A",
+            "Gender": "N/A",
+            "created date time": "03-07-2026 09:00:00",
+            "Category": "Billing",
+            "category code (auto)": "A",
+            "sub category code": "A50 - Others (Billing)",
+            "Ticket ID": "DOTMAC-20260703-19655",
+            "Complaint type": "First Level",
+            "Status": "Pending",
+            "Ticket source": "Phone Call",
+        }
+    )
+
+    assert cleaned["VALIDATION STATUS"].startswith("[FAIL]")
+    assert "Language is required (col U)" in cleaned["VALIDATION STATUS"]
+    assert "State is required (col Y)" in cleaned["VALIDATION STATUS"]
+    assert "LGA is required (col Z)" in cleaned["VALIDATION STATUS"]
+
+
 def test_ncc_workbook_colors_rows_by_validation_status():
     workbook = reports._build_ncc_workbook(
         [

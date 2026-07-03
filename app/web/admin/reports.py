@@ -707,7 +707,10 @@ _NCC_REQUIRED_COLUMNS = {
     "Ticket ID",
     "Complaint type",
     "Status",
+    "Language",
     "Ticket source",
+    "State",
+    "LGA",
 }
 _NCC_REQUIRED_DROPDOWN_COLUMNS = {
     "Gender",
@@ -715,7 +718,10 @@ _NCC_REQUIRED_DROPDOWN_COLUMNS = {
     "sub category code",
     "Complaint type",
     "Status",
+    "Language",
     "Ticket source",
+    "State",
+    "LGA",
 }
 _NCC_STATE_LGAS: dict[str, tuple[str, ...]] = {
     "ABIA": (
