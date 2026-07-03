@@ -285,8 +285,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
-  void _showJobSheet(BuildContext context, WidgetRef ref, JobPin pin) {
-    showModalBottomSheet<void>(
+  Future<void> _showJobSheet(
+    BuildContext context,
+    WidgetRef ref,
+    JobPin pin,
+  ) async {
+    final action = await showModalBottomSheet<_MapSheetAction>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Column(
@@ -301,39 +305,48 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               subtitle: Text(pin.status.replaceAll('_', ' ')),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
-                Navigator.pop(sheetContext);
-                context.push('/jobs/${pin.id}');
+                Navigator.pop(sheetContext, _MapSheetAction.open);
               },
             ),
             ListTile(
               leading: const Icon(Icons.push_pin_outlined),
               title: const Text('Edit pin location'),
-              onTap: () async {
-                Navigator.pop(sheetContext);
-                final changed = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(
-                    builder: (_) => LocationPinScreen(
-                      jobId: pin.id,
-                      initialLocation: JobLocation(
-                        latitude: pin.latitude,
-                        longitude: pin.longitude,
-                        source: 'cached',
-                      ),
-                    ),
-                  ),
-                );
-                if (changed == true) ref.invalidate(mapPinsProvider);
-              },
+              onTap: () => Navigator.pop(sheetContext, _MapSheetAction.edit),
             ),
           ],
         ),
       ),
     );
+    if (!context.mounted) return;
+    switch (action) {
+      case _MapSheetAction.open:
+        context.push('/jobs/${pin.id}');
+      case _MapSheetAction.edit:
+        final changed = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => LocationPinScreen(
+              jobId: pin.id,
+              initialLocation: JobLocation(
+                latitude: pin.latitude,
+                longitude: pin.longitude,
+                source: 'cached',
+              ),
+            ),
+          ),
+        );
+        if (changed == true) ref.invalidate(mapPinsProvider);
+      case null:
+        break;
+    }
   }
 
-  void _showAssetSheet(BuildContext context, WidgetRef ref, MapAsset asset) {
+  Future<void> _showAssetSheet(
+    BuildContext context,
+    WidgetRef ref,
+    MapAsset asset,
+  ) async {
     final label = mapAssetTypeLabels[asset.type] ?? asset.type;
-    showModalBottomSheet<void>(
+    final action = await showModalBottomSheet<_MapSheetAction>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: Column(
@@ -356,29 +369,26 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ListTile(
               leading: const Icon(Icons.push_pin_outlined),
               title: const Text('Edit asset location'),
-              onTap: () async {
-                Navigator.pop(sheetContext);
-                final changed = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(
-                    builder: (_) => AssetPinScreen(asset: asset),
-                  ),
-                );
-                if (changed == true) ref.invalidate(mapAssetsProvider);
-              },
+              onTap: () => Navigator.pop(sheetContext, _MapSheetAction.edit),
             ),
           ],
         ),
       ),
     );
+    if (!context.mounted || action != _MapSheetAction.edit) return;
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => AssetPinScreen(asset: asset)),
+    );
+    if (changed == true) ref.invalidate(mapAssetsProvider);
   }
 
-  void _showPinListSheet(
+  Future<void> _showPinListSheet(
     BuildContext context,
     WidgetRef ref,
     List<JobPin> pins,
     List<MapAsset> assets,
-  ) {
-    showModalBottomSheet<void>(
+  ) async {
+    final selection = await showModalBottomSheet<_MapEditSelection>(
       context: context,
       builder: (sheetContext) => SafeArea(
         child: ListView(
@@ -404,22 +414,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
                 title: Text(pin.title),
                 subtitle: Text(pin.status.replaceAll('_', ' ')),
-                onTap: () async {
-                  Navigator.pop(sheetContext);
-                  final changed = await Navigator.of(context).push<bool>(
-                    MaterialPageRoute(
-                      builder: (_) => LocationPinScreen(
-                        jobId: pin.id,
-                        initialLocation: JobLocation(
-                          latitude: pin.latitude,
-                          longitude: pin.longitude,
-                          source: 'cached',
-                        ),
-                      ),
-                    ),
-                  );
-                  if (changed == true) ref.invalidate(mapPinsProvider);
-                },
+                onTap: () =>
+                    Navigator.pop(sheetContext, _JobEditSelection(pin)),
               ),
             for (final asset in assets)
               ListTile(
@@ -429,20 +425,35 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
                 title: Text(asset.title),
                 subtitle: Text(mapAssetTypeLabels[asset.type] ?? asset.type),
-                onTap: () async {
-                  Navigator.pop(sheetContext);
-                  final changed = await Navigator.of(context).push<bool>(
-                    MaterialPageRoute(
-                      builder: (_) => AssetPinScreen(asset: asset),
-                    ),
-                  );
-                  if (changed == true) ref.invalidate(mapAssetsProvider);
-                },
+                onTap: () =>
+                    Navigator.pop(sheetContext, _AssetEditSelection(asset)),
               ),
           ],
         ),
       ),
     );
+    if (!context.mounted || selection == null) return;
+    switch (selection) {
+      case _JobEditSelection(:final pin):
+        final changed = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => LocationPinScreen(
+              jobId: pin.id,
+              initialLocation: JobLocation(
+                latitude: pin.latitude,
+                longitude: pin.longitude,
+                source: 'cached',
+              ),
+            ),
+          ),
+        );
+        if (changed == true) ref.invalidate(mapPinsProvider);
+      case _AssetEditSelection(:final asset):
+        final changed = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(builder: (_) => AssetPinScreen(asset: asset)),
+        );
+        if (changed == true) ref.invalidate(mapAssetsProvider);
+    }
   }
 }
 
@@ -458,6 +469,24 @@ sealed class _MapSearchResult {
   IconData get icon;
   Color get color;
   LatLng get point;
+}
+
+enum _MapSheetAction { open, edit }
+
+sealed class _MapEditSelection {
+  const _MapEditSelection();
+}
+
+class _JobEditSelection extends _MapEditSelection {
+  const _JobEditSelection(this.pin);
+
+  final JobPin pin;
+}
+
+class _AssetEditSelection extends _MapEditSelection {
+  const _AssetEditSelection(this.asset);
+
+  final MapAsset asset;
 }
 
 class _JobSearchResult extends _MapSearchResult {
