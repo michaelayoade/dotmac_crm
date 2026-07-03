@@ -298,19 +298,6 @@
             </div>
 
             <div>
-                <label for="assistant_manager_person_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Site Project Coordinator</label>
-                <select name="assistant_manager_person_id" id="assistant_manager_person_id"
-                    class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                    <option value="">-- Unassigned --</option>
-                    {% for role_option in ticket_role_options or [] %}
-                    <option value="{{ role_option.person_id }}" {% if (ticket and ticket.assistant_manager_person_id|string == role_option.person_id) or (not ticket and prefill.assistant_manager_person_id == role_option.person_id) %}selected{% endif %}>
-                        {{ role_option.label }}
-                    </option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div>
                 <label for="ticket_type" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Ticket Type <span class="text-red-500">*</span></label>
                 <select name="ticket_type" id="ticket_type"
                     data-priority-map='{{ ticket_type_priority_map | tojson }}'
@@ -778,12 +765,6 @@
                 const canFillManager = !managerSelect.value || managerSelect.dataset.autofill === "true";
                 if (canFillManager && entry.manager_person_id) {
                     setSelectValue(managerSelect, entry.manager_person_id);
-                }
-            }
-            if (assistantSelect) {
-                const canFillAssistant = !assistantSelect.value || assistantSelect.dataset.autofill === "true";
-                if (canFillAssistant && entry.spc_person_id) {
-                    setSelectValue(assistantSelect, entry.spc_person_id);
                 }
             }
         };
