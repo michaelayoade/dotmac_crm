@@ -6,6 +6,7 @@ from cryptography.fernet import Fernet
 from fastapi import HTTPException
 from starlette.requests import Request
 
+from app.api.vendor_auth import vendor_me
 from app.models.auth import AuthProvider, SessionStatus, UserCredential
 from app.models.auth import Session as AuthSession
 from app.models.vendor import Vendor, VendorUser
@@ -129,6 +130,22 @@ def test_require_vendor_token_resolves_context(db_session, vendor, vendor_user, 
     context = require_vendor_token(auth=auth, db=db_session)
     assert context["vendor_id"] == str(vendor.id)
     assert context["vendor_user"].id == vendor_user.id
+
+
+def test_vendor_me_returns_vendor_profile_context(db_session, vendor, vendor_user, person):
+    result = vendor_me(
+        context={
+            "person_id": str(person.id),
+            "vendor_id": str(vendor.id),
+            "vendor_user_id": str(vendor_user.id),
+            "vendor_role": vendor_user.role,
+            "vendor_user": vendor_user,
+        }
+    )
+    assert result.name == f"{person.first_name} {person.last_name}"
+    assert result.email == person.email
+    assert result.vendor_name == vendor.name
+    assert result.vendor_role == vendor_user.role
 
 
 def test_require_vendor_token_rejects_non_vendor(db_session, person):
