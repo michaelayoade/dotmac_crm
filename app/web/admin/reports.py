@@ -3022,6 +3022,12 @@ def _ncc_name_tokens(value: object) -> list[str]:
 def _normalize_person_name_parts(first_name: object, last_name: object) -> tuple[str, str]:
     first_tokens = _ncc_name_tokens(first_name)
     last_tokens = _ncc_name_tokens(last_name)
+    if first_tokens and last_tokens:
+        last_tokens = _ncc_strip_trailing_town_name_tokens(first_tokens, last_tokens)
+    elif len(first_tokens) > 1:
+        first_tokens = _ncc_strip_trailing_town_name_tokens([], first_tokens)
+    elif len(last_tokens) > 1:
+        last_tokens = _ncc_strip_trailing_town_name_tokens([], last_tokens)
 
     if first_tokens and last_tokens:
         return first_tokens[0], last_tokens[-1]
@@ -3034,6 +3040,15 @@ def _normalize_person_name_parts(first_name: object, last_name: object) -> tuple
     if last_tokens:
         return last_tokens[0], last_tokens[0]
     return "", ""
+
+
+def _ncc_strip_trailing_town_name_tokens(prefix_tokens: list[str], name_tokens: list[str]) -> list[str]:
+    if len(prefix_tokens) + len(name_tokens) <= 2 or not name_tokens:
+        return name_tokens
+    trailing = _normalize_ncc_region(name_tokens[-1])
+    if trailing in _NCC_TOWN_LOOKUP:
+        return name_tokens[:-1]
+    return name_tokens
 
 
 def _looks_like_business_name(value: str) -> bool:
@@ -3236,6 +3251,7 @@ _NCC_ACCEPTED_TOWNS = (
     "Nyanya Village/Gwari",
     "Asokoro",
     "Garki",
+    "Jabi",
     "Lokogoma",
     "Maitama",
     "Abacha Barracks",

@@ -41,6 +41,13 @@ def test_ncc_ticket_name_parts_splits_multiword_first_name_when_last_name_blank(
     assert reports._ticket_name_parts(ticket, person) == ("Abdulrazak", "Ibrahim")
 
 
+def test_ncc_ticket_name_parts_drops_trailing_town_from_customer_name():
+    person = SimpleNamespace(first_name="Melvin", last_name="Usman Jabi", display_name="Melvin Usman Jabi")
+    ticket = SimpleNamespace(subscriber=None)
+
+    assert reports._ticket_name_parts(ticket, person) == ("Melvin", "Usman")
+
+
 def test_ncc_ticket_name_parts_extracts_valid_tokens_from_business_names():
     person = SimpleNamespace(
         first_name="Sam - Vic Insurance Brokers Limited",
@@ -257,6 +264,14 @@ def test_ncc_location_maps_newly_accepted_asokoro_town():
     assert reports._map_ncc_location("12 Ukpabi Asika St, Asokoro, Abuja FCT") == (
         "Municipal Area Council",
         "Asokoro",
+        "FEDERAL CAPITAL TERRITORY",
+    )
+
+
+def test_ncc_location_maps_jabi_from_customer_address():
+    assert reports._map_ncc_location("53 Alex Ekwueme Way, Jabi") == (
+        "Municipal Area Council",
+        "Jabi",
         "FEDERAL CAPITAL TERRITORY",
     )
 
