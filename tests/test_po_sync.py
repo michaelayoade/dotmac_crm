@@ -319,6 +319,23 @@ class TestSyncPurchaseOrder:
         assert "Connection refused" in result.error
         assert result.error_type == "RuntimeError"
 
+    def test_empty_erp_response_fails(self):
+        vendor = _make_vendor(erp_id="SUP-001")
+        quote = _make_quote(vendor)
+        wo = _make_work_order()
+
+        client = MagicMock()
+        client.create_purchase_order.return_value = {}
+        session = MagicMock()
+
+        sync = DotMacERPPurchaseOrderSync(client, session)
+        result = sync.sync_purchase_order(wo, quote)
+
+        assert result.success is False
+        assert result.error_type == "missing_purchase_order_id"
+        assert "purchase_order_id" in result.error
+        session.commit.assert_not_called()
+
     def test_preserves_existing_metadata(self):
         vendor = _make_vendor(erp_id="SUP-001")
         quote = _make_quote(vendor)

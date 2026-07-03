@@ -120,13 +120,20 @@ class DotMacERPClient:
         expected_status_codes: Collection[int] | None = None,
     ) -> dict | list | None:
         """Handle API response and raise appropriate errors."""
-        if response.status_code == 204:
-            return None
-
         try:
             data = response.json() if response.content else None
         except Exception:
             data = None
+
+        if expected_status_codes and response.status_code not in expected_status_codes:
+            raise DotMacERPError(
+                f"API unexpected status ({response.status_code}), expected {sorted(expected_status_codes)}",
+                status_code=response.status_code,
+                response=data if isinstance(data, dict) else None,
+            )
+
+        if response.status_code == 204:
+            return None
 
         if response.status_code == 401 or response.status_code == 403:
             raise DotMacERPAuthError(
@@ -159,13 +166,6 @@ class DotMacERPClient:
                 f"API error ({response.status_code}): {error_msg}",
                 status_code=response.status_code,
                 response=data,
-            )
-
-        if expected_status_codes and response.status_code not in expected_status_codes:
-            raise DotMacERPError(
-                f"API unexpected status ({response.status_code}), expected {sorted(expected_status_codes)}",
-                status_code=response.status_code,
-                response=data if isinstance(data, dict) else None,
             )
 
         return data
@@ -421,6 +421,7 @@ class DotMacERPClient:
             "/api/v1/sync/crm/purchase-orders",
             json_data=payload,
             idempotency_key=idempotency_key or f"po-{uuid.uuid4()}",
+            expected_status_codes={200, 201},
         )
         return result if isinstance(result, dict) else {}
 
