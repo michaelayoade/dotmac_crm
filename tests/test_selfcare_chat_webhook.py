@@ -59,9 +59,29 @@ def test_notify_chat_message_no_config_is_noop(db_session, monkeypatch):
     assert selfcare.notify_chat_message(db_session, subscriber_id="s1", conversation_id="c1", preview="x") is False
 
 
-def test_notify_chat_message_requires_subscriber(db_session, monkeypatch):
+def test_notify_chat_message_requires_a_target(db_session, monkeypatch):
     monkeypatch.setattr(selfcare, "_get_config", lambda db: _config())
+    # Neither subscriber_id nor reseller_id → no-op.
+    assert selfcare.notify_chat_message(db_session, conversation_id="c1", preview="x") is False
     assert selfcare.notify_chat_message(db_session, subscriber_id="", conversation_id="c1", preview="x") is False
+
+
+def test_notify_chat_message_reseller_posts_reseller_id(db_session, monkeypatch):
+    monkeypatch.setattr(selfcare, "_get_config", lambda db: _config())
+    captured: dict = {}
+
+    def _post(url, data, headers, timeout):
+        captured.update(url=url, data=data, headers=headers, timeout=timeout)
+        return _Resp()
+
+    monkeypatch.setattr(requests, "post", _post)
+
+    ok = selfcare.notify_chat_message(db_session, reseller_id="r1", conversation_id="c9", preview="hi")
+    assert ok is True
+    assert captured["url"] == "https://sub.example/api/v1/webhooks/crm/chat"
+    body = json.loads(captured["data"])
+    assert body == {"conversation_id": "c9", "preview": "hi", "reseller_id": "r1"}
+    assert "subscriber_id" not in body
 
 
 def test_notify_chat_message_swallows_errors(db_session, monkeypatch):
