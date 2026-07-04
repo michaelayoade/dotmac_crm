@@ -32,6 +32,7 @@ DEFAULT_REFERRAL_WEBHOOK_PATH = "/api/v1/webhooks/crm/referrals"
 DEFAULT_PROJECT_WEBHOOK_PATH = "/api/v1/webhooks/crm/projects"
 DEFAULT_WORK_ORDER_WEBHOOK_PATH = "/api/v1/webhooks/crm/work-orders"
 DEFAULT_QUOTE_WEBHOOK_PATH = "/api/v1/webhooks/crm/quotes"
+DEFAULT_CHAT_WEBHOOK_PATH = "/api/v1/webhooks/crm/chat"
 _CUSTOMER_LAST_SYNC_KEY = "selfcare_sync:customer:last"
 _CUSTOMER_HISTORY_KEY = "selfcare_sync:customer:history"
 _CUSTOMER_DAILY_STATS_PREFIX = "selfcare_sync:customer:stats:"
@@ -1351,6 +1352,61 @@ def notify_referral_event(db: Session, event_type: str, payload: dict[str, Any])
         return True
     except Exception as exc:  # - best-effort; reconcile is the backstop
         logger.warning("selfcare_referral_notify_failed event=%s error=%s", event_type, str(exc))
+        return False
+
+
+def _chat_url(config: dict[str, Any]) -> str:
+    base = str(config["base_url"]).rstrip("/")
+    return f"{base}{DEFAULT_CHAT_WEBHOOK_PATH}"
+
+
+def notify_chat_message(
+    db: Session,
+    *,
+    subscriber_id: str,
+    conversation_id: str,
+    preview: str,
+) -> bool:
+    """Wake a backgrounded dotmac_sub mobile app when an agent replies in a live
+    chat (best-effort). The CRM chat WebSocket only delivers while the app is
+    foregrounded, so this signed webhook fans the reply out to the subscriber's
+    devices via FCM. Advisory only — the app pulls authoritative history with its
+    visitor token. Signed with the same selfcare webhook secret as customer
+    events; a failed push is logged, not raised (the foreground WS is the primary
+    delivery path)."""
+    config = _get_config(db)
+    if not config or not subscriber_id:
+        return False
+
+    payload = {
+        "subscriber_id": str(subscriber_id),
+        "conversation_id": str(conversation_id or ""),
+        "preview": str(preview or "")[:140],
+    }
+    raw_body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "X-Webhook-Event": "message.outbound",
+        "X-Webhook-Signature-256": _sign_payload(config["webhook_secret"], raw_body),
+    }
+
+    import requests
+
+    try:
+        response = requests.post(  # nosec B113 - timeout is config-driven.
+            _chat_url(config),
+            data=raw_body,
+            headers=headers,
+            timeout=config["timeout_seconds"],
+        )
+        response.raise_for_status()
+        return True
+    except Exception as exc:  # - best-effort; foreground WS is the primary path
+        logger.warning(
+            "selfcare_chat_notify_failed conversation_id=%s error=%s",
+            conversation_id,
+            str(exc),
+        )
         return False
 
 
