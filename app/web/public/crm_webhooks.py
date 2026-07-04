@@ -585,6 +585,42 @@ def _parse_meta_whatsapp_status_payload(payload: dict) -> tuple[MetaWebhookPaylo
     return meta_payload, status_count
 
 
+def _verify_whatsapp_signature(body: bytes, request: Request, db: Session) -> JSONResponse | None:
+    settings_map = meta_oauth.get_meta_settings(db)
+    app_secret = settings_map.get("whatsapp_app_secret") or settings_map.get("meta_app_secret")
+    signature = request.headers.get("X-Hub-Signature-256")
+    if not app_secret:
+        logger.warning("whatsapp_webhook_secret_missing")
+        _record_channel_stat("whatsapp", ok=False)
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "detail": "Webhook secret not configured"},
+        )
+    if not signature:
+        logger.warning("whatsapp_webhook_signature_missing")
+        _record_channel_stat("whatsapp", ok=False)
+        return JSONResponse(
+            status_code=401,
+            content={"status": "error", "detail": "Signature required"},
+        )
+    try:
+        if not meta_webhooks.verify_webhook_signature(body, signature, app_secret):
+            logger.warning("whatsapp_webhook_signature_invalid")
+            _record_channel_stat("whatsapp", ok=False)
+            return JSONResponse(
+                status_code=401,
+                content={"status": "error", "detail": "Invalid signature"},
+            )
+    except Exception as exc:
+        logger.warning("whatsapp_webhook_signature_validation_failed error=%s", exc)
+        _record_channel_stat("whatsapp", ok=False)
+        return JSONResponse(
+            status_code=401,
+            content={"status": "error", "detail": "Signature validation failed"},
+        )
+    return None
+
+
 @router.get("/whatsapp")
 async def whatsapp_webhook_verify(
     hub_mode: str = Query(None, alias="hub.mode"),
@@ -612,7 +648,7 @@ async def whatsapp_webhook_verify(
 async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
     """Handle WhatsApp webhook events.
 
-    Accepts either the internal normalized payload or Meta's native payload.
+    Accepts either the internal normalized payload or Meta's native payload after HMAC verification.
     """
     trace_id = str(uuid.uuid4())
     start_time = time.monotonic()
@@ -627,6 +663,10 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
         return Response(status_code=500)
 
     try:
+        signature_error = _verify_whatsapp_signature(body, request, db)
+        if signature_error is not None:
+            return signature_error
+
         # First try normalized payload
         try:
             parsed = WhatsAppWebhookPayload.model_validate_json(body)
@@ -654,40 +694,6 @@ async def whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
             return {"status": "accepted", "processed": 0, "failed": 1}
         except Exception:
             logger.debug("Failed to parse normalized WhatsApp webhook body.", exc_info=True)
-
-        # Fallback to Meta native payload; require valid signature.
-        settings = meta_oauth.get_meta_settings(db)
-        app_secret = settings.get("whatsapp_app_secret") or settings.get("meta_app_secret")
-        signature = request.headers.get("X-Hub-Signature-256")
-        if not app_secret:
-            logger.warning("whatsapp_webhook_secret_missing")
-            _record_channel_stat("whatsapp", ok=False)
-            return JSONResponse(
-                status_code=503,
-                content={"status": "error", "detail": "Webhook secret not configured"},
-            )
-        if not signature:
-            logger.warning("whatsapp_webhook_signature_missing")
-            _record_channel_stat("whatsapp", ok=False)
-            return JSONResponse(
-                status_code=401,
-                content={"status": "error", "detail": "Signature required"},
-            )
-        try:
-            if not meta_webhooks.verify_webhook_signature(body, signature, app_secret):
-                logger.warning("whatsapp_webhook_signature_invalid")
-                _record_channel_stat("whatsapp", ok=False)
-                return JSONResponse(
-                    status_code=401,
-                    content={"status": "error", "detail": "Invalid signature"},
-                )
-        except Exception as exc:
-            logger.warning("whatsapp_webhook_signature_validation_failed error=%s", exc)
-            _record_channel_stat("whatsapp", ok=False)
-            return JSONResponse(
-                status_code=401,
-                content={"status": "error", "detail": "Signature validation failed"},
-            )
 
         # Fallback to Meta native payload
         try:
@@ -847,9 +853,23 @@ async def subscriber_sync_webhook(request: Request, db: Session = Depends(get_db
     return {"status": "ok", **(result if isinstance(result, dict) else {})}
 
 
+def _email_webhook_secret() -> str:
+    return settings.webhook_email_secret.strip()
+
+
 @router.post("/email", status_code=status.HTTP_200_OK)
-def email_webhook(payload: EmailWebhookPayload, db: Session = Depends(get_db)):
+def email_webhook(request: Request, payload: EmailWebhookPayload, db: Session = Depends(get_db)):
     trace_id = str(uuid.uuid4())
+    expected_secret = _email_webhook_secret()
+    if expected_secret:
+        supplied_secret = request.headers.get("X-Webhook-Secret", "")
+        if not hmac.compare_digest(supplied_secret, expected_secret):
+            logger.warning("email_webhook_secret_invalid trace_id=%s", trace_id)
+            _record_channel_stat("email", ok=False)
+            return JSONResponse(
+                status_code=401,
+                content={"status": "error", "detail": "Invalid webhook secret"},
+            )
     if _should_sample():
         body_len = len(payload.body) if payload.body else 0
         attachments = len(payload.metadata.get("attachments", [])) if isinstance(payload.metadata, dict) else 0

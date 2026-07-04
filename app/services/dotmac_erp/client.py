@@ -776,3 +776,45 @@ class DotMacERPClient:
         if isinstance(result, dict):
             return result.get("employees", [])
         return result if isinstance(result, list) else []
+
+    # ============ NCC Regulatory API Methods ============
+
+    def get_ncc_financials(
+        self,
+        *,
+        year: int | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        as_of_date: str | None = None,
+    ) -> dict:
+        """Fetch the NCC year-end return's Section F financials from ERP.
+
+        Composed by ERP from its income-statement / balance-sheet /
+        expense-summary services. Pass ``year`` for the annual return, or an
+        explicit ``start_date``/``end_date``/``as_of_date`` range.
+
+        Returns:
+            dict with keys: period, summary, detail, note
+        """
+        params: dict[str, Any] = {}
+        if year is not None:
+            params["year"] = year
+        if start_date:
+            params["start_date"] = start_date
+        if end_date:
+            params["end_date"] = end_date
+        if as_of_date:
+            params["as_of_date"] = as_of_date
+
+        result = self._request("GET", "/api/v1/sync/crm/ncc/financials", params=params or None)
+        return result if isinstance(result, dict) else {}
+
+    def get_ncc_staff_headcount(self) -> dict:
+        """Fetch the NCC year-end return's Section G staff head-count from ERP.
+
+        Returns:
+            dict with keys: total_active, by_category
+            (category -> nationality -> gender -> count)
+        """
+        result = self._request("GET", "/api/v1/sync/crm/ncc/staff-headcount")
+        return result if isinstance(result, dict) else {}

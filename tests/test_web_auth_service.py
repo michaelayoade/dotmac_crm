@@ -40,6 +40,43 @@ def test_login_submit_redirects_to_mfa_when_mfa_required(db_session, monkeypatch
     assert "mfa_pending=mfa-token" in response.headers.get("set-cookie", "")
 
 
+def test_login_submit_mfa_rejects_protocol_relative_next(db_session, monkeypatch):
+    request = _make_request()
+
+    monkeypatch.setattr(
+        web_auth.auth_flow_service.auth_flow,
+        "login",
+        lambda **kwargs: {"mfa_required": True, "mfa_token": "mfa-token"},
+    )
+
+    response = web_auth.login_submit(
+        request=request,
+        db=db_session,
+        username="user@example.com",
+        password="secret",
+        remember=False,
+        next_url="//attacker.example/admin",
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth/mfa"
+    assert "mfa_pending=mfa-token" in response.headers.get("set-cookie", "")
+
+
+def test_safe_next_rejects_external_urls():
+    assert web_auth._safe_next("https://attacker.example/admin") == "/admin/dashboard"
+    assert web_auth._safe_next("//attacker.example/admin") == "/admin/dashboard"
+
+
+def test_safe_next_preserves_internal_paths():
+    assert web_auth._safe_next("/admin/tickets?status=open") == "/admin/tickets?status=open"
+
+
+def test_safe_next_sanitizes_unsafe_connector_paths():
+    assert web_auth._safe_next("/admin/crm/inbox/email-connector?return=1") == "/admin/crm/inbox?return=1"
+    assert web_auth._safe_next("/admin/crm/contacts/teams") == "/admin/crm/contacts"
+
+
 def test_refresh_invalid_token_logs_at_info(db_session, monkeypatch, caplog):
     request = _make_request()
     web_auth._REFRESH_LOG_CACHE.clear()
@@ -60,6 +97,18 @@ def test_refresh_invalid_token_logs_at_info(db_session, monkeypatch, caplog):
     set_cookie = response.headers.getlist("set-cookie")
     assert any(cookie.startswith("session_token=") and "Max-Age=0" in cookie for cookie in set_cookie)
     assert any(cookie.startswith("refresh_token=") and "Max-Age=0" in cookie for cookie in set_cookie)
+
+
+def test_refresh_missing_cookie_drops_protocol_relative_next(db_session, monkeypatch):
+    request = _make_request()
+    web_auth._REFRESH_LOG_CACHE.clear()
+
+    monkeypatch.setattr(web_auth.AuthFlow, "resolve_refresh_token", lambda request, token, db: None)
+
+    response = web_auth.refresh(request=request, db=db_session, next_url="//attacker.example/admin")
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth/login"
 
 
 def test_refresh_missing_cookie_logs_once_and_clears_auth_cookies(db_session, monkeypatch, caplog):

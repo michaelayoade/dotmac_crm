@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, aliased, joinedload
 from app.logic import private_note_logic
 from app.models.connector import ConnectorType
 from app.models.crm.campaign import Campaign
-from app.models.crm.conversation import Conversation, ConversationAssignment, Message
+from app.models.crm.conversation import Conversation, ConversationAssignment, ConversationSummary, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.crm.team import CrmAgent, CrmTeam
 from app.models.customer_retention import CustomerRetentionEngagement
@@ -44,6 +44,7 @@ from app.services.crm.inbox.inboxes import get_email_channel_state, list_channel
 from app.services.crm.inbox.labels import enrich_formatted_conversations_with_labels
 from app.services.crm.inbox.listing import DEFAULT_INBOX_PAGE_SIZE, load_inbox_list
 from app.services.crm.inbox.macros import conversation_macros
+from app.services.crm.inbox.permissions import can_assign_conversation, can_view_manager_dashboard
 from app.services.crm.inbox.queries import get_assignment_counts
 from app.services.crm.inbox.templates import message_templates
 from app.services.settings_spec import resolve_value
@@ -332,7 +333,7 @@ def _build_conversation_list_format_maps(db: Session, conversations_raw: list[tu
 
 def _format_conversation_list_rows(db: Session, conversations_raw: list[tuple]) -> list[dict]:
     format_maps = _build_conversation_list_format_maps(db, conversations_raw)
-    return [
+    rows = [
         format_conversation_for_template(
             conv,
             db,
@@ -343,6 +344,174 @@ def _format_conversation_list_rows(db: Session, conversations_raw: list[tuple]) 
         )
         for conv, latest_message, unread_count, _failed_outbox in conversations_raw
     ]
+    conversation_ids = [conv.id for conv, *_rest in conversations_raw]
+    if conversation_ids:
+        summary_rows = (
+            db.query(
+                ConversationSummary.conversation_id,
+                ConversationSummary.needs_attention,
+                ConversationSummary.unreplied,
+            )
+            .filter(ConversationSummary.conversation_id.in_(conversation_ids))
+            .all()
+        )
+        summaries_by_id = {
+            str(conversation_id): {
+                "needs_attention": bool(needs_attention),
+                "unreplied": bool(unreplied),
+            }
+            for conversation_id, needs_attention, unreplied in summary_rows
+        }
+        for row in rows:
+            summary = summaries_by_id.get(str(row.get("id") or "")) or {}
+            row["needs_attention"] = bool(summary.get("needs_attention"))
+            row["unreplied"] = bool(summary.get("unreplied"))
+    return rows
+
+
+def _build_manager_panel_context(
+    *,
+    agents: list,
+    agent_labels: dict | None,
+    agent_availability: dict | None,
+    stats: dict | None,
+    assignment_counts: dict | None,
+    channel_stats: dict | None,
+    conversations: list[dict],
+    current_user: dict | None = None,
+) -> dict:
+    """Build lightweight operational metrics for the inbox manager popup."""
+    agent_labels = agent_labels or {}
+    agent_availability = agent_availability or {}
+    stats = stats or {}
+    assignment_counts = assignment_counts or {}
+    channel_stats = channel_stats or {}
+    current_roles = [str(role) for role in (current_user or {}).get("roles") or []]
+    current_scopes = [
+        str(scope)
+        for scope in [
+            *((current_user or {}).get("scopes") or []),
+            *((current_user or {}).get("permissions") or []),
+        ]
+    ]
+    can_view_manager = can_view_manager_dashboard(current_roles, current_scopes)
+
+    agent_rows = []
+    for agent in agents or []:
+        agent_id = str(getattr(agent, "id", "") or "")
+        if not agent_id:
+            continue
+        availability = agent_availability.get(agent_id) or {}
+        status = str(availability.get("status") or "offline")
+        active_chats = int(availability.get("active_chats") or 0)
+        cap = int(availability.get("cap") or 0)
+        agent_rows.append(
+            {
+                "id": agent_id,
+                "label": agent_labels.get(agent_id, "Agent"),
+                "status": status,
+                "active_chats": active_chats,
+                "cap": cap,
+                "full": bool(availability.get("full")),
+                "is_online": status == "online",
+            }
+        )
+
+    agent_rows.sort(
+        key=lambda row: (
+            0 if row["status"] == "online" else 1 if row["status"] == "away" else 2,
+            -row["active_chats"],
+            row["label"].lower(),
+        )
+    )
+
+    active_conversations = []
+    active_conversations_by_agent: dict[str, list[dict]] = {}
+    for conv in conversations or []:
+        if conv.get("kind") == "comment":
+            platform = str(conv.get("platform") or "").title()
+            active_conversations.append(
+                {
+                    "id": conv.get("comment_id") or "",
+                    "href": conv.get("href") or "/admin/crm/inbox?channel=comments",
+                    "contact": conv.get("author_name") or "Comment",
+                    "channel": f"{platform} Comments".strip(),
+                    "status": "comment",
+                    "agent": "Unassigned",
+                    "preview": conv.get("preview") or "",
+                    "last_message_at_label": conv.get("last_message_at_label") or "",
+                    "unread_count": 0,
+                }
+            )
+            continue
+        contact = conv.get("contact") or {}
+        conversation_row = {
+            "id": conv.get("id") or "",
+            "href": f"/admin/crm/inbox?conversation_id={conv.get('id')}",
+            "contact": contact.get("name") or "Unknown",
+            "channel": str(conv.get("channel") or "inbox").replace("_", " ").title(),
+            "status": conv.get("status") or "open",
+            "assigned_agent_id": str(conv.get("assigned_agent_id") or "").strip(),
+            "needs_attention": bool(conv.get("needs_attention")),
+            "unreplied": bool(conv.get("unreplied")),
+            "agent": conv.get("assigned_agent_name") or (conv.get("assigned_team") or {}).get("name") or "Unassigned",
+            "preview": conv.get("subject") or conv.get("preview") or "",
+            "last_message_at_label": conv.get("last_message_at_label") or "",
+            "unread_count": int(conv.get("unread_count") or 0),
+        }
+        active_conversations.append(conversation_row)
+
+        assigned_agent_id = str(conv.get("assigned_agent_id") or "").strip()
+        if assigned_agent_id:
+            active_conversations_by_agent.setdefault(assigned_agent_id, []).append(
+                {
+                    "id": conversation_row["id"],
+                    "href": conversation_row["href"],
+                    "contact": conversation_row["contact"],
+                    "channel": conversation_row["channel"],
+                    "status": conversation_row["status"],
+                    "assigned_agent_id": assigned_agent_id,
+                    "needs_attention": conversation_row["needs_attention"],
+                    "unreplied": conversation_row["unreplied"],
+                }
+            )
+
+    for agent_row in agent_rows:
+        agent_row["active_conversations"] = active_conversations_by_agent.get(agent_row["id"], [])
+
+    unassigned_conversations = [
+        row
+        for row in active_conversations
+        if not row.get("assigned_agent_id") and row.get("status") in {"open", "pending"}
+    ]
+    attention_conversations = [row for row in active_conversations if row.get("needs_attention")]
+
+    online_agents = [row for row in agent_rows if row["is_online"]]
+    return {
+        "can_view": can_view_manager,
+        "can_reassign": can_view_manager and can_assign_conversation(current_roles, current_scopes),
+        "online_agents": len(online_agents),
+        "total_agents": len(agent_rows),
+        "online_agent_active_chats": sum(row["active_chats"] for row in online_agents),
+        "assigned_chats": int(assignment_counts.get("assigned") or 0),
+        "unassigned_chats": int(assignment_counts.get("unassigned") or 0),
+        "needs_attention": int(assignment_counts.get("needs_attention") or 0),
+        "unreplied": int(assignment_counts.get("unreplied") or 0),
+        "open_chats": int(stats.get("open") or 0),
+        "pending_chats": int(stats.get("pending") or 0),
+        "resolved_today": int(stats.get("resolved_today") or 0),
+        "channel_stats": {
+            "email": int(channel_stats.get("email") or 0),
+            "whatsapp": int(channel_stats.get("whatsapp") or 0),
+            "facebook": int(channel_stats.get("facebook_messenger") or 0),
+            "instagram": int(channel_stats.get("instagram_dm") or 0),
+            "comments": int(channel_stats.get("comments") or 0),
+        },
+        "agents": agent_rows,
+        "active_conversations": active_conversations[:10],
+        "unassigned_conversations": unassigned_conversations[:10],
+        "attention_conversations": attention_conversations[:10],
+    }
 
 
 def _load_assignment_activity(
@@ -541,6 +710,7 @@ async def build_inbox_page_context(
     safe_offset = max(int(offset or ((safe_page - 1) * page_limit)), 0)
     assigned_person_id = (current_user or {}).get("person_id")
     current_agent_id = get_current_agent_id(db, assigned_person_id) if db else None
+    current_roles = list((current_user or {}).get("roles") or [])
 
     comments_mode = channel == "comments"
     force_refresh_thread = str(query_params.get("reply_sent") or "").strip() == "1"
@@ -653,7 +823,6 @@ async def build_inbox_page_context(
 
         if conversation_id:
             try:
-                current_roles = list((current_user or {}).get("roles") or [])
                 detail_context = build_inbox_conversation_detail_context(
                     db,
                     conversation_id=conversation_id,
@@ -680,6 +849,26 @@ async def build_inbox_page_context(
     facebook_comment_inboxes, instagram_comment_inboxes = list_comment_inboxes(db)
 
     assignment_options = crm_service.get_agent_team_options(db)
+    current_scopes = [
+        str(scope)
+        for scope in [
+            *((current_user or {}).get("scopes") or []),
+            *((current_user or {}).get("permissions") or []),
+        ]
+    ]
+    can_view_manager = can_view_manager_dashboard(current_roles, current_scopes)
+    manager_panel = {"can_view": False, "can_reassign": False}
+    if can_view_manager:
+        manager_panel = _build_manager_panel_context(
+            agents=assignment_options.get("agents") or [],
+            agent_labels=assignment_options.get("agent_labels"),
+            agent_availability=assignment_options.get("agent_availability"),
+            stats=stats,
+            assignment_counts=assignment_counts,
+            channel_stats=channel_stats,
+            conversations=conversations,
+            current_user=current_user,
+        )
     templates = _load_message_template_choices(db) if selected_conversation else []
     macros = (
         _load_macro_choices(db, str(current_agent_id) if current_agent_id else None) if selected_conversation else []
@@ -750,6 +939,7 @@ async def build_inbox_page_context(
         "teams": assignment_options.get("teams"),
         "agent_labels": assignment_options.get("agent_labels"),
         "agent_availability": assignment_options.get("agent_availability"),
+        "manager_panel": manager_panel,
         "current_filter_agent_id": filter_agent_id or "",
         "current_assigned_from": assigned_from.strftime("%Y-%m-%d") if assigned_from else "",
         "current_assigned_to": assigned_to.strftime("%Y-%m-%d") if assigned_to else "",

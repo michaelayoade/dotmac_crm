@@ -94,6 +94,20 @@ def can_assign_conversation(roles: Iterable[str] | None = None, scopes: Iterable
     return can_write_inbox(roles, scopes)
 
 
+def can_view_manager_dashboard(roles: Iterable[str] | None = None, scopes: Iterable[str] | None = None) -> bool:
+    if is_admin(roles, scopes):
+        return True
+    scope_set = _normalize(scopes)
+    return bool(
+        {
+            "crm:inbox:manager_dashboard:read",
+            "crm:inbox:manager_dashboard:*",
+            "crm:inbox:*",
+        }
+        & scope_set
+    )
+
+
 def can_update_conversation_status(roles: Iterable[str] | None = None, scopes: Iterable[str] | None = None) -> bool:
     return can_write_inbox(roles, scopes)
 

@@ -100,6 +100,19 @@ class Settings:
             "image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,image/heic-sequence,image/heif-sequence,application/pdf",
         )
     )
+    inbox_media_allowed_hosts: tuple[str, ...] = field(
+        default_factory=lambda: _env_csv(
+            "INBOX_MEDIA_ALLOWED_HOSTS",
+            (
+                "graph.facebook.com",
+                "lookaside.fbsbx.com",
+                "*.fbcdn.net",
+                "*.cdninstagram.com",
+                "*.whatsapp.net",
+                "media.us.youstream.tv",
+            ),
+        )
+    )
 
     # Branding assets (logo & favicon)
     branding_upload_dir: str = field(
@@ -127,6 +140,7 @@ class Settings:
     meta_webhook_debug_signatures: bool = field(
         default_factory=lambda: _env_bool("META_WEBHOOK_DEBUG_SIGNATURES", default=False)
     )
+    webhook_email_secret: str = field(default_factory=lambda: os.getenv("WEBHOOK_EMAIL_SECRET", ""))
 
     # Storage backend
     storage_backend: str = field(default_factory=lambda: os.getenv("STORAGE_BACKEND", "local"))  # "local" or "s3"

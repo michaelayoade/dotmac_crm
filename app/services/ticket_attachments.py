@@ -10,6 +10,7 @@ from starlette.datastructures import UploadFile
 
 from app.config import settings
 from app.services.storage import storage
+from app.services.upload_validation import validate_upload_mime
 
 
 def _allowed_types() -> set[str]:
@@ -25,6 +26,8 @@ def _validate_attachment(file: UploadFile, content: bytes) -> None:
     allowed = _allowed_types()
     if allowed and file.content_type not in allowed:
         raise HTTPException(status_code=400, detail="Unsupported attachment type")
+    if allowed:
+        validate_upload_mime(content, file.content_type, allowed, "attachment")
 
 
 def _is_upload_like(item: object) -> bool:

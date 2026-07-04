@@ -32,6 +32,7 @@ DEFAULT_REFERRAL_WEBHOOK_PATH = "/api/v1/webhooks/crm/referrals"
 DEFAULT_PROJECT_WEBHOOK_PATH = "/api/v1/webhooks/crm/projects"
 DEFAULT_WORK_ORDER_WEBHOOK_PATH = "/api/v1/webhooks/crm/work-orders"
 DEFAULT_QUOTE_WEBHOOK_PATH = "/api/v1/webhooks/crm/quotes"
+DEFAULT_CHAT_WEBHOOK_PATH = "/api/v1/webhooks/crm/chat"
 _CUSTOMER_LAST_SYNC_KEY = "selfcare_sync:customer:last"
 _CUSTOMER_HISTORY_KEY = "selfcare_sync:customer:history"
 _CUSTOMER_DAILY_STATS_PREFIX = "selfcare_sync:customer:stats:"
@@ -648,6 +649,43 @@ def fetch_infrastructure_assets(db: Session, *, q: str | None = None) -> list[di
     payload = _request_json(db, "GET", "/infrastructure/assets", params=params)
     data = payload.get("data") if isinstance(payload, dict) else None
     return data if isinstance(data, list) else []
+
+
+def fetch_ncc_subscriber_report(
+    db: Session,
+    *,
+    as_of: str | None = None,
+    statuses: str | None = None,
+    reseller_id: str | None = None,
+    capacity: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The NCC quarterly Subscriber & Capacity aggregate (Return ②) from sub.
+
+    Thin call over sub's ``GET /crm/ncc/subscribers``. ``as_of`` is the
+    period-end (``YYYY-MM-DD``), ``statuses`` a comma-separated status list,
+    and ``capacity`` the manual network-capacity figures echoed into the
+    return. Returns the aggregate dict (empty dict if the payload is malformed).
+    """
+    params: dict[str, Any] = {}
+    if as_of:
+        params["as_of"] = as_of
+    if statuses:
+        params["statuses"] = statuses
+    if reseller_id:
+        params["reseller_id"] = reseller_id
+    for key in (
+        "access_capacity_gbps",
+        "unutilized_capacity_mbps",
+        "points_of_presence",
+        "data_usage_tb",
+    ):
+        value = (capacity or {}).get(key)
+        if value is not None and str(value).strip() != "":
+            params[key] = value
+
+    payload = _request_json(db, "GET", "/ncc/subscribers", params=params or None)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    return data if isinstance(data, dict) else {}
 
 
 def fetch_transactions(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
@@ -1351,6 +1389,68 @@ def notify_referral_event(db: Session, event_type: str, payload: dict[str, Any])
         return True
     except Exception as exc:  # - best-effort; reconcile is the backstop
         logger.warning("selfcare_referral_notify_failed event=%s error=%s", event_type, str(exc))
+        return False
+
+
+def _chat_url(config: dict[str, Any]) -> str:
+    base = str(config["base_url"]).rstrip("/")
+    return f"{base}{DEFAULT_CHAT_WEBHOOK_PATH}"
+
+
+def notify_chat_message(
+    db: Session,
+    *,
+    subscriber_id: str | None = None,
+    reseller_id: str | None = None,
+    conversation_id: str,
+    preview: str,
+) -> bool:
+    """Wake a backgrounded dotmac_sub mobile app when an agent replies in a live
+    chat (best-effort). The CRM chat WebSocket only delivers while the app is
+    foregrounded, so this signed webhook fans the reply out to the recipient's
+    devices via FCM. Advisory only — the app pulls authoritative history with its
+    visitor token. Signed with the same selfcare webhook secret as customer
+    events; a failed push is logged, not raised (the foreground WS is the primary
+    delivery path).
+
+    Pass ``subscriber_id`` for a customer chat, or ``reseller_id`` for a
+    reseller-portal chat (the sub resolves it to the reseller's portal users)."""
+    config = _get_config(db)
+    if not config or not (subscriber_id or reseller_id):
+        return False
+
+    payload: dict[str, Any] = {
+        "conversation_id": str(conversation_id or ""),
+        "preview": str(preview or "")[:140],
+    }
+    if subscriber_id:
+        payload["subscriber_id"] = str(subscriber_id)
+    if reseller_id:
+        payload["reseller_id"] = str(reseller_id)
+    raw_body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "X-Webhook-Event": "message.outbound",
+        "X-Webhook-Signature-256": _sign_payload(config["webhook_secret"], raw_body),
+    }
+
+    import requests
+
+    try:
+        response = requests.post(  # nosec B113 - timeout is config-driven.
+            _chat_url(config),
+            data=raw_body,
+            headers=headers,
+            timeout=config["timeout_seconds"],
+        )
+        response.raise_for_status()
+        return True
+    except Exception as exc:  # - best-effort; foreground WS is the primary path
+        logger.warning(
+            "selfcare_chat_notify_failed conversation_id=%s error=%s",
+            conversation_id,
+            str(exc),
+        )
         return False
 
 

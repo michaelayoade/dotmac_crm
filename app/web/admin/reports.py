@@ -4243,6 +4243,109 @@ def ncc_reports_page(
     )
 
 
+@router.get(
+    "/ncc/regulatory-pack",
+    dependencies=[Depends(require_any_permission("reports:operations", "reports"))],
+)
+def ncc_regulatory_pack(
+    db: Session = Depends(get_db),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    as_of: str | None = Query(None),
+    year: int | None = Query(None),
+    statuses: str | None = Query(None),
+    reseller_id: str | None = Query(None),
+    access_capacity_gbps: str | None = Query(None),
+    unutilized_capacity_mbps: str | None = Query(None),
+    points_of_presence: str | None = Query(None),
+    data_usage_tb: str | None = Query(None),
+) -> JSONResponse:
+    """The full NCC regulatory pack — ① complaints (native), ② subscribers
+    (dotmac_sub), ③ year-end financials + staff (dotmac_erp) — in one payload.
+
+    The complaints window defaults to the current NCC quarter; ``as_of`` is the
+    subscriber period-end and ``year`` the annual financials/staff year (both
+    default to the complaints window when omitted). External sections degrade
+    gracefully so the pack always returns.
+    """
+    from app.services import ncc_regulatory_pack as pack_service
+
+    start_dt, end_dt, _, _ = _parse_ncc_window(start_date, end_date)
+    resolved_as_of = as_of or end_dt.date().isoformat()
+    resolved_year = year or end_dt.year
+    capacity = {
+        "access_capacity_gbps": access_capacity_gbps,
+        "unutilized_capacity_mbps": unutilized_capacity_mbps,
+        "points_of_presence": points_of_presence,
+        "data_usage_tb": data_usage_tb,
+    }
+    pack = pack_service.build_regulatory_pack(
+        db,
+        start_dt=start_dt,
+        end_dt=end_dt,
+        as_of=resolved_as_of,
+        year=resolved_year,
+        statuses=statuses,
+        reseller_id=reseller_id,
+        capacity=capacity,
+    )
+    return JSONResponse(content=pack)
+
+
+@router.get(
+    "/ncc/pack",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_any_permission("reports:operations", "reports"))],
+)
+def ncc_regulatory_pack_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    as_of: str | None = Query(None),
+    year: int | None = Query(None),
+):
+    """Human-readable view of the NCC regulatory pack — all three returns and
+    their per-source availability in one page, with a link to the JSON export.
+    """
+    from app.services import ncc_regulatory_pack as pack_service
+
+    user = get_current_user(request)
+    start_dt, end_dt, start_value, end_value = _parse_ncc_window(start_date, end_date)
+    as_of_value = (as_of or "").strip() or end_dt.date().isoformat()
+    year_value = year or end_dt.year
+    pack = pack_service.build_regulatory_pack(
+        db,
+        start_dt=start_dt,
+        end_dt=end_dt,
+        as_of=as_of_value,
+        year=year_value,
+    )
+    export_params = {
+        "start_date": start_value,
+        "end_date": end_value,
+        "as_of": as_of_value,
+        "year": year_value,
+    }
+    return templates.TemplateResponse(
+        "admin/reports/ncc_regulatory_pack.html",
+        {
+            "request": request,
+            "user": user,
+            "current_user": user,
+            "sidebar_stats": get_sidebar_stats(db),
+            "active_page": "ncc-reports",
+            "active_menu": "reports",
+            "pack": pack,
+            "window_start": start_value,
+            "window_end": end_value,
+            "as_of_value": as_of_value,
+            "year_value": year_value,
+            "export_url": f"/admin/reports/ncc/regulatory-pack?{urlencode(export_params)}",
+        },
+    )
+
+
 @router.post(
     "/ncc/email-settings",
     dependencies=[Depends(require_any_permission("reports:operations", "reports"))],
