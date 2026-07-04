@@ -1,4 +1,4 @@
-import 'dart:ffi';
+import 'dart:ffi' hide Size;
 
 import 'package:dio/dio.dart';
 import 'package:dotmac_field/core/api/api_client.dart';
@@ -229,6 +229,26 @@ void main() {
     expect(find.text('pending'), findsOneWidget);
     expect(find.text('Router'), findsOneWidget);
     expect(find.text('New install'), findsOneWidget);
+  });
+
+  testWidgets('new sales order form renders on phone width', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          customerSearchProvider.overrideWith((ref) async => const []),
+          inventorySearchProvider.overrideWith((ref) async => const []),
+        ],
+        child: const MaterialApp(home: NewSalesOrderScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('New sales order'), findsOneWidget);
+    expect(find.text('Submit sales order'), findsOneWidget);
+    expect(find.text('Save draft'), findsOneWidget);
   });
 
   testWidgets('new sales order draft lines can be edited and removed', (
