@@ -20,7 +20,7 @@ class TodayScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final me = ref.watch(meProvider);
-    final jobs = ref.watch(jobsListProvider);
+    final jobs = ref.watch(todayJobsProvider);
     final filter = ref.watch(jobsFilterProvider);
 
     return Scaffold(
@@ -28,7 +28,7 @@ class TodayScreen extends ConsumerWidget {
         child: RefreshIndicator(
           onRefresh: () async {
             ref.invalidate(meProvider);
-            ref.invalidate(jobsListProvider);
+            ref.invalidate(todayJobsProvider);
           },
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -42,7 +42,8 @@ class TodayScreen extends ConsumerWidget {
                       me.when(
                         data: (data) => Text(
                           'Hello, ${data.name.split(' ').first}',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w700),
                         ),
                         loading: () => const SizedBox(height: 32),
                         error: (_, _) => const SizedBox(height: 32),
@@ -51,9 +52,15 @@ class TodayScreen extends ConsumerWidget {
                       me.when(
                         data: (data) => Row(
                           children: [
-                            _MetricTile(value: '${data.openJobs}', label: 'open'),
+                            _MetricTile(
+                              value: '${data.openJobs}',
+                              label: 'open',
+                            ),
                             const SizedBox(width: 12),
-                            _MetricTile(value: '${data.completedToday}', label: 'done today'),
+                            _MetricTile(
+                              value: '${data.completedToday}',
+                              label: 'done today',
+                            ),
                           ],
                         ),
                         loading: () => const SizedBox.shrink(),
@@ -63,7 +70,8 @@ class TodayScreen extends ConsumerWidget {
                       const SyncStatusBar(),
                       const SizedBox(height: 12),
                       const LocationSharingControls(),
-                      if (jobs.value?.fromCache ?? false) const _OfflineBanner(),
+                      if (jobs.value?.fromCache ?? false)
+                        const _OfflineBanner(),
                       const SizedBox(height: 16),
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
@@ -73,7 +81,11 @@ class TodayScreen extends ConsumerWidget {
                               FilterChip(
                                 label: Text(label),
                                 selected: filter == value,
-                                onSelected: (_) => ref.read(jobsFilterProvider.notifier).state = value,
+                                onSelected: (_) =>
+                                    ref
+                                            .read(jobsFilterProvider.notifier)
+                                            .state =
+                                        value,
                               ),
                               const SizedBox(width: 8),
                             ],
@@ -94,7 +106,8 @@ class TodayScreen extends ConsumerWidget {
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                         sliver: SliverList.separated(
                           itemCount: list.jobs.length,
-                          separatorBuilder: (_, _) => const SizedBox(height: 12),
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 12),
                           itemBuilder: (context, index) {
                             final job = list.jobs[index];
                             return JobCard(
@@ -113,7 +126,10 @@ class TodayScreen extends ConsumerWidget {
                   child: Center(
                     child: Padding(
                       padding: const EdgeInsets.all(24),
-                      child: Text('Could not load jobs — pull to retry', textAlign: TextAlign.center),
+                      child: Text(
+                        'Could not load jobs — pull to retry',
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                   ),
                 ),
@@ -140,7 +156,12 @@ class _MetricTile extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 14),
           child: Column(
             children: [
-              Text(value, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700)),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               Text(label, style: Theme.of(context).textTheme.bodySmall),
             ],
           ),
@@ -184,7 +205,12 @@ class SyncStatusBar extends ConsumerWidget {
             children: [
               Icon(Icons.sync, size: 16, color: amber),
               const SizedBox(width: 8),
-              Expanded(child: Text(parts.join(' · '), style: Theme.of(context).textTheme.bodySmall)),
+              Expanded(
+                child: Text(
+                  parts.join(' · '),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
               const Icon(Icons.chevron_right, size: 16),
             ],
           ),
@@ -206,7 +232,10 @@ class _OfflineBanner extends StatelessWidget {
         children: [
           const Icon(Icons.cloud_off_outlined, size: 16),
           const SizedBox(width: 8),
-          Text('Offline — showing saved jobs', style: Theme.of(context).textTheme.bodySmall),
+          Text(
+            'Offline — showing saved jobs',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ],
       ),
     );

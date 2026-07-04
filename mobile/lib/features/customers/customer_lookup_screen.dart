@@ -168,11 +168,6 @@ class _CustomerResultCard extends ConsumerWidget {
                     onPressed: () => _launch(ref, 'mailto:$email'),
                     icon: const Icon(Icons.email_outlined),
                   ),
-                OutlinedButton.icon(
-                  onPressed: () => _openSalesOrder(context, customer),
-                  icon: const Icon(Icons.receipt_long_outlined),
-                  label: const Text('Sales order'),
-                ),
               ],
             ),
           ],
@@ -188,15 +183,6 @@ class _CustomerResultCard extends ConsumerWidget {
         queryParameters: customer.toQueryParameters(),
       ).toString(),
       extra: customer,
-    );
-  }
-
-  void _openSalesOrder(BuildContext context, CustomerLookupResult customer) {
-    context.push(
-      Uri(
-        path: '/sales/new',
-        queryParameters: customer.toQueryParameters(),
-      ).toString(),
     );
   }
 
@@ -287,16 +273,6 @@ class CustomerDetailScreen extends ConsumerWidget {
                   icon: const Icon(Icons.email_outlined),
                   label: const Text('Email'),
                 ),
-              OutlinedButton.icon(
-                onPressed: () => context.push(
-                  Uri(
-                    path: '/sales/new',
-                    queryParameters: customer.toQueryParameters(),
-                  ).toString(),
-                ),
-                icon: const Icon(Icons.receipt_long_outlined),
-                label: const Text('Sales order'),
-              ),
             ],
           ),
           const SizedBox(height: 12),

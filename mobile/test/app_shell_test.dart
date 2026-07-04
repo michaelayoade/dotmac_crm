@@ -8,7 +8,6 @@ import 'package:dotmac_field/features/jobs/jobs_providers.dart';
 import 'package:dotmac_field/features/location/location_cadence.dart';
 import 'package:dotmac_field/features/location/location_ping_service.dart';
 import 'package:dotmac_field/features/profile/profile_screen.dart';
-import 'package:dotmac_field/features/schedule/schedule_providers.dart';
 import 'package:dotmac_field/features/vendor/vendor_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -38,13 +37,21 @@ Widget _app({
         authControllerProvider.overrideWith(controller),
         ...extra,
         meProvider.overrideWith(
-          (ref) async =>
-              const MeSummary(name: 'Chidi Tech', openJobs: 2, completedToday: 1),
+          (ref) async => const MeSummary(
+            name: 'Chidi Tech',
+            openJobs: 2,
+            completedToday: 1,
+          ),
         ),
         jobsListProvider.overrideWith(
           (ref) async => const JobList(<JobSummary>[]),
         ),
-        scheduleProvider.overrideWith((ref) async => const ScheduleData([])),
+        todayJobsProvider.overrideWith(
+          (ref) async => const JobList(<JobSummary>[]),
+        ),
+        allAssignedJobsProvider.overrideWith(
+          (ref) async => const JobList(<JobSummary>[]),
+        ),
         // SyncStatusBar reads these; empty streams keep it off-screen without
         // needing a real SyncService.
         pendingOutboxProvider.overrideWith(
@@ -70,7 +77,9 @@ void main() {
     expect(find.byType(NavigationBar), findsNothing);
   });
 
-  testWidgets('authenticated shell renders four-tab navigation', (tester) async {
+  testWidgets('authenticated shell renders four-tab navigation', (
+    tester,
+  ) async {
     await tester.pumpWidget(_app());
     await tester.pumpAndSettle();
 
@@ -90,13 +99,19 @@ void main() {
     expect(find.text('Schedule'), findsWidgets);
   });
 
-  testWidgets('vendor shell shows Projects, Map and Profile only', (tester) async {
-    await tester.pumpWidget(_app(
-      controller: _VendorController.new,
-      extra: [
-        vendorProjectsProvider.overrideWith((ref) async => <VendorProjectListItem>[]),
-      ],
-    ));
+  testWidgets('vendor shell shows Projects, Map and Profile only', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(
+        controller: _VendorController.new,
+        extra: [
+          vendorProjectsProvider.overrideWith(
+            (ref) async => <VendorProjectListItem>[],
+          ),
+        ],
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.byType(NavigationBar), findsOneWidget);

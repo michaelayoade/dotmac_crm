@@ -53,7 +53,11 @@ class JobsRepository {
     );
   }
 
-  Future<JobList> fetchJobs({String? status}) async {
+  Future<JobList> fetchJobs({
+    String? status,
+    DateTime? dateFrom,
+    DateTime? dateTo,
+  }) async {
     final sync = _read.read(syncServiceProvider);
     try {
       final response = await _read
@@ -61,7 +65,12 @@ class JobsRepository {
           .dio
           .get(
             '/api/v1/field/jobs',
-            queryParameters: {'status': ?status, 'limit': 200},
+            queryParameters: {
+              'status': ?status,
+              'from': ?dateFrom?.toUtc().toIso8601String(),
+              'to': ?dateTo?.toUtc().toIso8601String(),
+              'limit': 200,
+            },
           );
       final items = (response.data['items'] as List).cast<Map>();
       await sync.cacheJobs(items); // keep the offline cache warm
@@ -136,6 +145,34 @@ final jobsListProvider = FutureProvider<JobList>((ref) {
   return ref.watch(jobsRepositoryProvider).fetchJobs(status: filter);
 });
 
+final todayJobsProvider = FutureProvider<JobList>((ref) async {
+  final filter = ref.watch(jobsFilterProvider);
+  final now = DateTime.now();
+  final start = DateTime(now.year, now.month, now.day);
+  final end = start.add(const Duration(days: 1));
+  final list = await ref
+      .watch(jobsRepositoryProvider)
+      .fetchJobs(status: filter, dateFrom: start, dateTo: end);
+  return JobList(
+    list.jobs
+        .where((job) => _isSameLocalDay(job.scheduledStart, start))
+        .toList(),
+    fromCache: list.fromCache,
+  );
+});
+
+final allAssignedJobsProvider = FutureProvider<JobList>((ref) {
+  return ref.watch(jobsRepositoryProvider).fetchJobs();
+});
+
 final jobDetailProvider = FutureProvider.family<JobDetail, String>(
   (ref, jobId) => ref.watch(jobsRepositoryProvider).fetchDetail(jobId),
 );
+
+bool _isSameLocalDay(DateTime? value, DateTime day) {
+  if (value == null) return false;
+  final local = value.toLocal();
+  return local.year == day.year &&
+      local.month == day.month &&
+      local.day == day.day;
+}

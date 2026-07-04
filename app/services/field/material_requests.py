@@ -31,6 +31,36 @@ def _assigned_work_order_ids(db: Session, person_id: UUID):
     )
 
 
+def _assigned_context_filters(db: Session, person_id: UUID):
+    assigned_work_order_ids = _assigned_work_order_ids(db, person_id).subquery()
+    assigned_ids = db.query(assigned_work_order_ids.c.id)
+    assigned_ticket_ids = (
+        db.query(WorkOrder.ticket_id).filter(WorkOrder.id.in_(assigned_ids)).filter(WorkOrder.ticket_id.isnot(None))
+    )
+    assigned_project_ids = (
+        db.query(WorkOrder.project_id).filter(WorkOrder.id.in_(assigned_ids)).filter(WorkOrder.project_id.isnot(None))
+    )
+    return (
+        MaterialRequest.requested_by_person_id == person_id,
+        MaterialRequest.work_order_id.in_(assigned_ids),
+        MaterialRequest.ticket_id.in_(assigned_ticket_ids),
+        MaterialRequest.project_id.in_(assigned_project_ids),
+    )
+
+
+def _caller_can_access_request_context(db: Session, person_id: UUID, mr: MaterialRequest) -> bool:
+    filters = []
+    if mr.work_order_id:
+        filters.append(WorkOrder.id == mr.work_order_id)
+    if mr.ticket_id:
+        filters.append(WorkOrder.ticket_id == mr.ticket_id)
+    if mr.project_id:
+        filters.append(WorkOrder.project_id == mr.project_id)
+    if not filters:
+        return False
+    return _assigned_work_order_ids(db, person_id).filter(or_(*filters)).first() is not None
+
+
 class FieldMaterialRequests(ListResponseMixin):
     @staticmethod
     def list_mine(
@@ -46,12 +76,7 @@ class FieldMaterialRequests(ListResponseMixin):
             db.query(MaterialRequest)
             .options(selectinload(MaterialRequest.items))
             .filter(MaterialRequest.is_active.is_(True))
-            .filter(
-                or_(
-                    MaterialRequest.requested_by_person_id == person_uuid,
-                    MaterialRequest.work_order_id.in_(_assigned_work_order_ids(db, person_uuid).subquery().select()),
-                )
-            )
+            .filter(or_(*_assigned_context_filters(db, person_uuid)))
             .order_by(MaterialRequest.created_at.desc())
         )
         if status:
@@ -68,6 +93,8 @@ class FieldMaterialRequests(ListResponseMixin):
             work_order = db.get(WorkOrder, mr.work_order_id)
             if work_order and caller_can_access(db, person_uuid, work_order):
                 return mr
+        if _caller_can_access_request_context(db, person_uuid, mr):
+            return mr
         raise HTTPException(status_code=404, detail="Material request not found")
 
     @staticmethod
