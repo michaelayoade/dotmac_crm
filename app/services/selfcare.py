@@ -1363,26 +1363,33 @@ def _chat_url(config: dict[str, Any]) -> str:
 def notify_chat_message(
     db: Session,
     *,
-    subscriber_id: str,
+    subscriber_id: str | None = None,
+    reseller_id: str | None = None,
     conversation_id: str,
     preview: str,
 ) -> bool:
     """Wake a backgrounded dotmac_sub mobile app when an agent replies in a live
     chat (best-effort). The CRM chat WebSocket only delivers while the app is
-    foregrounded, so this signed webhook fans the reply out to the subscriber's
+    foregrounded, so this signed webhook fans the reply out to the recipient's
     devices via FCM. Advisory only — the app pulls authoritative history with its
     visitor token. Signed with the same selfcare webhook secret as customer
     events; a failed push is logged, not raised (the foreground WS is the primary
-    delivery path)."""
+    delivery path).
+
+    Pass ``subscriber_id`` for a customer chat, or ``reseller_id`` for a
+    reseller-portal chat (the sub resolves it to the reseller's portal users)."""
     config = _get_config(db)
-    if not config or not subscriber_id:
+    if not config or not (subscriber_id or reseller_id):
         return False
 
-    payload = {
-        "subscriber_id": str(subscriber_id),
+    payload: dict[str, Any] = {
         "conversation_id": str(conversation_id or ""),
         "preview": str(preview or "")[:140],
     }
+    if subscriber_id:
+        payload["subscriber_id"] = str(subscriber_id)
+    if reseller_id:
+        payload["reseller_id"] = str(reseller_id)
     raw_body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     headers = {
         "Content-Type": "application/json",

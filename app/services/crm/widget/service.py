@@ -852,14 +852,25 @@ def send_widget_message(
 
             # Direct, self-configuring push to dotmac_sub via the selfcare
             # webhook (no manually-registered webhook subscription needed).
-            # Customer surface only — reseller devices aren't yet a push target.
             _sub_id = _md.get("subscriber_id")
+            _res_id = _md.get("reseller_id")
             if _surface == "customer" and _sub_id:
                 from app.services import selfcare
 
                 selfcare.notify_chat_message(
                     db,
                     subscriber_id=str(_sub_id),
+                    conversation_id=str(conversation.id),
+                    preview=(body or "")[:140],
+                )
+            elif _surface == "reseller_portal" and _res_id:
+                # The sub resolves reseller_id to the reseller's portal users'
+                # devices (best-effort; no-op if none have registered).
+                from app.services import selfcare
+
+                selfcare.notify_chat_message(
+                    db,
+                    reseller_id=str(_res_id),
                     conversation_id=str(conversation.id),
                     preview=(body or "")[:140],
                 )
