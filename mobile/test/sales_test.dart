@@ -1,21 +1,34 @@
+import 'dart:ffi';
+
 import 'package:dio/dio.dart';
 import 'package:dotmac_field/core/api/api_client.dart';
 import 'package:dotmac_field/core/api/token_store.dart';
+import 'package:dotmac_field/core/offline/database.dart';
+import 'package:dotmac_field/core/offline/draft_store.dart';
 import 'package:dotmac_field/features/auth/auth_state.dart';
 import 'package:dotmac_field/features/materials/material_models.dart';
 import 'package:dotmac_field/features/materials/materials_providers.dart';
 import 'package:dotmac_field/features/sales/sales_models.dart';
 import 'package:dotmac_field/features/sales/sales_providers.dart';
 import 'package:dotmac_field/features/sales/sales_screen.dart';
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqlite3/open.dart';
 
 import 'helpers/fake_http.dart';
 
 void main() {
   late ProviderContainer container;
   late FakeHttpAdapter adapter;
+
+  setUpAll(() {
+    open.overrideFor(
+      OperatingSystem.linux,
+      () => DynamicLibrary.open('libsqlite3.so.0'),
+    );
+  });
 
   setUp(() async {
     adapter = FakeHttpAdapter();
@@ -266,5 +279,34 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Router'), findsNothing);
+  });
+
+  test('DraftStore saves, loads and deletes a sales order draft', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+    final store = DraftStore(db);
+
+    await store.save(
+      id: salesOrderDraftId,
+      type: 'sales_order',
+      payload: {
+        'customer': {
+          'id': 'customer-1',
+          'label': 'Ada Customer',
+          'ref': 'person:customer-1',
+        },
+        'notes': 'Install tomorrow',
+        'lines': [
+          {'description': 'Router', 'quantity': 1, 'unit_price': 15000},
+        ],
+      },
+    );
+
+    final draft = await store.load(salesOrderDraftId);
+    expect((draft?['customer'] as Map?)?['label'], 'Ada Customer');
+    expect(draft?['notes'], 'Install tomorrow');
+
+    await store.delete(salesOrderDraftId);
+    expect(await store.load(salesOrderDraftId), isNull);
   });
 }

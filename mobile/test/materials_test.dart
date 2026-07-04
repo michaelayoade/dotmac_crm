@@ -1,17 +1,32 @@
+import 'dart:ffi';
+
 import 'package:dio/dio.dart';
 import 'package:dotmac_field/core/api/api_client.dart';
 import 'package:dotmac_field/core/api/token_store.dart';
+import 'package:dotmac_field/core/offline/database.dart';
+import 'package:dotmac_field/core/offline/draft_store.dart';
 import 'package:dotmac_field/features/auth/auth_state.dart';
 import 'package:dotmac_field/features/materials/material_models.dart';
 import 'package:dotmac_field/features/materials/materials_providers.dart';
+import 'package:dotmac_field/features/materials/materials_screen.dart';
+import 'package:drift/native.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqlite3/open.dart';
 
 import 'helpers/fake_http.dart';
 
 void main() {
   late ProviderContainer container;
   late FakeHttpAdapter adapter;
+
+  setUpAll(() {
+    open.overrideFor(
+      OperatingSystem.linux,
+      () => DynamicLibrary.open('libsqlite3.so.0'),
+    );
+  });
 
   setUp(() async {
     adapter = FakeHttpAdapter();
@@ -39,6 +54,7 @@ void main() {
   test('searchInventory reads field inventory items', () async {
     adapter.on('GET', '/api/v1/field/inventory/items', (options) {
       expect(options.queryParameters['q'], 'cable');
+      expect(options.queryParameters['source_location_id'], isNull);
       return (
         200,
         {
@@ -63,11 +79,50 @@ void main() {
     expect(items.single.availableQuantity, 50);
   });
 
+  test('searchInventory can filter by source location', () async {
+    adapter.on('GET', '/api/v1/field/inventory/items', (options) {
+      expect(options.queryParameters['q'], 'router');
+      expect(options.queryParameters['source_location_id'], 'warehouse-1');
+      return (
+        200,
+        {
+          'items': [
+            {
+              'id': 'item-2',
+              'name': 'Router',
+              'available_quantity': 4,
+              'stock_by_location': [
+                {
+                  'location_id': 'warehouse-1',
+                  'location_name': 'Main warehouse',
+                  'location_code': 'WH',
+                  'available_quantity': 4,
+                },
+              ],
+            },
+          ],
+        },
+      );
+    });
+
+    final items = await container
+        .read(materialsRepositoryProvider)
+        .searchInventory('router', sourceLocationId: 'warehouse-1');
+
+    expect(items.single.availableQuantity, 4);
+    expect(
+      items.single.stockByLocation.single.displayLocation,
+      'Main warehouse (WH)',
+    );
+  });
+
   test('createRequest posts request payload with items', () async {
     adapter.on('POST', '/api/v1/field/material-requests', (options) {
       final data = (options.data as Map).cast<String, dynamic>();
       expect(data['priority'], 'high');
       expect(data['work_order_id'], 'wo-1');
+      expect(data['source_location_id'], 'warehouse-1');
+      expect(data['destination_location_id'], 'van-2');
       expect(data['submit'], isTrue);
       expect(data['items'], [
         {'item_id': 'item-1', 'quantity': 2},
@@ -96,6 +151,8 @@ void main() {
         .createRequest(
           priority: 'high',
           workOrderId: 'wo-1',
+          sourceLocationId: 'warehouse-1',
+          destinationLocationId: 'van-2',
           items: [
             const MaterialRequestItemDraft(
               item: InventoryItem(id: 'item-1', name: 'Drop cable'),
@@ -107,4 +164,114 @@ void main() {
     expect(request.number, 'MR-0001');
     expect(request.items.single.itemName, 'Drop cable');
   });
+
+  test('MaterialRequest parses status flow and issued quantities', () {
+    final request = MaterialRequest.fromJson({
+      'id': 'mr-1',
+      'number': 'MR-0001',
+      'status': 'issued',
+      'priority': 'high',
+      'source_location': {'id': 'warehouse-1', 'name': 'Main warehouse'},
+      'destination_location': {'id': 'van-2', 'name': 'Installer van'},
+      'approval_notes': 'Approved for urgent install',
+      'issue_notes': 'Partially issued from main warehouse',
+      'submitted_at': '2026-07-04T08:00:00Z',
+      'approved_at': '2026-07-04T09:00:00Z',
+      'issued_at': '2026-07-04T10:00:00Z',
+      'items': [
+        {
+          'id': 'line-1',
+          'item_id': 'item-1',
+          'item_name': 'Drop cable',
+          'quantity': 2,
+          'approved_quantity': 2,
+          'issued_quantity': 1,
+        },
+      ],
+    });
+
+    expect(request.sourceLocationLabel, 'Main warehouse');
+    expect(request.destinationLocationLabel, 'Installer van');
+    expect(request.approvalNotes, 'Approved for urgent install');
+    expect(request.issueNotes, 'Partially issued from main warehouse');
+    expect(request.items.single.issuedQuantity, 1);
+  });
+
+  testWidgets('material request detail shows status flow and issue progress', (
+    tester,
+  ) async {
+    final request = MaterialRequest.fromJson({
+      'id': 'mr-1',
+      'number': 'MR-0001',
+      'status': 'issued',
+      'priority': 'high',
+      'source_location': {'id': 'warehouse-1', 'name': 'Main warehouse'},
+      'destination_location': {'id': 'van-2', 'name': 'Installer van'},
+      'approval_notes': 'Approved for urgent install',
+      'issue_notes': 'Partially issued from main warehouse',
+      'items': [
+        {
+          'id': 'line-1',
+          'item_id': 'item-1',
+          'item_name': 'Drop cable',
+          'quantity': 2,
+          'approved_quantity': 2,
+          'issued_quantity': 1,
+        },
+      ],
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          materialRequestProvider('mr-1').overrideWith((ref) async => request),
+        ],
+        child: const MaterialApp(home: MaterialRequestDetailScreen(id: 'mr-1')),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('MR-0001'), findsOneWidget);
+    expect(find.text('issued'), findsOneWidget);
+    expect(find.text('Status flow'), findsOneWidget);
+    expect(find.text('Main warehouse'), findsOneWidget);
+    expect(find.text('Installer van'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('2/2 approved · 1/2 issued'),
+      200,
+    );
+    expect(find.text('2/2 approved · 1/2 issued'), findsOneWidget);
+    expect(find.text('Approved for urgent install'), findsOneWidget);
+  });
+
+  test(
+    'DraftStore saves, loads and deletes a material request draft',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+      final store = DraftStore(db);
+
+      await store.save(
+        id: materialRequestDraftId,
+        type: 'material_request',
+        payload: {
+          'priority': 'urgent',
+          'source_location_id': 'warehouse-1',
+          'items': [
+            {
+              'item': {'id': 'item-1', 'name': 'Drop cable'},
+              'quantity': 2,
+            },
+          ],
+        },
+      );
+
+      final draft = await store.load(materialRequestDraftId);
+      expect(draft?['priority'], 'urgent');
+      expect(draft?['source_location_id'], 'warehouse-1');
+
+      await store.delete(materialRequestDraftId);
+      expect(await store.load(materialRequestDraftId), isNull);
+    },
+  );
 }
