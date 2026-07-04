@@ -636,6 +636,7 @@ class VendorQuoteScreen extends ConsumerWidget {
     );
     if (item == null) return;
     await ref.read(vendorRepositoryProvider).addQuoteLineItem(quoteId, item);
+    if (!context.mounted) return;
     ref.invalidate(vendorProjectQuoteProvider(projectId));
   }
 
@@ -660,7 +661,9 @@ class VendorQuoteScreen extends ConsumerWidget {
         builder: (_) => _ProposedRouteCaptureScreen(quoteId: quoteId),
       ),
     );
-    if (saved == true) ref.invalidate(vendorProjectQuoteProvider(projectId));
+    if (context.mounted && saved == true) {
+      ref.invalidate(vendorProjectQuoteProvider(projectId));
+    }
   }
 
   Future<void> _submit(

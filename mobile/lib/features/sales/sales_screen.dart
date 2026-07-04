@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/offline/draft_store.dart';
 import '../materials/material_models.dart';
 import '../materials/materials_providers.dart';
 import 'sales_models.dart';
@@ -330,6 +331,7 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
       );
       _customerSearch.text = customerLabel;
     }
+    Future.microtask(_loadDraft);
   }
 
   @override
@@ -379,6 +381,42 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
     });
   }
 
+  Future<void> _loadDraft() async {
+    final draft = await ref.read(draftStoreProvider).load(salesOrderDraftId);
+    if (!mounted || draft == null) return;
+    final customer = (draft['customer'] as Map?)?.cast<String, dynamic>();
+    setState(() {
+      if (widget.initialCustomerId == null && customer != null) {
+        _selectedCustomer = SalesCustomer.fromJson(customer);
+        _customerSearch.text = _selectedCustomer!.label;
+      }
+      _notes.text = draft['notes'] as String? ?? '';
+      _lines
+        ..clear()
+        ..addAll(_salesDraftLines(draft['lines']));
+    });
+  }
+
+  Future<void> _saveDraft() async {
+    await ref
+        .read(draftStoreProvider)
+        .save(
+          id: salesOrderDraftId,
+          type: 'sales_order',
+          payload: {
+            'customer': _selectedCustomer == null
+                ? null
+                : _salesCustomerJson(_selectedCustomer!),
+            'notes': _notes.text,
+            'lines': _lines.map(_salesDraftLineJson).toList(),
+          },
+        );
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Draft saved')));
+  }
+
   Future<void> _submit() async {
     final customer = _selectedCustomer;
     if (customer == null || _lines.isEmpty || _saving) return;
@@ -388,7 +426,10 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
           .read(salesRepositoryProvider)
           .createOrder(customer: customer, lines: _lines, notes: _notes.text);
       ref.invalidate(salesOrdersProvider);
-      if (mounted) context.go('/sales/${order.id}');
+      await ref.read(draftStoreProvider).delete(salesOrderDraftId);
+      if (mounted) {
+        context.go('/sales/${order.id}');
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -550,11 +591,24 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: FilledButton(
-            onPressed: _selectedCustomer == null || _lines.isEmpty || _saving
-                ? null
-                : _submit,
-            child: Text(_saving ? 'Submitting...' : 'Submit sales order'),
+          child: Row(
+            children: [
+              OutlinedButton.icon(
+                onPressed: _saving ? null : _saveDraft,
+                icon: const Icon(Icons.save_outlined),
+                label: const Text('Save draft'),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed:
+                      _selectedCustomer == null || _lines.isEmpty || _saving
+                      ? null
+                      : _submit,
+                  child: Text(_saving ? 'Submitting...' : 'Submit sales order'),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -568,6 +622,49 @@ String _formatQuantity(double value) => value == value.roundToDouble()
 
 String _money(String currency, double value) =>
     '$currency ${value.toStringAsFixed(2)}';
+
+Map<String, dynamic> _salesCustomerJson(SalesCustomer customer) => {
+  'id': customer.id,
+  'label': customer.label,
+  'ref': customer.ref,
+};
+
+Map<String, dynamic> _salesDraftLineJson(SalesOrderLineDraft line) => {
+  'item': line.item == null ? null : _salesInventoryItemJson(line.item!),
+  'description': line.description,
+  'quantity': line.quantity,
+  'unit_price': line.unitPrice,
+};
+
+List<SalesOrderLineDraft> _salesDraftLines(Object? raw) {
+  if (raw is! List) return const [];
+  return raw.whereType<Map>().map((line) {
+    final data = line.cast<String, dynamic>();
+    final item = (data['item'] as Map?)?.cast<String, dynamic>();
+    return SalesOrderLineDraft(
+      item: item == null ? null : InventoryItem.fromJson(item),
+      description: data['description'] as String? ?? 'Item',
+      quantity: _doubleDraft(data['quantity']),
+      unitPrice: _doubleDraft(data['unit_price']),
+    );
+  }).toList();
+}
+
+Map<String, dynamic> _salesInventoryItemJson(InventoryItem item) => {
+  'id': item.id,
+  'name': item.name,
+  'sku': item.sku,
+  'unit': item.unit,
+  'unit_price': item.unitPrice,
+  'currency': item.currency,
+  'available_quantity': item.availableQuantity,
+};
+
+double _doubleDraft(Object? value) => switch (value) {
+  num() => value.toDouble(),
+  String() => double.tryParse(value) ?? 0,
+  _ => 0,
+};
 
 class _CustomerSuggestions extends StatelessWidget {
   const _CustomerSuggestions({

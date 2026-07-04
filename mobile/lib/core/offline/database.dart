@@ -87,6 +87,18 @@ class PendingPhotos extends Table {
   Set<Column> get primaryKey => {clientRef};
 }
 
+/// Local form drafts that have not been submitted yet. These are not synced
+/// directly; the relevant form reloads them and submits through the normal API.
+class DraftEntries extends Table {
+  TextColumn get id => text()();
+  TextColumn get type => text()(); // material_request|sales_order
+  TextColumn get payloadJson => text()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: [
     CachedJobs,
@@ -95,13 +107,14 @@ class PendingPhotos extends Table {
     CachedMapAssetSyncCursors,
     OutboxEntries,
     PendingPhotos,
+    DraftEntries,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.executor);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -112,6 +125,9 @@ class AppDatabase extends _$AppDatabase {
       if (from < 3) {
         await m.createTable(cachedMapAssets);
         await m.createTable(cachedMapAssetSyncCursors);
+      }
+      if (from < 4) {
+        await m.createTable(draftEntries);
       }
     },
   );

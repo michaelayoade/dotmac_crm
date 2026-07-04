@@ -8,7 +8,10 @@ class MaterialsRepository {
 
   final Ref _ref;
 
-  Future<List<InventoryItem>> searchInventory(String query) async {
+  Future<List<InventoryItem>> searchInventory(
+    String query, {
+    String? sourceLocationId,
+  }) async {
     final response = await _ref
         .read(apiClientProvider)
         .dio
@@ -16,6 +19,8 @@ class MaterialsRepository {
           '/api/v1/field/inventory/items',
           queryParameters: {
             if (query.trim().isNotEmpty) 'q': query.trim(),
+            if (sourceLocationId != null && sourceLocationId.trim().isNotEmpty)
+              'source_location_id': sourceLocationId.trim(),
             'limit': 30,
           },
         );
@@ -108,6 +113,21 @@ List<Map<String, dynamic>> _items(Object? data) {
         .map((item) => item.cast<String, dynamic>())
         .toList();
   }
+  if (data is Map) {
+    for (final key in ['data', 'results', 'material_requests', 'requests']) {
+      final nested = data[key];
+      if (nested is List) {
+        return nested
+            .cast<Map>()
+            .map((item) => item.cast<String, dynamic>())
+            .toList();
+      }
+      if (nested is Map) {
+        final nestedItems = _items(nested);
+        if (nestedItems.isNotEmpty) return nestedItems;
+      }
+    }
+  }
   if (data is List) {
     return data
         .cast<Map>()
@@ -133,10 +153,17 @@ final inventorySearchQueryProvider = StateProvider.autoDispose<String>(
   (ref) => '',
 );
 
+final inventorySourceLocationProvider = StateProvider.autoDispose<String?>(
+  (ref) => null,
+);
+
 final inventorySearchProvider = FutureProvider.autoDispose<List<InventoryItem>>(
   (ref) {
     final query = ref.watch(inventorySearchQueryProvider);
-    return ref.watch(materialsRepositoryProvider).searchInventory(query);
+    final sourceLocationId = ref.watch(inventorySourceLocationProvider);
+    return ref
+        .watch(materialsRepositoryProvider)
+        .searchInventory(query, sourceLocationId: sourceLocationId);
   },
 );
 

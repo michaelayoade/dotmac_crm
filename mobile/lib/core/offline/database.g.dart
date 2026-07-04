@@ -2872,6 +2872,319 @@ class PendingPhotosCompanion extends UpdateCompanion<PendingPhoto> {
   }
 }
 
+class $DraftEntriesTable extends DraftEntries
+    with TableInfo<$DraftEntriesTable, DraftEntry> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DraftEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _typeMeta = const VerificationMeta('type');
+  @override
+  late final GeneratedColumn<String> type = GeneratedColumn<String>(
+    'type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _payloadJsonMeta = const VerificationMeta(
+    'payloadJson',
+  );
+  @override
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+    'payload_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, type, payloadJson, updatedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'draft_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<DraftEntry> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('type')) {
+      context.handle(
+        _typeMeta,
+        type.isAcceptableOrUnknown(data['type']!, _typeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_typeMeta);
+    }
+    if (data.containsKey('payload_json')) {
+      context.handle(
+        _payloadJsonMeta,
+        payloadJson.isAcceptableOrUnknown(
+          data['payload_json']!,
+          _payloadJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_payloadJsonMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  DraftEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DraftEntry(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      type: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}type'],
+      )!,
+      payloadJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload_json'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $DraftEntriesTable createAlias(String alias) {
+    return $DraftEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class DraftEntry extends DataClass implements Insertable<DraftEntry> {
+  final String id;
+  final String type;
+  final String payloadJson;
+  final DateTime updatedAt;
+  const DraftEntry({
+    required this.id,
+    required this.type,
+    required this.payloadJson,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['type'] = Variable<String>(type);
+    map['payload_json'] = Variable<String>(payloadJson);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  DraftEntriesCompanion toCompanion(bool nullToAbsent) {
+    return DraftEntriesCompanion(
+      id: Value(id),
+      type: Value(type),
+      payloadJson: Value(payloadJson),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory DraftEntry.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DraftEntry(
+      id: serializer.fromJson<String>(json['id']),
+      type: serializer.fromJson<String>(json['type']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'type': serializer.toJson<String>(type),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  DraftEntry copyWith({
+    String? id,
+    String? type,
+    String? payloadJson,
+    DateTime? updatedAt,
+  }) => DraftEntry(
+    id: id ?? this.id,
+    type: type ?? this.type,
+    payloadJson: payloadJson ?? this.payloadJson,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  DraftEntry copyWithCompanion(DraftEntriesCompanion data) {
+    return DraftEntry(
+      id: data.id.present ? data.id.value : this.id,
+      type: data.type.present ? data.type.value : this.type,
+      payloadJson: data.payloadJson.present
+          ? data.payloadJson.value
+          : this.payloadJson,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DraftEntry(')
+          ..write('id: $id, ')
+          ..write('type: $type, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, type, payloadJson, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DraftEntry &&
+          other.id == this.id &&
+          other.type == this.type &&
+          other.payloadJson == this.payloadJson &&
+          other.updatedAt == this.updatedAt);
+}
+
+class DraftEntriesCompanion extends UpdateCompanion<DraftEntry> {
+  final Value<String> id;
+  final Value<String> type;
+  final Value<String> payloadJson;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const DraftEntriesCompanion({
+    this.id = const Value.absent(),
+    this.type = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  DraftEntriesCompanion.insert({
+    required String id,
+    required String type,
+    required String payloadJson,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       type = Value(type),
+       payloadJson = Value(payloadJson),
+       updatedAt = Value(updatedAt);
+  static Insertable<DraftEntry> custom({
+    Expression<String>? id,
+    Expression<String>? type,
+    Expression<String>? payloadJson,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (type != null) 'type': type,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  DraftEntriesCompanion copyWith({
+    Value<String>? id,
+    Value<String>? type,
+    Value<String>? payloadJson,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return DraftEntriesCompanion(
+      id: id ?? this.id,
+      type: type ?? this.type,
+      payloadJson: payloadJson ?? this.payloadJson,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (type.present) {
+      map['type'] = Variable<String>(type.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DraftEntriesCompanion(')
+          ..write('id: $id, ')
+          ..write('type: $type, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -2885,6 +3198,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $CachedMapAssetSyncCursorsTable(this);
   late final $OutboxEntriesTable outboxEntries = $OutboxEntriesTable(this);
   late final $PendingPhotosTable pendingPhotos = $PendingPhotosTable(this);
+  late final $DraftEntriesTable draftEntries = $DraftEntriesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2896,6 +3210,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     cachedMapAssetSyncCursors,
     outboxEntries,
     pendingPhotos,
+    draftEntries,
   ];
 }
 
@@ -4395,6 +4710,189 @@ typedef $$PendingPhotosTableProcessedTableManager =
       PendingPhoto,
       PrefetchHooks Function()
     >;
+typedef $$DraftEntriesTableCreateCompanionBuilder =
+    DraftEntriesCompanion Function({
+      required String id,
+      required String type,
+      required String payloadJson,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$DraftEntriesTableUpdateCompanionBuilder =
+    DraftEntriesCompanion Function({
+      Value<String> id,
+      Value<String> type,
+      Value<String> payloadJson,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$DraftEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $DraftEntriesTable> {
+  $$DraftEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$DraftEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $DraftEntriesTable> {
+  $$DraftEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$DraftEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DraftEntriesTable> {
+  $$DraftEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get type =>
+      $composableBuilder(column: $table.type, builder: (column) => column);
+
+  GeneratedColumn<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$DraftEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $DraftEntriesTable,
+          DraftEntry,
+          $$DraftEntriesTableFilterComposer,
+          $$DraftEntriesTableOrderingComposer,
+          $$DraftEntriesTableAnnotationComposer,
+          $$DraftEntriesTableCreateCompanionBuilder,
+          $$DraftEntriesTableUpdateCompanionBuilder,
+          (
+            DraftEntry,
+            BaseReferences<_$AppDatabase, $DraftEntriesTable, DraftEntry>,
+          ),
+          DraftEntry,
+          PrefetchHooks Function()
+        > {
+  $$DraftEntriesTableTableManager(_$AppDatabase db, $DraftEntriesTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DraftEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DraftEntriesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DraftEntriesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> type = const Value.absent(),
+                Value<String> payloadJson = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => DraftEntriesCompanion(
+                id: id,
+                type: type,
+                payloadJson: payloadJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String type,
+                required String payloadJson,
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => DraftEntriesCompanion.insert(
+                id: id,
+                type: type,
+                payloadJson: payloadJson,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$DraftEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $DraftEntriesTable,
+      DraftEntry,
+      $$DraftEntriesTableFilterComposer,
+      $$DraftEntriesTableOrderingComposer,
+      $$DraftEntriesTableAnnotationComposer,
+      $$DraftEntriesTableCreateCompanionBuilder,
+      $$DraftEntriesTableUpdateCompanionBuilder,
+      (
+        DraftEntry,
+        BaseReferences<_$AppDatabase, $DraftEntriesTable, DraftEntry>,
+      ),
+      DraftEntry,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -4414,4 +4912,6 @@ class $AppDatabaseManager {
       $$OutboxEntriesTableTableManager(_db, _db.outboxEntries);
   $$PendingPhotosTableTableManager get pendingPhotos =>
       $$PendingPhotosTableTableManager(_db, _db.pendingPhotos);
+  $$DraftEntriesTableTableManager get draftEntries =>
+      $$DraftEntriesTableTableManager(_db, _db.draftEntries);
 }

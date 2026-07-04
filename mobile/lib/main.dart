@@ -11,6 +11,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 import 'app/app.dart';
 import 'core/offline/connectivity.dart';
 import 'core/offline/database.dart';
+import 'core/offline/draft_store.dart';
 import 'core/offline/sync_service.dart';
 import 'core/photos/photo_queue.dart';
 import 'core/push/fcm_push_source.dart';
@@ -41,6 +42,7 @@ Future<Widget> buildFieldAppRoot() async {
 
   return ProviderScope(
     overrides: [
+      draftStoreProvider.overrideWithValue(DraftStore(db)),
       if (fcm != null) pushSourceProvider.overrideWithValue(fcm),
       syncServiceProvider.overrideWith((ref) {
         final sync = SyncService(
