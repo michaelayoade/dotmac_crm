@@ -248,10 +248,9 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
     String jobId,
   ) async {
     final controller = TextEditingController();
-    var isSaving = false;
     var errorText = '';
 
-    final result = await showDialog<({String clientRef, String body})>(
+    final body = await showDialog<String>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
@@ -274,63 +273,43 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
           ),
           actions: [
             TextButton(
-              onPressed: isSaving
-                  ? null
-                  : () => Navigator.of(dialogContext).pop(),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Cancel'),
             ),
             FilledButton(
               key: const Key('save-note-action'),
-              onPressed: isSaving
-                  ? null
-                  : () async {
-                      final body = controller.text.trim();
-                      if (body.isEmpty) {
-                        setState(() => errorText = 'Enter a note');
-                        return;
-                      }
-                      setState(() {
-                        isSaving = true;
-                        errorText = '';
-                      });
-                      late final String clientRef;
-                      try {
-                        clientRef = await ref
-                            .read(executionControllerProvider.notifier)
-                            .addNote(jobId, body);
-                      } catch (_) {
-                        if (!dialogContext.mounted) return;
-                        setState(() {
-                          isSaving = false;
-                          errorText = 'Could not save note';
-                        });
-                        return;
-                      }
-                      if (dialogContext.mounted) {
-                        Navigator.of(
-                          dialogContext,
-                        ).pop((clientRef: clientRef, body: body));
-                      }
-                    },
-              child: isSaving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Save'),
+              onPressed: () {
+                final body = controller.text.trim();
+                if (body.isEmpty) {
+                  setState(() => errorText = 'Enter a note');
+                  return;
+                }
+                Navigator.of(dialogContext).pop(body);
+              },
+              child: const Text('Save'),
             ),
           ],
         ),
       ),
     );
     controller.dispose();
-    if (result == null || !mounted) return;
-    _addLocalNote(result.clientRef, result.body);
-    ScaffoldMessenger.of(
-      this.context,
-    ).showSnackBar(const SnackBar(content: Text('Note saved')));
-    unawaited(_refreshJobDetail(jobId));
+    if (body == null || !mounted) return;
+    try {
+      final clientRef = await ref
+          .read(executionControllerProvider.notifier)
+          .addNote(jobId, body);
+      if (!mounted) return;
+      _addLocalNote(clientRef, body);
+      ScaffoldMessenger.of(
+        this.context,
+      ).showSnackBar(const SnackBar(content: Text('Note saved')));
+      unawaited(_refreshJobDetail(jobId));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        this.context,
+      ).showSnackBar(const SnackBar(content: Text('Could not save note')));
+    }
   }
 
   void _addLocalNote(String clientRef, String body) {
