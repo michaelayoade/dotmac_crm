@@ -52,14 +52,40 @@ customer confidence without burdening the technician.
 
 ## 5. Phasing
 
-Ship value early; add later phases only if usage warrants.
+**Readiness gate — do NOT build the tap-based phases (1–3) until all three hold:**
+1. **Tracking adoption is measured.** The live map / visit banner is shipped to
+   the stores (not just TestFlight) and real customers open it. If customers
+   don't watch tracking, a coordination layer on top is moot.
+2. **Phase 0 is live and hasn't closed the gap.** Automated notifications may
+   already satisfy the confidence need without any coordination channel or
+   field-app work.
+3. **The CRM↔sub integration is verified & monitored.** The chat-push webhook was
+   silently misconfigured once (unaligned secret); add a health check / confirm
+   the shared-secret alignment before layering more real-time features on the
+   same rails.
 
-### Phase 1 — Technician → Customer status pings  *(build first; highest value, lowest risk)*
+*Rationale:* Phase 1 asks a busy technician to press a button on every job — if
+they forget, the customer gets nothing (worse than never promising updates).
+Event-driven notifications (Phase 0) remove the technician from the loop for the
+common case, at far lower cost. Each phase is gated on the one before proving out.
+
+### Phase 0 — Automated lifecycle notifications  *(cheapest, highest ROI — build first)*
+Event-driven; **no field-app change, no technician taps.** Fire notifications off
+the work order's existing lifecycle events:
+- assigned / `dispatched` → "A technician is assigned to your visit"
+- Start-Work (`in_progress`) → "Your technician is on the way" (+ deep-link to the live map)
+- optional arrival-window / ETA-change updates
+
+Delivered via push (existing rails) + **SMS/WhatsApp fallback** for customers
+without the app. This alone likely satisfies most of the confidence need; the
+tap-based phases below exist only for the exceptions auto-events can't infer.
+
+### Phase 1 — Technician → Customer status pings  *(only if Phase 0 leaves a gap)*
 The technician taps a canned status in the field app; the customer gets a push
-and sees it on the tracking screen / visit banner. **Known limitation:** Phase 1
-is one-way — the customer can *see* "Running late" but can't reply until Phase 2.
-Acceptable because the dominant need (knowing the tech's status) is met, and the
-map + ETA already exist; but call it out to stakeholders.
+and sees it on the tracking screen / visit banner. Reserve for statuses Phase 0
+can't infer from work-order events (e.g. *running late*, *confirm access*).
+**Known limitation:** one-way — the customer can *see* "Running late" but can't
+reply until Phase 2. Only worth building once the readiness gate above holds.
 
 ### Phase 2 — Customer → Technician "Request a callback"  *(one bounded action)*
 The customer taps *Request a callback* (+ optional chips: *I'm home · Use back
@@ -181,11 +207,20 @@ customer's notification preferences (and can be muted independently of support).
   if the tech has no active device, dispatch is notified instead.
 
 ## 10. Effort & sequencing
-- **Phase 1:** one coordinated change — CRM (model + endpoint + notify) · sub
-  (webhook receiver + tracking-screen render) · field app (quick-action buttons).
-  Moderate, high reuse. **Ship, then observe real usage.**
+Sequenced against the readiness gate (§5) — ship the cheap, measure, then decide.
+- **Phase 0:** small — CRM emits already-existing lifecycle events; add the
+  customer-facing notification (push via existing rails + SMS/WhatsApp fallback).
+  **No field-app work.** Build first; most of the value, least of the cost.
+- **Phase 1:** only if Phase 0 leaves a gap. One coordinated change — CRM (model +
+  endpoint + notify) · sub (webhook receiver + tracking-screen render) · field app
+  (quick-action buttons). Moderate, high reuse.
 - **Phase 2:** smaller (customer button + proxy + tech-app inbound).
 - **Phase 3:** only if warranted.
+
+**Parallel higher-ROI lever to weigh:** a **pre-visit confirmation** ("reply YES
+you'll be home / pick a window") prevents failed installs upstream — often a
+bigger truck-roll saving than anything mid-visit. Consider before/instead of
+Phases 1–3.
 
 ## 11. Success metrics
 - **Primary:** reduction in **failed/aborted visits** (missed access, "couldn't
