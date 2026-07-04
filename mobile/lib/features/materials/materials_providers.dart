@@ -113,6 +113,21 @@ List<Map<String, dynamic>> _items(Object? data) {
         .map((item) => item.cast<String, dynamic>())
         .toList();
   }
+  if (data is Map) {
+    for (final key in ['data', 'results', 'material_requests', 'requests']) {
+      final nested = data[key];
+      if (nested is List) {
+        return nested
+            .cast<Map>()
+            .map((item) => item.cast<String, dynamic>())
+            .toList();
+      }
+      if (nested is Map) {
+        final nestedItems = _items(nested);
+        if (nestedItems.isNotEmpty) return nestedItems;
+      }
+    }
+  }
   if (data is List) {
     return data
         .cast<Map>()

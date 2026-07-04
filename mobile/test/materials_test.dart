@@ -165,6 +165,84 @@ void main() {
     expect(request.items.single.itemName, 'Drop cable');
   });
 
+  test('fetchRequests reads paginated material request items', () async {
+    adapter.on('GET', '/api/v1/field/material-requests', (options) {
+      expect(options.queryParameters['limit'], 100);
+      return (
+        200,
+        {
+          'items': [
+            {
+              'id': 'mr-1',
+              'number': 'MR-0001',
+              'status': 'submitted',
+              'priority': 'high',
+            },
+          ],
+          'count': 1,
+          'limit': 100,
+          'offset': 0,
+        },
+      );
+    });
+
+    final requests = await container
+        .read(materialsRepositoryProvider)
+        .fetchRequests();
+
+    expect(requests.single.number, 'MR-0001');
+    expect(requests.single.status, 'submitted');
+  });
+
+  test('fetchRequests accepts nested response envelopes', () async {
+    adapter.on('GET', '/api/v1/field/material-requests', (_) {
+      return (
+        200,
+        {
+          'data': {
+            'items': [
+              {'id': 'mr-2', 'number': 'MR-0002', 'status': 'issued'},
+            ],
+          },
+        },
+      );
+    });
+
+    final requests = await container
+        .read(materialsRepositoryProvider)
+        .fetchRequests();
+
+    expect(requests.single.number, 'MR-0002');
+  });
+
+  testWidgets('materials screen shows request list before inventory', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          materialRequestsProvider.overrideWith(
+            (ref) async => [
+              MaterialRequest.fromJson({
+                'id': 'mr-1',
+                'number': 'MR-0001',
+                'status': 'submitted',
+                'priority': 'high',
+              }),
+            ],
+          ),
+          inventorySearchProvider.overrideWith((ref) async => const []),
+        ],
+        child: const MaterialApp(home: MaterialsScreen()),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Requests'), findsOneWidget);
+    expect(find.text('MR-0001'), findsOneWidget);
+    expect(find.text('Inventory'), findsOneWidget);
+  });
+
   test('MaterialRequest parses status flow and issued quantities', () {
     final request = MaterialRequest.fromJson({
       'id': 'mr-1',

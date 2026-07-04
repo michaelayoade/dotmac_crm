@@ -38,23 +38,6 @@ class MaterialsScreen extends ConsumerWidget {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
-            TextField(
-              key: const Key('inventory-search'),
-              decoration: const InputDecoration(
-                labelText: 'Search inventory',
-                prefixIcon: Icon(Icons.search),
-              ),
-              onChanged: (value) =>
-                  ref.read(inventorySearchQueryProvider.notifier).state = value,
-            ),
-            const SizedBox(height: 12),
-            inventory.when(
-              data: (items) => _InventoryPreview(items: items),
-              loading: () => const LinearProgressIndicator(),
-              error: (_, _) =>
-                  const Text('Inventory is not available right now'),
-            ),
-            const SizedBox(height: 24),
             Row(
               children: [
                 Expanded(
@@ -96,6 +79,30 @@ class MaterialsScreen extends ConsumerWidget {
                 padding: EdgeInsets.only(top: 48),
                 child: Center(child: Text('Could not load material requests')),
               ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Inventory',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('inventory-search'),
+              decoration: const InputDecoration(
+                labelText: 'Search inventory',
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (value) =>
+                  ref.read(inventorySearchQueryProvider.notifier).state = value,
+            ),
+            const SizedBox(height: 12),
+            inventory.when(
+              data: (items) => _InventoryPreview(items: items),
+              loading: () => const LinearProgressIndicator(),
+              error: (_, _) =>
+                  const Text('Inventory is not available right now'),
             ),
           ],
         ),
