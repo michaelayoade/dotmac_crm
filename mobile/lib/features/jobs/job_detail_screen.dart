@@ -225,6 +225,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                               .read(executionControllerProvider.notifier)
                               .transition(job.id, action);
                         }
+                        if (!context.mounted) return;
                         ref.invalidate(jobDetailProvider(job.id));
                       },
                       child: Text(actionLabel(action)),
@@ -432,11 +433,13 @@ Future<void> promptUnableToComplete(
     ),
   );
   if (reason == null) return;
+  if (!context.mounted) return;
   await ref
       .read(executionControllerProvider.notifier)
       .unableToComplete(jobId, reason: reason);
+  if (!context.mounted) return;
   ref.invalidate(jobDetailProvider(jobId));
-  if (context.mounted) Navigator.of(context).maybePop();
+  Navigator.of(context).maybePop();
 }
 
 class _LocationCard extends ConsumerWidget {
@@ -486,7 +489,7 @@ class _LocationCard extends ConsumerWidget {
                         ),
                       ),
                     );
-                    if (changed == true) {
+                    if (context.mounted && changed == true) {
                       ref.invalidate(jobDetailProvider(jobId));
                     }
                   },

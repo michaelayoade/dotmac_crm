@@ -334,7 +334,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
           ),
         );
-        if (changed == true) ref.invalidate(mapPinsProvider);
+        if (context.mounted && changed == true) ref.invalidate(mapPinsProvider);
       case null:
         break;
     }
@@ -379,7 +379,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final changed = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => AssetPinScreen(asset: asset)),
     );
-    if (changed == true) ref.invalidate(mapAssetsProvider);
+    if (context.mounted && changed == true) ref.invalidate(mapAssetsProvider);
   }
 
   Future<void> _showPinListSheet(
@@ -447,12 +447,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
           ),
         );
-        if (changed == true) ref.invalidate(mapPinsProvider);
+        if (context.mounted && changed == true) ref.invalidate(mapPinsProvider);
       case _AssetEditSelection(:final asset):
         final changed = await Navigator.of(context).push<bool>(
           MaterialPageRoute(builder: (_) => AssetPinScreen(asset: asset)),
         );
-        if (changed == true) ref.invalidate(mapAssetsProvider);
+        if (context.mounted && changed == true) {
+          ref.invalidate(mapAssetsProvider);
+        }
     }
   }
 }
