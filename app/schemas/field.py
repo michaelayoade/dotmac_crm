@@ -148,6 +148,7 @@ def _person_label(person) -> str | None:
 
 class FieldNoteCreate(BaseModel):
     body: str = Field(min_length=1, max_length=10000)
+    is_internal: bool = True
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=20)
 
 

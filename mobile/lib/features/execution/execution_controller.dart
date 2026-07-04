@@ -92,6 +92,7 @@ class ExecutionController extends Notifier<ActiveTimer?> {
   Future<String> addNote(
     String jobId,
     String body, {
+    bool isInternal = true,
     List<String> attachmentIds = const [],
   }) async {
     final trimmed = body.trim();
@@ -105,6 +106,7 @@ class ExecutionController extends Notifier<ActiveTimer?> {
       payload: {
         'work_order_id': jobId,
         'body': trimmed,
+        'is_internal': isInternal,
         'attachment_ids': attachmentIds,
       },
     );

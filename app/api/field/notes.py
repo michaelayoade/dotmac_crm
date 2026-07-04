@@ -25,6 +25,7 @@ def create_field_note(
         auth["person_id"],
         work_order_id,
         body=payload.body,
+        is_internal=payload.is_internal,
         attachment_ids=[str(a) for a in payload.attachment_ids],
     )
     return FieldNoteRead.from_note(note)

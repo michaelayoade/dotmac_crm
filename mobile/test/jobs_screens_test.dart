@@ -255,6 +255,8 @@ void main() {
 
     expect(find.text('Add note'), findsWidgets);
     expect(find.byKey(const Key('note-body-field')), findsOneWidget);
+    expect(find.byKey(const Key('internal-note-checkbox')), findsOneWidget);
+    expect(find.text('Visible to staff only'), findsOneWidget);
     expect(find.byKey(const Key('save-note-action')), findsOneWidget);
   });
 }

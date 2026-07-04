@@ -820,7 +820,7 @@ class WorkOrderNotes(ListResponseMixin):
                     ticket_id=work_order.ticket_id,
                     author_person_id=payload.author_person_id,
                     body=f"Work order note from {str(work_order.id)[:8]}: {payload.body}",
-                    is_internal=True,
+                    is_internal=payload.is_internal,
                     attachments=payload.attachments,
                 )
             )

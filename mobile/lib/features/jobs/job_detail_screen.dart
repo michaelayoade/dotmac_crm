@@ -52,6 +52,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
   final _noteController = TextEditingController();
   bool _isAddingNote = false;
   bool _isSavingNote = false;
+  bool _isInternalNote = true;
   String _noteError = '';
 
   @override
@@ -113,6 +114,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
             ? null
             : () => setState(() {
                 _isAddingNote = true;
+                _isInternalNote = true;
                 _noteError = '';
               }),
         icon: const Icon(Icons.note_add_outlined),
@@ -185,6 +187,22 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    CheckboxListTile(
+                      key: const Key('internal-note-checkbox'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Internal note'),
+                      subtitle: Text(
+                        _isInternalNote
+                            ? 'Visible to staff only'
+                            : 'External note for customer-facing history',
+                      ),
+                      value: _isInternalNote,
+                      onChanged: _isSavingNote
+                          ? null
+                          : (value) =>
+                                setState(() => _isInternalNote = value ?? true),
+                    ),
+                    const SizedBox(height: 12),
                     OverflowBar(
                       alignment: MainAxisAlignment.end,
                       spacing: 8,
@@ -194,6 +212,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                               ? null
                               : () => setState(() {
                                   _isAddingNote = false;
+                                  _isInternalNote = true;
                                   _noteError = '';
                                   _noteController.clear();
                                 }),
@@ -332,14 +351,16 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
     try {
       final clientRef = await ref
           .read(executionControllerProvider.notifier)
-          .addNote(jobId, body);
+          .addNote(jobId, body, isInternal: _isInternalNote);
       if (!mounted) return;
+      final isInternal = _isInternalNote;
       _noteController.clear();
       setState(() {
         _isAddingNote = false;
         _isSavingNote = false;
+        _isInternalNote = true;
       });
-      _addLocalNote(clientRef, body);
+      _addLocalNote(clientRef, body, isInternal: isInternal);
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Note saved')));
@@ -356,12 +377,17 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
     }
   }
 
-  void _addLocalNote(String clientRef, String body) {
+  void _addLocalNote(
+    String clientRef,
+    String body, {
+    required bool isInternal,
+  }) {
     setState(() {
       _notes = [
         {
           'id': clientRef,
           'body': body,
+          'is_internal': isInternal,
           'author_name': 'You',
           'created_at': DateTime.now().toUtc().toIso8601String(),
         },
@@ -397,9 +423,18 @@ class _NoteTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final meta = _noteMeta(note);
+    final isInternal = note['is_internal'];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (isInternal is bool)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Chip(
+              visualDensity: VisualDensity.compact,
+              label: Text(isInternal ? 'Internal' : 'External'),
+            ),
+          ),
         if (meta != null)
           Text(
             meta,
