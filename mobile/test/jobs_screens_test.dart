@@ -18,24 +18,28 @@ JobSummary _job({String status = 'dispatched', String workType = 'install'}) =>
       estimatedDurationMinutes: 90,
     );
 
-JobDetail _detail({String status = 'dispatched', JobLocation? location}) =>
-    JobDetail(
-      job: _job(status: status),
-      location:
-          location ??
-          const JobLocation(
-            latitude: 6.43,
-            longitude: 3.42,
-            addressText: '12 Admiralty Way',
-            source: 'geocoded',
-          ),
-      customer: const JobCustomer(
-        name: 'Adaeze Okafor',
-        phone: '+2348012345678',
-        servicePlan: '100 Mbps',
+JobDetail _detail({
+  String status = 'dispatched',
+  JobLocation? location,
+  List<Map<String, dynamic>> materialRequests = const [],
+}) => JobDetail(
+  job: _job(status: status),
+  location:
+      location ??
+      const JobLocation(
+        latitude: 6.43,
+        longitude: 3.42,
+        addressText: '12 Admiralty Way',
+        source: 'geocoded',
       ),
-      ticketRef: 'TCK-1001',
-    );
+  customer: const JobCustomer(
+    name: 'Adaeze Okafor',
+    phone: '+2348012345678',
+    servicePlan: '100 Mbps',
+  ),
+  ticketRef: 'TCK-1001',
+  materialRequests: materialRequests,
+);
 
 Widget _wrap(Widget child, {List<Override> overrides = const []}) =>
     ProviderScope(
@@ -235,6 +239,35 @@ void main() {
 
     await tester.tap(find.byKey(const Key('call-button')));
     expect(launched.single.scheme, 'tel');
+  });
+
+  testWidgets('job detail shows linked material requests', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        const JobDetailScreen(jobId: 'wo-1'),
+        overrides: [
+          jobDetailProvider('wo-1').overrideWith(
+            (ref) async => _detail(
+              materialRequests: const [
+                {
+                  'id': 'mr-1',
+                  'number': 'MR-1001',
+                  'status': 'submitted',
+                  'items': [
+                    {'id': 'item-1'},
+                  ],
+                },
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Material requests'), findsOneWidget);
+    expect(find.text('MR-1001'), findsOneWidget);
+    expect(find.text('submitted · 1 item'), findsOneWidget);
   });
 
   testWidgets('technician can open add note composer from job detail', (
