@@ -3,52 +3,63 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
-import '../../app/theme.dart';
-import 'schedule_providers.dart';
+import '../jobs/job_models.dart';
+import '../jobs/jobs_providers.dart';
+import '../jobs/widgets/job_card.dart';
 
 class ScheduleScreen extends ConsumerWidget {
   const ScheduleScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final schedule = ref.watch(scheduleProvider);
+    final jobs = ref.watch(allAssignedJobsProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Schedule')),
       body: RefreshIndicator(
-        onRefresh: () async => ref.invalidate(scheduleProvider),
-        child: schedule.when(
-          data: (data) {
-            final entries = data.entries;
-            if (entries.isEmpty) {
+        onRefresh: () async => ref.invalidate(allAssignedJobsProvider),
+        child: jobs.when(
+          data: (list) {
+            final items = list.jobs;
+            if (items.isEmpty) {
               return ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 children: [
-                  if (data.fromCache)
-                    const Padding(padding: EdgeInsets.all(16), child: _OfflineBanner()),
+                  if (list.fromCache)
+                    const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: _OfflineBanner(),
+                    ),
                   const SizedBox(height: 160),
-                  const Center(child: Text('Nothing scheduled this week — enjoy the quiet')),
+                  const Center(child: Text('No assigned work yet')),
                 ],
               );
             }
-            final days = groupByDay(entries);
+            final groups = _groupJobsByDay(items);
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(16),
               children: [
-                if (data.fromCache) const _OfflineBanner(),
-                for (final (day, dayEntries) in days) ...[
+                if (list.fromCache) const _OfflineBanner(),
+                for (final group in groups) ...[
                   Padding(
                     padding: const EdgeInsets.only(top: 8, bottom: 8),
                     child: Text(
-                      DateFormat('EEEE, d MMM').format(day),
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: 0.5),
+                      _dayLabel(group.day),
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                      ),
                     ),
                   ),
-                  for (final entry in dayEntries) _ScheduleTile(entry: entry),
+                  for (final job in group.jobs)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: JobCard(
+                        job: job,
+                        onTap: () => context.push('/jobs/${job.id}'),
+                      ),
+                    ),
                 ],
               ],
             );
@@ -58,44 +69,12 @@ class ScheduleScreen extends ConsumerWidget {
             physics: const AlwaysScrollableScrollPhysics(),
             children: const [
               SizedBox(height: 160),
-              Center(child: Text('Could not load your schedule — pull to retry')),
+              Center(
+                child: Text('Could not load your schedule — pull to retry'),
+              ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _ScheduleTile extends ConsumerWidget {
-  const _ScheduleTile({required this.entry});
-
-  final ScheduleEntry entry;
-
-  static const _icons = {
-    'shift': Icons.schedule_outlined,
-    'availability': Icons.event_busy_outlined,
-    'job': Icons.assignment_outlined,
-  };
-
-  Color _color(BuildContext context) => switch (entry.type) {
-        'availability' => const Color(0xFFF59E0B),
-        'shift' => const Color(0xFF64748B),
-        _ => AppColors.primary,
-      };
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final time = DateFormat.Hm().format(entry.startAt.toLocal());
-    final end = entry.endAt != null ? '–${DateFormat.Hm().format(entry.endAt!.toLocal())}' : '';
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Icon(_icons[entry.type] ?? Icons.event, color: _color(context)),
-        title: Text(entry.title),
-        subtitle: Text('$time$end · ${entry.type}'),
-        onTap: entry.type == 'job' ? () => context.push('/jobs/${entry.referenceId}') : null,
-        trailing: entry.type == 'job' ? const Icon(Icons.chevron_right) : null,
       ),
     );
   }
@@ -113,9 +92,47 @@ class _OfflineBanner extends StatelessWidget {
         children: [
           const Icon(Icons.cloud_off_outlined, size: 16),
           const SizedBox(width: 8),
-          Text('Offline — showing saved schedule', style: Theme.of(context).textTheme.bodySmall),
+          Text(
+            'Offline — showing saved schedule',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ],
       ),
     );
   }
+}
+
+class _JobDayGroup {
+  const _JobDayGroup(this.day, this.jobs);
+
+  final DateTime? day;
+  final List<JobSummary> jobs;
+}
+
+List<_JobDayGroup> _groupJobsByDay(List<JobSummary> jobs) {
+  final sorted = [...jobs]
+    ..sort((a, b) {
+      final aDate = a.scheduledStart;
+      final bDate = b.scheduledStart;
+      if (aDate == null && bDate == null) return a.title.compareTo(b.title);
+      if (aDate == null) return 1;
+      if (bDate == null) return -1;
+      return aDate.compareTo(bDate);
+    });
+  final groups = <DateTime?, List<JobSummary>>{};
+  for (final job in sorted) {
+    final scheduled = job.scheduledStart?.toLocal();
+    final day = scheduled == null
+        ? null
+        : DateTime(scheduled.year, scheduled.month, scheduled.day);
+    groups.putIfAbsent(day, () => []).add(job);
+  }
+  return [
+    for (final entry in groups.entries) _JobDayGroup(entry.key, entry.value),
+  ];
+}
+
+String _dayLabel(DateTime? day) {
+  if (day == null) return 'Unscheduled';
+  return DateFormat('EEEE, d MMM').format(day);
 }

@@ -8,9 +8,10 @@ from fastapi import HTTPException
 from app.models.inventory import InventoryItem
 from app.models.person import Person
 from app.schemas.field import FieldMaterialRequestCreate
-from app.schemas.material_request import MaterialRequestItemCreate
+from app.schemas.material_request import MaterialRequestCreate, MaterialRequestItemCreate
 from app.schemas.workforce import WorkOrderUpdate
 from app.services.field.material_requests import field_material_requests
+from app.services.material_requests import material_requests
 from app.services.workforce import work_orders
 
 
@@ -64,6 +65,31 @@ def test_field_material_requests_are_scoped(db_session, assigned_job, person, in
     with pytest.raises(HTTPException) as exc:
         field_material_requests.get_mine(db_session, str(stranger.id), str(request.id))
     assert exc.value.status_code == 404
+
+
+def test_field_lists_requests_linked_to_assigned_job_context(db_session, assigned_job, person, inventory_item):
+    warehouse_user = Person(
+        first_name="Warehouse",
+        last_name="User",
+        email=f"warehouse-{uuid.uuid4().hex}@example.com",
+    )
+    db_session.add(warehouse_user)
+    db_session.commit()
+
+    request = material_requests.create(
+        db_session,
+        MaterialRequestCreate(
+            ticket_id=assigned_job.ticket_id,
+            project_id=assigned_job.project_id,
+            requested_by_person_id=warehouse_user.id,
+            items=[MaterialRequestItemCreate(item_id=inventory_item.id, quantity=1)],
+        ),
+    )
+
+    mine = field_material_requests.list_mine(db_session, str(person.id))
+
+    assert [item.id for item in mine] == [request.id]
+    assert field_material_requests.get_mine(db_session, str(person.id), str(request.id)).id == request.id
 
 
 def test_field_create_rejects_unassigned_job(db_session, assigned_job, inventory_item):

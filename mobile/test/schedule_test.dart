@@ -1,75 +1,67 @@
-import 'package:dotmac_field/features/schedule/schedule_providers.dart';
+import 'package:dotmac_field/features/jobs/job_models.dart';
+import 'package:dotmac_field/features/jobs/jobs_providers.dart';
 import 'package:dotmac_field/features/schedule/schedule_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-ScheduleEntry _entry(String type, DateTime start, {String title = 'Entry', String ref = 'r1'}) =>
-    ScheduleEntry(type: type, startAt: start, title: title, referenceId: ref);
+JobSummary _job({
+  required String id,
+  required String title,
+  DateTime? scheduledStart,
+}) => JobSummary(
+  id: id,
+  title: title,
+  status: 'dispatched',
+  workType: 'install',
+  priority: 'normal',
+  scheduledStart: scheduledStart,
+);
 
 void main() {
-  test('groupByDay sorts entries and groups by local day', () {
-    final day1 = DateTime.utc(2026, 6, 10, 9);
-    final day2 = DateTime.utc(2026, 6, 11, 8);
-    final groups = groupByDay([
-      _entry('job', day2, title: 'B'),
-      _entry('shift', day1, title: 'A2'),
-      _entry('job', day1.subtract(const Duration(hours: 2)), title: 'A1'),
-    ]);
+  Widget app(List<JobSummary> jobs, {bool fromCache = false}) => ProviderScope(
+    overrides: [
+      allAssignedJobsProvider.overrideWith(
+        (ref) async => JobList(jobs, fromCache: fromCache),
+      ),
+    ],
+    child: const MaterialApp(home: ScheduleScreen()),
+  );
 
-    expect(groups.length, 2);
-    expect(groups.first.$2.map((e) => e.title), ['A1', 'A2']);
-    expect(groups.last.$2.single.title, 'B');
-  });
-
-  Widget app(List<ScheduleEntry> entries, {bool fromCache = false}) => ProviderScope(
-        overrides: [
-          scheduleProvider.overrideWith(
-            (ref) async => ScheduleData(entries, fromCache: fromCache),
-          ),
-        ],
-        child: const MaterialApp(home: ScheduleScreen()),
-      );
-
-  testWidgets('renders day headers and entries', (tester) async {
-    await tester.pumpWidget(app([
-      _entry('shift', DateTime.now().add(const Duration(hours: 1)), title: 'Morning shift'),
-      _entry('job', DateTime.now().add(const Duration(hours: 3)), title: 'Install fiber', ref: 'wo-1'),
-    ]));
+  testWidgets('renders scheduled and unscheduled work', (tester) async {
+    await tester.pumpWidget(
+      app([
+        _job(
+          id: 'wo-1',
+          title: 'Install fiber',
+          scheduledStart: DateTime.now().add(const Duration(hours: 3)),
+        ),
+        _job(id: 'wo-2', title: 'Repair drop'),
+      ]),
+    );
     await tester.pumpAndSettle();
 
-    expect(find.text('Morning shift'), findsOneWidget);
     expect(find.text('Install fiber'), findsOneWidget);
+    expect(find.text('Repair drop'), findsOneWidget);
+    expect(find.text('Unscheduled'), findsOneWidget);
   });
 
   testWidgets('empty schedule shows the calm empty state', (tester) async {
     await tester.pumpWidget(app([]));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Nothing scheduled'), findsOneWidget);
-  });
-
-  testWidgets('only job entries are tappable', (tester) async {
-    await tester.pumpWidget(app([
-      _entry('availability', DateTime.now(), title: 'Training'),
-    ]));
-    await tester.pumpAndSettle();
-    final tile = tester.widget<ListTile>(find.byType(ListTile));
-    expect(tile.onTap, isNull);
+    expect(find.text('No assigned work yet'), findsOneWidget);
   });
 
   testWidgets('shows offline banner when served from cache', (tester) async {
-    await tester.pumpWidget(app(
-      [_entry('shift', DateTime.now().add(const Duration(hours: 1)), title: 'Morning shift')],
-      fromCache: true,
-    ));
+    await tester.pumpWidget(
+      app([_job(id: 'wo-1', title: 'Install fiber')], fromCache: true),
+    );
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('schedule-offline-banner')), findsOneWidget);
   });
 
   testWidgets('no offline banner when fresh from network', (tester) async {
-    await tester.pumpWidget(app([
-      _entry('shift', DateTime.now().add(const Duration(hours: 1)), title: 'Morning shift'),
-    ]));
+    await tester.pumpWidget(app([_job(id: 'wo-1', title: 'Install fiber')]));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('schedule-offline-banner')), findsNothing);
   });
