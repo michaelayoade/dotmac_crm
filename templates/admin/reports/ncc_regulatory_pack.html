@@ -1,0 +1,253 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import page_header %}
+
+{% block title %}NCC Regulatory Pack - Admin{% endblock %}
+
+{#
+  Availability pill — dict-lookup classes (never string-interpolated Tailwind),
+  light + dark paired. Used for the coverage strip and per-section headers.
+#}
+{% macro availability_pill(ok) %}
+  {% set styles = {
+    true: "bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20",
+    false: "bg-rose-50 text-rose-700 ring-rose-600/20 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-400/20"
+  } %}
+  <span class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold ring-1 ring-inset {{ styles[ok] }}">
+    <span class="h-1.5 w-1.5 rounded-full {{ 'bg-emerald-500' if ok else 'bg-rose-500' }}"></span>
+    {{ 'Available' if ok else 'Unavailable' }}
+  </span>
+{% endmacro %}
+
+{% macro count_table(title, mapping) %}
+  <div>
+    <h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">{{ title }}</h4>
+    <div class="overflow-x-auto rounded-xl border border-slate-200/70 dark:border-slate-700/60">
+      <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+        <tbody class="divide-y divide-slate-100 dark:divide-slate-700/60">
+          {% for key, value in mapping.items() %}
+          <tr>
+            <td class="px-3 py-2 text-slate-700 dark:text-slate-300">{{ key if key else '—' }}</td>
+            <td class="px-3 py-2 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-white">{{ value }}</td>
+          </tr>
+          {% else %}
+          <tr><td class="px-3 py-2 text-slate-400 dark:text-slate-500">No data</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endmacro %}
+
+{% macro unavailable_notice(section) %}
+  <div class="rounded-xl border border-rose-200/70 bg-rose-50/60 p-4 text-sm dark:border-rose-500/20 dark:bg-rose-500/10">
+    <p class="font-semibold text-rose-700 dark:text-rose-300">This source is unavailable.</p>
+    <p class="mt-1 text-rose-600/90 dark:text-rose-300/80">{{ section.error if section.error else 'No data returned.' }}</p>
+  </div>
+{% endmacro %}
+
+{% block content %}
+{% set meta = pack.meta %}
+<div class="space-y-6">
+  {% call page_header("NCC Regulatory Pack", "All three NCC returns assembled from CRM, dotmac_sub and dotmac_erp in one view.", color="indigo", color2="violet") %}
+    <a href="{{ export_url }}"
+       class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">
+      Download JSON
+    </a>
+  {% endcall %}
+
+  {# ── Filters ─────────────────────────────────────────────────────────── #}
+  <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+    <form method="get" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+      <div>
+        <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Complaints from</label>
+        <input type="date" name="start_date" value="{{ window_start }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Complaints to</label>
+        <input type="date" name="end_date" value="{{ window_end }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Subscribers as-of</label>
+        <input type="date" name="as_of" value="{{ as_of_value }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+      </div>
+      <div>
+        <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Financial year</label>
+        <input type="number" name="year" value="{{ year_value }}" min="2000" max="2100" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+      </div>
+      <div class="flex gap-2">
+        <button type="submit" class="inline-flex items-center rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40">Apply</button>
+        <a href="/admin/reports/ncc/pack" class="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Reset</a>
+      </div>
+    </form>
+  </section>
+
+  {# ── Coverage strip ──────────────────────────────────────────────────── #}
+  <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Source coverage</h3>
+        <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+          {% if meta.complete %}All sources reporting — the pack is complete.
+          {% else %}Some sources are unavailable — the ① complaints return still renders below.{% endif %}
+        </p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        {% set src = meta.sources %}
+        <span class="text-xs font-medium text-slate-500 dark:text-slate-400">① Complaints</span> {{ availability_pill(src.complaints) }}
+        <span class="text-xs font-medium text-slate-500 dark:text-slate-400">② Subscribers</span> {{ availability_pill(src.subscribers) }}
+        <span class="text-xs font-medium text-slate-500 dark:text-slate-400">③ Financials</span> {{ availability_pill(src.financials) }}
+        <span class="text-xs font-medium text-slate-500 dark:text-slate-400">③ Staff</span> {{ availability_pill(src.staff) }}
+      </div>
+    </div>
+  </section>
+
+  {# ── ① Quarterly Complaints ──────────────────────────────────────────── #}
+  {% set complaints = pack.complaints %}
+  <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <h3 class="font-display text-lg font-semibold text-slate-900 dark:text-white">① Quarterly Complaints</h3>
+      {{ availability_pill(complaints.available) }}
+    </div>
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <div class="rounded-xl bg-slate-50 p-4 dark:bg-slate-700/40">
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total complaints</p>
+        <p class="mt-1 font-display text-2xl font-bold tabular-nums text-slate-900 dark:text-white">{{ complaints.total_complaints }}</p>
+      </div>
+      <div class="rounded-xl bg-slate-50 p-4 dark:bg-slate-700/40">
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Resolved within SLA</p>
+        <p class="mt-1 font-display text-2xl font-bold tabular-nums text-slate-900 dark:text-white">{{ complaints.resolved_within_sla }}<span class="text-base font-medium text-slate-400"> / {{ complaints.resolved_total }}</span></p>
+      </div>
+      <div class="rounded-xl bg-slate-50 p-4 dark:bg-slate-700/40">
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Categories</p>
+        <p class="mt-1 font-display text-2xl font-bold tabular-nums text-slate-900 dark:text-white">{{ complaints.by_category | length }}</p>
+      </div>
+    </div>
+    <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {{ count_table("By category", complaints.by_category) }}
+      {{ count_table("By status", complaints.by_status) }}
+    </div>
+  </section>
+
+  {# ── ② Quarterly Subscriber & Capacity ───────────────────────────────── #}
+  {% set subscribers = pack.subscribers %}
+  <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <h3 class="font-display text-lg font-semibold text-slate-900 dark:text-white">② Quarterly Subscriber &amp; Capacity <span class="text-xs font-normal text-slate-400">from dotmac_sub</span></h3>
+      {{ availability_pill(subscribers.available) }}
+    </div>
+    {% if subscribers.available %}
+      {% set report = subscribers.report %}
+      <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div class="rounded-xl bg-slate-50 p-4 dark:bg-slate-700/40">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Active subscriptions</p>
+          <p class="mt-1 font-display text-2xl font-bold tabular-nums text-slate-900 dark:text-white">{{ report.total_active_subscriptions }}</p>
+        </div>
+        {% if report.network_capacity %}
+        <div class="rounded-xl bg-slate-50 p-4 dark:bg-slate-700/40">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Points of presence</p>
+          <p class="mt-1 font-display text-2xl font-bold tabular-nums text-slate-900 dark:text-white">{{ report.network_capacity.points_of_presence if report.network_capacity.points_of_presence else '—' }}</p>
+        </div>
+        <div class="rounded-xl bg-slate-50 p-4 dark:bg-slate-700/40">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Data usage (TB)</p>
+          <p class="mt-1 font-display text-2xl font-bold tabular-nums text-slate-900 dark:text-white">{{ report.network_capacity.data_usage_tb if report.network_capacity.data_usage_tb else '—' }}</p>
+        </div>
+        {% endif %}
+      </div>
+      <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {{ count_table("By connection", report.by_connection) }}
+        {{ count_table("By customer type", report.by_customer_type) }}
+        {{ count_table("By speed band", report.by_speed_band) }}
+      </div>
+      <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {{ count_table("By region (geopolitical zone)", report.by_region) }}
+        {{ count_table("By state", report.by_state) }}
+      </div>
+    {% else %}
+      {{ unavailable_notice(subscribers) }}
+    {% endif %}
+  </section>
+
+  {# ── ③ Annual Year-End: Section F Financials ─────────────────────────── #}
+  {% set financials = pack.financials %}
+  <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <h3 class="font-display text-lg font-semibold text-slate-900 dark:text-white">③ Section F — Financials <span class="text-xs font-normal text-slate-400">from dotmac_erp</span></h3>
+      {{ availability_pill(financials.available) }}
+    </div>
+    {% if financials.available %}
+      {% set summary = financials.financials.summary %}
+      <div class="overflow-x-auto rounded-xl border border-slate-200/70 dark:border-slate-700/60">
+        <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+          <tbody class="divide-y divide-slate-100 dark:divide-slate-700/60">
+            {% set rows = [
+              ("Total revenue", summary.total_revenue),
+              ("Total operating expenses", summary.total_operating_expenses),
+              ("Net income", summary.net_income),
+              ("Total assets", summary.total_assets),
+              ("Total liabilities", summary.total_liabilities),
+              ("Total equity", summary.total_equity)
+            ] %}
+            {% for label, value in rows %}
+            <tr>
+              <td class="px-3 py-2 text-slate-700 dark:text-slate-300">{{ label }}</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-white">{{ value if value else '—' }}</td>
+            </tr>
+            {% endfor %}
+            <tr>
+              <td class="px-3 py-2 text-slate-700 dark:text-slate-300">Balanced</td>
+              <td class="px-3 py-2 text-right">{{ availability_pill(summary.is_balanced) if summary.is_balanced is not none else '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {% if financials.financials.note %}
+      <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">{{ financials.financials.note }}</p>
+      {% endif %}
+    {% else %}
+      {{ unavailable_notice(financials) }}
+    {% endif %}
+  </section>
+
+  {# ── ③ Annual Year-End: Section G Staff ──────────────────────────────── #}
+  {% set staff = pack.staff %}
+  <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <h3 class="font-display text-lg font-semibold text-slate-900 dark:text-white">③ Section G — Staff Head-count <span class="text-xs font-normal text-slate-400">from dotmac_erp</span></h3>
+      {{ availability_pill(staff.available) }}
+    </div>
+    {% if staff.available %}
+      <div class="mb-4 rounded-xl bg-slate-50 p-4 dark:bg-slate-700/40 sm:w-48">
+        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total active staff</p>
+        <p class="mt-1 font-display text-2xl font-bold tabular-nums text-slate-900 dark:text-white">{{ staff.staff.total_active }}</p>
+      </div>
+      <div class="overflow-x-auto rounded-xl border border-slate-200/70 dark:border-slate-700/60">
+        <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+          <thead class="bg-slate-50 dark:bg-slate-700/40">
+            <tr>
+              <th scope="col" class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Category</th>
+              <th scope="col" class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Nigerian (M/F/O)</th>
+              <th scope="col" class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Expatriate (M/F/O)</th>
+              <th scope="col" class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Unknown (M/F/O)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 dark:divide-slate-700/60">
+            {% for category, nationalities in staff.staff.by_category.items() %}
+            <tr>
+              <td class="px-3 py-2 font-medium text-slate-700 dark:text-slate-300">{{ category | replace('_', ' ') | title }}</td>
+              {% for nat in ['nigerian', 'expatriate', 'unknown'] %}
+              {% set cell = nationalities.get(nat, {}) %}
+              <td class="px-3 py-2 text-right font-mono tabular-nums text-slate-900 dark:text-white">{{ cell.get('male', 0) }} / {{ cell.get('female', 0) }} / {{ cell.get('other', 0) }}</td>
+              {% endfor %}
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="px-3 py-2 text-slate-400 dark:text-slate-500">No staff data</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      {{ unavailable_notice(staff) }}
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
