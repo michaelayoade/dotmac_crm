@@ -237,7 +237,7 @@ void main() {
     expect(launched.single.scheme, 'tel');
   });
 
-  testWidgets('technician can open add note dialog from job detail', (
+  testWidgets('technician can open add note composer from job detail', (
     tester,
   ) async {
     await tester.pumpWidget(
