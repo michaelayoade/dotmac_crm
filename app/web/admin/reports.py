@@ -4243,6 +4243,55 @@ def ncc_reports_page(
     )
 
 
+@router.get(
+    "/ncc/regulatory-pack",
+    dependencies=[Depends(require_any_permission("reports:operations", "reports"))],
+)
+def ncc_regulatory_pack(
+    db: Session = Depends(get_db),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    as_of: str | None = Query(None),
+    year: int | None = Query(None),
+    statuses: str | None = Query(None),
+    reseller_id: str | None = Query(None),
+    access_capacity_gbps: str | None = Query(None),
+    unutilized_capacity_mbps: str | None = Query(None),
+    points_of_presence: str | None = Query(None),
+    data_usage_tb: str | None = Query(None),
+) -> JSONResponse:
+    """The full NCC regulatory pack — ① complaints (native), ② subscribers
+    (dotmac_sub), ③ year-end financials + staff (dotmac_erp) — in one payload.
+
+    The complaints window defaults to the current NCC quarter; ``as_of`` is the
+    subscriber period-end and ``year`` the annual financials/staff year (both
+    default to the complaints window when omitted). External sections degrade
+    gracefully so the pack always returns.
+    """
+    from app.services import ncc_regulatory_pack as pack_service
+
+    start_dt, end_dt, _, _ = _parse_ncc_window(start_date, end_date)
+    resolved_as_of = as_of or end_dt.date().isoformat()
+    resolved_year = year or end_dt.year
+    capacity = {
+        "access_capacity_gbps": access_capacity_gbps,
+        "unutilized_capacity_mbps": unutilized_capacity_mbps,
+        "points_of_presence": points_of_presence,
+        "data_usage_tb": data_usage_tb,
+    }
+    pack = pack_service.build_regulatory_pack(
+        db,
+        start_dt=start_dt,
+        end_dt=end_dt,
+        as_of=resolved_as_of,
+        year=resolved_year,
+        statuses=statuses,
+        reseller_id=reseller_id,
+        capacity=capacity,
+    )
+    return JSONResponse(content=pack)
+
+
 @router.post(
     "/ncc/email-settings",
     dependencies=[Depends(require_any_permission("reports:operations", "reports"))],

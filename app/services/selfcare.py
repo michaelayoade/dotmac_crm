@@ -651,6 +651,43 @@ def fetch_infrastructure_assets(db: Session, *, q: str | None = None) -> list[di
     return data if isinstance(data, list) else []
 
 
+def fetch_ncc_subscriber_report(
+    db: Session,
+    *,
+    as_of: str | None = None,
+    statuses: str | None = None,
+    reseller_id: str | None = None,
+    capacity: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The NCC quarterly Subscriber & Capacity aggregate (Return ②) from sub.
+
+    Thin call over sub's ``GET /crm/ncc/subscribers``. ``as_of`` is the
+    period-end (``YYYY-MM-DD``), ``statuses`` a comma-separated status list,
+    and ``capacity`` the manual network-capacity figures echoed into the
+    return. Returns the aggregate dict (empty dict if the payload is malformed).
+    """
+    params: dict[str, Any] = {}
+    if as_of:
+        params["as_of"] = as_of
+    if statuses:
+        params["statuses"] = statuses
+    if reseller_id:
+        params["reseller_id"] = reseller_id
+    for key in (
+        "access_capacity_gbps",
+        "unutilized_capacity_mbps",
+        "points_of_presence",
+        "data_usage_tb",
+    ):
+        value = (capacity or {}).get(key)
+        if value is not None and str(value).strip() != "":
+            params[key] = value
+
+    payload = _request_json(db, "GET", "/ncc/subscribers", params=params or None)
+    data = payload.get("data") if isinstance(payload, dict) else None
+    return data if isinstance(data, dict) else {}
+
+
 def fetch_transactions(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
     rows = _rows(_request_json(db, "GET", "/finance/transactions", params={"offset": offset, "limit": limit}))
     return _warn_if_truncated(rows, limit, "/finance/transactions")
