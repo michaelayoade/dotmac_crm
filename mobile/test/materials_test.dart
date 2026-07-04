@@ -1,4 +1,4 @@
-import 'dart:ffi';
+import 'dart:ffi' hide Size;
 
 import 'package:dio/dio.dart';
 import 'package:dotmac_field/core/api/api_client.dart';
@@ -241,6 +241,28 @@ void main() {
     expect(find.text('Requests'), findsOneWidget);
     expect(find.text('MR-0001'), findsOneWidget);
     expect(find.text('Inventory'), findsOneWidget);
+  });
+
+  testWidgets('new material request form renders on phone width', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(360, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          inventoryLocationsProvider.overrideWith((ref) async => const []),
+          inventorySearchProvider.overrideWith((ref) async => const []),
+        ],
+        child: const MaterialApp(home: NewMaterialRequestScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('New material request'), findsOneWidget);
+    expect(find.text('Submit request'), findsOneWidget);
+    expect(find.text('Save draft'), findsOneWidget);
   });
 
   test('MaterialRequest parses status flow and issued quantities', () {

@@ -591,22 +591,22 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              FilledButton(
+                onPressed:
+                    _selectedCustomer == null || _lines.isEmpty || _saving
+                    ? null
+                    : _submit,
+                child: Text(_saving ? 'Submitting...' : 'Submit sales order'),
+              ),
+              const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: _saving ? null : _saveDraft,
                 icon: const Icon(Icons.save_outlined),
                 label: const Text('Save draft'),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(
-                  onPressed:
-                      _selectedCustomer == null || _lines.isEmpty || _saving
-                      ? null
-                      : _submit,
-                  child: Text(_saving ? 'Submitting...' : 'Submit sales order'),
-                ),
               ),
             ],
           ),

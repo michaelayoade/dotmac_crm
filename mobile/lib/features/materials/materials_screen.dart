@@ -716,19 +716,19 @@ class _NewMaterialRequestScreenState
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              FilledButton(
+                onPressed: _items.isEmpty || _saving ? null : _submit,
+                child: Text(_saving ? 'Submitting...' : 'Submit request'),
+              ),
+              const SizedBox(height: 8),
               OutlinedButton.icon(
                 onPressed: _saving ? null : _saveDraft,
                 icon: const Icon(Icons.save_outlined),
                 label: const Text('Save draft'),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(
-                  onPressed: _items.isEmpty || _saving ? null : _submit,
-                  child: Text(_saving ? 'Submitting...' : 'Submit request'),
-                ),
               ),
             ],
           ),
@@ -758,11 +758,19 @@ class _LocationSelectors extends StatelessWidget {
     if (locations.isEmpty) {
       return const Text('No inventory locations available');
     }
+    final sourceValue =
+        locations.any((location) => location.id == sourceLocationId)
+        ? sourceLocationId
+        : null;
+    final destinationValue =
+        locations.any((location) => location.id == destinationLocationId)
+        ? destinationLocationId
+        : null;
     return Column(
       children: [
         DropdownButtonFormField<String?>(
           key: const Key('source-location'),
-          initialValue: sourceLocationId,
+          initialValue: sourceValue,
           decoration: const InputDecoration(labelText: 'Source location'),
           items: [
             const DropdownMenuItem(value: null, child: Text('Any location')),
@@ -777,7 +785,7 @@ class _LocationSelectors extends StatelessWidget {
         const SizedBox(height: 12),
         DropdownButtonFormField<String?>(
           key: const Key('destination-location'),
-          initialValue: destinationLocationId,
+          initialValue: destinationValue,
           decoration: const InputDecoration(labelText: 'Destination location'),
           items: [
             const DropdownMenuItem(value: null, child: Text('Not selected')),
