@@ -33,6 +33,7 @@ class FieldNotes:
         work_order_id: str,
         *,
         body: str,
+        is_internal: bool = True,
         attachment_ids: list[str] | None = None,
     ) -> WorkOrderNote:
         work_order = get_scoped_work_order(db, person_id, work_order_id)
@@ -58,6 +59,7 @@ class FieldNotes:
             WorkOrderNoteCreate(
                 work_order_id=work_order.id,
                 body=body.strip(),
+                is_internal=is_internal,
                 author_person_id=person_uuid,
                 attachments=[_attachment_payload(attachment) for attachment in attachments] or None,
             ),

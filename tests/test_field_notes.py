@@ -64,6 +64,7 @@ def test_create_note_with_linked_attachments(db_session, assigned_job, person, f
         attachment_ids=[str(attachment.id)],
     )
     assert note.author_person_id == person.id
+    assert note.is_internal is True
     db_session.refresh(attachment)
     assert attachment.note_id == note.id
     assert note.attachments == [
@@ -93,6 +94,21 @@ def test_field_note_mirrors_to_linked_ticket(db_session, assigned_job, person):
     assert comment.ticket_id == assigned_job.ticket_id
     assert comment.is_internal is True
     assert str(assigned_job.id)[:8] in comment.body
+    assert note.body in comment.body
+
+
+def test_field_note_can_mirror_external_comment(db_session, assigned_job, person):
+    note = field_notes.create(
+        db_session,
+        str(person.id),
+        str(assigned_job.id),
+        body="Customer-facing update",
+        is_internal=False,
+    )
+
+    comment = db_session.query(TicketComment).filter(TicketComment.author_person_id == person.id).one()
+    assert note.is_internal is False
+    assert comment.is_internal is False
     assert note.body in comment.body
 
 

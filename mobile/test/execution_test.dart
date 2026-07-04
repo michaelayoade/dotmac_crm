@@ -107,6 +107,7 @@ void main() {
       final payloads = await queued('note');
       expect(payloads.single['work_order_id'], 'wo-1');
       expect(payloads.single['body'], 'ONT replaced');
+      expect(payloads.single['is_internal'], isTrue);
       expect(payloads.single['attachment_ids'], isEmpty);
 
       final rows = await db.select(db.outboxEntries).get();
@@ -140,6 +141,15 @@ void main() {
       final payloads = await queued('note');
       expect(clientRef, isNotEmpty);
       expect(payloads.single['body'], 'ONT replaced');
+    });
+
+    test('addNote can queue an external technician note', () async {
+      final controller = container.read(executionControllerProvider.notifier);
+      await controller.addNote('wo-1', 'Customer update', isInternal: false);
+
+      final payloads = await queued('note');
+      expect(payloads.single['body'], 'Customer update');
+      expect(payloads.single['is_internal'], isFalse);
     });
   });
 
