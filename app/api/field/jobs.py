@@ -20,6 +20,7 @@ from app.schemas.field import (
     FieldVisitHistoryItem,
     FieldWorkLogRead,
 )
+from app.schemas.material_request import MaterialRequestRead
 from app.services.auth_dependencies import require_user_auth
 from app.services.field.jobs import field_jobs
 
@@ -70,6 +71,7 @@ def get_field_job(work_order_id: str, auth=Depends(require_user_auth), db: Sessi
         notes=[FieldNoteRead.from_note(n) for n in bundle["notes"]],
         attachments=[FieldAttachmentRead.model_validate(a) for a in bundle["attachments"]],
         materials=[FieldMaterialRead.from_material(m) for m in bundle["materials"]],
+        material_requests=[MaterialRequestRead.model_validate(mr) for mr in bundle["material_requests"]],
         worklogs=[FieldWorkLogRead.model_validate(w) for w in bundle["worklogs"]],
     )
 

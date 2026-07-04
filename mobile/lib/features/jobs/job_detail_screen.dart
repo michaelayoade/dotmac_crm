@@ -162,6 +162,26 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ),
           ],
+          if (detail.materialRequests.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Material requests',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    for (final request in detail.materialRequests)
+                      _MaterialRequestListTile(request: request),
+                  ],
+                ),
+              ),
+            ),
+          ],
           if (_isAddingNote) ...[
             const SizedBox(height: 12),
             Card(
@@ -444,6 +464,36 @@ class _NoteTile extends StatelessWidget {
           ),
         Text(_noteBody(note)),
       ],
+    );
+  }
+}
+
+class _MaterialRequestListTile extends StatelessWidget {
+  const _MaterialRequestListTile({required this.request});
+
+  final Map<String, dynamic> request;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = request['id']?.toString();
+    final number = request['number']?.toString();
+    final status = request['status']?.toString().replaceAll('_', ' ');
+    final items = request['items'];
+    final itemCount = items is List ? items.length : 0;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.assignment_outlined),
+      title: Text(
+        number == null || number.isEmpty ? 'Material request' : number,
+      ),
+      subtitle: Text(
+        [
+          if (status != null && status.isNotEmpty) status,
+          '$itemCount item${itemCount == 1 ? '' : 's'}',
+        ].join(' · '),
+      ),
+      trailing: id == null ? null : const Icon(Icons.chevron_right),
+      onTap: id == null ? null : () => context.push('/materials/$id'),
     );
   }
 }

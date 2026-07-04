@@ -11,8 +11,10 @@ from app.models.tickets import TicketComment
 from app.models.timecost import WorkLog
 from app.models.workforce import WorkOrderAssignment
 from app.schemas.field import FieldJobDetail, FieldNoteRead, FieldWorkLogRead
+from app.schemas.material_request import MaterialRequestCreate, MaterialRequestItemCreate
 from app.schemas.workforce import WorkOrderNoteCreate, WorkOrderUpdate
 from app.services.field.jobs import field_jobs
+from app.services.material_requests import material_requests
 from app.services.workforce import work_order_notes, work_orders
 
 
@@ -65,6 +67,14 @@ def test_detail_bundle_contents(db_session, assigned_job, person, ticket):
     db_session.add(item)
     db_session.flush()
     db_session.add(WorkOrderMaterial(work_order_id=assigned_job.id, item_id=item.id, quantity=2))
+    request = material_requests.create(
+        db_session,
+        MaterialRequestCreate(
+            work_order_id=assigned_job.id,
+            requested_by_person_id=person.id,
+            items=[MaterialRequestItemCreate(item_id=item.id, quantity=1)],
+        ),
+    )
     db_session.add(
         WorkLog(
             work_order_id=assigned_job.id,
@@ -83,6 +93,7 @@ def test_detail_bundle_contents(db_session, assigned_job, person, ticket):
     note_read = FieldNoteRead.from_note(bundle["notes"][0])
     assert note_read.author_name == f"{person.first_name} {person.last_name}"
     assert [m.item.name for m in bundle["materials"]] == ["Drop cable"]
+    assert [mr.id for mr in bundle["material_requests"]] == [request.id]
     assert len(bundle["worklogs"]) == 1
 
 

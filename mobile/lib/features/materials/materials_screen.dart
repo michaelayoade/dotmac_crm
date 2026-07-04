@@ -556,6 +556,11 @@ class _NewMaterialRequestScreenState
             items: _items,
           );
       ref.invalidate(materialRequestsProvider);
+      try {
+        await ref.read(materialRequestsProvider.future);
+      } catch (_) {
+        // The request was created; the list can still be refreshed manually.
+      }
       await ref.read(draftStoreProvider).delete(materialRequestDraftId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

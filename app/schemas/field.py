@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 from app.models.field import DevicePlatform, FieldAttachmentKind
 from app.models.material_request import MaterialRequestPriority
 from app.models.sales_order import SalesOrderPaymentStatus, SalesOrderStatus
-from app.schemas.material_request import MaterialRequestItemCreate
+from app.schemas.material_request import MaterialRequestItemCreate, MaterialRequestRead
 
 
 class FieldAttachmentRead(BaseModel):
@@ -473,6 +473,7 @@ class FieldJobDetail(BaseModel):
     notes: list[FieldNoteRead]
     attachments: list[FieldAttachmentRead]
     materials: list[FieldMaterialRead]
+    material_requests: list[MaterialRequestRead] = []
     worklogs: list[FieldWorkLogRead]
 
 

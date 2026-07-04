@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.models.dispatch import TechnicianProfile
 from app.models.field import FieldAttachment
 from app.models.inventory import WorkOrderMaterial
+from app.models.material_request import MaterialRequest
 from app.models.person import Person
 from app.models.subscriber import Subscriber
 from app.models.tickets import Ticket, TicketStatus
@@ -287,6 +288,19 @@ class FieldJobs(ListResponseMixin):
             .filter(WorkOrderMaterial.work_order_id == work_order.id)
             .all()
         )
+        material_request_filters = [MaterialRequest.work_order_id == work_order.id]
+        if work_order.ticket_id:
+            material_request_filters.append(MaterialRequest.ticket_id == work_order.ticket_id)
+        if work_order.project_id:
+            material_request_filters.append(MaterialRequest.project_id == work_order.project_id)
+        material_requests = (
+            db.query(MaterialRequest)
+            .options(selectinload(MaterialRequest.items))
+            .filter(MaterialRequest.is_active.is_(True))
+            .filter(or_(*material_request_filters))
+            .order_by(MaterialRequest.created_at.desc())
+            .all()
+        )
         worklogs = (
             db.query(WorkLog)
             .filter(WorkLog.work_order_id == work_order.id)
@@ -313,6 +327,7 @@ class FieldJobs(ListResponseMixin):
             "notes": notes,
             "attachments": attachments,
             "materials": materials,
+            "material_requests": material_requests,
             "worklogs": worklogs,
         }
 
