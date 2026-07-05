@@ -57,10 +57,12 @@ class WebhookEventType(enum.Enum):
     session_ended = "session.ended"
     network_alert = "network.alert"
 
-    # Support - Ticket events (3)
+    # Support - Ticket events (5)
     ticket_created = "ticket.created"
+    ticket_updated = "ticket.updated"
     ticket_escalated = "ticket.escalated"
     ticket_resolved = "ticket.resolved"
+    ticket_comment_created = "ticket.comment_created"
 
     # Operations - Work-order (field-visit) lifecycle (3). The push backbone for
     # an external app tracking a customer's service visit.

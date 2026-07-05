@@ -284,6 +284,96 @@ def _format_duplicate_subscriber(ticket: Ticket) -> str | None:
     return f"{base} ({number})" if number else base
 
 
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _uuid_str(value: object | None) -> str | None:
+    return str(value) if value else None
+
+
+def _ticket_selfcare_subscriber_id(db: Session, ticket: Ticket) -> str | None:
+    if not ticket.subscriber_id:
+        return None
+    subscriber = getattr(ticket, "subscriber", None) or db.get(Subscriber, ticket.subscriber_id)
+    if (
+        subscriber is not None
+        and getattr(subscriber, "is_active", True)
+        and subscriber.external_system == "selfcare"
+        and subscriber.external_id
+    ):
+        return str(subscriber.external_id)
+    return None
+
+
+def _ticket_webhook_payload(
+    db: Session,
+    ticket: Ticket,
+    *,
+    changed_fields: list[str] | None = None,
+    from_status: str | None = None,
+    to_status: str | None = None,
+) -> dict[str, object] | None:
+    subscriber_id = _ticket_selfcare_subscriber_id(db, ticket)
+    if not subscriber_id:
+        return None
+    assignee_ids = [_uuid_str(person_id) for person_id in (ticket.assigned_to_person_ids or [])]
+    return {
+        "subscriber_id": subscriber_id,
+        "ticket": {
+            "id": str(ticket.id),
+            "number": ticket.number,
+            "title": ticket.title,
+            "description": ticket.description,
+            "status": ticket.status.value if ticket.status else None,
+            "priority": ticket.priority.value if ticket.priority else None,
+            "channel": ticket.channel.value if ticket.channel else None,
+            "ticket_type": ticket.ticket_type,
+            "region": ticket.region,
+            "tags": ticket.tags or [],
+            "metadata": ticket.metadata_ or {},
+            "due_at": _iso(ticket.due_at),
+            "resolved_at": _iso(ticket.resolved_at),
+            "closed_at": _iso(ticket.closed_at),
+            "created_at": _iso(ticket.created_at),
+            "updated_at": _iso(ticket.updated_at),
+            "is_active": ticket.is_active,
+            "subscriber_id": _uuid_str(ticket.subscriber_id),
+            "customer_person_id": _uuid_str(ticket.customer_person_id),
+            "created_by_person_id": _uuid_str(ticket.created_by_person_id),
+            "assigned_to_person_id": _uuid_str(ticket.assigned_to_person_id),
+            "assigned_to_person_ids": [person_id for person_id in assignee_ids if person_id],
+            "ticket_manager_person_id": _uuid_str(ticket.ticket_manager_person_id),
+            "assistant_manager_person_id": _uuid_str(ticket.assistant_manager_person_id),
+            "service_team_id": _uuid_str(ticket.service_team_id),
+        },
+        "changed_fields": changed_fields or [],
+        "from_status": from_status,
+        "to_status": to_status,
+    }
+
+
+def _ticket_comment_webhook_payload(db: Session, ticket: Ticket, comment: TicketComment) -> dict[str, object] | None:
+    ticket_payload = _ticket_webhook_payload(db, ticket)
+    if ticket_payload is None:
+        return None
+    return {
+        "subscriber_id": ticket_payload["subscriber_id"],
+        "ticket_id": str(ticket.id),
+        "ticket_number": ticket.number,
+        "ticket": ticket_payload["ticket"],
+        "comment": {
+            "id": str(comment.id),
+            "ticket_id": str(comment.ticket_id),
+            "author_person_id": _uuid_str(comment.author_person_id),
+            "body": comment.body,
+            "is_internal": comment.is_internal,
+            "attachments": comment.attachments or [],
+            "created_at": _iso(comment.created_at),
+        },
+    }
+
+
 def _normalize_duplicate_location(value: object | None) -> str:
     if not isinstance(value, str):
         return ""
@@ -1382,12 +1472,14 @@ class Tickets(ListResponseMixin):
 
         customer_name = _resolve_customer_name(ticket, db)
         customer_email = _resolve_customer_email(ticket, db)
+        ticket_webhook_payload = _ticket_webhook_payload(db, ticket, changed_fields=list(data.keys()))
 
         # Emit ticket.created event
         emit_event(
             db,
             EventType.ticket_created,
             {
+                **(ticket_webhook_payload or {}),
                 "ticket_id": str(ticket.id),
                 "title": ticket.title,
                 "subject": ticket.title,
@@ -1442,6 +1534,7 @@ class Tickets(ListResponseMixin):
                 subscriber_id=ticket.subscriber_id,
             )
 
+        db.commit()
         return ticket
 
     @staticmethod
@@ -2124,6 +2217,14 @@ class Tickets(ListResponseMixin):
             "to_status": new_status.value if new_status else None,
             "status": new_status.value if new_status else None,
         }
+        changed_fields = list(data.keys())
+        ticket_webhook_payload = _ticket_webhook_payload(
+            db,
+            ticket,
+            changed_fields=changed_fields,
+            from_status=previous_status.value if previous_status else None,
+            to_status=new_status.value if new_status else None,
+        )
 
         if previous_status != new_status and new_status == TicketStatus.closed:
             customer_name = _resolve_customer_name(ticket, db)
@@ -2149,7 +2250,10 @@ class Tickets(ListResponseMixin):
             emit_event(
                 db,
                 EventType.ticket_resolved,
-                event_payload,
+                {
+                    **(ticket_webhook_payload or {}),
+                    **event_payload,
+                },
                 subscriber_id=ticket.subscriber_id,
                 ticket_id=ticket.id,
             )
@@ -2201,23 +2305,28 @@ class Tickets(ListResponseMixin):
             emit_event(
                 db,
                 EventType.ticket_escalated,
-                event_payload,
+                {
+                    **(ticket_webhook_payload or {}),
+                    **event_payload,
+                },
                 subscriber_id=ticket.subscriber_id,
                 ticket_id=ticket.id,
             )
-        # Emit generic update event for ERP sync (if not already emitting resolved/escalated)
-        elif previous_status != new_status or len(data) > 1:
+        # Emit generic update event for the durable Selfcare ticket mirror.
+        if data and ticket_webhook_payload:
             emit_event(
                 db,
                 EventType.ticket_updated,
                 {
+                    **ticket_webhook_payload,
                     **event_payload,
-                    "changed_fields": list(data.keys()),
+                    "changed_fields": changed_fields,
                 },
                 subscriber_id=ticket.subscriber_id,
                 ticket_id=ticket.id,
             )
 
+        db.commit()
         return ticket
 
     @staticmethod
@@ -2349,6 +2458,16 @@ class TicketComments(ListResponseMixin):
             _ensure_person(db, str(payload.author_person_id))
         comment = TicketComment(**payload.model_dump())
         db.add(comment)
+        db.flush()
+        event_payload = _ticket_comment_webhook_payload(db, ticket, comment)
+        if event_payload:
+            emit_event(
+                db,
+                EventType.ticket_comment_created,
+                event_payload,
+                subscriber_id=ticket.subscriber_id,
+                ticket_id=ticket.id,
+            )
         db.commit()
         db.refresh(comment)
         return comment

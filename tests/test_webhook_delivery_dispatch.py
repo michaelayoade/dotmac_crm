@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.models.subscriber import Subscriber
+from app.models.tickets import TicketPriority, TicketStatus
 from app.models.webhook import (
     WebhookDelivery,
     WebhookDeliveryStatus,
@@ -16,6 +18,8 @@ from app.models.webhook import (
     WebhookEventType,
     WebhookSubscription,
 )
+from app.schemas.tickets import TicketCommentCreate, TicketCreate, TicketUpdate
+from app.services import tickets as tickets_service
 from app.services.events.handlers.webhook import WebhookHandler
 from app.services.events.types import Event, EventType
 
@@ -44,6 +48,55 @@ def _ticket_created_event() -> Event:
     return Event(event_type=EventType.ticket_created, payload={"ticket_id": "t-1"})
 
 
+def _add_subscription(db_session, event_type: WebhookEventType) -> WebhookEndpoint:
+    endpoint = WebhookEndpoint(
+        name=f"Endpoint {event_type.value}",
+        url=f"https://example.test/{event_type.name}",
+        secret="s3cr3t",
+        is_active=True,
+    )
+    db_session.add(endpoint)
+    db_session.flush()
+    db_session.add(
+        WebhookSubscription(
+            endpoint_id=endpoint.id,
+            event_type=event_type,
+            is_active=True,
+        )
+    )
+    db_session.commit()
+    return endpoint
+
+
+def _selfcare_subscriber(db_session, person, external_id: str = "selfcare-sub-1") -> Subscriber:
+    subscriber = Subscriber(
+        person_id=person.id,
+        external_system="selfcare",
+        external_id=external_id,
+        subscriber_number=f"SUB-{external_id}",
+        is_active=True,
+    )
+    db_session.add(subscriber)
+    db_session.commit()
+    db_session.refresh(subscriber)
+    return subscriber
+
+
+def _ticket_for_selfcare_subscriber(db_session, person):
+    subscriber = _selfcare_subscriber(db_session, person)
+    ticket = tickets_service.tickets.create(
+        db_session,
+        TicketCreate(
+            subscriber_id=subscriber.id,
+            title="Router offline",
+            description="Customer router is offline",
+            priority=TicketPriority.normal,
+            tags=["connectivity"],
+        ),
+    )
+    return subscriber, ticket
+
+
 def test_delivery_not_enqueued_until_commit(db_session, webhook_endpoint):
     """The Celery task must not be enqueued before the row is committed."""
     with patch("app.tasks.webhooks.deliver_webhook.delay") as mock_delay:
@@ -58,6 +111,160 @@ def test_delivery_not_enqueued_until_commit(db_session, webhook_endpoint):
         # After commit, the after_commit hook fires and enqueues the task.
         db_session.commit()
         mock_delay.assert_called_once_with(str(delivery.id))
+
+
+def test_ticket_webhook_event_type_mapping_includes_update_and_comment_created(db_session):
+    cases = [
+        (EventType.ticket_created, WebhookEventType.ticket_created),
+        (EventType.ticket_updated, WebhookEventType.ticket_updated),
+        (EventType.ticket_escalated, WebhookEventType.ticket_escalated),
+        (EventType.ticket_resolved, WebhookEventType.ticket_resolved),
+        (EventType.ticket_comment_created, WebhookEventType.ticket_comment_created),
+    ]
+    for event_type, webhook_event_type in cases:
+        _add_subscription(db_session, webhook_event_type)
+        with patch("app.tasks.webhooks.deliver_webhook.delay"):
+            WebhookHandler().handle(db_session, Event(event_type=event_type, payload={"ticket_id": "t-1"}))
+            db_session.commit()
+
+        delivery = (
+            db_session.query(WebhookDelivery)
+            .filter(WebhookDelivery.event_type == webhook_event_type)
+            .order_by(WebhookDelivery.created_at.desc())
+            .first()
+        )
+        assert delivery is not None
+        assert delivery.payload["event_type"] == event_type.value
+
+
+def test_ticket_update_creates_durable_webhook_with_full_selfcare_payload(db_session, person):
+    subscriber, ticket = _ticket_for_selfcare_subscriber(db_session, person)
+    _add_subscription(db_session, WebhookEventType.ticket_updated)
+
+    with patch("app.tasks.webhooks.deliver_webhook.delay") as mock_delay:
+        tickets_service.tickets.update(
+            db_session,
+            str(ticket.id),
+            TicketUpdate(title="Router offline - updated", priority=TicketPriority.high),
+        )
+
+    delivery = (
+        db_session.query(WebhookDelivery).filter(WebhookDelivery.event_type == WebhookEventType.ticket_updated).one()
+    )
+    payload = delivery.payload["payload"]
+    assert payload["subscriber_id"] == subscriber.external_id
+    assert payload["ticket"]["id"] == str(ticket.id)
+    assert payload["ticket"]["subscriber_id"] == str(subscriber.id)
+    assert payload["ticket"]["title"] == "Router offline - updated"
+    assert payload["ticket"]["priority"] == TicketPriority.high.value
+    assert payload["ticket"]["tags"] == ["connectivity"]
+    assert payload["changed_fields"] == ["title", "priority"]
+    assert delivery.payload["context"]["subscriber_id"] == str(subscriber.id)
+    mock_delay.assert_called_once_with(str(delivery.id))
+
+
+def test_ticket_resolved_also_creates_ticket_updated_delivery(db_session, person):
+    subscriber, ticket = _ticket_for_selfcare_subscriber(db_session, person)
+    _add_subscription(db_session, WebhookEventType.ticket_resolved)
+    _add_subscription(db_session, WebhookEventType.ticket_updated)
+
+    with patch("app.tasks.webhooks.deliver_webhook.delay") as mock_delay:
+        tickets_service.tickets.update(
+            db_session,
+            str(ticket.id),
+            TicketUpdate(status=TicketStatus.closed, closed_at=ticket.created_at),
+        )
+
+    deliveries = db_session.query(WebhookDelivery).all()
+    event_types = {delivery.event_type for delivery in deliveries}
+    assert WebhookEventType.ticket_resolved in event_types
+    assert WebhookEventType.ticket_updated in event_types
+    updated = next(delivery for delivery in deliveries if delivery.event_type == WebhookEventType.ticket_updated)
+    assert updated.payload["payload"]["subscriber_id"] == subscriber.external_id
+    assert updated.payload["payload"]["ticket"]["status"] == TicketStatus.closed.value
+    assert mock_delay.call_count == 2
+
+
+def test_ticket_escalated_also_creates_ticket_updated_delivery(db_session, person):
+    subscriber, ticket = _ticket_for_selfcare_subscriber(db_session, person)
+    _add_subscription(db_session, WebhookEventType.ticket_escalated)
+    _add_subscription(db_session, WebhookEventType.ticket_updated)
+
+    with patch("app.tasks.webhooks.deliver_webhook.delay") as mock_delay:
+        tickets_service.tickets.update(
+            db_session,
+            str(ticket.id),
+            TicketUpdate(priority=TicketPriority.urgent),
+        )
+
+    deliveries = db_session.query(WebhookDelivery).all()
+    event_types = {delivery.event_type for delivery in deliveries}
+    assert WebhookEventType.ticket_escalated in event_types
+    assert WebhookEventType.ticket_updated in event_types
+    updated = next(delivery for delivery in deliveries if delivery.event_type == WebhookEventType.ticket_updated)
+    assert updated.payload["payload"]["subscriber_id"] == subscriber.external_id
+    assert updated.payload["payload"]["ticket"]["priority"] == TicketPriority.urgent.value
+    assert mock_delay.call_count == 2
+
+
+def test_ticket_comment_create_creates_durable_webhook_with_full_selfcare_payload(db_session, person):
+    subscriber, ticket = _ticket_for_selfcare_subscriber(db_session, person)
+    _add_subscription(db_session, WebhookEventType.ticket_comment_created)
+
+    with patch("app.tasks.webhooks.deliver_webhook.delay") as mock_delay:
+        comment = tickets_service.ticket_comments.create(
+            db_session,
+            TicketCommentCreate(
+                ticket_id=ticket.id,
+                author_person_id=person.id,
+                body="Customer confirmed issue persists",
+                attachments=[{"name": "speedtest.png"}],
+            ),
+        )
+
+    delivery = (
+        db_session.query(WebhookDelivery)
+        .filter(WebhookDelivery.event_type == WebhookEventType.ticket_comment_created)
+        .one()
+    )
+    payload = delivery.payload["payload"]
+    assert payload["subscriber_id"] == subscriber.external_id
+    assert payload["ticket_id"] == str(ticket.id)
+    assert payload["ticket"]["id"] == str(ticket.id)
+    assert payload["comment"]["id"] == str(comment.id)
+    assert payload["comment"]["ticket_id"] == str(ticket.id)
+    assert payload["comment"]["author_person_id"] == str(person.id)
+    assert payload["comment"]["body"] == "Customer confirmed issue persists"
+    assert payload["comment"]["is_internal"] is False
+    assert payload["comment"]["attachments"] == [{"name": "speedtest.png"}]
+    mock_delay.assert_called_once_with(str(delivery.id))
+
+
+def test_ticket_update_and_comment_webhooks_skip_without_selfcare_subscriber_mapping(db_session):
+    ticket = tickets_service.tickets.create(db_session, TicketCreate(title="Unmapped ticket"))
+    _add_subscription(db_session, WebhookEventType.ticket_updated)
+    _add_subscription(db_session, WebhookEventType.ticket_comment_created)
+
+    with patch("app.tasks.webhooks.deliver_webhook.delay") as mock_delay:
+        tickets_service.tickets.update(
+            db_session,
+            str(ticket.id),
+            TicketUpdate(title="Unmapped ticket updated"),
+        )
+        tickets_service.ticket_comments.create(
+            db_session,
+            TicketCommentCreate(ticket_id=ticket.id, body="Unmapped comment"),
+        )
+
+    count = (
+        db_session.query(WebhookDelivery)
+        .filter(
+            WebhookDelivery.event_type.in_([WebhookEventType.ticket_updated, WebhookEventType.ticket_comment_created])
+        )
+        .count()
+    )
+    assert count == 0
+    mock_delay.assert_not_called()
 
 
 def test_delivery_not_enqueued_on_rollback(db_session, webhook_endpoint):
