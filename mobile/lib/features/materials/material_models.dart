@@ -249,7 +249,7 @@ int? _int(Object? value) => switch (value) {
   _ => null,
 };
 
-String? _string(Object? value) => value == null ? null : value.toString();
+String? _string(Object? value) => value?.toString();
 
 double? _double(Object? value) => switch (value) {
   num() => value.toDouble(),
