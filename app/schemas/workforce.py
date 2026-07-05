@@ -23,7 +23,10 @@ class WorkOrderBase(BaseModel):
     scheduled_start: datetime | None = None
     scheduled_end: datetime | None = None
     started_at: datetime | None = None
+    paused_at: datetime | None = None
+    resumed_at: datetime | None = None
     completed_at: datetime | None = None
+    total_active_seconds: int | None = Field(default=None, ge=0)
     tags: list | None = None
     access_notes: str | None = Field(default=None, max_length=2000)
     metadata_: dict | None = Field(
@@ -51,7 +54,10 @@ class WorkOrderUpdate(BaseModel):
     scheduled_start: datetime | None = None
     scheduled_end: datetime | None = None
     started_at: datetime | None = None
+    paused_at: datetime | None = None
+    resumed_at: datetime | None = None
     completed_at: datetime | None = None
+    total_active_seconds: int | None = Field(default=None, ge=0)
     tags: list | None = None
     access_notes: str | None = Field(default=None, max_length=2000)
     metadata_: dict | None = Field(
@@ -96,7 +102,7 @@ class WorkOrderNoteBase(BaseModel):
     work_order_id: UUID
     author_person_id: UUID | None = None
     body: str = Field(min_length=1)
-    is_internal: bool = False
+    is_internal: bool = True
     attachments: list | None = None
 
 

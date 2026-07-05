@@ -31,7 +31,9 @@ class FieldAttachmentKind(enum.Enum):
 class FieldJobEvent(enum.Enum):
     accept = "accept"
     en_route = "en_route"
+    arrived = "arrived"
     start = "start"
+    pause = "pause"
     hold = "hold"
     resume = "resume"
     complete = "complete"
@@ -63,6 +65,43 @@ class WorkOrderEvent(Base):
     client_event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), unique=True, index=True, nullable=False)
     payload: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    work_order = relationship("WorkOrder")
+    actor = relationship("Person", foreign_keys=[actor_person_id])
+
+
+class WorkOrderMovement(Base):
+    """A technician movement leg for a work order.
+
+    This is intentionally stateful, unlike ``WorkOrderEvent``. Events remain
+    the immutable audit facts; movement rows track the active destination and
+    arrival outcome for dispatcher/customer activity views.
+    """
+
+    __tablename__ = "work_order_movements"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    work_order_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("work_orders.id"), nullable=False, index=True
+    )
+    actor_person_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
+    destination_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    destination_id: Mapped[str | None] = mapped_column(String(120))
+    destination_label: Mapped[str | None] = mapped_column(String(255))
+    destination_latitude: Mapped[float | None] = mapped_column(Float)
+    destination_longitude: Mapped[float | None] = mapped_column(Float)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    arrived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    start_latitude: Mapped[float | None] = mapped_column(Float)
+    start_longitude: Mapped[float | None] = mapped_column(Float)
+    arrival_latitude: Mapped[float | None] = mapped_column(Float)
+    arrival_longitude: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(20), default="en_route", nullable=False)
+    client_ref: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
 
     work_order = relationship("WorkOrder")
     actor = relationship("Person", foreign_keys=[actor_person_id])

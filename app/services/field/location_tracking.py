@@ -275,7 +275,12 @@ class FieldLocationTracking:
                 .filter(WorkOrder.assigned_to_person_id.in_(person_ids))
                 .filter(
                     WorkOrder.status.in_(
-                        [WorkOrderStatus.scheduled, WorkOrderStatus.dispatched, WorkOrderStatus.in_progress]
+                        [
+                            WorkOrderStatus.scheduled,
+                            WorkOrderStatus.dispatched,
+                            WorkOrderStatus.in_progress,
+                            WorkOrderStatus.paused,
+                        ]
                     )
                 )
                 .order_by(WorkOrder.updated_at.desc())

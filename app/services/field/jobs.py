@@ -8,7 +8,9 @@ hourly_rate or cost fields.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -16,14 +18,14 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.dispatch import TechnicianProfile
-from app.models.field import FieldAttachment
+from app.models.field import FieldAttachment, WorkOrderEvent
 from app.models.inventory import WorkOrderMaterial
 from app.models.material_request import MaterialRequest
 from app.models.person import Person
 from app.models.subscriber import Subscriber
 from app.models.tickets import Ticket, TicketStatus
 from app.models.timecost import WorkLog
-from app.models.workforce import WorkOrder, WorkOrderAssignment, WorkOrderStatus
+from app.models.workforce import WorkOrder, WorkOrderAssignment, WorkOrderNote, WorkOrderStatus
 from app.services.common import apply_pagination, coerce_uuid, validate_enum
 from app.services.response import ListResponseMixin
 
@@ -33,6 +35,7 @@ _OPEN_STATUSES = (
     WorkOrderStatus.scheduled,
     WorkOrderStatus.dispatched,
     WorkOrderStatus.in_progress,
+    WorkOrderStatus.paused,
 )
 
 
@@ -210,6 +213,128 @@ def _open_tickets(db: Session, subscriber: Subscriber) -> list[dict]:
     ]
 
 
+def _person_label(person: Person | None) -> str | None:
+    if person is None:
+        return None
+    display_name = getattr(person, "display_name", None)
+    if isinstance(display_name, str) and display_name.strip():
+        return display_name.strip()
+    name = " ".join(
+        part
+        for part in [
+            getattr(person, "first_name", None),
+            getattr(person, "last_name", None),
+        ]
+        if isinstance(part, str) and part.strip()
+    )
+    return name or None
+
+
+def _event_label(event: WorkOrderEvent) -> str:
+    value = event.event.value if hasattr(event.event, "value") else str(event.event)
+    labels = {
+        "accept": "Work accepted",
+        "en_route": "Technician en route",
+        "arrived": "Technician arrived",
+        "start": "Work started",
+        "pause": "Work paused",
+        "hold": "Work paused",
+        "resume": "Work resumed",
+        "complete": "Work completed",
+        "unable_to_complete": "Unable to complete",
+    }
+    return labels.get(value, value.replace("_", " ").title())
+
+
+def _history_items(
+    *,
+    notes: list,
+    material_requests: list[MaterialRequest],
+    events: list[WorkOrderEvent],
+    worklogs: list[WorkLog],
+    attachments: list[FieldAttachment],
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for note in notes:
+        items.append(
+            {
+                "id": f"note:{note.id}",
+                "type": "note",
+                "title": "Internal note" if note.is_internal else "Customer note",
+                "description": note.body,
+                "occurred_at": note.created_at,
+                "actor_name": _person_label(getattr(note, "author", None)),
+                "is_internal": note.is_internal,
+                "metadata": {"note_id": str(note.id)},
+            }
+        )
+    for request in material_requests:
+        status = request.status.value if hasattr(request.status, "value") else str(request.status)
+        number = request.number or str(request.id)[:8]
+        item_count = len(request.items or [])
+        items.append(
+            {
+                "id": f"material_request:{request.id}",
+                "type": "material_request",
+                "title": f"Material request {number}",
+                "description": f"{status.replace('_', ' ')} · {item_count} item{'' if item_count == 1 else 's'}",
+                "occurred_at": request.created_at,
+                "actor_name": _person_label(getattr(request, "requested_by", None)),
+                "status": status,
+                "metadata": {
+                    "material_request_id": str(request.id),
+                    "number": request.number,
+                    "item_count": item_count,
+                    "priority": request.priority.value if hasattr(request.priority, "value") else str(request.priority),
+                },
+            }
+        )
+    for event in events:
+        value = event.event.value if hasattr(event.event, "value") else str(event.event)
+        payload = event.payload or {}
+        items.append(
+            {
+                "id": f"event:{event.id}",
+                "type": "work_event",
+                "title": _event_label(event),
+                "description": payload.get("note") if isinstance(payload, dict) else None,
+                "occurred_at": event.occurred_at,
+                "actor_name": _person_label(getattr(event, "actor", None)),
+                "status": value,
+                "metadata": {
+                    "event": value,
+                    "latitude": event.latitude,
+                    "longitude": event.longitude,
+                },
+            }
+        )
+    for worklog in worklogs:
+        items.append(
+            {
+                "id": f"worklog:{worklog.id}",
+                "type": "worklog",
+                "title": "Work time logged",
+                "description": f"{worklog.minutes} min" if worklog.minutes else worklog.notes,
+                "occurred_at": worklog.start_at,
+                "actor_name": _person_label(getattr(worklog, "person", None)),
+                "metadata": {"worklog_id": str(worklog.id), "minutes": worklog.minutes},
+            }
+        )
+    for attachment in attachments:
+        items.append(
+            {
+                "id": f"attachment:{attachment.id}",
+                "type": "attachment",
+                "title": f"{attachment.kind.value.title()} added",
+                "description": attachment.file_name,
+                "occurred_at": attachment.created_at,
+                "actor_name": _person_label(getattr(attachment, "uploaded_by", None)),
+                "metadata": {"attachment_id": str(attachment.id), "kind": attachment.kind.value},
+            }
+        )
+    return sorted(items, key=lambda item: item["occurred_at"], reverse=True)
+
+
 class FieldJobs(ListResponseMixin):
     @staticmethod
     def me(db: Session, person_id: str) -> dict:
@@ -274,9 +399,16 @@ class FieldJobs(ListResponseMixin):
     def get_detail(db: Session, person_id: str, work_order_id: str) -> dict:
         work_order = get_scoped_work_order(db, person_id, work_order_id)
         # Eager-load the bundle relations in bulk (no N+1 in the loops below).
-        notes = sorted(work_order.notes, key=lambda n: n.created_at, reverse=True)
+        notes = (
+            db.query(WorkOrderNote)
+            .options(selectinload(WorkOrderNote.author))
+            .filter(WorkOrderNote.work_order_id == work_order.id)
+            .order_by(WorkOrderNote.created_at.desc())
+            .all()
+        )
         attachments = (
             db.query(FieldAttachment)
+            .options(selectinload(FieldAttachment.uploaded_by))
             .filter(FieldAttachment.work_order_id == work_order.id)
             .filter(FieldAttachment.is_active.is_(True))
             .order_by(FieldAttachment.created_at.desc())
@@ -295,14 +427,22 @@ class FieldJobs(ListResponseMixin):
             material_request_filters.append(MaterialRequest.project_id == work_order.project_id)
         material_requests = (
             db.query(MaterialRequest)
-            .options(selectinload(MaterialRequest.items))
+            .options(selectinload(MaterialRequest.items), selectinload(MaterialRequest.requested_by))
             .filter(MaterialRequest.is_active.is_(True))
             .filter(or_(*material_request_filters))
             .order_by(MaterialRequest.created_at.desc())
             .all()
         )
+        events = (
+            db.query(WorkOrderEvent)
+            .options(selectinload(WorkOrderEvent.actor))
+            .filter(WorkOrderEvent.work_order_id == work_order.id)
+            .order_by(WorkOrderEvent.occurred_at.desc())
+            .all()
+        )
         worklogs = (
             db.query(WorkLog)
+            .options(selectinload(WorkLog.person))
             .filter(WorkLog.work_order_id == work_order.id)
             .filter(WorkLog.is_active.is_(True))
             .order_by(WorkLog.start_at.desc())
@@ -329,6 +469,13 @@ class FieldJobs(ListResponseMixin):
             "materials": materials,
             "material_requests": material_requests,
             "worklogs": worklogs,
+            "history": _history_items(
+                notes=notes,
+                material_requests=material_requests,
+                events=events,
+                worklogs=worklogs,
+                attachments=attachments,
+            ),
         }
 
     @staticmethod
@@ -344,6 +491,12 @@ class FieldJobs(ListResponseMixin):
         from app.services.field.location import update_job_location
 
         return update_job_location(db, work_order, latitude=latitude, longitude=longitude)
+
+    @staticmethod
+    def list_destinations(db: Session, person_id: str, work_order_id: str) -> Sequence[dict[str, Any]]:
+        from app.services.field.movements import list_destinations
+
+        return list_destinations(db, person_id, work_order_id)
 
 
 field_jobs = FieldJobs()

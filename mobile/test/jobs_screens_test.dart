@@ -22,6 +22,7 @@ JobDetail _detail({
   String status = 'dispatched',
   JobLocation? location,
   List<Map<String, dynamic>> materialRequests = const [],
+  List<Map<String, dynamic>> history = const [],
 }) => JobDetail(
   job: _job(status: status),
   location:
@@ -39,6 +40,7 @@ JobDetail _detail({
   ),
   ticketRef: 'TCK-1001',
   materialRequests: materialRequests,
+  history: history,
 );
 
 Widget _wrap(Widget child, {List<Override> overrides = const []}) =>
@@ -69,11 +71,12 @@ void main() {
     expect(bar.color, AppColors.workType('install'));
   });
 
-  group('action bar shows exactly one primary action per status', () {
+  group('action bar shows work actions per status', () {
     for (final (status, expected) in [
-      ('scheduled', 'Accept job'),
-      ('dispatched', 'Start job'),
-      ('in_progress', 'Complete job'),
+      ('scheduled', ['En Route', 'Arrived', 'Start Work']),
+      ('dispatched', ['En Route', 'Arrived', 'Start Work']),
+      ('in_progress', ['En Route', 'Arrived', 'Pause Work', 'Complete Work']),
+      ('paused', ['En Route', 'Arrived', 'Resume Work']),
     ]) {
       testWidgets(status, (tester) async {
         final detail = _detail(status: status);
@@ -95,12 +98,13 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.byKey(const Key('primary-action')), findsOneWidget);
-        expect(find.text(expected), findsOneWidget);
+        for (final label in expected) {
+          expect(find.text(label), findsOneWidget);
+        }
       });
     }
 
-    testWidgets('completed jobs have no primary action', (tester) async {
+    testWidgets('completed jobs have no work action', (tester) async {
       final detail = _detail(status: 'completed');
       await tester.pumpWidget(
         _wrap(
@@ -111,7 +115,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('primary-action')), findsNothing);
+      expect(find.byKey(const Key('work-action-start')), findsNothing);
+      expect(find.byKey(const Key('work-action-pause')), findsNothing);
+      expect(find.byKey(const Key('work-action-resume')), findsNothing);
+      expect(find.byKey(const Key('work-action-complete')), findsNothing);
     });
   });
 
@@ -187,11 +194,18 @@ void main() {
           'unexpected',
         ],
       },
+      'history': {
+        'items': [
+          {'type': 'note', 'title': 'History note'},
+        ],
+      },
       'materials': null,
     });
 
     expect(detail.notes, hasLength(1));
     expect(detail.notes.single['text'], 'Stored note returned as text');
+    expect(detail.history, hasLength(1));
+    expect(detail.history.single['title'], 'History note');
   });
 
   testWidgets('job detail renders notes returned with alternate body key', (
@@ -268,6 +282,54 @@ void main() {
     expect(find.text('Material requests'), findsOneWidget);
     expect(find.text('MR-1001'), findsOneWidget);
     expect(find.text('submitted · 1 item'), findsOneWidget);
+  });
+
+  testWidgets('job detail shows combined history activity', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        const JobDetailScreen(jobId: 'wo-1'),
+        overrides: [
+          jobDetailProvider('wo-1').overrideWith(
+            (ref) async => _detail(
+              history: const [
+                {
+                  'id': 'mr:1',
+                  'type': 'material_request',
+                  'title': 'Material request MR-1001',
+                  'description': 'submitted · 1 item',
+                  'occurred_at': '2026-06-10T09:00:00Z',
+                  'status': 'submitted',
+                },
+                {
+                  'id': 'note:1',
+                  'type': 'note',
+                  'title': 'Internal note',
+                  'description': 'Checked signal at cabinet',
+                  'occurred_at': '2026-06-10T09:05:00Z',
+                  'actor_name': 'Adaeze Okafor',
+                  'is_internal': true,
+                },
+                {
+                  'id': 'event:1',
+                  'type': 'work_event',
+                  'title': 'Work started',
+                  'occurred_at': '2026-06-10T09:10:00Z',
+                  'status': 'start',
+                },
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('History'), findsOneWidget);
+    expect(find.text('Material request MR-1001'), findsOneWidget);
+    expect(find.text('submitted · 1 item'), findsOneWidget);
+    expect(find.text('Checked signal at cabinet'), findsOneWidget);
+    expect(find.text('Internal'), findsOneWidget);
+    expect(find.text('Work started'), findsOneWidget);
   });
 
   testWidgets('technician can open add note composer from job detail', (

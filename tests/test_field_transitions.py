@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.models.audit import AuditEvent
-from app.models.field import FieldJobEvent, WorkOrderEvent
+from app.models.field import FieldJobEvent, WorkOrderEvent, WorkOrderMovement
 from app.models.person import Person
 from app.models.tickets import TicketComment
 from app.models.timecost import WorkLog
@@ -86,6 +86,14 @@ def test_start_sets_in_progress_and_timestamps(db_session, dispatched_job, perso
     db_session.refresh(dispatched_job)
     assert dispatched_job.status == WorkOrderStatus.in_progress
     assert dispatched_job.started_at is not None
+    open_log = (
+        db_session.query(WorkLog)
+        .filter(WorkLog.work_order_id == dispatched_job.id)
+        .filter(WorkLog.person_id == person.id)
+        .filter(WorkLog.end_at.is_(None))
+        .one()
+    )
+    assert open_log.start_at is not None
 
     event = db_session.query(WorkOrderEvent).filter_by(work_order_id=dispatched_job.id).one()
     assert event.event == FieldJobEvent.start
@@ -161,24 +169,39 @@ def test_completion_with_signature_fallback(db_session, dispatched_job, person, 
     assert dispatched_job.status == WorkOrderStatus.completed
 
 
+def test_total_active_time_excludes_paused_time(db_session, dispatched_job, person, fake_storage):
+    start_at = datetime(2026, 7, 5, 9, 0, tzinfo=UTC)
+    pause_at = start_at + timedelta(minutes=30)
+    resume_at = start_at + timedelta(minutes=60)
+    complete_at = start_at + timedelta(minutes=90)
+
+    _apply(db_session, person, dispatched_job, "start", occurred_at=start_at)
+    _apply(db_session, person, dispatched_job, "pause", occurred_at=pause_at)
+    _apply(db_session, person, dispatched_job, "resume", occurred_at=resume_at)
+    _add_evidence(db_session, dispatched_job, fake_storage, person)
+    _apply(db_session, person, dispatched_job, "complete", occurred_at=complete_at)
+
+    db_session.refresh(dispatched_job)
+    assert dispatched_job.status == WorkOrderStatus.completed
+    assert dispatched_job.total_active_seconds == 60 * 60
+
+
 def test_clock_skew_is_flagged_not_rejected(db_session, dispatched_job, person):
     old = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
     result = _apply(db_session, person, dispatched_job, "start", occurred_at=old)
     assert result["event"].payload["clock_skew_seconds"] >= 7000
 
 
-def test_hold_stops_open_worklog(db_session, dispatched_job, person):
-    _apply(db_session, person, dispatched_job, "start")
-    db_session.add(
-        WorkLog(
-            work_order_id=dispatched_job.id,
-            person_id=person.id,
-            start_at=datetime.now(UTC) - timedelta(minutes=45),
-        )
-    )
-    db_session.commit()
+def test_pause_sets_paused_and_stops_open_worklog(db_session, dispatched_job, person):
+    start_at = datetime.now(UTC) - timedelta(minutes=45)
+    _apply(db_session, person, dispatched_job, "start", occurred_at=start_at)
 
-    _apply(db_session, person, dispatched_job, "hold", note="overnight")
+    _apply(db_session, person, dispatched_job, "pause", note="overnight")
+    db_session.refresh(dispatched_job)
+    assert dispatched_job.status == WorkOrderStatus.paused
+    assert dispatched_job.paused_at is not None
+    assert dispatched_job.total_active_seconds is not None
+    assert dispatched_job.total_active_seconds >= 44 * 60
     open_logs = (
         db_session.query(WorkLog)
         .filter(WorkLog.work_order_id == dispatched_job.id)
@@ -190,39 +213,42 @@ def test_hold_stops_open_worklog(db_session, dispatched_job, person):
     assert closed.minutes >= 44
 
 
-def test_double_hold_is_idempotent(db_session, dispatched_job, person):
-    """A second hold tap (fresh client_event_id) collapses to a no-op."""
+def test_double_pause_is_idempotent(db_session, dispatched_job, person):
+    """A second pause tap (fresh client_event_id) collapses to a no-op."""
     _apply(db_session, person, dispatched_job, "start")
-    first = _apply(db_session, person, dispatched_job, "hold", note="lunch")
+    first = _apply(db_session, person, dispatched_job, "pause", note="lunch")
     assert first["replayed"] is False
 
-    second = _apply(db_session, person, dispatched_job, "hold", note="still lunch")
+    second = _apply(db_session, person, dispatched_job, "pause", note="still lunch")
     assert second["replayed"] is True
     assert second["event"].id == first["event"].id
 
-    hold_events = (
+    pause_events = (
         db_session.query(WorkOrderEvent)
         .filter(WorkOrderEvent.work_order_id == dispatched_job.id)
-        .filter(WorkOrderEvent.event == FieldJobEvent.hold)
+        .filter(WorkOrderEvent.event == FieldJobEvent.pause)
         .count()
     )
-    assert hold_events == 1
+    assert pause_events == 1
 
 
-def test_resume_after_hold_then_double_resume_is_idempotent(db_session, dispatched_job, person):
+def test_resume_after_pause_then_double_resume_is_idempotent(db_session, dispatched_job, person):
     _apply(db_session, person, dispatched_job, "start")
-    _apply(db_session, person, dispatched_job, "hold")
+    _apply(db_session, person, dispatched_job, "pause")
     first_resume = _apply(db_session, person, dispatched_job, "resume")
     assert first_resume["replayed"] is False
+    db_session.refresh(dispatched_job)
+    assert dispatched_job.status == WorkOrderStatus.in_progress
+    assert dispatched_job.resumed_at is not None
 
-    # A second resume (already running) is a no-op; a fresh hold is recorded.
+    # A second resume (already running) is a no-op; a fresh pause is recorded.
     second_resume = _apply(db_session, person, dispatched_job, "resume")
     assert second_resume["replayed"] is True
-    again_hold = _apply(db_session, person, dispatched_job, "hold")
-    assert again_hold["replayed"] is False
+    again_pause = _apply(db_session, person, dispatched_job, "pause")
+    assert again_pause["replayed"] is False
 
     counts = {
-        FieldJobEvent.hold: 2,  # original + the re-hold after resume
+        FieldJobEvent.pause: 2,  # original + the re-pause after resume
         FieldJobEvent.resume: 1,
     }
     for event, expected in counts.items():
@@ -256,6 +282,23 @@ class TestCustomerNotifications:
         _apply(db_session, person, dispatched_job, "en_route")
         assert calls == [str(dispatched_job.id)]
 
+    def test_en_route_to_internal_destination_does_not_notify_customer(
+        self, db_session, dispatched_job, person, monkeypatch
+    ):
+        calls = []
+        monkeypatch.setattr(
+            "app.services.eta_notifications.send_eta_notification",
+            lambda db, wo_id: calls.append(wo_id) or True,
+        )
+        _apply(
+            db_session,
+            person,
+            dispatched_job,
+            "en_route",
+            payload={"destination_type": "cabinet", "destination_label": "FDH-12"},
+        )
+        assert calls == []
+
     def test_complete_sends_completion_notification(
         self, db_session, dispatched_job, person, fake_storage, monkeypatch
     ):
@@ -287,6 +330,49 @@ class TestCustomerNotifications:
         monkeypatch.setattr("app.services.eta_notifications.send_eta_notification", _boom)
         result = _apply(db_session, person, dispatched_job, "en_route")
         assert result["replayed"] is False
+
+    def test_arrived_to_customer_sends_arrival_notification(self, db_session, dispatched_job, person, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "app.services.eta_notifications.send_technician_arrived_notification",
+            lambda db, wo_id: calls.append(wo_id) or True,
+        )
+        _apply(db_session, person, dispatched_job, "arrived")
+        assert calls == [str(dispatched_job.id)]
+
+
+def test_en_route_creates_movement_session(db_session, dispatched_job, person):
+    result = _apply(
+        db_session,
+        person,
+        dispatched_job,
+        "en_route",
+        latitude=6.5,
+        longitude=3.4,
+        payload={"destination_type": "cabinet", "destination_label": "FDH-12"},
+    )
+    assert result["replayed"] is False
+    movement = db_session.query(WorkOrderMovement).filter_by(work_order_id=dispatched_job.id).one()
+    assert movement.status == "en_route"
+    assert movement.destination_type == "cabinet"
+    assert movement.destination_label == "FDH-12"
+    assert movement.start_latitude == 6.5
+
+
+def test_arrived_closes_active_movement_session(db_session, dispatched_job, person):
+    _apply(
+        db_session,
+        person,
+        dispatched_job,
+        "en_route",
+        payload={"destination_type": "closure", "destination_label": "Closure A"},
+    )
+    movement = db_session.query(WorkOrderMovement).filter_by(work_order_id=dispatched_job.id).one()
+    _apply(db_session, person, dispatched_job, "arrived", latitude=6.55, longitude=3.45)
+    db_session.refresh(movement)
+    assert movement.status == "arrived"
+    assert movement.arrived_at is not None
+    assert movement.arrival_latitude == 6.55
 
 
 def test_replay_enforces_caller_access(db_session, dispatched_job, person):
@@ -346,14 +432,6 @@ def test_unable_to_complete_bypasses_completion_gate(db_session, dispatched_job,
 
 def test_unable_to_complete_stops_open_worklog(db_session, dispatched_job, person):
     _apply(db_session, person, dispatched_job, "start")
-    db_session.add(
-        WorkLog(
-            work_order_id=dispatched_job.id,
-            person_id=person.id,
-            start_at=datetime.now(UTC) - timedelta(minutes=30),
-        )
-    )
-    db_session.commit()
     _apply(db_session, person, dispatched_job, "unable_to_complete", payload={"reason": "unsafe"})
     open_logs = (
         db_session.query(WorkLog)

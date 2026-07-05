@@ -518,7 +518,14 @@ def is_technician_available(db: Session, technician_id: str, start_time: datetim
         db.query(WorkOrder)
         .filter(
             WorkOrder.assigned_to_person_id == technician.person_id,
-            WorkOrder.status.in_([WorkOrderStatus.scheduled, WorkOrderStatus.dispatched, WorkOrderStatus.in_progress]),
+            WorkOrder.status.in_(
+                [
+                    WorkOrderStatus.scheduled,
+                    WorkOrderStatus.dispatched,
+                    WorkOrderStatus.in_progress,
+                    WorkOrderStatus.paused,
+                ]
+            ),
             WorkOrder.scheduled_start < end_time,
             WorkOrder.scheduled_end > start_time,
             WorkOrder.is_active.is_(True),
@@ -593,7 +600,14 @@ def score_technician(
         db.query(WorkOrder)
         .filter(
             WorkOrder.assigned_to_person_id == technician.person_id,
-            WorkOrder.status.in_([WorkOrderStatus.scheduled, WorkOrderStatus.dispatched, WorkOrderStatus.in_progress]),
+            WorkOrder.status.in_(
+                [
+                    WorkOrderStatus.scheduled,
+                    WorkOrderStatus.dispatched,
+                    WorkOrderStatus.in_progress,
+                    WorkOrderStatus.paused,
+                ]
+            ),
             WorkOrder.scheduled_start >= datetime.combine(today, datetime.min.time()).replace(tzinfo=UTC),
             WorkOrder.scheduled_start < datetime.combine(tomorrow, datetime.min.time()).replace(tzinfo=UTC),
             WorkOrder.is_active.is_(True),

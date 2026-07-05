@@ -61,6 +61,51 @@ def stop_open_worklog(
     return log
 
 
+def start_open_worklog(
+    db: Session, work_order_id: UUID, person_id: UUID, *, started_at: datetime | None = None
+) -> WorkLog:
+    """Open the caller's active timer for a job, reusing an existing timer."""
+    started_at = started_at or datetime.now(UTC)
+    open_log = (
+        db.query(WorkLog)
+        .filter(WorkLog.work_order_id == work_order_id)
+        .filter(WorkLog.person_id == person_id)
+        .filter(WorkLog.end_at.is_(None))
+        .filter(WorkLog.is_active.is_(True))
+        .order_by(WorkLog.start_at.desc())
+        .first()
+    )
+    if open_log:
+        return open_log
+    log = timecost_service.work_logs.create(
+        db,
+        WorkLogCreate(
+            work_order_id=work_order_id,
+            person_id=person_id,
+            start_at=started_at,
+            end_at=None,
+        ),
+    )
+    return log
+
+
+def total_active_seconds(db: Session, work_order_id: UUID) -> int:
+    """Sum closed active worklog intervals for a work order."""
+    rows = (
+        db.query(WorkLog.start_at, WorkLog.end_at)
+        .filter(WorkLog.work_order_id == work_order_id)
+        .filter(WorkLog.end_at.isnot(None))
+        .filter(WorkLog.is_active.is_(True))
+        .all()
+    )
+    total = 0
+    for start_at, end_at in rows:
+        if not start_at or not end_at:
+            continue
+        total += max(0, int((_as_utc(end_at) - _as_utc(start_at)).total_seconds()))
+    return total
+
+
 def _find_duplicate(db: Session, person_uuid: UUID, work_order_id: UUID, start_at: datetime) -> WorkLog | None:
     candidates = (
         db.query(WorkLog)

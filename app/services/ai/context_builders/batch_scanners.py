@@ -178,7 +178,12 @@ def scan_dispatch_for_persona(
             (WorkOrder.id.in_(db.query(queued_ids.c.work_order_id)))
             | (
                 WorkOrder.status.in_(
-                    [WorkOrderStatus.scheduled, WorkOrderStatus.dispatched, WorkOrderStatus.in_progress]
+                    [
+                        WorkOrderStatus.scheduled,
+                        WorkOrderStatus.dispatched,
+                        WorkOrderStatus.in_progress,
+                        WorkOrderStatus.paused,
+                    ]
                 )
             )
         )

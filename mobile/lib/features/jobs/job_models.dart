@@ -14,7 +14,10 @@ class JobSummary {
     this.scheduledEnd,
     this.estimatedDurationMinutes,
     this.startedAt,
+    this.pausedAt,
+    this.resumedAt,
     this.completedAt,
+    this.totalActiveSeconds,
   });
 
   final String id;
@@ -27,7 +30,10 @@ class JobSummary {
   final DateTime? scheduledEnd;
   final int? estimatedDurationMinutes;
   final DateTime? startedAt;
+  final DateTime? pausedAt;
+  final DateTime? resumedAt;
   final DateTime? completedAt;
+  final int? totalActiveSeconds;
 
   factory JobSummary.fromJson(Map<String, dynamic> json) => JobSummary(
     id: json['id'] as String,
@@ -40,7 +46,10 @@ class JobSummary {
     scheduledEnd: _date(json['scheduled_end']),
     estimatedDurationMinutes: json['estimated_duration_minutes'] as int?,
     startedAt: _date(json['started_at']),
+    pausedAt: _date(json['paused_at']),
+    resumedAt: _date(json['resumed_at']),
     completedAt: _date(json['completed_at']),
+    totalActiveSeconds: json['total_active_seconds'] as int?,
   );
 }
 
@@ -111,6 +120,41 @@ class JobLocation {
   }
 }
 
+class JobDestination {
+  const JobDestination({
+    required this.destinationType,
+    this.destinationId,
+    required this.label,
+    this.latitude,
+    this.longitude,
+    this.addressText,
+  });
+
+  final String destinationType;
+  final String? destinationId;
+  final String label;
+  final double? latitude;
+  final double? longitude;
+  final String? addressText;
+
+  factory JobDestination.fromJson(Map<String, dynamic> json) => JobDestination(
+    destinationType: json['destination_type'] as String? ?? 'other',
+    destinationId: json['destination_id']?.toString(),
+    label: json['label'] as String? ?? 'Destination',
+    latitude: (json['latitude'] as num?)?.toDouble(),
+    longitude: (json['longitude'] as num?)?.toDouble(),
+    addressText: json['address_text'] as String?,
+  );
+
+  Map<String, dynamic> toTransitionPayload() => {
+    'destination_type': destinationType,
+    'destination_id': ?destinationId,
+    'destination_label': label,
+    'destination_latitude': ?latitude,
+    'destination_longitude': ?longitude,
+  };
+}
+
 class JobDetail {
   const JobDetail({
     required this.job,
@@ -120,6 +164,7 @@ class JobDetail {
     this.notes = const [],
     this.materials = const [],
     this.materialRequests = const [],
+    this.history = const [],
   });
 
   final JobSummary job;
@@ -129,6 +174,7 @@ class JobDetail {
   final List<Map<String, dynamic>> notes;
   final List<Map<String, dynamic>> materials;
   final List<Map<String, dynamic>> materialRequests;
+  final List<Map<String, dynamic>> history;
 
   factory JobDetail.fromJson(Map<String, dynamic> json) => JobDetail(
     job: JobSummary.fromJson((json['job'] as Map).cast<String, dynamic>()),
@@ -144,22 +190,43 @@ class JobDetail {
     notes: _mapList(json['notes']),
     materials: _mapList(json['materials']),
     materialRequests: _mapList(json['material_requests']),
+    history: _mapList(json['history']),
   );
 }
 
-/// The single next action per status — the ActionBar shows exactly one.
+List<String> workActionsFor(String status) => switch (status) {
+  'scheduled' => ['en_route', 'arrived', 'start'],
+  'dispatched' => ['en_route', 'arrived', 'start'],
+  'in_progress' => ['en_route', 'arrived', 'pause', 'complete'],
+  'paused' => ['en_route', 'arrived', 'resume'],
+  _ => const [],
+};
+
 String? primaryActionFor(String status) => switch (status) {
-  'scheduled' => 'accept',
+  'scheduled' => 'start',
   'dispatched' => 'start',
-  'in_progress' => 'complete',
+  'in_progress' => 'pause',
+  'paused' => 'resume',
   _ => null,
 };
 
 String actionLabel(String action) => switch (action) {
-  'accept' => 'Accept job',
-  'start' => 'Start job',
-  'complete' => 'Complete job',
+  'accept' => 'Accept Work',
+  'en_route' => 'En Route',
+  'arrived' => 'Arrived',
+  'start' => 'Start Work',
+  'pause' => 'Pause Work',
+  'hold' => 'Pause Work',
+  'resume' => 'Resume Work',
+  'complete' => 'Complete Work',
   _ => action,
+};
+
+String statusLabel(String status) => switch (status) {
+  'in_progress' => 'In Progress',
+  'paused' => 'Paused',
+  'completed' => 'Completed',
+  _ => status.replaceAll('_', ' '),
 };
 
 DateTime? _date(Object? value) =>

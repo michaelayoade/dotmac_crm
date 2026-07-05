@@ -18,8 +18,7 @@ final syncServiceProvider = Provider<SyncService>(
   (ref) => throw UnimplementedError('overridden at bootstrap'),
 );
 
-/// Local timer bookkeeping: server-side auto-stop is authoritative; the
-/// client records its own start/stop pair as a worklog entry.
+/// Lightweight local timer state. Server-side worklogs are authoritative.
 class ActiveTimer {
   const ActiveTimer({required this.jobId, required this.startedAt});
 
@@ -60,13 +59,17 @@ class ExecutionController extends Notifier<ActiveTimer?> {
       },
     );
 
-    if (event == 'start') {
+    if (event == 'start' || event == 'resume') {
       state = ActiveTimer(jobId: jobId, startedAt: DateTime.now().toUtc());
     }
-    if (event == 'hold' ||
+    if (event == 'pause' ||
+        event == 'hold' ||
         event == 'complete' ||
         event == 'unable_to_complete') {
-      await _stopTimer(jobId);
+      final timer = state;
+      if (timer != null && timer.jobId == jobId) {
+        state = null;
+      }
     }
 
     // Best-effort immediate delivery; offline entries stay queued.
@@ -117,29 +120,6 @@ class ExecutionController extends Notifier<ActiveTimer?> {
       // should not make the save action look failed to the technician.
     }
     return clientRef;
-  }
-
-  Future<void> _stopTimer(String jobId) async {
-    final timer = state;
-    if (timer == null || timer.jobId != jobId) return;
-    state = null;
-    // One entry per worklog submission: reuse the outbox ref as the entry's
-    // client_ref so a retried flush dedupes server-side instead of duplicating.
-    final clientRef = _uuid.v4();
-    await _sync.enqueue(
-      kind: 'worklog',
-      clientRef: clientRef,
-      payload: {
-        'work_order_id': jobId,
-        'entries': [
-          {
-            'client_ref': clientRef,
-            'start_at': timer.startedAt.toIso8601String(),
-            'end_at': DateTime.now().toUtc().toIso8601String(),
-          },
-        ],
-      },
-    );
   }
 }
 

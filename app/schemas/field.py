@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
@@ -83,7 +83,10 @@ class FieldJobSummary(BaseModel):
     estimated_duration_minutes: int | None
     estimated_arrival_at: datetime | None
     started_at: datetime | None
+    paused_at: datetime | None
+    resumed_at: datetime | None
     completed_at: datetime | None
+    total_active_seconds: int | None
 
     @classmethod
     def from_work_order(cls, work_order) -> FieldJobSummary:
@@ -99,7 +102,10 @@ class FieldJobSummary(BaseModel):
             estimated_duration_minutes=work_order.estimated_duration_minutes,
             estimated_arrival_at=work_order.estimated_arrival_at,
             started_at=work_order.started_at,
+            paused_at=work_order.paused_at,
+            resumed_at=work_order.resumed_at,
             completed_at=work_order.completed_at,
+            total_active_seconds=work_order.total_active_seconds,
         )
 
 
@@ -299,6 +305,20 @@ class FieldJobLocationUpdate(BaseModel):
     longitude: float = Field(ge=-180, le=180)
 
 
+class FieldJobDestination(BaseModel):
+    destination_type: str = Field(min_length=1, max_length=40)
+    destination_id: str | None = Field(default=None, max_length=120)
+    label: str = Field(min_length=1, max_length=255)
+    latitude: float | None = None
+    longitude: float | None = None
+    address_text: str | None = None
+
+
+class FieldJobDestinationsResponse(BaseModel):
+    items: list[FieldJobDestination]
+    count: int
+
+
 class FieldMapAsset(BaseModel):
     id: UUID
     type: str
@@ -460,6 +480,18 @@ class FieldOpenTicketItem(BaseModel):
     status: str | None
 
 
+class FieldJobHistoryItem(BaseModel):
+    id: str
+    type: str
+    title: str
+    description: str | None = None
+    occurred_at: datetime
+    actor_name: str | None = None
+    status: str | None = None
+    is_internal: bool | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class FieldJobDetail(BaseModel):
     job: FieldJobSummary
     customer: FieldCustomer | None
@@ -475,6 +507,7 @@ class FieldJobDetail(BaseModel):
     materials: list[FieldMaterialRead]
     material_requests: list[MaterialRequestRead] = []
     worklogs: list[FieldWorkLogRead]
+    history: list[FieldJobHistoryItem] = []
 
 
 class FieldTransitionRequest(BaseModel):

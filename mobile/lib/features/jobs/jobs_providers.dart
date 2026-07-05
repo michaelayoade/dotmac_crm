@@ -104,6 +104,18 @@ class JobsRepository {
     }
   }
 
+  Future<List<JobDestination>> fetchDestinations(String jobId) async {
+    final response = await _read
+        .read(apiClientProvider)
+        .dio
+        .get('/api/v1/field/jobs/$jobId/destinations');
+    final data = (response.data as Map).cast<String, dynamic>();
+    final items = (data['items'] as List? ?? const []).cast<Map>();
+    return items
+        .map((item) => JobDestination.fromJson(item.cast<String, dynamic>()))
+        .toList();
+  }
+
   Future<JobLocation> updateLocation({
     required String jobId,
     required double latitude,
@@ -168,6 +180,12 @@ final allAssignedJobsProvider = FutureProvider<JobList>((ref) {
 final jobDetailProvider = FutureProvider.family<JobDetail, String>(
   (ref, jobId) => ref.watch(jobsRepositoryProvider).fetchDetail(jobId),
 );
+
+final jobDestinationsProvider =
+    FutureProvider.family<List<JobDestination>, String>(
+      (ref, jobId) =>
+          ref.watch(jobsRepositoryProvider).fetchDestinations(jobId),
+    );
 
 bool _isSameLocalDay(DateTime? value, DateTime day) {
   if (value == null) return false;

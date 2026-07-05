@@ -66,6 +66,10 @@ def _compact(value: str | None) -> str | None:
     return compacted or None
 
 
+def _iso_datetime(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
 def _join_address(parts: list[str | None]) -> str | None:
     cleaned = [_compact(part) for part in parts]
     joined = ", ".join(part for part in cleaned if part)
@@ -297,7 +301,11 @@ def build_work_order_portal_payload(db: Session, work_order: WorkOrder) -> dict:
         if work_order.estimated_arrival_at
         else None,
         "estimated_duration_minutes": work_order.estimated_duration_minutes,
-        "completed_at": work_order.completed_at.isoformat() if work_order.completed_at else None,
+        "started_at": _iso_datetime(getattr(work_order, "started_at", None)),
+        "paused_at": _iso_datetime(getattr(work_order, "paused_at", None)),
+        "resumed_at": _iso_datetime(getattr(work_order, "resumed_at", None)),
+        "completed_at": _iso_datetime(getattr(work_order, "completed_at", None)),
+        "total_active_seconds": getattr(work_order, "total_active_seconds", None),
         "created_at": work_order.created_at.isoformat() if work_order.created_at else None,
     }
 

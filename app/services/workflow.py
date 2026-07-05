@@ -947,6 +947,10 @@ def transition_work_order(db: Session, work_order_id: str, payload: StatusTransi
     now = datetime.now(UTC)
     if to_status == WorkOrderStatus.in_progress:
         work_order.started_at = work_order.started_at or now
+        if from_status == WorkOrderStatus.paused.value:
+            work_order.resumed_at = now
+    if to_status == WorkOrderStatus.paused:
+        work_order.paused_at = now
     if to_status == WorkOrderStatus.completed:
         work_order.completed_at = work_order.completed_at or now
     db.commit()

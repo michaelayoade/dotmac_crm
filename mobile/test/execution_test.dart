@@ -97,6 +97,47 @@ void main() {
       final payloads = await queued('transition');
       expect(payloads.single.containsKey('latitude'), isFalse);
     });
+
+    test('en route carries selected destination payload', () async {
+      final controller = container.read(executionControllerProvider.notifier);
+      await controller.transition(
+        'wo-1',
+        'en_route',
+        payload: {
+          'destination_type': 'cabinet',
+          'destination_id': 'fdh-1',
+          'destination_label': 'FDH 1',
+        },
+      );
+
+      final payloads = await queued('transition');
+      expect(payloads.single['event'], 'en_route');
+      expect(
+        (payloads.single['payload'] as Map)['destination_type'],
+        'cabinet',
+      );
+      expect((payloads.single['payload'] as Map)['destination_label'], 'FDH 1');
+    });
+
+    test('arrived carries destination payload and GPS', () async {
+      final controller = container.read(executionControllerProvider.notifier);
+      await controller.transition(
+        'wo-1',
+        'arrived',
+        payload: {
+          'destination_type': 'customer',
+          'destination_label': 'Customer site',
+        },
+      );
+
+      final payloads = await queued('transition');
+      expect(payloads.single['event'], 'arrived');
+      expect(payloads.single['latitude'], 6.43);
+      expect(
+        (payloads.single['payload'] as Map)['destination_type'],
+        'customer',
+      );
+    });
   });
 
   group('work order notes', () {
@@ -155,28 +196,27 @@ void main() {
 
   group('timer', () {
     test(
-      'start opens a timer; hold queues a closed worklog and clears it',
+      'start opens local timer state; pause clears it without local worklog',
       () async {
         final controller = container.read(executionControllerProvider.notifier);
         await controller.transition('wo-1', 'start');
         expect(container.read(executionControllerProvider), isNotNull);
 
-        await controller.transition('wo-1', 'hold');
+        await controller.transition('wo-1', 'pause');
         expect(container.read(executionControllerProvider), isNull);
 
-        final worklogs = await queued('worklog');
-        final entry = (worklogs.single['entries'] as List).single as Map;
-        expect(entry['start_at'], isNotNull);
-        expect(entry['end_at'], isNotNull);
+        final transitions = await queued('transition');
+        expect(transitions.last['event'], 'pause');
+        expect(await queued('worklog'), isEmpty);
       },
     );
 
-    test('complete also stops the timer', () async {
+    test('complete also clears local timer without local worklog', () async {
       final controller = container.read(executionControllerProvider.notifier);
       await controller.transition('wo-1', 'start');
       await controller.transition('wo-1', 'complete');
       expect(container.read(executionControllerProvider), isNull);
-      expect((await queued('worklog')).length, 1);
+      expect(await queued('worklog'), isEmpty);
     });
 
     test(

@@ -219,6 +219,60 @@ Thank you for your patience!"""
     return sent
 
 
+def send_technician_arrived_notification(db: Session, work_order_id: str) -> bool:
+    """Send a customer notification that the technician has arrived."""
+    from app.services import email as email_service
+    from app.services import sms as sms_service
+
+    work_order = db.get(WorkOrder, coerce_uuid(work_order_id))
+    if not work_order:
+        logger.error(f"Work order not found: {work_order_id}")
+        return False
+
+    contact = _resolve_customer_contact(db, work_order)
+    if not contact:
+        logger.warning(f"No customer contact found for work order {work_order_id}")
+        return False
+
+    technician_name = "Our technician"
+    if work_order.assigned_to_person_id:
+        from app.models.person import Person
+
+        technician = db.get(Person, work_order.assigned_to_person_id)
+        if technician:
+            technician_name = technician.display_name or technician.first_name or "Our technician"
+
+    track = _track_url(db, work_order)
+    body = f"{technician_name} has arrived for {work_order.title or 'your service visit'}.{_track_line(track)}"
+    sent = False
+    if contact.get("phone"):
+        try:
+            sent = sms_service.send_sms(db, contact["phone"], body) or sent
+        except Exception as exc:
+            logger.error(f"Failed to send arrival SMS: {exc}")
+
+    if contact.get("email"):
+        try:
+            email_body = f"""Dear {contact.get("name", "Valued Customer")},
+
+{technician_name} has arrived for your service visit.
+
+Service: {work_order.title or "Service Visit"}{_track_line(track)}
+
+Thank you."""
+            email_service.send_email(
+                db=db,
+                to_email=contact["email"],
+                subject=f"Your technician has arrived: {work_order.title or 'Service Visit'}",
+                body_html=email_body,
+                body_text=email_body,
+            )
+            sent = True
+        except Exception as exc:
+            logger.error(f"Failed to send arrival email: {exc}")
+    return sent
+
+
 def send_technician_assigned_notification(db: Session, work_order_id: str) -> bool:
     """Send notification when technician is assigned to work order.
 

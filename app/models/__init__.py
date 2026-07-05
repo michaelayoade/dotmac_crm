@@ -105,6 +105,7 @@ from app.models.field import (  # noqa: F401
     FieldJobEvent,
     FieldMapAssetTombstone,
     WorkOrderEvent,
+    WorkOrderMovement,
 )
 from app.models.field_location import (  # noqa: F401
     FieldPresenceStatus,

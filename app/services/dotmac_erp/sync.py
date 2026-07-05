@@ -97,6 +97,7 @@ class DotMacERPSync:
         WorkOrderStatus.scheduled: "active",
         WorkOrderStatus.dispatched: "active",
         WorkOrderStatus.in_progress: "active",
+        WorkOrderStatus.paused: "active",
         WorkOrderStatus.completed: "completed",
         WorkOrderStatus.canceled: "canceled",
     }
