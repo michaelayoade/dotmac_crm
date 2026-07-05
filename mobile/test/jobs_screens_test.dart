@@ -335,6 +335,11 @@ void main() {
   testWidgets('technician can open add note composer from job detail', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(
       _wrap(
         const JobDetailScreen(jobId: 'wo-1'),
@@ -353,5 +358,13 @@ void main() {
     expect(find.byKey(const Key('internal-note-checkbox')), findsOneWidget);
     expect(find.text('Visible to staff only'), findsOneWidget);
     expect(find.byKey(const Key('save-note-action')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const Key('note-body-field'))).dy,
+      greaterThanOrEqualTo(0),
+    );
+    expect(
+      tester.getBottomRight(find.byKey(const Key('note-body-field'))).dy,
+      lessThan(tester.view.physicalSize.height),
+    );
   });
 }
