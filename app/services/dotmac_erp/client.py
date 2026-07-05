@@ -208,9 +208,7 @@ class DotMacERPClient:
                 loop_exhausted_factory=lambda exc, retries: DotMacERPError(
                     f"Request failed after {retries} retries: {exc}"
                 ),
-                unexpected_error_factory=lambda exc: DotMacERPError(
-                    f"Unexpected error: {exc}"
-                ),
+                unexpected_error_factory=lambda exc: DotMacERPError(f"Unexpected error: {exc}"),
             )
         return self._transport
 
