@@ -116,15 +116,63 @@ def require_audit_auth(
     raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+def _resolve_service_api_key(
+    request: Request | None,
+    x_api_key: str | None,
+    db: Session,
+) -> dict | None:
+    """Resolve a machine-to-machine ``X-API-Key`` to a user-auth principal.
+
+    A service ``ApiKey`` must be linked to an enabled ``Person`` — the key's
+    authority is *exactly* that person's RBAC (roles + scopes), so every
+    downstream ``require_permission`` / ``require_role`` gate keeps applying.
+    Accepting a key here only changes *authentication*, never *authorization*.
+    Returns ``None`` (caller falls through to 401) when no valid key is present.
+    """
+    # Guard the non-str sentinel FastAPI leaves when a caller invokes this
+    # dependency directly without passing x_api_key (e.g. unit tests).
+    if not x_api_key or not isinstance(x_api_key, str):
+        return None
+    now = datetime.now(UTC)
+    api_key = (
+        db.query(ApiKey)
+        .filter(ApiKey.key_hash == hash_api_key(x_api_key))
+        .filter(ApiKey.is_active.is_(True))
+        .filter(ApiKey.revoked_at.is_(None))
+        .filter((ApiKey.expires_at.is_(None)) | (ApiKey.expires_at > now))
+        .first()
+    )
+    if not api_key or not api_key.person_id:
+        return None
+    if not person_is_enabled(db.get(Person, api_key.person_id)):
+        return None
+    roles, scopes = _load_rbac_claims(db, str(api_key.person_id))
+    if request is not None:
+        request.state.actor_id = str(api_key.person_id)
+        request.state.actor_type = "api_key"
+    return {
+        "person_id": str(api_key.person_id),
+        "session_id": None,
+        "roles": roles or [],
+        "scopes": scopes or [],
+    }
+
+
 def require_user_auth(
     request: Request = None,  # type: ignore[assignment]
     authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
     db: Session = Depends(_get_db),
 ):
     token = _extract_bearer_token(authorization)
     if not token and request is not None:
         token = request.cookies.get("session_token")
     if not token:
+        # No staff session token — allow a trusted machine principal presenting
+        # a person-linked service ApiKey (e.g. the dotmac_sub self-care sync).
+        service_auth = _resolve_service_api_key(request, x_api_key, db)
+        if service_auth is not None:
+            return service_auth
         raise HTTPException(status_code=401, detail="Unauthorized")
     payload = decode_access_token(db, token)
     person_id = payload.get("sub")

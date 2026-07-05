@@ -361,3 +361,82 @@ def test_require_permission_short_circuit(db_session, person, monkeypatch):
     auth = require_user_auth(authorization=f"Bearer {token}", db=db_session)
     require_permission = auth_dep.require_permission("any:perm")
     assert require_permission(auth=auth, db=db_session)["person_id"] == str(person.id)
+
+
+# ── Service ApiKey principal on require_user_auth ─────────────────────────
+# A person-linked service key authenticates a machine caller (e.g. dotmac_sub
+# self-care sync) while RBAC still authorizes each request via the linked
+# person's roles/scopes.
+
+
+def _service_key(db_session, person, *, raw="svc-raw-key", **overrides):
+    fields = {
+        "person_id": person.id,
+        "label": "service",
+        "key_hash": hash_api_key(raw),
+        "is_active": True,
+        "expires_at": datetime.now(UTC) + timedelta(days=1),
+    }
+    fields.update(overrides)
+    key = ApiKey(**fields)
+    db_session.add(key)
+    db_session.commit()
+    return raw
+
+
+def test_require_user_auth_accepts_service_api_key(db_session, person):
+    raw = _service_key(db_session, person)
+    auth = require_user_auth(authorization=None, x_api_key=raw, db=db_session)
+    assert auth["person_id"] == str(person.id)
+    assert auth["session_id"] is None
+
+
+def test_require_user_auth_rejects_api_key_without_person(db_session, person):
+    raw = _service_key(db_session, person, person_id=None)
+    with pytest.raises(HTTPException) as exc:
+        require_user_auth(authorization=None, x_api_key=raw, db=db_session)
+    assert exc.value.status_code == 401
+
+
+def test_require_user_auth_rejects_revoked_service_api_key(db_session, person):
+    raw = _service_key(db_session, person, revoked_at=datetime.now(UTC))
+    with pytest.raises(HTTPException):
+        require_user_auth(authorization=None, x_api_key=raw, db=db_session)
+
+
+def test_require_user_auth_rejects_expired_service_api_key(db_session, person):
+    raw = _service_key(db_session, person, expires_at=datetime.now(UTC) - timedelta(minutes=1))
+    with pytest.raises(HTTPException):
+        require_user_auth(authorization=None, x_api_key=raw, db=db_session)
+
+
+def test_require_user_auth_sets_api_key_actor_type(db_session, person):
+    raw = _service_key(db_session, person)
+    request = _make_request()
+    require_user_auth(authorization=None, x_api_key=raw, request=request, db=db_session)
+    assert request.state.actor_type == "api_key"
+    assert request.state.actor_id == str(person.id)
+
+
+def test_service_api_key_authorization_still_gated_by_rbac(db_session, person):
+    """A service key's authority is exactly its linked person's RBAC."""
+    raw = _service_key(db_session, person)
+    auth = require_user_auth(authorization=None, x_api_key=raw, db=db_session)
+
+    role = Role(name="sync-operator", is_active=True)
+    permission = Permission(key="subscribers:subscriber:read", is_active=True)
+    db_session.add_all([role, permission])
+    db_session.commit()
+    db_session.add(PersonRole(person_id=person.id, role_id=role.id))
+    db_session.commit()
+
+    guard = auth_dep.require_permission("subscribers:subscriber:read")
+    # Person has the role but no RolePermission link yet → denied.
+    with pytest.raises(HTTPException) as exc:
+        guard(auth=auth, db=db_session)
+    assert exc.value.status_code == 403
+
+    # Grant the permission to the role → the same key now passes.
+    db_session.add(RolePermission(role_id=role.id, permission_id=permission.id))
+    db_session.commit()
+    assert guard(auth=auth, db=db_session)["person_id"] == str(person.id)
