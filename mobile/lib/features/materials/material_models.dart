@@ -23,11 +23,11 @@ class InventoryItem {
 
   factory InventoryItem.fromJson(Map<String, dynamic> json) => InventoryItem(
     id: json['id'].toString(),
-    name: json['name'] as String? ?? 'Item',
-    sku: json['sku'] as String?,
-    unit: json['unit'] as String?,
+    name: _string(json['name']) ?? 'Item',
+    sku: _string(json['sku']),
+    unit: _string(json['unit']),
     unitPrice: _double(json['unit_price']),
-    currency: json['currency'] as String?,
+    currency: _string(json['currency']),
     availableQuantity: _int(
       json['available_quantity'] ?? json['quantity_available'],
     ),
@@ -45,8 +45,8 @@ class InventoryLocation {
   factory InventoryLocation.fromJson(Map<String, dynamic> json) =>
       InventoryLocation(
         id: json['id'].toString(),
-        name: json['name'] as String? ?? 'Location',
-        code: json['code'] as String?,
+        name: _string(json['name']) ?? 'Location',
+        code: _string(json['code']),
       );
 }
 
@@ -81,11 +81,11 @@ class InventoryLocationStock {
           location?['id']?.toString() ??
           'location',
       locationName:
-          json['location_name'] as String? ??
-          json['name'] as String? ??
-          location?['name'] as String?,
+          _string(json['location_name']) ??
+          _string(json['name']) ??
+          _string(location?['name']),
       locationCode:
-          json['location_code'] as String? ?? location?['code'] as String?,
+          _string(json['location_code']) ?? _string(location?['code']),
       availableQuantity:
           _int(
             json['available_quantity'] ??
@@ -143,9 +143,9 @@ class MaterialRequestItem {
     itemId: json['item_id'].toString(),
     quantity: _int(json['quantity']) ?? 0,
     itemName:
-        json['item_name'] as String? ??
-        (json['item'] is Map ? (json['item'] as Map)['name'] as String? : null),
-    notes: json['notes'] as String?,
+        _string(json['item_name']) ??
+        (json['item'] is Map ? _string((json['item'] as Map)['name']) : null),
+    notes: _string(json['notes']),
     approvedQuantity: _int(json['approved_quantity']),
     issuedQuantity: _int(json['issued_quantity'] ?? json['quantity_issued']),
     fulfilledQuantity: _int(
@@ -203,43 +203,36 @@ class MaterialRequest {
   final DateTime? fulfilledAt;
   final List<MaterialRequestItem> items;
 
-  factory MaterialRequest.fromJson(Map<String, dynamic> json) =>
-      MaterialRequest(
-        id: json['id'].toString(),
-        status: json['status'] as String? ?? 'draft',
-        number: json['number'] as String?,
-        priority: json['priority'] as String?,
-        notes: json['notes'] as String?,
-        workOrderId: json['work_order_id']?.toString(),
-        projectId: json['project_id']?.toString(),
-        ticketId: json['ticket_id']?.toString(),
-        sourceLocationId: _locationId(json, 'source'),
-        sourceLocationName: _locationName(json, 'source'),
-        destinationLocationId: _locationId(json, 'destination'),
-        destinationLocationName: _locationName(json, 'destination'),
-        approvalNotes:
-            json['approval_notes'] as String? ??
-            json['approved_notes'] as String?,
-        rejectionReason:
-            json['rejection_reason'] as String? ??
-            json['rejected_reason'] as String? ??
-            json['rejection_notes'] as String?,
-        issueNotes:
-            json['issue_notes'] as String? ?? json['issued_notes'] as String?,
-        createdAt: _date(json['created_at']),
-        submittedAt: _date(json['submitted_at']),
-        approvedAt: _date(json['approved_at']),
-        rejectedAt: _date(json['rejected_at']),
-        issuedAt: _date(json['issued_at']),
-        fulfilledAt: _date(json['fulfilled_at']),
-        items: ((json['items'] as List?) ?? [])
-            .cast<Map>()
-            .map(
-              (item) =>
-                  MaterialRequestItem.fromJson(item.cast<String, dynamic>()),
-            )
-            .toList(),
-      );
+  factory MaterialRequest.fromJson(
+    Map<String, dynamic> json,
+  ) => MaterialRequest(
+    id: json['id'].toString(),
+    status: json['status'] as String? ?? 'draft',
+    number: _string(json['number']),
+    priority: _string(json['priority']),
+    notes: _string(json['notes']),
+    workOrderId: json['work_order_id']?.toString(),
+    projectId: json['project_id']?.toString(),
+    ticketId: json['ticket_id']?.toString(),
+    sourceLocationId: _locationId(json, 'source'),
+    sourceLocationName: _locationName(json, 'source'),
+    destinationLocationId: _locationId(json, 'destination'),
+    destinationLocationName: _locationName(json, 'destination'),
+    approvalNotes:
+        _string(json['approval_notes']) ?? _string(json['approved_notes']),
+    rejectionReason:
+        _string(json['rejection_reason']) ??
+        _string(json['rejected_reason']) ??
+        _string(json['rejection_notes']),
+    issueNotes: _string(json['issue_notes']) ?? _string(json['issued_notes']),
+    createdAt: _date(json['created_at']),
+    submittedAt: _date(json['submitted_at']),
+    approvedAt: _date(json['approved_at']),
+    rejectedAt: _date(json['rejected_at']),
+    issuedAt: _date(json['issued_at']),
+    fulfilledAt: _date(json['fulfilled_at']),
+    items: _mapList(json['items']).map(MaterialRequestItem.fromJson).toList(),
+  );
 
   String get displayNumber => number ?? id;
 
@@ -255,6 +248,8 @@ int? _int(Object? value) => switch (value) {
   String() => int.tryParse(value),
   _ => null,
 };
+
+String? _string(Object? value) => value?.toString();
 
 double? _double(Object? value) => switch (value) {
   num() => value.toDouble(),
@@ -290,7 +285,15 @@ String? _locationId(Map<String, dynamic> json, String prefix) {
 String? _locationName(Map<String, dynamic> json, String prefix) {
   final location = (json['${prefix}_location'] as Map?)
       ?.cast<String, dynamic>();
-  return json['${prefix}_location_name'] as String? ??
-      location?['name'] as String? ??
-      location?['code'] as String?;
+  return _string(json['${prefix}_location_name']) ??
+      _string(location?['name']) ??
+      _string(location?['code']);
+}
+
+List<Map<String, dynamic>> _mapList(Object? raw) {
+  if (raw is! List) return const [];
+  return [
+    for (final item in raw)
+      if (item is Map) item.cast<String, dynamic>(),
+  ];
 }
