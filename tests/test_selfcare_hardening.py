@@ -196,3 +196,63 @@ def test_get_retried_on_5xx(monkeypatch):
     with pytest.raises(selfcare.SelfcareProviderError):
         selfcare._request_json(None, "GET", "/x")
     assert calls["n"] == selfcare._MAX_ATTEMPTS  # idempotent → retried
+
+
+# ── opt-in idempotent POST retry (P6: safe only for DB-race-safe endpoints) ────
+
+
+class _IdResp:
+    def __init__(self, status, payload):
+        self.status_code = status
+        self.text = "{}"
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+def test_post_retried_when_idempotent(monkeypatch):
+    calls = {"n": 0}
+
+    def handler(method, url, **kw):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return _Resp(503, "boom")
+        return _Resp(200)
+
+    _patch_request(monkeypatch, handler)
+    assert selfcare._request_json(None, "POST", "/x", idempotent=True) == {"ok": True}
+    assert calls["n"] == 3  # idempotent=True opts the POST into retry
+
+
+def test_record_payment_retries_transient_failure(monkeypatch):
+    """record_payment targets sub's DB-race-safe /crm/payments, so it opts into
+    retry — a transient 503 no longer drops the payment."""
+    calls = {"n": 0}
+
+    def handler(method, url, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _Resp(503, "boom")
+        return _IdResp(200, {"id": "pay_1"})
+
+    _patch_request(monkeypatch, handler)
+    result = selfcare.record_payment(None, subscriber_id="s1", amount="100", external_ref="ref-1")
+    assert result == "pay_1"
+    assert calls["n"] == 2  # retried past the transient failure
+
+
+def test_record_installation_invoice_not_retried(monkeypatch):
+    """/crm/invoices is not DB-race-safe idempotent, so its POST stays non-retryable."""
+    calls = {"n": 0}
+
+    def handler(method, url, **kw):
+        calls["n"] += 1
+        return _Resp(503, "boom")
+
+    _patch_request(monkeypatch, handler)
+    with pytest.raises(selfcare.SelfcareProviderError):
+        selfcare.create_installation_invoice(
+            None, subscriber_id="s1", amount="100", description="Install", external_ref="ref-1"
+        )
+    assert calls["n"] == 1  # non-idempotent POST → no retry
