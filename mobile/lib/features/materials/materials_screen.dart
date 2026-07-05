@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:dio/dio.dart';
 
 import '../../core/offline/draft_store.dart';
 import 'material_models.dart';
@@ -453,6 +454,7 @@ class _NewMaterialRequestScreenState
   InventoryItem? _selectedItem;
   final _items = <MaterialRequestItemDraft>[];
   bool _saving = false;
+  String _submitError = '';
 
   @override
   void initState() {
@@ -541,6 +543,15 @@ class _NewMaterialRequestScreenState
 
   Future<void> _submit() async {
     if (_items.isEmpty || _saving) return;
+    if (_workOrderId.text.trim().isEmpty &&
+        _projectId.text.trim().isEmpty &&
+        _ticketId.text.trim().isEmpty) {
+      setState(() {
+        _submitError =
+            'Open this from a job, or enter a ticket/project/work order ID.';
+      });
+      return;
+    }
     setState(() => _saving = true);
     try {
       final request = await ref
@@ -568,6 +579,20 @@ class _NewMaterialRequestScreenState
         );
         context.go('/materials');
       }
+    } on DioException catch (error) {
+      if (!mounted) return;
+      final message = _materialSubmitError(error);
+      setState(() => _submitError = message);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      if (!mounted) return;
+      const message = 'Could not submit material request';
+      setState(() => _submitError = message);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text(message)));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -715,6 +740,13 @@ class _NewMaterialRequestScreenState
               ),
               trailing: Text('x${item.quantity}'),
             ),
+          if (_submitError.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              _submitError,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
           const SizedBox(height: 96),
         ],
       ),
@@ -741,6 +773,31 @@ class _NewMaterialRequestScreenState
       ),
     );
   }
+}
+
+String _materialSubmitError(DioException error) {
+  final data = error.response?.data;
+  if (data is Map) {
+    final detail = data['detail'];
+    if (detail is String && detail.trim().isNotEmpty) return detail.trim();
+    if (detail is List && detail.isNotEmpty) {
+      return detail
+          .map((item) {
+            if (item is Map) {
+              final location = item['loc'];
+              final message = item['msg'];
+              final locationText = location is List ? location.join('.') : null;
+              if (message is String && locationText != null) {
+                return '$locationText: $message';
+              }
+              if (message is String) return message;
+            }
+            return item.toString();
+          })
+          .join('\n');
+    }
+  }
+  return 'Could not submit material request';
 }
 
 class _LocationSelectors extends StatelessWidget {
