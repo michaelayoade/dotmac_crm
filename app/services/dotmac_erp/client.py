@@ -164,6 +164,16 @@ class DotMacERPClient:
             else:
                 error_msg = str(data)
             logger.warning("ERP API error: status=%s body=%s", response.status_code, data)
+            # 5xx are transient (proxy/gateway/unavailable/timeout or a passing
+            # ERP blip) — raise the retryable type so _request retries instead of
+            # failing the whole sync on a momentary hiccup. Idempotent natural-key
+            # upserts on the ERP side make the retry safe.
+            if response.status_code in (500, 502, 503, 504):
+                raise DotMacERPTransientError(
+                    f"ERP transient error ({response.status_code}): {error_msg}",
+                    status_code=response.status_code,
+                    response=data if isinstance(data, dict) else None,
+                )
             raise DotMacERPError(
                 f"API error ({response.status_code}): {error_msg}",
                 status_code=response.status_code,
@@ -231,6 +241,16 @@ class DotMacERPClient:
                     last_error = e
                 else:
                     raise DotMacERPError(f"Connection error after {self.retries} retries: {e}")
+
+            except DotMacERPTransientError as e:
+                # 5xx from the ERP — retry with backoff, then give up.
+                if attempt < self.retries:
+                    wait_time = self.retry_delay * (2**attempt)
+                    logger.warning(f"Transient ERP error, retrying in {wait_time}s: {e}")
+                    time.sleep(wait_time)
+                    last_error = e
+                else:
+                    raise
 
             except DotMacERPError:
                 raise
