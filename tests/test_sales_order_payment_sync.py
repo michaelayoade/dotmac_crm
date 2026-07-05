@@ -12,10 +12,11 @@ def test_record_payment_posts_to_payments_endpoint(db_session, monkeypatch):
 
     seen = {}
 
-    def _fake(db, method, path, *, params=None, json_body=None):
+    def _fake(db, method, path, *, params=None, json_body=None, idempotent=False):
         seen["method"] = method
         seen["path"] = path
         seen["body"] = json_body
+        seen["idempotent"] = idempotent
         return {"data": {"id": "pay-1"}}
 
     monkeypatch.setattr(selfcare, "_request_json", _fake)
@@ -31,6 +32,7 @@ def test_record_payment_posts_to_payments_endpoint(db_session, monkeypatch):
     assert seen["body"]["subscriber_id"] == "sub-1"
     assert seen["body"]["amount"] == "5000"
     assert seen["body"]["invoice_external_ref"] == "project:9"
+    assert seen["idempotent"] is True  # /payments is DB-race-safe → retryable (P6)
 
 
 def test_record_payment_rejects_bad_amount(db_session, monkeypatch):

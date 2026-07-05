@@ -42,9 +42,12 @@ _HISTORY_MAX_SIZE = 30
 # Retry policy for transient upstream failures (connection errors, read
 # timeouts, 429, 5xx). 4xx are caller errors and never retried.
 _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
-# POST is not idempotent — a retry after the server already created the row (lost
-# response / read timeout) would double-create an invoice/credit. Only retry safe
-# methods; let POST failures propagate to the caller (which records/retries).
+# POST is not idempotent by default — a retry after the server already created the
+# row (lost response / read timeout) would double-create an invoice/credit. Only
+# retry safe methods; let POST failures propagate to the caller (which
+# records/retries). A specific POST may opt in via idempotent=True when the sub
+# endpoint is DB-race-safe idempotent on external_ref (currently only /payments —
+# see record_payment).
 _NON_IDEMPOTENT_METHODS = frozenset({"POST"})
 _MAX_ATTEMPTS = 3
 _BACKOFF_BASE_SECONDS = 0.5
@@ -270,6 +273,7 @@ def _request_json(
     *,
     params: dict[str, Any] | None = None,
     json_body: dict[str, Any] | None = None,
+    idempotent: bool = False,
 ) -> Any:
     config = _get_api_config(db)
     import requests
@@ -278,7 +282,11 @@ def _request_json(
     read_timeout = int(config.get("timeout_seconds") or 30)
     timeout = (_CONNECT_TIMEOUT_SECONDS, read_timeout)
     method_u = method.upper()
-    retryable_method = method_u not in _NON_IDEMPOTENT_METHODS
+    # A POST is retried only when the caller asserts the sub endpoint is
+    # DB-race-safe idempotent on external_ref (idempotent=True) — otherwise a
+    # retry after a lost response (or a read-timeout that overlaps the still-in-
+    # flight original) would double-create a money row.
+    retryable_method = idempotent or method_u not in _NON_IDEMPOTENT_METHODS
     # Fast-fail while sub is known-unreachable so a per-subscriber fan-out isn't
     # N separate timeouts. Degrades exactly like any other request failure.
     if _REACHABILITY_CIRCUIT.is_open():
@@ -454,7 +462,13 @@ def record_payment(
         "currency": currency,
         "paid_at": paid_at.isoformat() if hasattr(paid_at, "isoformat") else paid_at,
     }
-    data = _request_json(db, "POST", "/payments", json_body=body)
+    # Retry transient failures: sub's /crm/payments is DB-race-safe idempotent on
+    # external_ref (uq_payments_active_crm_external_id + IntegrityError -> returns
+    # the existing payment), so a retried/overlapping push settles the same row
+    # once instead of dropping the payment on a transient blip. The other money
+    # POSTs (/invoices, /subscriptions, /credits) are NOT yet race-safe and stay
+    # non-retryable.
+    data = _request_json(db, "POST", "/payments", json_body=body, idempotent=True)
     row = _unwrap_data(data) or {}
     payment_id = str(row.get("id") or "").strip() if isinstance(row, dict) else ""
     return payment_id or None
