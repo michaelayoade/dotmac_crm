@@ -38,6 +38,7 @@ _CLOCK_SKEW_FLAG_SECONDS = 15 * 60
 _EVENT_TO_STATUS: dict[FieldJobEvent, WorkOrderStatus | None] = {
     FieldJobEvent.accept: None,
     FieldJobEvent.en_route: WorkOrderStatus.dispatched,
+    FieldJobEvent.arrived: None,
     FieldJobEvent.start: WorkOrderStatus.in_progress,
     FieldJobEvent.pause: WorkOrderStatus.paused,
     FieldJobEvent.hold: WorkOrderStatus.paused,
@@ -49,7 +50,13 @@ _EVENT_TO_STATUS: dict[FieldJobEvent, WorkOrderStatus | None] = {
 
 _TRANSITION_ALLOWED_FROM: dict[FieldJobEvent, set[WorkOrderStatus]] = {
     FieldJobEvent.accept: {WorkOrderStatus.scheduled, WorkOrderStatus.dispatched},
-    FieldJobEvent.en_route: {WorkOrderStatus.scheduled, WorkOrderStatus.dispatched},
+    FieldJobEvent.en_route: {WorkOrderStatus.scheduled, WorkOrderStatus.dispatched, WorkOrderStatus.paused},
+    FieldJobEvent.arrived: {
+        WorkOrderStatus.scheduled,
+        WorkOrderStatus.dispatched,
+        WorkOrderStatus.in_progress,
+        WorkOrderStatus.paused,
+    },
     FieldJobEvent.start: {WorkOrderStatus.scheduled, WorkOrderStatus.dispatched},
     FieldJobEvent.pause: {WorkOrderStatus.in_progress},
     FieldJobEvent.hold: {WorkOrderStatus.in_progress},
@@ -71,6 +78,7 @@ _UNABLE_REASONS = {"customer_absent", "no_access", "site_not_ready", "needs_part
 _EVENT_COMMENT_LABELS: dict[FieldJobEvent, str] = {
     FieldJobEvent.accept: "accepted",
     FieldJobEvent.en_route: "is en route",
+    FieldJobEvent.arrived: "arrived",
     FieldJobEvent.start: "started",
     FieldJobEvent.pause: "paused",
     FieldJobEvent.hold: "put on hold",
@@ -119,6 +127,12 @@ def _is_primary_actor(work_order: WorkOrder, person_uuid) -> bool:
     if work_order.assigned_to_person_id == person_uuid:
         return True
     return any(a.person_id == person_uuid and a.is_primary for a in work_order.assignments)
+
+
+def _target_status_for_event(event: FieldJobEvent, previous_status: WorkOrderStatus) -> WorkOrderStatus | None:
+    if event == FieldJobEvent.en_route and previous_status == WorkOrderStatus.paused:
+        return None
+    return _EVENT_TO_STATUS[event]
 
 
 class FieldTransitions:
@@ -202,8 +216,13 @@ class FieldTransitions:
         if event_value == FieldJobEvent.complete:
             _check_completion_gate(db, work_order, event_payload)
 
+        if event_value in (FieldJobEvent.en_route, FieldJobEvent.arrived):
+            from app.services.field.movements import validate_destination_payload
+
+            validate_destination_payload(db, work_order, event_payload)
+
         previous_status = work_order.status
-        target_status = _EVENT_TO_STATUS[event_value]
+        target_status = _target_status_for_event(event_value, previous_status)
         if target_status is not None and target_status != previous_status:
             # A cancel always carries a note (the reason) so a configured
             # requires-note transition rule never blocks the field outcome.
@@ -302,12 +321,52 @@ class FieldTransitions:
                     event_value.value,
                 )
 
-        _notify_customer_for_event(db, work_order, event_value)
+        if event_value == FieldJobEvent.en_route:
+            from app.services.field.movements import start_movement
+
+            try:
+                start_movement(
+                    db,
+                    work_order,
+                    person_uuid,
+                    client_ref=client_uuid,
+                    occurred_at=occurred,
+                    latitude=latitude,
+                    longitude=longitude,
+                    payload=event_payload,
+                )
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "field_movement_start_failed work_order_id=%s",
+                    work_order.id,
+                )
+
+        if event_value == FieldJobEvent.arrived:
+            from app.services.field.movements import arrive_movement
+
+            try:
+                arrive_movement(
+                    db,
+                    work_order,
+                    person_uuid,
+                    client_ref=client_uuid,
+                    occurred_at=occurred,
+                    latitude=latitude,
+                    longitude=longitude,
+                    payload=event_payload,
+                )
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "field_movement_arrival_failed work_order_id=%s",
+                    work_order.id,
+                )
+
+        _notify_customer_for_event(db, work_order, event_value, event_payload)
 
         return {"work_order": work_order, "event": order_event, "replayed": False}
 
 
-def _notify_customer_for_event(db: Session, work_order: WorkOrder, event: FieldJobEvent) -> None:
+def _notify_customer_for_event(db: Session, work_order: WorkOrder, event: FieldJobEvent, payload: dict | None) -> None:
     """Customer-facing notifications for field events.
 
     Fired only for fresh events (idempotent replays return before reaching
@@ -319,8 +378,9 @@ def _notify_customer_for_event(db: Session, work_order: WorkOrder, event: FieldJ
     logger = logging.getLogger(__name__)
     try:
         from app.services import eta_notifications
+        from app.services.field.movements import is_customer_destination
 
-        if event == FieldJobEvent.en_route:
+        if event == FieldJobEvent.en_route and is_customer_destination(payload):
             # Only the FIRST en_route notifies the customer — a tech tapping
             # "on my way" twice (dispatched→dispatched is allowed) must not send
             # two "on the way" messages. This event row is already committed, so
@@ -333,6 +393,8 @@ def _notify_customer_for_event(db: Session, work_order: WorkOrder, event: FieldJ
             )
             if en_route_count <= 1:
                 eta_notifications.send_eta_notification(db, str(work_order.id))
+        elif event == FieldJobEvent.arrived and is_customer_destination(payload):
+            eta_notifications.send_technician_arrived_notification(db, str(work_order.id))
         elif event == FieldJobEvent.complete:
             eta_notifications.send_work_order_completed_notification(db, str(work_order.id))
         elif event == FieldJobEvent.unable_to_complete:

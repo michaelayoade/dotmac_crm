@@ -71,10 +71,10 @@ void main() {
 
   group('action bar shows work actions per status', () {
     for (final (status, expected) in [
-      ('scheduled', ['Start Work']),
-      ('dispatched', ['Start Work']),
-      ('in_progress', ['Pause Work', 'Complete Work']),
-      ('paused', ['Resume Work']),
+      ('scheduled', ['En Route', 'Arrived', 'Start Work']),
+      ('dispatched', ['En Route', 'Arrived', 'Start Work']),
+      ('in_progress', ['En Route', 'Arrived', 'Pause Work', 'Complete Work']),
+      ('paused', ['En Route', 'Arrived', 'Resume Work']),
     ]) {
       testWidgets(status, (tester) async {
         final detail = _detail(status: status);

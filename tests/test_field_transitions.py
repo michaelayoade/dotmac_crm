@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.models.audit import AuditEvent
-from app.models.field import FieldJobEvent, WorkOrderEvent
+from app.models.field import FieldJobEvent, WorkOrderEvent, WorkOrderMovement
 from app.models.person import Person
 from app.models.tickets import TicketComment
 from app.models.timecost import WorkLog
@@ -282,6 +282,23 @@ class TestCustomerNotifications:
         _apply(db_session, person, dispatched_job, "en_route")
         assert calls == [str(dispatched_job.id)]
 
+    def test_en_route_to_internal_destination_does_not_notify_customer(
+        self, db_session, dispatched_job, person, monkeypatch
+    ):
+        calls = []
+        monkeypatch.setattr(
+            "app.services.eta_notifications.send_eta_notification",
+            lambda db, wo_id: calls.append(wo_id) or True,
+        )
+        _apply(
+            db_session,
+            person,
+            dispatched_job,
+            "en_route",
+            payload={"destination_type": "cabinet", "destination_label": "FDH-12"},
+        )
+        assert calls == []
+
     def test_complete_sends_completion_notification(
         self, db_session, dispatched_job, person, fake_storage, monkeypatch
     ):
@@ -313,6 +330,49 @@ class TestCustomerNotifications:
         monkeypatch.setattr("app.services.eta_notifications.send_eta_notification", _boom)
         result = _apply(db_session, person, dispatched_job, "en_route")
         assert result["replayed"] is False
+
+    def test_arrived_to_customer_sends_arrival_notification(self, db_session, dispatched_job, person, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "app.services.eta_notifications.send_technician_arrived_notification",
+            lambda db, wo_id: calls.append(wo_id) or True,
+        )
+        _apply(db_session, person, dispatched_job, "arrived")
+        assert calls == [str(dispatched_job.id)]
+
+
+def test_en_route_creates_movement_session(db_session, dispatched_job, person):
+    result = _apply(
+        db_session,
+        person,
+        dispatched_job,
+        "en_route",
+        latitude=6.5,
+        longitude=3.4,
+        payload={"destination_type": "cabinet", "destination_label": "FDH-12"},
+    )
+    assert result["replayed"] is False
+    movement = db_session.query(WorkOrderMovement).filter_by(work_order_id=dispatched_job.id).one()
+    assert movement.status == "en_route"
+    assert movement.destination_type == "cabinet"
+    assert movement.destination_label == "FDH-12"
+    assert movement.start_latitude == 6.5
+
+
+def test_arrived_closes_active_movement_session(db_session, dispatched_job, person):
+    _apply(
+        db_session,
+        person,
+        dispatched_job,
+        "en_route",
+        payload={"destination_type": "closure", "destination_label": "Closure A"},
+    )
+    movement = db_session.query(WorkOrderMovement).filter_by(work_order_id=dispatched_job.id).one()
+    _apply(db_session, person, dispatched_job, "arrived", latitude=6.55, longitude=3.45)
+    db_session.refresh(movement)
+    assert movement.status == "arrived"
+    assert movement.arrived_at is not None
+    assert movement.arrival_latitude == 6.55
 
 
 def test_replay_enforces_caller_access(db_session, dispatched_job, person):

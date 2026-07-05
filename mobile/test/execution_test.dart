@@ -97,6 +97,47 @@ void main() {
       final payloads = await queued('transition');
       expect(payloads.single.containsKey('latitude'), isFalse);
     });
+
+    test('en route carries selected destination payload', () async {
+      final controller = container.read(executionControllerProvider.notifier);
+      await controller.transition(
+        'wo-1',
+        'en_route',
+        payload: {
+          'destination_type': 'cabinet',
+          'destination_id': 'fdh-1',
+          'destination_label': 'FDH 1',
+        },
+      );
+
+      final payloads = await queued('transition');
+      expect(payloads.single['event'], 'en_route');
+      expect(
+        (payloads.single['payload'] as Map)['destination_type'],
+        'cabinet',
+      );
+      expect((payloads.single['payload'] as Map)['destination_label'], 'FDH 1');
+    });
+
+    test('arrived carries destination payload and GPS', () async {
+      final controller = container.read(executionControllerProvider.notifier);
+      await controller.transition(
+        'wo-1',
+        'arrived',
+        payload: {
+          'destination_type': 'customer',
+          'destination_label': 'Customer site',
+        },
+      );
+
+      final payloads = await queued('transition');
+      expect(payloads.single['event'], 'arrived');
+      expect(payloads.single['latitude'], 6.43);
+      expect(
+        (payloads.single['payload'] as Map)['destination_type'],
+        'customer',
+      );
+    });
   });
 
   group('work order notes', () {

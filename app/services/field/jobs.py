@@ -8,7 +8,9 @@ hourly_rate or cost fields.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -345,6 +347,12 @@ class FieldJobs(ListResponseMixin):
         from app.services.field.location import update_job_location
 
         return update_job_location(db, work_order, latitude=latitude, longitude=longitude)
+
+    @staticmethod
+    def list_destinations(db: Session, person_id: str, work_order_id: str) -> Sequence[dict[str, Any]]:
+        from app.services.field.movements import list_destinations
+
+        return list_destinations(db, person_id, work_order_id)
 
 
 field_jobs = FieldJobs()

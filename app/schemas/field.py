@@ -305,6 +305,20 @@ class FieldJobLocationUpdate(BaseModel):
     longitude: float = Field(ge=-180, le=180)
 
 
+class FieldJobDestination(BaseModel):
+    destination_type: str = Field(min_length=1, max_length=40)
+    destination_id: str | None = Field(default=None, max_length=120)
+    label: str = Field(min_length=1, max_length=255)
+    latitude: float | None = None
+    longitude: float | None = None
+    address_text: str | None = None
+
+
+class FieldJobDestinationsResponse(BaseModel):
+    items: list[FieldJobDestination]
+    count: int
+
+
 class FieldMapAsset(BaseModel):
     id: UUID
     type: str

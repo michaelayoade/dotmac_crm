@@ -120,6 +120,41 @@ class JobLocation {
   }
 }
 
+class JobDestination {
+  const JobDestination({
+    required this.destinationType,
+    this.destinationId,
+    required this.label,
+    this.latitude,
+    this.longitude,
+    this.addressText,
+  });
+
+  final String destinationType;
+  final String? destinationId;
+  final String label;
+  final double? latitude;
+  final double? longitude;
+  final String? addressText;
+
+  factory JobDestination.fromJson(Map<String, dynamic> json) => JobDestination(
+    destinationType: json['destination_type'] as String? ?? 'other',
+    destinationId: json['destination_id']?.toString(),
+    label: json['label'] as String? ?? 'Destination',
+    latitude: (json['latitude'] as num?)?.toDouble(),
+    longitude: (json['longitude'] as num?)?.toDouble(),
+    addressText: json['address_text'] as String?,
+  );
+
+  Map<String, dynamic> toTransitionPayload() => {
+    'destination_type': destinationType,
+    'destination_id': ?destinationId,
+    'destination_label': label,
+    'destination_latitude': ?latitude,
+    'destination_longitude': ?longitude,
+  };
+}
+
 class JobDetail {
   const JobDetail({
     required this.job,
@@ -157,10 +192,10 @@ class JobDetail {
 }
 
 List<String> workActionsFor(String status) => switch (status) {
-  'scheduled' => ['start'],
-  'dispatched' => ['start'],
-  'in_progress' => ['pause', 'complete'],
-  'paused' => ['resume'],
+  'scheduled' => ['en_route', 'arrived', 'start'],
+  'dispatched' => ['en_route', 'arrived', 'start'],
+  'in_progress' => ['en_route', 'arrived', 'pause', 'complete'],
+  'paused' => ['en_route', 'arrived', 'resume'],
   _ => const [],
 };
 
@@ -174,6 +209,8 @@ String? primaryActionFor(String status) => switch (status) {
 
 String actionLabel(String action) => switch (action) {
   'accept' => 'Accept Work',
+  'en_route' => 'En Route',
+  'arrived' => 'Arrived',
   'start' => 'Start Work',
   'pause' => 'Pause Work',
   'hold' => 'Pause Work',

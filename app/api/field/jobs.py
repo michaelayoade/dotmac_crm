@@ -8,6 +8,8 @@ from app.schemas.common import ListResponse
 from app.schemas.field import (
     FieldAttachmentRead,
     FieldCustomer,
+    FieldJobDestination,
+    FieldJobDestinationsResponse,
     FieldJobDetail,
     FieldJobLocation,
     FieldJobLocationUpdate,
@@ -73,6 +75,15 @@ def get_field_job(work_order_id: str, auth=Depends(require_user_auth), db: Sessi
         materials=[FieldMaterialRead.from_material(m) for m in bundle["materials"]],
         material_requests=[MaterialRequestRead.model_validate(mr) for mr in bundle["material_requests"]],
         worklogs=[FieldWorkLogRead.model_validate(w) for w in bundle["worklogs"]],
+    )
+
+
+@router.get("/jobs/{work_order_id}/destinations", response_model=FieldJobDestinationsResponse)
+def list_field_job_destinations(work_order_id: str, auth=Depends(require_user_auth), db: Session = Depends(get_db)):
+    items = field_jobs.list_destinations(db, auth["person_id"], work_order_id)
+    return FieldJobDestinationsResponse(
+        items=[FieldJobDestination(**item) for item in items],
+        count=len(items),
     )
 
 

@@ -147,6 +147,7 @@ def build_timeline(
     canceled = status == WorkOrderStatus.canceled or FieldJobEvent.unable_to_complete in events
     completed = status == WorkOrderStatus.completed or FieldJobEvent.complete in events
     en_route_at = events.get(FieldJobEvent.en_route)
+    arrived_at = events.get(FieldJobEvent.arrived)
     started_at = events.get(FieldJobEvent.start) or _aware(work_order.started_at)
 
     def step(key: str, label: str, *, done: bool, at: datetime | None, current: bool = False) -> dict:
@@ -175,8 +176,14 @@ def build_timeline(
             current=status == WorkOrderStatus.dispatched,
         ),
         step(
-            "started",
+            "arrived",
             "Technician arrived",
+            done=arrived_at is not None or started_at is not None,
+            at=arrived_at or started_at,
+        ),
+        step(
+            "started",
+            "Work started",
             done=started_at is not None,
             at=started_at,
             current=status == WorkOrderStatus.in_progress,

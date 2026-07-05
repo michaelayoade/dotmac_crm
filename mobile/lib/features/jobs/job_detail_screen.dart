@@ -54,6 +54,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
   bool _isSavingNote = false;
   bool _isInternalNote = true;
   String _noteError = '';
+  JobDestination? _activeDestination;
 
   @override
   void initState() {
@@ -80,6 +81,12 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
     final detail = widget.detail;
     final job = detail.job;
     final actions = workActionsFor(job.status);
+    final travelActions = actions
+        .where((action) => action == 'en_route' || action == 'arrived')
+        .toList();
+    final executionActions = actions
+        .where((action) => action != 'en_route' && action != 'arrived')
+        .toList();
     final statusColor = AppColors.status(job.status);
 
     return Scaffold(
@@ -120,205 +127,234 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
         icon: const Icon(Icons.note_add_outlined),
         label: const Text('Add note'),
       ),
-      body: ListView(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
-        children: [
-          Text(
-            job.title,
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          if (detail.ticketRef != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                'Ticket ${detail.ticketRef}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              job.title,
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
             ),
-          const SizedBox(height: 16),
-          _LocationCard(jobId: job.id, location: detail.location),
-          if (detail.customer != null) ...[
-            const SizedBox(height: 12),
-            _CustomerCard(customer: detail.customer!),
-          ],
-          if (job.description != null && job.description!.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Scope of work',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(job.description!),
-                  ],
+            if (detail.ticketRef != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Ticket ${detail.ticketRef}',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
-            ),
-          ],
-          if (detail.materialRequests.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Material requests',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    for (final request in detail.materialRequests)
-                      _MaterialRequestListTile(request: request),
-                  ],
-                ),
-              ),
-            ),
-          ],
-          if (_isAddingNote) ...[
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Add note',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      key: const Key('note-body-field'),
-                      controller: _noteController,
-                      minLines: 4,
-                      maxLines: 6,
-                      textInputAction: TextInputAction.newline,
-                      decoration: InputDecoration(
-                        hintText: 'What happened on site?',
-                        errorText: _noteError.isEmpty ? null : _noteError,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    CheckboxListTile(
-                      key: const Key('internal-note-checkbox'),
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Internal note'),
-                      subtitle: Text(
-                        _isInternalNote
-                            ? 'Visible to staff only'
-                            : 'External note for customer-facing history',
-                      ),
-                      value: _isInternalNote,
-                      onChanged: _isSavingNote
-                          ? null
-                          : (value) =>
-                                setState(() => _isInternalNote = value ?? true),
-                    ),
-                    const SizedBox(height: 12),
-                    OverflowBar(
-                      alignment: MainAxisAlignment.end,
-                      spacing: 8,
-                      children: [
-                        TextButton(
-                          onPressed: _isSavingNote
-                              ? null
-                              : () => setState(() {
-                                  _isAddingNote = false;
-                                  _isInternalNote = true;
-                                  _noteError = '';
-                                  _noteController.clear();
-                                }),
-                          child: const Text('Cancel'),
+            const SizedBox(height: 16),
+            _LocationCard(jobId: job.id, location: detail.location),
+            if (detail.customer != null) ...[
+              const SizedBox(height: 12),
+              _CustomerCard(customer: detail.customer!),
+            ],
+            if (travelActions.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      for (final action in travelActions)
+                        OutlinedButton.icon(
+                          key: Key('work-action-$action'),
+                          onPressed: () => _runWorkAction(job.id, action),
+                          icon: Icon(
+                            action == 'en_route'
+                                ? Icons.navigation_outlined
+                                : Icons.place_outlined,
+                          ),
+                          label: Text(actionLabel(action)),
                         ),
-                        FilledButton(
-                          key: const Key('save-note-action'),
-                          onPressed: _isSavingNote
-                              ? null
-                              : () => _saveInlineNote(job.id),
-                          child: _isSavingNote
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Text('Save'),
-                        ),
-                      ],
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
-          if (detail.materials.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Materials',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    for (final material in detail.materials)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                material['item_name'] as String? ?? 'Item',
+            ],
+            if (job.description != null && job.description!.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Scope of work',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(job.description!),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            if (detail.materialRequests.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Material requests',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      for (final request in detail.materialRequests)
+                        _MaterialRequestListTile(request: request),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            if (_isAddingNote) ...[
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Add note',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        key: const Key('note-body-field'),
+                        controller: _noteController,
+                        minLines: 4,
+                        maxLines: 6,
+                        textInputAction: TextInputAction.newline,
+                        decoration: InputDecoration(
+                          hintText: 'What happened on site?',
+                          errorText: _noteError.isEmpty ? null : _noteError,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      CheckboxListTile(
+                        key: const Key('internal-note-checkbox'),
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Internal note'),
+                        subtitle: Text(
+                          _isInternalNote
+                              ? 'Visible to staff only'
+                              : 'External note for customer-facing history',
+                        ),
+                        value: _isInternalNote,
+                        onChanged: _isSavingNote
+                            ? null
+                            : (value) => setState(
+                                () => _isInternalNote = value ?? true,
                               ),
-                            ),
-                            Text('×${material['quantity']}'),
-                          ],
+                      ),
+                      const SizedBox(height: 12),
+                      OverflowBar(
+                        alignment: MainAxisAlignment.end,
+                        spacing: 8,
+                        children: [
+                          TextButton(
+                            onPressed: _isSavingNote
+                                ? null
+                                : () => setState(() {
+                                    _isAddingNote = false;
+                                    _isInternalNote = true;
+                                    _noteError = '';
+                                    _noteController.clear();
+                                  }),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            key: const Key('save-note-action'),
+                            onPressed: _isSavingNote
+                                ? null
+                                : () => _saveInlineNote(job.id),
+                            child: _isSavingNote
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text('Save'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            if (detail.materials.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Materials',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      for (final material in detail.materials)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  material['item_name'] as String? ?? 'Item',
+                                ),
+                              ),
+                              Text('×${material['quantity']}'),
+                            ],
+                          ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
-          if (_notes.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Notes',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    for (final note in _notes)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: _NoteTile(note: note),
+            ],
+            if (_notes.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Notes',
+                        style: Theme.of(context).textTheme.titleSmall,
                       ),
-                  ],
+                      const SizedBox(height: 8),
+                      for (final note in _notes)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: _NoteTile(note: note),
+                        ),
+                    ],
+                  ),
                 ),
               ),
-            ),
+            ],
+            const SizedBox(height: 96),
           ],
-          const SizedBox(height: 96),
-        ],
+        ),
       ),
-      bottomNavigationBar: actions.isEmpty
+      bottomNavigationBar: executionActions.isEmpty
           ? null
           : SafeArea(
               child: Padding(
@@ -326,9 +362,14 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    for (final action in actions) ...[
-                      _WorkActionButton(jobId: job.id, action: action),
-                      if (action != actions.last) const SizedBox(height: 8),
+                    for (final action in executionActions) ...[
+                      FilledButton(
+                        key: Key('work-action-$action'),
+                        onPressed: () => _runWorkAction(job.id, action),
+                        child: Text(actionLabel(action)),
+                      ),
+                      if (action != executionActions.last)
+                        const SizedBox(height: 8),
                     ],
                     TextButton(
                       key: const Key('unable-action'),
@@ -340,6 +381,88 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                 ),
               ),
             ),
+    );
+  }
+
+  Future<void> _runWorkAction(String jobId, String action) async {
+    if (action == 'complete') {
+      await Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => CompletionWizard(jobId: jobId)));
+    } else if (action == 'en_route') {
+      final destination = await _pickDestination(jobId);
+      if (destination == null) return;
+      _activeDestination = destination;
+      await ref
+          .read(executionControllerProvider.notifier)
+          .transition(
+            jobId,
+            action,
+            payload: destination.toTransitionPayload(),
+          );
+    } else if (action == 'arrived') {
+      final destination = _activeDestination ?? await _pickDestination(jobId);
+      if (destination == null) return;
+      _activeDestination = destination;
+      await ref
+          .read(executionControllerProvider.notifier)
+          .transition(
+            jobId,
+            action,
+            payload: destination.toTransitionPayload(),
+          );
+    } else {
+      await ref
+          .read(executionControllerProvider.notifier)
+          .transition(jobId, action);
+    }
+    if (!mounted) return;
+    ref.invalidate(jobDetailProvider(jobId));
+  }
+
+  Future<JobDestination?> _pickDestination(String jobId) async {
+    List<JobDestination> destinations;
+    try {
+      destinations = await ref
+          .read(jobsRepositoryProvider)
+          .fetchDestinations(jobId);
+    } catch (_) {
+      destinations = const [
+        JobDestination(destinationType: 'customer', label: 'Customer site'),
+        JobDestination(destinationType: 'other', label: 'Other location'),
+      ];
+    }
+    if (!mounted) return null;
+    return showModalBottomSheet<JobDestination>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Select destination',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            for (final destination in destinations)
+              ListTile(
+                key: Key(
+                  'destination-${destination.destinationType}-${destination.destinationId ?? destination.label}',
+                ),
+                leading: Icon(_destinationIcon(destination.destinationType)),
+                title: Text(destination.label),
+                subtitle:
+                    destination.addressText == null ||
+                        destination.addressText!.isEmpty
+                    ? Text(destination.destinationType.replaceAll('_', ' '))
+                    : Text(destination.addressText!),
+                onTap: () => Navigator.of(sheetContext).pop(destination),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -412,32 +535,14 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
   }
 }
 
-class _WorkActionButton extends ConsumerWidget {
-  const _WorkActionButton({required this.jobId, required this.action});
-
-  final String jobId;
-  final String action;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return FilledButton(
-      key: Key('work-action-$action'),
-      onPressed: () async {
-        if (action == 'complete') {
-          await Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => CompletionWizard(jobId: jobId)),
-          );
-        } else {
-          await ref
-              .read(executionControllerProvider.notifier)
-              .transition(jobId, action);
-        }
-        if (!context.mounted) return;
-        ref.invalidate(jobDetailProvider(jobId));
-      },
-      child: Text(actionLabel(action)),
-    );
-  }
+IconData _destinationIcon(String type) {
+  return switch (type) {
+    'customer' => Icons.home_outlined,
+    'cabinet' || 'fdh' => Icons.dns_outlined,
+    'closure' || 'splice_closure' => Icons.hub_outlined,
+    'pop' || 'olt' => Icons.router_outlined,
+    _ => Icons.place_outlined,
+  };
 }
 
 String _noteBody(Map<String, dynamic> note) {
