@@ -538,6 +538,11 @@ def create_account_credit(
 
 _PAGINATION_MAX_PAGES = 500
 _PAGINATION_MAX_ROWS = 200_000
+# sub clamps per_page to 500 (dotmac_sub app/api/crm.py). Requesting more means
+# the effective page size (<=500) is smaller than requested, so a full page
+# reads as "short" and the short-page heuristic stops early — silently dropping
+# every row past 500. Clamp to sub's real cap so requested == effective.
+_SUB_MAX_PER_PAGE = 500
 
 
 def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -552,6 +557,11 @@ def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None
     rows: list[dict[str, Any]] = []
     base_params = dict(params or {})
     per_page = int(base_params.get("per_page") or 0)
+    # Never request more than sub honors, or the short-page heuristic below
+    # (len(batch) < per_page) would trip on a full-but-clamped page and drop data.
+    if per_page > _SUB_MAX_PER_PAGE:
+        per_page = _SUB_MAX_PER_PAGE
+        base_params["per_page"] = per_page
     while True:
         payload = _request_json(db, "GET", path, params={**base_params, "page": page})
         batch = _rows(payload)
@@ -595,7 +605,7 @@ def fetch_customers(
     db: Session, *, include: str | None = "services,billing", per_page: int = 500
 ) -> list[dict[str, Any]]:
     """Fetch all Selfcare subscribers using the CRM API envelope."""
-    params: dict[str, Any] = {"per_page": max(1, min(int(per_page or 500), 1000))}
+    params: dict[str, Any] = {"per_page": max(1, min(int(per_page or _SUB_MAX_PER_PAGE), _SUB_MAX_PER_PAGE))}
     if include:
         params["include"] = include
     return _list_paginated(db, "/subscribers", params)
