@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
-import time
 import uuid
 from collections.abc import Collection
 from typing import Any
 
 import httpx
+
+from app.services.integration import IntegrationHttpClient
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,7 @@ class DotMacERPClient:
         self.retries = retries
         self.retry_delay = retry_delay
         self._client: httpx.Client | None = None
+        self._transport: IntegrationHttpClient | None = None
 
     def _get_client(self) -> httpx.Client:
         """Get or create HTTP client."""
@@ -182,6 +184,36 @@ class DotMacERPClient:
 
         return data
 
+    def _get_transport(self) -> IntegrationHttpClient:
+        """The shared retry/transport engine, configured with this edge's policy.
+
+        The retry semantics (Retry-After honouring, 5xx transient retry,
+        connect/timeout retry, no retry on auth/4xx, and the give-up wrapping)
+        live in ``IntegrationHttpClient``; this only declares which exception
+        types mean what. ``_get_client`` and ``_handle_response`` remain the
+        transport + response-mapping seams.
+        """
+        if self._transport is None:
+            self._transport = IntegrationHttpClient(
+                client_factory=self._get_client,
+                response_handler=self._handle_response,
+                backoff=lambda attempt: self.retry_delay * (2**attempt),
+                max_attempts=self.retries + 1,
+                rate_limit_exc=DotMacERPRateLimitError,
+                retryable_excs=(DotMacERPTransientError,),
+                non_retryable_excs=(DotMacERPError,),
+                transport_exhausted_factory=lambda exc, retries: DotMacERPError(
+                    f"Connection error after {retries} retries: {exc}"
+                ),
+                loop_exhausted_factory=lambda exc, retries: DotMacERPError(
+                    f"Request failed after {retries} retries: {exc}"
+                ),
+                unexpected_error_factory=lambda exc: DotMacERPError(
+                    f"Unexpected error: {exc}"
+                ),
+            )
+        return self._transport
+
     def _request(
         self,
         method: str,
@@ -191,76 +223,15 @@ class DotMacERPClient:
         idempotency_key: str | None = None,
         expected_status_codes: Collection[int] | None = None,
     ) -> dict | list | None:
-        """
-        Make an HTTP request with retry logic.
-
-        Args:
-            method: HTTP method (GET, POST, PATCH, DELETE)
-            path: API path (e.g., "/api/v1/sync/bulk")
-            params: Query parameters
-            json_data: JSON body data
-            idempotency_key: Idempotency key for safe retries
-
-        Returns:
-            Parsed JSON response
-        """
-        client = self._get_client()
-        headers = {}
-
-        if idempotency_key:
-            headers["Idempotency-Key"] = idempotency_key
-
-        last_error: Exception | None = None
-        for attempt in range(self.retries + 1):
-            try:
-                response = client.request(
-                    method=method,
-                    url=path,
-                    params=params,
-                    json=json_data,
-                    headers=headers if headers else None,
-                )
-                return self._handle_response(response, expected_status_codes=expected_status_codes)
-
-            except DotMacERPRateLimitError as e:
-                # Wait for rate limit to reset
-                wait_time = e.retry_after or (self.retry_delay * (2**attempt))
-                logger.warning(f"Rate limited, waiting {wait_time}s before retry")
-                time.sleep(wait_time)
-                last_error = e
-
-            except DotMacERPAuthError:
-                # Don't retry auth errors
-                raise
-
-            except (httpx.ConnectError, httpx.TimeoutException) as e:
-                if attempt < self.retries:
-                    wait_time = self.retry_delay * (2**attempt)
-                    logger.warning(f"Request failed, retrying in {wait_time}s: {e}")
-                    time.sleep(wait_time)
-                    last_error = e
-                else:
-                    raise DotMacERPError(f"Connection error after {self.retries} retries: {e}")
-
-            except DotMacERPTransientError as e:
-                # 5xx from the ERP — retry with backoff, then give up.
-                if attempt < self.retries:
-                    wait_time = self.retry_delay * (2**attempt)
-                    logger.warning(f"Transient ERP error, retrying in {wait_time}s: {e}")
-                    time.sleep(wait_time)
-                    last_error = e
-                else:
-                    raise
-
-            except DotMacERPError:
-                raise
-
-            except Exception as e:
-                raise DotMacERPError(f"Unexpected error: {e}")
-
-        if last_error:
-            raise DotMacERPError(f"Request failed after {self.retries} retries: {last_error}")
-        return None
+        """Make an HTTP request with retry logic (delegated to the shared client)."""
+        return self._get_transport().request(
+            method,
+            path,
+            params=params,
+            json_data=json_data,
+            idempotency_key=idempotency_key,
+            handler_kwargs={"expected_status_codes": expected_status_codes},
+        )
 
     # ============ Public API Methods ============
 
