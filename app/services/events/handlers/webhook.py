@@ -63,8 +63,10 @@ EVENT_TYPE_TO_WEBHOOK = {
     EventType.network_alert: WebhookEventType.network_alert,
     # Ticket events
     EventType.ticket_created: WebhookEventType.ticket_created,
+    EventType.ticket_updated: WebhookEventType.ticket_updated,
     EventType.ticket_escalated: WebhookEventType.ticket_escalated,
     EventType.ticket_resolved: WebhookEventType.ticket_resolved,
+    EventType.ticket_comment_created: WebhookEventType.ticket_comment_created,
     # Work-order (field-visit) lifecycle events
     EventType.work_order_dispatched: WebhookEventType.work_order_dispatched,
     EventType.work_order_completed: WebhookEventType.work_order_completed,
