@@ -215,6 +215,29 @@ void main() {
     expect(requests.single.number, 'MR-0002');
   });
 
+  test('fetchRequests skips malformed rows instead of crashing', () async {
+    adapter.on('GET', '/api/v1/field/material-requests', (_) {
+      return (
+        200,
+        {
+          'items': [
+            null,
+            'bad-row',
+            {'id': 'mr-3', 'number': 3003, 'status': 'submitted'},
+          ],
+        },
+      );
+    });
+
+    final requests = await container
+        .read(materialsRepositoryProvider)
+        .fetchRequests();
+
+    expect(requests, hasLength(1));
+    expect(requests.single.id, 'mr-3');
+    expect(requests.single.number, '3003');
+  });
+
   testWidgets('materials screen shows request list before inventory', (
     tester,
   ) async {
@@ -295,6 +318,31 @@ void main() {
     expect(request.approvalNotes, 'Approved for urgent install');
     expect(request.issueNotes, 'Partially issued from main warehouse');
     expect(request.items.single.issuedQuantity, 1);
+  });
+
+  test('MaterialRequest ignores malformed item rows', () {
+    final request = MaterialRequest.fromJson({
+      'id': 'mr-1',
+      'status': 'issued',
+      'priority': 1,
+      'approval_notes': 42,
+      'items': [
+        null,
+        'bad-row',
+        {
+          'id': 'line-1',
+          'item_id': 'item-1',
+          'item_name': 123,
+          'quantity': '2',
+        },
+      ],
+    });
+
+    expect(request.priority, '1');
+    expect(request.approvalNotes, '42');
+    expect(request.items, hasLength(1));
+    expect(request.items.single.itemName, '123');
+    expect(request.items.single.quantity, 2);
   });
 
   testWidgets('material request detail shows status flow and issue progress', (

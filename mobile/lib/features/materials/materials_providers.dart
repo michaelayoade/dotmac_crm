@@ -108,19 +108,13 @@ class MaterialsRepository {
 
 List<Map<String, dynamic>> _items(Object? data) {
   if (data is Map && data['items'] is List) {
-    return (data['items'] as List)
-        .cast<Map>()
-        .map((item) => item.cast<String, dynamic>())
-        .toList();
+    return _mapItems(data['items']);
   }
   if (data is Map) {
     for (final key in ['data', 'results', 'material_requests', 'requests']) {
       final nested = data[key];
       if (nested is List) {
-        return nested
-            .cast<Map>()
-            .map((item) => item.cast<String, dynamic>())
-            .toList();
+        return _mapItems(nested);
       }
       if (nested is Map) {
         final nestedItems = _items(nested);
@@ -129,12 +123,17 @@ List<Map<String, dynamic>> _items(Object? data) {
     }
   }
   if (data is List) {
-    return data
-        .cast<Map>()
-        .map((item) => item.cast<String, dynamic>())
-        .toList();
+    return _mapItems(data);
   }
   return const [];
+}
+
+List<Map<String, dynamic>> _mapItems(Object? raw) {
+  if (raw is! List) return const [];
+  return [
+    for (final item in raw)
+      if (item is Map) item.cast<String, dynamic>(),
+  ];
 }
 
 final materialsRepositoryProvider = Provider<MaterialsRepository>(
