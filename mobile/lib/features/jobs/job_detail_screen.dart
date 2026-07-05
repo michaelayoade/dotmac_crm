@@ -50,6 +50,8 @@ class _JobDetailView extends ConsumerStatefulWidget {
 class _JobDetailViewState extends ConsumerState<_JobDetailView> {
   late List<Map<String, dynamic>> _notes;
   final _noteController = TextEditingController();
+  final _noteComposerKey = GlobalKey();
+  final _noteFocusNode = FocusNode();
   bool _isAddingNote = false;
   bool _isSavingNote = false;
   bool _isInternalNote = true;
@@ -73,6 +75,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
   @override
   void dispose() {
     _noteController.dispose();
+    _noteFocusNode.dispose();
     super.dispose();
   }
 
@@ -117,13 +120,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         key: const Key('add-note-action'),
-        onPressed: _isAddingNote
-            ? null
-            : () => setState(() {
-                _isAddingNote = true;
-                _isInternalNote = true;
-                _noteError = '';
-              }),
+        onPressed: _isAddingNote ? null : _openNoteComposer,
         icon: const Icon(Icons.note_add_outlined),
         label: const Text('Add note'),
       ),
@@ -239,6 +236,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
             if (_isAddingNote) ...[
               const SizedBox(height: 12),
               Card(
+                key: _noteComposerKey,
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -252,6 +250,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                       TextField(
                         key: const Key('note-body-field'),
                         controller: _noteController,
+                        focusNode: _noteFocusNode,
                         minLines: 4,
                         maxLines: 6,
                         textInputAction: TextInputAction.newline,
@@ -289,6 +288,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                                     _isAddingNote = false;
                                     _isInternalNote = true;
                                     _noteError = '';
+                                    _noteFocusNode.unfocus();
                                     _noteController.clear();
                                   }),
                             child: const Text('Cancel'),
@@ -402,6 +402,27 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ),
     );
+  }
+
+  void _openNoteComposer() {
+    setState(() {
+      _isAddingNote = true;
+      _isInternalNote = true;
+      _noteError = '';
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final composerContext = _noteComposerKey.currentContext;
+      if (composerContext != null) {
+        Scrollable.ensureVisible(
+          composerContext,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          alignment: 0.1,
+        );
+      }
+      _noteFocusNode.requestFocus();
+    });
   }
 
   Future<void> _runWorkAction(String jobId, String action) async {
