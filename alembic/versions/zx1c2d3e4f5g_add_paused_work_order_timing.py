@@ -1,7 +1,7 @@
 """add paused work order timing fields
 
 Revision ID: zx1c2d3e4f5g
-Revises: zw0b1c2d3e4f
+Revises: zv9a0b1c2d3e
 Create Date: 2026-07-05 00:00:00.000000
 """
 
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "zx1c2d3e4f5g"
-down_revision = "zw0b1c2d3e4f"
+down_revision = "zv9a0b1c2d3e"
 branch_labels = None
 depends_on = None
 
