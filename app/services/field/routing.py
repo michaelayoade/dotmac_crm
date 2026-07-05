@@ -26,7 +26,12 @@ from app.services.field.location import resolve_job_location
 from app.services.field.location_tracking import _now, _person_label
 
 DEFAULT_ASSIGN_STALE_SECONDS = 600  # a tech's fix must be < 10 min old to be "live"
-_ROUTABLE_STATUSES = {WorkOrderStatus.scheduled, WorkOrderStatus.dispatched, WorkOrderStatus.in_progress}
+_ROUTABLE_STATUSES = {
+    WorkOrderStatus.scheduled,
+    WorkOrderStatus.dispatched,
+    WorkOrderStatus.in_progress,
+    WorkOrderStatus.paused,
+}
 
 
 def _job_coords(db: Session, work_order: WorkOrder) -> tuple[float, float] | None:

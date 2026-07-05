@@ -23,13 +23,16 @@ abstract final class AppColors {
     'accepted': Color(0xFF06B6D4), // cyan
     'en_route': Color(0xFFF97316), // orange
     'in_progress': Color(0xFF14B8A6), // teal
+    'paused': Color(0xFFF59E0B), // amber
     'completed': Color(0xFF10B981), // emerald
     'hold': Color(0xFFF59E0B), // amber
     'canceled': Color(0xFF94A3B8),
   };
 
-  static Color workType(String type) => workTypeColors[type] ?? workTypeColors['other']!;
-  static Color status(String status) => statusColors[status] ?? statusColors['scheduled']!;
+  static Color workType(String type) =>
+      workTypeColors[type] ?? workTypeColors['other']!;
+  static Color status(String status) =>
+      statusColors[status] ?? statusColors['scheduled']!;
 }
 
 abstract final class AppRadii {
@@ -55,32 +58,44 @@ ThemeData _base(Brightness brightness) {
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
-    scaffoldBackgroundColor: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+    scaffoldBackgroundColor: isDark
+        ? const Color(0xFF0F172A)
+        : const Color(0xFFF1F5F9),
     cardTheme: CardThemeData(
       elevation: isDark ? 0 : 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.card)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadii.card),
+      ),
       margin: EdgeInsets.zero,
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         minimumSize: const Size.fromHeight(AppSizes.primaryTouchTarget),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.control)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.control),
+        ),
         textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         minimumSize: const Size.fromHeight(AppSizes.touchTarget),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.control)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.control),
+        ),
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadii.control)),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadii.control),
+      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
     ),
     chipTheme: ChipThemeData(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.chip)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadii.chip),
+      ),
     ),
     navigationBarTheme: NavigationBarThemeData(
       height: 72,

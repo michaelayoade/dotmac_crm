@@ -79,7 +79,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
   Widget build(BuildContext context) {
     final detail = widget.detail;
     final job = detail.job;
-    final action = primaryActionFor(job.status);
+    final actions = workActionsFor(job.status);
     final statusColor = AppColors.status(job.status);
 
     return Scaffold(
@@ -101,7 +101,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                 children: [
                   Icon(Icons.circle, size: 10, color: statusColor),
                   const SizedBox(width: 6),
-                  Text(job.status.replaceAll('_', ' ')),
+                  Text(statusLabel(job.status)),
                 ],
               ),
             ),
@@ -318,7 +318,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
           const SizedBox(height: 96),
         ],
       ),
-      bottomNavigationBar: action == null
+      bottomNavigationBar: actions.isEmpty
           ? null
           : SafeArea(
               child: Padding(
@@ -326,25 +326,10 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    FilledButton(
-                      key: const Key('primary-action'),
-                      onPressed: () async {
-                        if (action == 'complete') {
-                          await Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => CompletionWizard(jobId: job.id),
-                            ),
-                          );
-                        } else {
-                          await ref
-                              .read(executionControllerProvider.notifier)
-                              .transition(job.id, action);
-                        }
-                        if (!context.mounted) return;
-                        ref.invalidate(jobDetailProvider(job.id));
-                      },
-                      child: Text(actionLabel(action)),
-                    ),
+                    for (final action in actions) ...[
+                      _WorkActionButton(jobId: job.id, action: action),
+                      if (action != actions.last) const SizedBox(height: 8),
+                    ],
                     TextButton(
                       key: const Key('unable-action'),
                       onPressed: () =>
@@ -424,6 +409,34 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
     } catch (_) {
       // The note is saved/queued; a refresh problem should not show as save failure.
     }
+  }
+}
+
+class _WorkActionButton extends ConsumerWidget {
+  const _WorkActionButton({required this.jobId, required this.action});
+
+  final String jobId;
+  final String action;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return FilledButton(
+      key: Key('work-action-$action'),
+      onPressed: () async {
+        if (action == 'complete') {
+          await Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => CompletionWizard(jobId: jobId)),
+          );
+        } else {
+          await ref
+              .read(executionControllerProvider.notifier)
+              .transition(jobId, action);
+        }
+        if (!context.mounted) return;
+        ref.invalidate(jobDetailProvider(jobId));
+      },
+      child: Text(actionLabel(action)),
+    );
   }
 }
 

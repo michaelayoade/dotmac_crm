@@ -14,7 +14,9 @@ class JobCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final typeColor = AppColors.workType(job.workType);
     final statusColor = AppColors.status(job.status);
-    final time = job.scheduledStart != null ? DateFormat.Hm().format(job.scheduledStart!.toLocal()) : '—';
+    final time = job.scheduledStart != null
+        ? DateFormat.Hm().format(job.scheduledStart!.toLocal())
+        : '—';
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -32,21 +34,27 @@ class JobCard extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Text(time, style: Theme.of(context).textTheme.labelLarge),
+                          Text(
+                            time,
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             job.workType.toUpperCase(),
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(color: typeColor, fontWeight: FontWeight.w700, letterSpacing: 1),
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
+                                  color: typeColor,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1,
+                                ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 6),
                       Text(
                         job.title,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -56,8 +64,10 @@ class JobCard extends StatelessWidget {
                           Icon(Icons.circle, size: 10, color: statusColor),
                           const SizedBox(width: 6),
                           Text(
-                            job.status.replaceAll('_', ' '),
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: statusColor),
+                            statusLabel(job.status),
+                            style: Theme.of(
+                              context,
+                            ).textTheme.bodySmall?.copyWith(color: statusColor),
                           ),
                           if (job.estimatedDurationMinutes != null) ...[
                             const Spacer(),

@@ -160,8 +160,8 @@ class WorkOrderQuery(BaseQuery[WorkOrder]):
         )
 
     def in_progress(self) -> WorkOrderQuery:
-        """Filter to in-progress work orders."""
-        return self.by_status(WorkOrderStatus.in_progress)
+        """Filter to actively started work orders."""
+        return self.by_statuses([WorkOrderStatus.in_progress, WorkOrderStatus.paused])
 
     def completed(self) -> WorkOrderQuery:
         """Filter to completed work orders."""

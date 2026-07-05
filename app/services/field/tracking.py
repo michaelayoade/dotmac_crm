@@ -182,6 +182,16 @@ def build_timeline(
             current=status == WorkOrderStatus.in_progress,
         ),
     ]
+    if status == WorkOrderStatus.paused:
+        timeline.append(
+            step(
+                "paused",
+                "Work paused",
+                done=True,
+                at=events.get(FieldJobEvent.pause) or events.get(FieldJobEvent.hold) or _aware(work_order.paused_at),
+                current=True,
+            )
+        )
     if canceled:
         timeline.append(
             {

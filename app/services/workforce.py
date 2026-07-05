@@ -297,7 +297,11 @@ def build_work_order_portal_payload(db: Session, work_order: WorkOrder) -> dict:
         if work_order.estimated_arrival_at
         else None,
         "estimated_duration_minutes": work_order.estimated_duration_minutes,
+        "started_at": work_order.started_at.isoformat() if work_order.started_at else None,
+        "paused_at": work_order.paused_at.isoformat() if work_order.paused_at else None,
+        "resumed_at": work_order.resumed_at.isoformat() if work_order.resumed_at else None,
         "completed_at": work_order.completed_at.isoformat() if work_order.completed_at else None,
+        "total_active_seconds": work_order.total_active_seconds,
         "created_at": work_order.created_at.isoformat() if work_order.created_at else None,
     }
 

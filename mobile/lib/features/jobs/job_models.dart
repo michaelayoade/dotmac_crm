@@ -14,7 +14,10 @@ class JobSummary {
     this.scheduledEnd,
     this.estimatedDurationMinutes,
     this.startedAt,
+    this.pausedAt,
+    this.resumedAt,
     this.completedAt,
+    this.totalActiveSeconds,
   });
 
   final String id;
@@ -27,7 +30,10 @@ class JobSummary {
   final DateTime? scheduledEnd;
   final int? estimatedDurationMinutes;
   final DateTime? startedAt;
+  final DateTime? pausedAt;
+  final DateTime? resumedAt;
   final DateTime? completedAt;
+  final int? totalActiveSeconds;
 
   factory JobSummary.fromJson(Map<String, dynamic> json) => JobSummary(
     id: json['id'] as String,
@@ -40,7 +46,10 @@ class JobSummary {
     scheduledEnd: _date(json['scheduled_end']),
     estimatedDurationMinutes: json['estimated_duration_minutes'] as int?,
     startedAt: _date(json['started_at']),
+    pausedAt: _date(json['paused_at']),
+    resumedAt: _date(json['resumed_at']),
     completedAt: _date(json['completed_at']),
+    totalActiveSeconds: json['total_active_seconds'] as int?,
   );
 }
 
@@ -147,19 +156,37 @@ class JobDetail {
   );
 }
 
-/// The single next action per status — the ActionBar shows exactly one.
+List<String> workActionsFor(String status) => switch (status) {
+  'scheduled' => ['start'],
+  'dispatched' => ['start'],
+  'in_progress' => ['pause', 'complete'],
+  'paused' => ['resume'],
+  _ => const [],
+};
+
 String? primaryActionFor(String status) => switch (status) {
-  'scheduled' => 'accept',
+  'scheduled' => 'start',
   'dispatched' => 'start',
-  'in_progress' => 'complete',
+  'in_progress' => 'pause',
+  'paused' => 'resume',
   _ => null,
 };
 
 String actionLabel(String action) => switch (action) {
-  'accept' => 'Accept job',
-  'start' => 'Start job',
-  'complete' => 'Complete job',
+  'accept' => 'Accept Work',
+  'start' => 'Start Work',
+  'pause' => 'Pause Work',
+  'hold' => 'Pause Work',
+  'resume' => 'Resume Work',
+  'complete' => 'Complete Work',
   _ => action,
+};
+
+String statusLabel(String status) => switch (status) {
+  'in_progress' => 'In Progress',
+  'paused' => 'Paused',
+  'completed' => 'Completed',
+  _ => status.replaceAll('_', ' '),
 };
 
 DateTime? _date(Object? value) =>

@@ -33,6 +33,7 @@ _OPEN_STATUSES = (
     WorkOrderStatus.scheduled,
     WorkOrderStatus.dispatched,
     WorkOrderStatus.in_progress,
+    WorkOrderStatus.paused,
 )
 
 

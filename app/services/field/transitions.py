@@ -33,15 +33,15 @@ from app.services.workforce import emit_work_order_status_events
 
 _CLOCK_SKEW_FLAG_SECONDS = 15 * 60
 
-# Mobile events → target WorkOrderStatus. ``accept`` and ``resume`` are
-# recorded as facts without a status change; ``hold`` keeps in_progress (the
-# job stays open overnight) and is visible through the event stream.
+# Mobile events → target WorkOrderStatus. ``accept`` is recorded as a fact
+# without a status change. ``hold`` remains as a legacy alias for pause.
 _EVENT_TO_STATUS: dict[FieldJobEvent, WorkOrderStatus | None] = {
     FieldJobEvent.accept: None,
     FieldJobEvent.en_route: WorkOrderStatus.dispatched,
     FieldJobEvent.start: WorkOrderStatus.in_progress,
-    FieldJobEvent.hold: None,
-    FieldJobEvent.resume: None,
+    FieldJobEvent.pause: WorkOrderStatus.paused,
+    FieldJobEvent.hold: WorkOrderStatus.paused,
+    FieldJobEvent.resume: WorkOrderStatus.in_progress,
     FieldJobEvent.complete: WorkOrderStatus.completed,
     # A failed visit cancels the order (with a reason); dispatch reschedules.
     FieldJobEvent.unable_to_complete: WorkOrderStatus.canceled,
@@ -51,14 +51,16 @@ _TRANSITION_ALLOWED_FROM: dict[FieldJobEvent, set[WorkOrderStatus]] = {
     FieldJobEvent.accept: {WorkOrderStatus.scheduled, WorkOrderStatus.dispatched},
     FieldJobEvent.en_route: {WorkOrderStatus.scheduled, WorkOrderStatus.dispatched},
     FieldJobEvent.start: {WorkOrderStatus.scheduled, WorkOrderStatus.dispatched},
+    FieldJobEvent.pause: {WorkOrderStatus.in_progress},
     FieldJobEvent.hold: {WorkOrderStatus.in_progress},
-    FieldJobEvent.resume: {WorkOrderStatus.in_progress},
+    FieldJobEvent.resume: {WorkOrderStatus.paused},
     FieldJobEvent.complete: {WorkOrderStatus.in_progress},
     # Allowed any time the tech has the job in hand but can't finish it.
     FieldJobEvent.unable_to_complete: {
         WorkOrderStatus.scheduled,
         WorkOrderStatus.dispatched,
         WorkOrderStatus.in_progress,
+        WorkOrderStatus.paused,
     },
 }
 
@@ -70,6 +72,7 @@ _EVENT_COMMENT_LABELS: dict[FieldJobEvent, str] = {
     FieldJobEvent.accept: "accepted",
     FieldJobEvent.en_route: "is en route",
     FieldJobEvent.start: "started",
+    FieldJobEvent.pause: "paused",
     FieldJobEvent.hold: "put on hold",
     FieldJobEvent.resume: "resumed",
     FieldJobEvent.complete: "completed",
@@ -151,27 +154,29 @@ class FieldTransitions:
         if not _is_primary_actor(work_order, person_uuid):
             raise HTTPException(status_code=403, detail="Only the assigned technician can transition this job")
 
+        # Collapse pause/resume double-taps with a fresh client_event_id into a
+        # replay of the latest matching fact before status validation rejects
+        # the already-paused/already-resumed state.
+        if event_value in (FieldJobEvent.pause, FieldJobEvent.hold, FieldJobEvent.resume):
+            latest_pause = (
+                db.query(WorkOrderEvent)
+                .filter(WorkOrderEvent.work_order_id == work_order.id)
+                .filter(WorkOrderEvent.event.in_([FieldJobEvent.pause, FieldJobEvent.hold, FieldJobEvent.resume]))
+                .order_by(WorkOrderEvent.occurred_at.desc(), WorkOrderEvent.received_at.desc())
+                .first()
+            )
+            pause_events = {FieldJobEvent.pause, FieldJobEvent.hold}
+            latest_is_same_pause = (
+                latest_pause is not None and latest_pause.event in pause_events and event_value in pause_events
+            )
+            if latest_pause is not None and (latest_pause.event == event_value or latest_is_same_pause):
+                return {"work_order": work_order, "event": latest_pause, "replayed": True}
+
         if work_order.status not in _TRANSITION_ALLOWED_FROM[event_value]:
             raise HTTPException(
                 status_code=409,
                 detail=f"Cannot {event_value.value} a job in status {work_order.status.value}",
             )
-
-        # hold/resume are event-only (no status change), so the allowed-from
-        # check above can't catch a redundant repeat (hold→hold, resume→resume)
-        # from a double-tap with a fresh client_event_id. Collapse those to an
-        # idempotent no-op against the latest pause fact so they don't litter
-        # the event stream or skew duration reporting.
-        if event_value in (FieldJobEvent.hold, FieldJobEvent.resume):
-            latest_pause = (
-                db.query(WorkOrderEvent)
-                .filter(WorkOrderEvent.work_order_id == work_order.id)
-                .filter(WorkOrderEvent.event.in_([FieldJobEvent.hold, FieldJobEvent.resume]))
-                .order_by(WorkOrderEvent.occurred_at.desc(), WorkOrderEvent.received_at.desc())
-                .first()
-            )
-            if latest_pause is not None and latest_pause.event == event_value:
-                return {"work_order": work_order, "event": latest_pause, "replayed": True}
 
         now = datetime.now(UTC)
         occurred = _coerce_occurred_at(occurred_at) or now
@@ -263,15 +268,33 @@ class FieldTransitions:
             raise
         db.refresh(order_event)
 
-        if event_value in (FieldJobEvent.hold, FieldJobEvent.complete, FieldJobEvent.unable_to_complete):
-            # Timers must not run overnight, past completion, or after an aborted
-            # visit. Best-effort:
-            # the transition is already committed, so a worklog-stop failure
-            # must not 500 an otherwise-successful completion.
-            from app.services.field.worklogs import stop_open_worklog
+        if event_value in (FieldJobEvent.start, FieldJobEvent.resume):
+            from app.services.field.worklogs import start_open_worklog
 
             try:
-                stop_open_worklog(db, work_order.id, person_uuid, stopped_at=now)
+                start_open_worklog(db, work_order.id, person_uuid, started_at=occurred)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "field_worklog_autostart_failed work_order_id=%s event=%s",
+                    work_order.id,
+                    event_value.value,
+                )
+
+        if event_value in (
+            FieldJobEvent.pause,
+            FieldJobEvent.hold,
+            FieldJobEvent.complete,
+            FieldJobEvent.unable_to_complete,
+        ):
+            # Timers must not run while paused, past completion, or after an
+            # aborted visit. Best-effort: transition facts remain authoritative.
+            from app.services.field.worklogs import stop_open_worklog, total_active_seconds
+
+            try:
+                stop_open_worklog(db, work_order.id, person_uuid, stopped_at=occurred)
+                work_order.total_active_seconds = total_active_seconds(db, work_order.id)
+                db.commit()
+                db.refresh(work_order)
             except Exception:
                 logging.getLogger(__name__).exception(
                     "field_worklog_autostop_failed work_order_id=%s event=%s",

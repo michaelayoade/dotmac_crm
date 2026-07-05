@@ -7,12 +7,16 @@ import '../jobs/jobs_providers.dart';
 import 'location_cadence.dart';
 import 'location_ping_service.dart';
 
-final fieldShiftProvider = StateProvider<ShiftState>((ref) => ShiftState.offShift);
+final fieldShiftProvider = StateProvider<ShiftState>(
+  (ref) => ShiftState.offShift,
+);
 
 String? _activeWorkOrderId(JobList? list) {
   if (list == null) return null;
   for (final job in list.jobs) {
-    if (job.status == 'in_progress' || job.status == 'dispatched') {
+    if (job.status == 'in_progress' ||
+        job.status == 'paused' ||
+        job.status == 'dispatched') {
       return job.id;
     }
   }
@@ -165,16 +169,17 @@ class _LocationSharingControlsState
                 ),
               ],
               selected: {shift},
-              onSelectionChanged:
-                  _updating ? null : (values) => _setShift(values.first),
+              onSelectionChanged: _updating
+                  ? null
+                  : (values) => _setShift(values.first),
             ),
             const SizedBox(height: 8),
             Text(
               shift == ShiftState.onShift
                   ? 'Sharing while the app is open.'
                   : shift == ShiftState.onBreak
-                      ? 'Paused for break.'
-                      : 'Not sharing.',
+                  ? 'Paused for break.'
+                  : 'Not sharing.',
               style: theme.textTheme.bodySmall,
             ),
           ],

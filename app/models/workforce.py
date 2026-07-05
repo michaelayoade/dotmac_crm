@@ -14,6 +14,7 @@ class WorkOrderStatus(enum.Enum):
     scheduled = "scheduled"
     dispatched = "dispatched"
     in_progress = "in_progress"
+    paused = "paused"
     completed = "completed"
     canceled = "canceled"
 
@@ -55,7 +56,10 @@ class WorkOrder(Base):
     scheduled_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scheduled_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    total_active_seconds: Mapped[int | None] = mapped_column(Integer)
     # Field service optimization fields
     required_skills: Mapped[list | None] = mapped_column(JSON)
     estimated_duration_minutes: Mapped[int | None] = mapped_column(Integer)

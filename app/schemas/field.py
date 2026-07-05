@@ -83,7 +83,10 @@ class FieldJobSummary(BaseModel):
     estimated_duration_minutes: int | None
     estimated_arrival_at: datetime | None
     started_at: datetime | None
+    paused_at: datetime | None
+    resumed_at: datetime | None
     completed_at: datetime | None
+    total_active_seconds: int | None
 
     @classmethod
     def from_work_order(cls, work_order) -> FieldJobSummary:
@@ -99,7 +102,10 @@ class FieldJobSummary(BaseModel):
             estimated_duration_minutes=work_order.estimated_duration_minutes,
             estimated_arrival_at=work_order.estimated_arrival_at,
             started_at=work_order.started_at,
+            paused_at=work_order.paused_at,
+            resumed_at=work_order.resumed_at,
             completed_at=work_order.completed_at,
+            total_active_seconds=work_order.total_active_seconds,
         )
 
 

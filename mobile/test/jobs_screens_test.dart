@@ -69,11 +69,12 @@ void main() {
     expect(bar.color, AppColors.workType('install'));
   });
 
-  group('action bar shows exactly one primary action per status', () {
+  group('action bar shows work actions per status', () {
     for (final (status, expected) in [
-      ('scheduled', 'Accept job'),
-      ('dispatched', 'Start job'),
-      ('in_progress', 'Complete job'),
+      ('scheduled', ['Start Work']),
+      ('dispatched', ['Start Work']),
+      ('in_progress', ['Pause Work', 'Complete Work']),
+      ('paused', ['Resume Work']),
     ]) {
       testWidgets(status, (tester) async {
         final detail = _detail(status: status);
@@ -95,12 +96,13 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.byKey(const Key('primary-action')), findsOneWidget);
-        expect(find.text(expected), findsOneWidget);
+        for (final label in expected) {
+          expect(find.text(label), findsOneWidget);
+        }
       });
     }
 
-    testWidgets('completed jobs have no primary action', (tester) async {
+    testWidgets('completed jobs have no work action', (tester) async {
       final detail = _detail(status: 'completed');
       await tester.pumpWidget(
         _wrap(
@@ -111,7 +113,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('primary-action')), findsNothing);
+      expect(find.byKey(const Key('work-action-start')), findsNothing);
+      expect(find.byKey(const Key('work-action-pause')), findsNothing);
+      expect(find.byKey(const Key('work-action-resume')), findsNothing);
+      expect(find.byKey(const Key('work-action-complete')), findsNothing);
     });
   });
 

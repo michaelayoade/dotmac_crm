@@ -32,6 +32,7 @@ class FieldJobEvent(enum.Enum):
     accept = "accept"
     en_route = "en_route"
     start = "start"
+    pause = "pause"
     hold = "hold"
     resume = "resume"
     complete = "complete"

@@ -155,28 +155,27 @@ void main() {
 
   group('timer', () {
     test(
-      'start opens a timer; hold queues a closed worklog and clears it',
+      'start opens local timer state; pause clears it without local worklog',
       () async {
         final controller = container.read(executionControllerProvider.notifier);
         await controller.transition('wo-1', 'start');
         expect(container.read(executionControllerProvider), isNotNull);
 
-        await controller.transition('wo-1', 'hold');
+        await controller.transition('wo-1', 'pause');
         expect(container.read(executionControllerProvider), isNull);
 
-        final worklogs = await queued('worklog');
-        final entry = (worklogs.single['entries'] as List).single as Map;
-        expect(entry['start_at'], isNotNull);
-        expect(entry['end_at'], isNotNull);
+        final transitions = await queued('transition');
+        expect(transitions.last['event'], 'pause');
+        expect(await queued('worklog'), isEmpty);
       },
     );
 
-    test('complete also stops the timer', () async {
+    test('complete also clears local timer without local worklog', () async {
       final controller = container.read(executionControllerProvider.notifier);
       await controller.transition('wo-1', 'start');
       await controller.transition('wo-1', 'complete');
       expect(container.read(executionControllerProvider), isNull);
-      expect((await queued('worklog')).length, 1);
+      expect(await queued('worklog'), isEmpty);
     });
 
     test(
