@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from app.services.integration import IntegrationHttpClient
+from app.services.integration_http import IntegrationHttpClient
 
 logger = logging.getLogger(__name__)
 

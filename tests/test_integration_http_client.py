@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.services.integration import IntegrationHttpClient
+from app.services.integration_http import IntegrationHttpClient
 
 
 class _Rate(Exception):
@@ -85,7 +85,7 @@ def test_non_retryable_raises_immediately():
 
 def test_rate_limit_honours_retry_after(monkeypatch):
     slept: list[float] = []
-    monkeypatch.setattr("app.services.integration.http_client.time.sleep", lambda s: slept.append(s))
+    monkeypatch.setattr("app.services.integration_http.time.sleep", lambda s: slept.append(s))
     c, _ = _client([_Rate(retry_after=7), {"ok": True}])
     assert c.request("GET", "/x") == {"ok": True}
     assert slept[0] == 7  # retry_after overrode the backoff

@@ -205,3 +205,12 @@ pytest tests/playwright/ --headed
 5. **Warm professionalism** — rounded corners, warm accents, human language; technical but not sterile
 
 Full design context: `.impeccable.md`
+
+## Cross-repo notes
+
+dotmac_crm is the **system-of-record** for work orders / projects / quotes /
+tickets; `dotmac_sub` mirrors them via webhook + reconcile. CRM enforces `ruff
+format` (not just `ruff check`); PRs need a `version:*` label; merge on green.
+
+<!-- Personal cross-repo notes; a no-op for anyone who doesn't have the file. -->
+@~/.claude/shared/dotmac.md
