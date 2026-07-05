@@ -10,6 +10,7 @@ import logging
 import os
 import random
 import re
+import threading
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -52,6 +53,42 @@ _CONNECT_TIMEOUT_SECONDS = 10
 # Query-param keys that may carry PII (customer email/phone/search terms) — kept
 # out of request logs.
 _SENSITIVE_PARAM_KEYS = frozenset({"q", "query", "search", "email", "phone", "login"})
+
+
+class _SelfcareReachabilityCircuit:
+    """Short-cooldown breaker tripped by connection/timeout failures to sub.
+
+    A slow or unreachable sub otherwise makes every per-subscriber call wait out
+    the full HTTP timeout; CRM admin pages (e.g. billing-risk) fan out across N
+    accounts, turning one outage into N x (connect + read x attempts). The first
+    connection/timeout failure trips this breaker so the remaining calls in the
+    same window fast-fail instead of each blocking. A single successful
+    connection (any HTTP status) closes it again. Mirrors sub's
+    _CRMReachabilityCircuit in the reverse direction.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._open_until = 0.0
+
+    def is_open(self) -> bool:
+        with self._lock:
+            return time.monotonic() < self._open_until
+
+    def trip(self) -> None:
+        with self._lock:
+            try:
+                cooldown = float(os.getenv("SELFCARE_REACHABILITY_CIRCUIT_SECONDS", "30"))
+            except (TypeError, ValueError):
+                cooldown = 30.0
+            self._open_until = time.monotonic() + max(cooldown, 1.0)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._open_until = 0.0
+
+
+_REACHABILITY_CIRCUIT = _SelfcareReachabilityCircuit()
 
 
 def _redact_params(params: dict[str, Any] | None) -> dict[str, Any]:
@@ -242,6 +279,10 @@ def _request_json(
     timeout = (_CONNECT_TIMEOUT_SECONDS, read_timeout)
     method_u = method.upper()
     retryable_method = method_u not in _NON_IDEMPOTENT_METHODS
+    # Fast-fail while sub is known-unreachable so a per-subscriber fan-out isn't
+    # N separate timeouts. Degrades exactly like any other request failure.
+    if _REACHABILITY_CIRCUIT.is_open():
+        raise SelfcareProviderError(f"Selfcare temporarily unavailable (circuit open) for {path}")
     logger.info(
         "SELFCARE_API_REQUEST_START method=%s path=%s timeout=%s params=%s",
         method_u,
@@ -260,7 +301,13 @@ def _request_json(
                 json=json_body,
                 timeout=timeout,
             )
+            # A response (any status) means sub is reachable — close the breaker.
+            _REACHABILITY_CIRCUIT.reset()
         except requests.RequestException as exc:
+            # Connection/timeout failures signal sub is slow/down — trip the
+            # breaker so the rest of the fan-out fast-fails this window.
+            if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+                _REACHABILITY_CIRCUIT.trip()
             duration = time.monotonic() - request_started
             logger.warning(
                 "SELFCARE_API_REQUEST_ERROR method=%s path=%s attempt=%d/%d duration=%.3fs error=%s",
