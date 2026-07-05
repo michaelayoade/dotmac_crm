@@ -60,6 +60,21 @@ class SyncEntityResult:
     response: dict | None = None
 
 
+# ERP server-side per-list caps (see dotmac_erp schemas):
+#   BulkSyncRequest    — max_length=500 per entity list
+#   ExpenseTotalsRequest — max_length=200 per id list
+# Sending more in one call 422s, which the callers swallow — so a busy window
+# would silently sync/return nothing. We chunk to stay under the caps.
+_BULK_SYNC_CHUNK = 500
+_EXPENSE_TOTALS_CHUNK = 200
+
+
+def _chunked(seq: list, size: int):
+    """Yield successive ``size``-length slices of ``seq``."""
+    for i in range(0, len(seq), size):
+        yield seq[i : i + size]
+
+
 class DotMacERPSync:
     """
     Service for syncing DotMac CRM data to DotMac ERP.
@@ -839,18 +854,9 @@ class DotMacERPSync:
                 len(ticket_payloads),
             )
 
-            # Send bulk request
-            api_result = client.bulk_sync(
-                projects=project_payloads,
-                tickets=ticket_payloads,
-                work_orders=work_order_payloads,
-            )
+            # Send bulk request (chunked to the ERP's per-list cap)
+            self._send_bulk(client, project_payloads, ticket_payloads, work_order_payloads, result)
             self._flush_author_mappings()
-
-            result.projects_synced = api_result.get("projects_synced", 0)
-            result.tickets_synced = api_result.get("tickets_synced", 0)
-            result.work_orders_synced = api_result.get("work_orders_synced", 0)
-            result.errors = api_result.get("errors", [])
 
         except DotMacERPError as e:
             self._flush_author_mappings()
@@ -862,6 +868,57 @@ class DotMacERPSync:
 
         result.duration_seconds = (datetime.now(UTC) - start_time).total_seconds()
         return result
+
+    @staticmethod
+    def _send_bulk(
+        client,
+        project_payloads: list[dict],
+        ticket_payloads: list[dict],
+        work_order_payloads: list[dict],
+        result: SyncResult,
+    ) -> None:
+        """Send mapped payloads via client.bulk_sync, aggregating into ``result``.
+
+        Fits in one call when every list is within the cap (the common case);
+        otherwise fans out per entity type in dependency order (projects ->
+        tickets -> work orders), each call under the cap, so a window with >500
+        of any entity syncs everything instead of 422-ing the whole batch.
+        """
+        if (
+            len(project_payloads) <= _BULK_SYNC_CHUNK
+            and len(ticket_payloads) <= _BULK_SYNC_CHUNK
+            and len(work_order_payloads) <= _BULK_SYNC_CHUNK
+        ):
+            api_result = client.bulk_sync(
+                projects=project_payloads,
+                tickets=ticket_payloads,
+                work_orders=work_order_payloads,
+            )
+            result.projects_synced += api_result.get("projects_synced", 0)
+            result.tickets_synced += api_result.get("tickets_synced", 0)
+            result.work_orders_synced += api_result.get("work_orders_synced", 0)
+            result.errors.extend(api_result.get("errors", []))
+            return
+
+        logger.info(
+            "ERP bulk sync fan-out (over cap %d): projects=%d tickets=%d work_orders=%d",
+            _BULK_SYNC_CHUNK,
+            len(project_payloads),
+            len(ticket_payloads),
+            len(work_order_payloads),
+        )
+        for chunk in _chunked(project_payloads, _BULK_SYNC_CHUNK):
+            r = client.bulk_sync(projects=chunk)
+            result.projects_synced += r.get("projects_synced", 0)
+            result.errors.extend(r.get("errors", []))
+        for chunk in _chunked(ticket_payloads, _BULK_SYNC_CHUNK):
+            r = client.bulk_sync(tickets=chunk)
+            result.tickets_synced += r.get("tickets_synced", 0)
+            result.errors.extend(r.get("errors", []))
+        for chunk in _chunked(work_order_payloads, _BULK_SYNC_CHUNK):
+            r = client.bulk_sync(work_orders=chunk)
+            result.work_orders_synced += r.get("work_orders_synced", 0)
+            result.errors.extend(r.get("errors", []))
 
     def sync_all_active(self, limit: int = 500) -> SyncResult:
         """
@@ -938,64 +995,41 @@ class DotMacERPSync:
 
     # ============ Expense Totals ============
 
-    def get_project_expense_totals(self, project_ids: list[str]) -> dict[str, dict]:
-        """
-        Get expense totals from ERP for the given projects.
+    def _fetch_expense_totals(self, ids: list[str], kwarg: str, label: str) -> dict[str, dict]:
+        """Fetch expense totals for ``ids``, chunked to the ERP's per-request cap.
 
-        Returns:
-            Dict mapping project_id to expense totals
+        The batch endpoint caps each id list at 200; over that it 422s. We chunk
+        and merge, so a large page returns real totals instead of silently empty.
+        A failed chunk is logged and skipped (partial results beat none).
         """
         client = self._get_client()
         if not client:
             logger.debug("ERP expense fetch skipped: not configured")
             return {}
 
-        try:
-            result = client.get_expense_totals(project_omni_ids=project_ids)
-            logger.debug(f"Fetched expense totals for {len(project_ids)} projects from ERP")
-            return result
-        except DotMacERPNotFoundError as e:
-            logger.info(f"ERP project expense totals unavailable: {e}")
-            return {}
-        except DotMacERPError as e:
-            logger.warning(f"Failed to get project expense totals from ERP: {e}")
-            return {}
+        merged: dict[str, dict] = {}
+        for chunk in _chunked(ids, _EXPENSE_TOTALS_CHUNK):
+            try:
+                merged.update(client.get_expense_totals(**{kwarg: chunk}))
+            except DotMacERPNotFoundError as e:
+                logger.info("ERP %s expense totals unavailable: %s", label, e)
+            except DotMacERPError as e:
+                logger.warning("Failed to get %s expense totals from ERP: %s", label, e)
+        if merged:
+            logger.debug("Fetched expense totals for %d %s from ERP", len(ids), label)
+        return merged
+
+    def get_project_expense_totals(self, project_ids: list[str]) -> dict[str, dict]:
+        """Get expense totals from ERP for the given projects (chunked)."""
+        return self._fetch_expense_totals(project_ids, "project_omni_ids", "projects")
 
     def get_ticket_expense_totals(self, ticket_ids: list[str]) -> dict[str, dict]:
-        """Get expense totals from ERP for the given tickets."""
-        client = self._get_client()
-        if not client:
-            logger.debug("ERP expense fetch skipped: not configured")
-            return {}
-
-        try:
-            result = client.get_expense_totals(ticket_omni_ids=ticket_ids)
-            logger.debug(f"Fetched expense totals for {len(ticket_ids)} tickets from ERP")
-            return result
-        except DotMacERPNotFoundError as e:
-            logger.info(f"ERP ticket expense totals unavailable: {e}")
-            return {}
-        except DotMacERPError as e:
-            logger.warning(f"Failed to get ticket expense totals from ERP: {e}")
-            return {}
+        """Get expense totals from ERP for the given tickets (chunked)."""
+        return self._fetch_expense_totals(ticket_ids, "ticket_omni_ids", "tickets")
 
     def get_work_order_expense_totals(self, work_order_ids: list[str]) -> dict[str, dict]:
-        """Get expense totals from ERP for the given work orders."""
-        client = self._get_client()
-        if not client:
-            logger.debug("ERP expense fetch skipped: not configured")
-            return {}
-
-        try:
-            result = client.get_expense_totals(work_order_omni_ids=work_order_ids)
-            logger.debug(f"Fetched expense totals for {len(work_order_ids)} work orders from ERP")
-            return result
-        except DotMacERPNotFoundError as e:
-            logger.info(f"ERP work order expense totals unavailable: {e}")
-            return {}
-        except DotMacERPError as e:
-            logger.warning(f"Failed to get work order expense totals from ERP: {e}")
-            return {}
+        """Get expense totals from ERP for the given work orders (chunked)."""
+        return self._fetch_expense_totals(work_order_ids, "work_order_omni_ids", "work orders")
 
 
 # Singleton-style factory function
