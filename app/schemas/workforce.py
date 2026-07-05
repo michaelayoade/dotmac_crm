@@ -102,7 +102,7 @@ class WorkOrderNoteBase(BaseModel):
     work_order_id: UUID
     author_person_id: UUID | None = None
     body: str = Field(min_length=1)
-    is_internal: bool = False
+    is_internal: bool = True
     attachments: list | None = None
 
 

@@ -22,6 +22,7 @@ JobDetail _detail({
   String status = 'dispatched',
   JobLocation? location,
   List<Map<String, dynamic>> materialRequests = const [],
+  List<Map<String, dynamic>> history = const [],
 }) => JobDetail(
   job: _job(status: status),
   location:
@@ -39,6 +40,7 @@ JobDetail _detail({
   ),
   ticketRef: 'TCK-1001',
   materialRequests: materialRequests,
+  history: history,
 );
 
 Widget _wrap(Widget child, {List<Override> overrides = const []}) =>
@@ -192,11 +194,18 @@ void main() {
           'unexpected',
         ],
       },
+      'history': {
+        'items': [
+          {'type': 'note', 'title': 'History note'},
+        ],
+      },
       'materials': null,
     });
 
     expect(detail.notes, hasLength(1));
     expect(detail.notes.single['text'], 'Stored note returned as text');
+    expect(detail.history, hasLength(1));
+    expect(detail.history.single['title'], 'History note');
   });
 
   testWidgets('job detail renders notes returned with alternate body key', (
@@ -273,6 +282,54 @@ void main() {
     expect(find.text('Material requests'), findsOneWidget);
     expect(find.text('MR-1001'), findsOneWidget);
     expect(find.text('submitted · 1 item'), findsOneWidget);
+  });
+
+  testWidgets('job detail shows combined history activity', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        const JobDetailScreen(jobId: 'wo-1'),
+        overrides: [
+          jobDetailProvider('wo-1').overrideWith(
+            (ref) async => _detail(
+              history: const [
+                {
+                  'id': 'mr:1',
+                  'type': 'material_request',
+                  'title': 'Material request MR-1001',
+                  'description': 'submitted · 1 item',
+                  'occurred_at': '2026-06-10T09:00:00Z',
+                  'status': 'submitted',
+                },
+                {
+                  'id': 'note:1',
+                  'type': 'note',
+                  'title': 'Internal note',
+                  'description': 'Checked signal at cabinet',
+                  'occurred_at': '2026-06-10T09:05:00Z',
+                  'actor_name': 'Adaeze Okafor',
+                  'is_internal': true,
+                },
+                {
+                  'id': 'event:1',
+                  'type': 'work_event',
+                  'title': 'Work started',
+                  'occurred_at': '2026-06-10T09:10:00Z',
+                  'status': 'start',
+                },
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('History'), findsOneWidget);
+    expect(find.text('Material request MR-1001'), findsOneWidget);
+    expect(find.text('submitted · 1 item'), findsOneWidget);
+    expect(find.text('Checked signal at cabinet'), findsOneWidget);
+    expect(find.text('Internal'), findsOneWidget);
+    expect(find.text('Work started'), findsOneWidget);
   });
 
   testWidgets('technician can open add note composer from job detail', (

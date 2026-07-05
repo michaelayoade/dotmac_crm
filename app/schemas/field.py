@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
@@ -480,6 +480,18 @@ class FieldOpenTicketItem(BaseModel):
     status: str | None
 
 
+class FieldJobHistoryItem(BaseModel):
+    id: str
+    type: str
+    title: str
+    description: str | None = None
+    occurred_at: datetime
+    actor_name: str | None = None
+    status: str | None = None
+    is_internal: bool | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class FieldJobDetail(BaseModel):
     job: FieldJobSummary
     customer: FieldCustomer | None
@@ -495,6 +507,7 @@ class FieldJobDetail(BaseModel):
     materials: list[FieldMaterialRead]
     material_requests: list[MaterialRequestRead] = []
     worklogs: list[FieldWorkLogRead]
+    history: list[FieldJobHistoryItem] = []
 
 
 class FieldTransitionRequest(BaseModel):

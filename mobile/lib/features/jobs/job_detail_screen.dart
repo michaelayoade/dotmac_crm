@@ -216,6 +216,26 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                 ),
               ),
             ],
+            if (detail.history.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'History',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      for (final item in detail.history)
+                        _HistoryTile(item: item),
+                    ],
+                  ),
+                ),
+              ),
+            ],
             if (_isAddingNote) ...[
               const SizedBox(height: 12),
               Card(
@@ -614,6 +634,70 @@ class _MaterialRequestListTile extends StatelessWidget {
       onTap: id == null ? null : () => context.push('/materials/$id'),
     );
   }
+}
+
+class _HistoryTile extends StatelessWidget {
+  const _HistoryTile({required this.item});
+
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    final type = item['type']?.toString() ?? 'activity';
+    final title = item['title']?.toString() ?? 'Activity';
+    final description = item['description']?.toString();
+    final actor = item['actor_name']?.toString();
+    final status = item['status']?.toString().replaceAll('_', ' ');
+    final occurredAt = item['occurred_at']?.toString();
+    final isInternal = item['is_internal'];
+    final meta = [
+      if (actor != null && actor.isNotEmpty) actor,
+      if (status != null && status.isNotEmpty) status,
+      if (occurredAt != null && occurredAt.isNotEmpty) occurredAt,
+    ].join(' · ');
+
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(_historyIcon(type)),
+      title: Row(
+        children: [
+          Expanded(child: Text(title)),
+          if (isInternal is bool)
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: Chip(
+                visualDensity: VisualDensity.compact,
+                label: Text(isInternal ? 'Internal' : 'External'),
+              ),
+            ),
+        ],
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (description != null && description.isNotEmpty) Text(description),
+          if (meta.isNotEmpty)
+            Text(
+              meta,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+IconData _historyIcon(String type) {
+  return switch (type) {
+    'note' => Icons.sticky_note_2_outlined,
+    'material_request' => Icons.assignment_outlined,
+    'work_event' => Icons.timeline_outlined,
+    'worklog' => Icons.timer_outlined,
+    'attachment' => Icons.attach_file,
+    _ => Icons.history,
+  };
 }
 
 String? _noteMeta(Map<String, dynamic> note) {

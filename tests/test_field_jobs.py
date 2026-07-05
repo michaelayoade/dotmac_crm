@@ -5,6 +5,7 @@ import uuid
 import pytest
 from fastapi import HTTPException
 
+from app.models.field import FieldJobEvent, WorkOrderEvent
 from app.models.inventory import InventoryItem, WorkOrderMaterial
 from app.models.person import Person
 from app.models.tickets import TicketComment
@@ -84,6 +85,15 @@ def test_detail_bundle_contents(db_session, assigned_job, person, ticket):
             hourly_rate=99,
         )
     )
+    db_session.add(
+        WorkOrderEvent(
+            work_order_id=assigned_job.id,
+            event=FieldJobEvent.start,
+            actor_person_id=person.id,
+            occurred_at=assigned_job.created_at,
+            client_event_id=uuid.uuid4(),
+        )
+    )
     db_session.commit()
 
     bundle = field_jobs.get_detail(db_session, str(person.id), str(assigned_job.id))
@@ -95,6 +105,14 @@ def test_detail_bundle_contents(db_session, assigned_job, person, ticket):
     assert [m.item.name for m in bundle["materials"]] == ["Drop cable"]
     assert [mr.id for mr in bundle["material_requests"]] == [request.id]
     assert len(bundle["worklogs"]) == 1
+    history = bundle["history"]
+    assert {item["type"] for item in history} >= {"note", "material_request", "work_event", "worklog"}
+    assert history == sorted(history, key=lambda item: item["occurred_at"], reverse=True)
+    material_item = next(item for item in history if item["type"] == "material_request")
+    assert material_item["metadata"]["material_request_id"] == str(request.id)
+    assert material_item["description"] == "submitted · 1 item"
+    note_item = next(item for item in history if item["type"] == "note")
+    assert note_item["is_internal"] is True
 
 
 def test_work_order_note_mirrors_to_linked_ticket(db_session, assigned_job, person):
@@ -121,6 +139,23 @@ def test_work_order_note_mirrors_to_linked_ticket(db_session, assigned_job, pers
     assert comment.is_internal is True
     assert comment.attachments == attachments
     assert str(assigned_job.id)[:8] in comment.body
+    assert note.body in comment.body
+
+
+def test_external_work_order_note_mirrors_to_external_ticket_comment(db_session, assigned_job, person):
+    note = work_order_notes.create(
+        db_session,
+        WorkOrderNoteCreate(
+            work_order_id=assigned_job.id,
+            body="Customer-facing update",
+            author_person_id=person.id,
+            is_internal=False,
+        ),
+    )
+
+    comment = db_session.query(TicketComment).filter(TicketComment.ticket_id == assigned_job.ticket_id).one()
+    assert note.is_internal is False
+    assert comment.is_internal is False
     assert note.body in comment.body
 
 

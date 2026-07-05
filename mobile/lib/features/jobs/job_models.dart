@@ -164,6 +164,7 @@ class JobDetail {
     this.notes = const [],
     this.materials = const [],
     this.materialRequests = const [],
+    this.history = const [],
   });
 
   final JobSummary job;
@@ -173,6 +174,7 @@ class JobDetail {
   final List<Map<String, dynamic>> notes;
   final List<Map<String, dynamic>> materials;
   final List<Map<String, dynamic>> materialRequests;
+  final List<Map<String, dynamic>> history;
 
   factory JobDetail.fromJson(Map<String, dynamic> json) => JobDetail(
     job: JobSummary.fromJson((json['job'] as Map).cast<String, dynamic>()),
@@ -188,6 +190,7 @@ class JobDetail {
     notes: _mapList(json['notes']),
     materials: _mapList(json['materials']),
     materialRequests: _mapList(json['material_requests']),
+    history: _mapList(json['history']),
   );
 }
 

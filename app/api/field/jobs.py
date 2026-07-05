@@ -11,6 +11,7 @@ from app.schemas.field import (
     FieldJobDestination,
     FieldJobDestinationsResponse,
     FieldJobDetail,
+    FieldJobHistoryItem,
     FieldJobLocation,
     FieldJobLocationUpdate,
     FieldJobSummary,
@@ -75,6 +76,7 @@ def get_field_job(work_order_id: str, auth=Depends(require_user_auth), db: Sessi
         materials=[FieldMaterialRead.from_material(m) for m in bundle["materials"]],
         material_requests=[MaterialRequestRead.model_validate(mr) for mr in bundle["material_requests"]],
         worklogs=[FieldWorkLogRead.model_validate(w) for w in bundle["worklogs"]],
+        history=[FieldJobHistoryItem(**item) for item in bundle["history"]],
     )
 
 
