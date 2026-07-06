@@ -131,6 +131,35 @@ def test_ncc_ticket_person_uses_exact_subscriber_display_name_fallback():
     assert reports._ticket_ncc_person(ticket, {"ntel cbd": [fallback_person]}) is fallback_person
 
 
+def test_ncc_uses_splynx_data_detects_legacy_subscriber_source():
+    subscriber = SimpleNamespace(external_system="splynx", sync_metadata={})
+    ticket = SimpleNamespace(subscriber=subscriber, metadata_={})
+
+    assert reports._ncc_uses_splynx_data(ticket, None)
+
+
+def test_ncc_uses_splynx_data_detects_nested_metadata_markers():
+    subscriber = SimpleNamespace(external_system="selfcare", sync_metadata={"legacy": {"splynx_id": "123"}})
+    person = SimpleNamespace(metadata_={})
+    ticket = SimpleNamespace(subscriber=subscriber, metadata_={})
+
+    assert reports._ncc_uses_splynx_data(ticket, person)
+
+
+def test_ncc_uses_splynx_data_allows_selfcare_without_splynx_metadata():
+    subscriber = SimpleNamespace(external_system="selfcare", sync_metadata={"selfcare_id": "123"})
+    person = SimpleNamespace(metadata_={"selfcare_id": "123"})
+    ticket = SimpleNamespace(subscriber=subscriber, metadata_={"source": "dotmac_sub"})
+
+    assert not reports._ncc_uses_splynx_data(ticket, person)
+
+
+def test_ncc_contains_splynx_marker_detects_row_cell_values():
+    record = {"First Name": "Ada", "Email": "no-email@splynx.local"}
+
+    assert reports._contains_splynx_marker(record)
+
+
 def test_ncc_clean_record_splits_multiword_first_name_instead_of_blanking_it():
     cleaned = reports._clean_ncc_record({"First Name": "Sa\u2019Adatu Lecky", "Last Name": ""})
 
