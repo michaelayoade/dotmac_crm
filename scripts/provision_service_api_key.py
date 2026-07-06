@@ -89,11 +89,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         api_key, raw_key = ApiKeys.generate(db, payload)
 
+        # Capture the values to display while the instances are still bound to
+        # the session — reading them after the ``with`` block closes would raise
+        # DetachedInstanceError (SessionLocal expires attributes on commit).
+        person_id = person.id
+        key_id = api_key.id
+        key_label = api_key.label
+        key_expires = api_key.expires_at
+
     print("Service ApiKey provisioned.")
-    print(f"  person : {email} ({person.id})")
-    print(f"  key id : {api_key.id}")
-    print(f"  label  : {api_key.label}")
-    print(f"  expires: {api_key.expires_at or 'never'}")
+    print(f"  person : {email} ({person_id})")
+    print(f"  key id : {key_id}")
+    print(f"  label  : {key_label}")
+    print(f"  expires: {key_expires or 'never'}")
     print()
     print("Raw key (shown ONCE — store it in the sub CRM_SERVICE_TOKEN secret):")
     print(f"  {raw_key}")
