@@ -372,6 +372,58 @@ class DotMacERPClient:
         except DotMacERPNotFoundError:
             return None
 
+    # ============ Expense Claim API Methods ============
+
+    def push_expense_claim(self, payload: dict, idempotency_key: str | None = None) -> dict:
+        """Push a submitted field expense request to ERP as an expense claim.
+
+        Args:
+            payload: Expense request data (see ExpenseRequestSync._map_expense_request)
+            idempotency_key: Idempotency key for safe retries
+
+        Returns:
+            ERP response with claim_id/claim_number/status
+        """
+        result = self._request(
+            "POST",
+            "/sync/crm/expense-claims",
+            json_data=payload,
+            idempotency_key=idempotency_key or f"exp-{uuid.uuid4()}",
+            expected_status_codes={200, 201},
+        )
+        return result if isinstance(result, dict) else {}
+
+    def get_expense_claim_status(self, omni_id: str) -> dict | None:
+        """Check expense claim approval/payment status from ERP.
+
+        Args:
+            omni_id: CRM expense request UUID
+
+        Returns:
+            Status dict or None if not found
+        """
+        try:
+            result = self._request(
+                "GET",
+                f"/sync/crm/expense-claims/{omni_id}",
+                expected_status_codes={200},
+            )
+            return result if isinstance(result, dict) else None
+        except DotMacERPNotFoundError:
+            return None
+
+    def get_expense_categories(self) -> list[dict]:
+        """List active ERP expense categories for field expense capture."""
+        result = self._request(
+            "GET",
+            "/sync/crm/expense-categories",
+            expected_status_codes={200},
+        )
+        if isinstance(result, dict):
+            items = result.get("items")
+            return items if isinstance(items, list) else []
+        return result if isinstance(result, list) else []
+
     def list_available_serials(
         self,
         *,

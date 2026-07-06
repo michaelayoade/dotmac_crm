@@ -88,6 +88,11 @@ from app.models.event_store import (  # noqa: F401
     EventStatus,
     EventStore,
 )
+from app.models.expense_request import (  # noqa: F401
+    ExpenseRequest,
+    ExpenseRequestItem,
+    ExpenseRequestStatus,
+)
 from app.models.external import (  # noqa: F401
     ExternalEntityType,
     ExternalReference,

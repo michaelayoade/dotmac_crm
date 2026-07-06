@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 from app.api.field.attachments import router as attachments_router
 from app.api.field.devices import router as devices_router
 from app.api.field.equipment import router as equipment_router
+from app.api.field.expense_requests import router as expense_requests_router
 from app.api.field.fiber import router as fiber_router
 from app.api.field.inventory import router as inventory_router
 from app.api.field.jobs import router as jobs_router
@@ -35,6 +36,7 @@ _technician = [Depends(require_technician)]
 router.include_router(attachments_router)
 router.include_router(devices_router)
 router.include_router(equipment_router, dependencies=_technician)
+router.include_router(expense_requests_router, dependencies=_technician)
 router.include_router(fiber_router, dependencies=_technician)
 router.include_router(inventory_router, dependencies=_technician)
 router.include_router(jobs_router, dependencies=_technician)

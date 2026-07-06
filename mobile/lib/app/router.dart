@@ -8,6 +8,7 @@ import '../features/auth/login_screen.dart';
 import '../features/auth/mfa_screen.dart';
 import '../features/customers/customer_models.dart';
 import '../features/customers/customer_lookup_screen.dart';
+import '../features/expenses/expenses_screen.dart';
 import '../features/jobs/job_detail_screen.dart';
 import '../features/location/location_tracking_controller.dart';
 import '../features/materials/materials_screen.dart';
@@ -63,6 +64,18 @@ GoRouter buildRouter(Ref ref) {
             MaterialRequestDetailScreen(id: state.pathParameters['id']!),
       ),
       GoRoute(
+        path: '/expenses/new',
+        builder: (_, state) => NewExpenseRequestScreen(
+          initialWorkOrderId: state.uri.queryParameters['workOrderId'],
+          initialWorkOrderLabel: state.uri.queryParameters['workOrderLabel'],
+        ),
+      ),
+      GoRoute(
+        path: '/expenses/:id',
+        builder: (_, state) =>
+            ExpenseRequestDetailScreen(id: state.pathParameters['id']!),
+      ),
+      GoRoute(
         path: '/customers/:id',
         builder: (_, state) => CustomerDetailScreen(
           customer: state.extra is CustomerLookupResult
@@ -96,6 +109,14 @@ GoRouter buildRouter(Ref ref) {
               GoRoute(
                 path: '/materials',
                 builder: (_, _) => const MaterialsScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/expenses',
+                builder: (_, _) => const ExpensesScreen(),
               ),
             ],
           ),
@@ -163,23 +184,26 @@ class _NavItem {
 }
 
 // Branch order (see StatefulShellRoute above):
-// 0 Today/Projects · 1 Map · 2 Schedule · 3 Materials · 4 Customers · 5 Profile
+// 0 Today/Projects · 1 Map · 2 Schedule · 3 Materials · 4 Expenses ·
+// 5 Customers · 6 Profile
 const _staffNav = [
   _NavItem(0, Icons.assignment_outlined, 'Today'),
   _NavItem(1, Icons.map_outlined, 'Map'),
   _NavItem(2, Icons.calendar_today_outlined, 'Schedule'),
   _NavItem(3, Icons.inventory_2_outlined, 'Materials'),
-  _NavItem(4, Icons.people_alt_outlined, 'Customers'),
-  _NavItem(5, Icons.person_outline, 'Profile'),
+  _NavItem(4, Icons.receipt_long_outlined, 'Expenses'),
+  _NavItem(5, Icons.people_alt_outlined, 'Customers'),
+  _NavItem(6, Icons.person_outline, 'Profile'),
 ];
 
 // Vendors get the tabs backed by vendor-aware endpoints: Projects, the
 // vendor-scoped Map (nearby plant), and Profile. Schedule / Materials /
-// Customers are require_technician and would 403, so they stay hidden.
+// Expenses / Customers are require_technician and would 403, so they stay
+// hidden.
 const _vendorNav = [
   _NavItem(0, Icons.assignment_outlined, 'Projects'),
   _NavItem(1, Icons.map_outlined, 'Map'),
-  _NavItem(5, Icons.person_outline, 'Profile'),
+  _NavItem(6, Icons.person_outline, 'Profile'),
 ];
 
 class _AppShell extends ConsumerWidget {

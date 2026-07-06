@@ -87,6 +87,9 @@ DEFAULT_PERMISSIONS = [
     # Operations - Material Requests
     ("operations:material_request:read", "View material requests"),
     ("operations:material_request:write", "Manage material requests"),
+    # Operations - Expense Requests
+    ("operations:expense_request:read", "View expense requests"),
+    ("operations:expense_request:write", "Manage expense requests"),
     # Operations - Technicians
     ("operations:technician:read", "View technicians"),
     ("operations:technician:write", "Manage technicians"),

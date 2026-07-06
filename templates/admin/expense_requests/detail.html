@@ -1,0 +1,173 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import status_badge, danger_button %}
+
+{% block title %}Expense Request {{ er.number if er.number else '' }} - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+        <a href="/admin/operations/expense-requests" class="hover:text-slate-700 dark:hover:text-slate-200">Expense Requests</a>
+        <span>/</span>
+        <span class="text-slate-900 dark:text-white">{{ er.number if er.number else er.id | string | truncate(8, True, '') }}</span>
+    </nav>
+
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between animate-fade-in-up">
+        <div class="flex items-center gap-4">
+            <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25">
+                <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3-1.5L11 21l3-1.5L17 21l2-1z"/></svg>
+            </div>
+            <div>
+                <div class="flex items-center gap-3">
+                    <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ er.number if er.number else 'Expense Request' }}</h1>
+                    {{ status_badge(er.status.value) }}
+                </div>
+                <p class="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{{ er.purpose }}</p>
+            </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+            {% if er.status.value == 'submitted' and not er.erp_expense_claim_id %}
+            {{ danger_button("Cancel Request", action_url="/admin/operations/expense-requests/" ~ er.id ~ "/cancel",
+                confirm_title="Cancel Expense Request?",
+                confirm_message="The technician will need to raise a new request. This cannot be undone.") }}
+            {% endif %}
+        </div>
+    </div>
+
+    {% if er.status.value == 'rejected' and er.rejection_reason %}
+    <div class="rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300">
+        <span class="font-semibold">Rejected in ERP:</span> {{ er.rejection_reason }}
+    </div>
+    {% endif %}
+
+    <div class="grid gap-6 lg:grid-cols-3">
+        <!-- Request details -->
+        <div class="space-y-6 lg:col-span-2">
+            <div class="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+                <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Request Details</h2>
+                <dl class="mt-4 grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Requested By</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">{% if er.requested_by %}{{ er.requested_by.first_name }} {{ er.requested_by.last_name }}{% endif %}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Expense Date</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ er.expense_date.strftime('%d %b %Y') if er.expense_date else '' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Ticket</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">
+                            {% if er.ticket %}<a href="/admin/tickets/{{ er.ticket.id }}" class="text-amber-600 hover:text-amber-500 dark:text-amber-400">{{ er.ticket.number if er.ticket.number else er.ticket.id }}</a>{% else %}&mdash;{% endif %}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Project</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">
+                            {% if er.project %}<a href="/admin/projects/{{ er.project.id }}" class="text-amber-600 hover:text-amber-500 dark:text-amber-400">{{ er.project.number if er.project.number else er.project.name }}</a>{% else %}&mdash;{% endif %}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Submitted</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ er.submitted_at.strftime('%d %b %Y %H:%M') if er.submitted_at else '' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Paid</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ er.paid_at.strftime('%d %b %Y %H:%M') if er.paid_at else '&mdash;' | safe }}</dd>
+                    </div>
+                </dl>
+                {% if er.notes %}
+                <div class="mt-4 border-t border-slate-100 pt-4 dark:border-slate-700/60">
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Notes</dt>
+                    <dd class="mt-1 whitespace-pre-line text-sm text-slate-700 dark:text-slate-300">{{ er.notes }}</dd>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Expense lines -->
+            <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+                <div class="border-b border-slate-100 px-6 py-4 dark:border-slate-700/60">
+                    <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Expense Lines</h2>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                        <thead class="bg-slate-50 dark:bg-slate-800/60">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Category</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Description</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Vendor</th>
+                                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Date</th>
+                                <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 dark:divide-slate-700/60">
+                            {% for item in er.items %}
+                            <tr>
+                                <td class="px-4 py-3 text-sm font-medium text-slate-900 dark:text-white">{{ item.category_name if item.category_name else item.category_code }}</td>
+                                <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{{ item.description }}</td>
+                                <td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">{{ item.vendor_name if item.vendor_name else '' }}</td>
+                                <td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">{{ item.expense_date.strftime('%d %b %Y') if item.expense_date else '' }}</td>
+                                <td class="px-4 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">{{ '{:,.2f}'.format(item.amount) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot class="bg-slate-50 dark:bg-slate-800/60">
+                            <tr>
+                                <td colspan="4" class="px-4 py-3 text-right text-sm font-semibold text-slate-500 dark:text-slate-400">Total</td>
+                                <td class="px-4 py-3 text-right text-sm font-bold text-slate-900 dark:text-white">{{ er.currency or 'NGN' }} {{ '{:,.2f}'.format(er.total_amount) }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ERP sync panel -->
+        <div class="space-y-6">
+            <div class="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+                <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">ERP Expense Claim</h2>
+                <dl class="mt-4 space-y-4">
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Sync Status</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">
+                            {% if er.erp_sync_status %}{{ status_badge(er.erp_sync_status.value) }}{% else %}&mdash;{% endif %}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Claim Number</dt>
+                        <dd class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ er.erp_claim_number if er.erp_claim_number else '&mdash;' | safe }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Claim Status</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ er.erp_claim_status | replace('_', ' ') | title if er.erp_claim_status else '&mdash;' | safe }}</dd>
+                    </div>
+                    {% if er.erp_synced_at %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Last Synced</dt>
+                        <dd class="mt-1 text-sm text-slate-900 dark:text-white">{{ er.erp_synced_at.strftime('%d %b %Y %H:%M') }}</dd>
+                    </div>
+                    {% endif %}
+                    {% if er.erp_sync_error %}
+                    <div>
+                        <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Sync Error</dt>
+                        <dd class="mt-1 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">{{ er.erp_sync_error }}</dd>
+                    </div>
+                    {% endif %}
+                </dl>
+                <div class="mt-6 flex flex-col gap-2">
+                    {% if er.status.value == 'submitted' and (not er.erp_sync_status or er.erp_sync_status.value in ['failed', 'not_configured']) %}
+                    <form method="POST" action="/admin/operations/expense-requests/{{ er.id }}/retry-erp-sync">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="w-full rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-500">Retry ERP Sync</button>
+                    </form>
+                    {% endif %}
+                    {% if er.erp_expense_claim_id and er.status.value in ['submitted', 'approved'] %}
+                    <form method="POST" action="/admin/operations/expense-requests/{{ er.id }}/refresh-erp-status">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <button type="submit" class="w-full rounded-xl border border-amber-200 bg-white px-4 py-2 text-sm font-semibold text-amber-700 shadow-sm transition hover:bg-amber-50 dark:border-amber-500/30 dark:bg-slate-800 dark:text-amber-300 dark:hover:bg-amber-500/10">Refresh Claim Status</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
