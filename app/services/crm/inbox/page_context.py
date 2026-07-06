@@ -393,6 +393,7 @@ def _load_manager_active_conversations(
     assignment_counts: dict | None,
     agent_availability: dict | None,
 ) -> list[dict]:
+    agent_availability = agent_availability or {}
     conversations_raw = list_inbox_conversations(
         db,
         statuses=[ConversationStatus.open, ConversationStatus.pending],
@@ -400,7 +401,33 @@ def _load_manager_active_conversations(
         limit=_manager_active_chat_limit(stats, assignment_counts, agent_availability),
         offset=0,
     )
-    rows = _format_conversation_list_rows(db, conversations_raw)
+    rows = [*_format_conversation_list_rows(db, conversations_raw)]
+
+    for agent_id, availability in agent_availability.items():
+        active_chats = int((availability or {}).get("active_chats") or 0)
+        if active_chats <= 0:
+            continue
+        agent_conversations_raw = list_inbox_conversations(
+            db,
+            statuses=[ConversationStatus.open, ConversationStatus.pending],
+            assignment="agent",
+            filter_agent_id=str(agent_id),
+            exclude_superseded_resolved=False,
+            limit=active_chats,
+            offset=0,
+        )
+        rows.extend(_format_conversation_list_rows(db, agent_conversations_raw))
+
+    deduped_rows = []
+    seen_ids = set()
+    for row in rows:
+        row_id = str(row.get("id") or "").strip()
+        if row_id and row_id in seen_ids:
+            continue
+        if row_id:
+            seen_ids.add(row_id)
+        deduped_rows.append(row)
+    rows = deduped_rows
     enrich_formatted_conversations_with_labels(db, rows)
     return rows
 

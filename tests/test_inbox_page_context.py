@@ -277,10 +277,10 @@ def test_manager_panel_keeps_all_active_conversations_for_agent():
 
 
 def test_manager_active_conversation_loader_uses_global_active_limit(monkeypatch):
-    captured: dict[str, object] = {}
+    calls: list[dict[str, object]] = []
 
     def fake_list_inbox_conversations(_db, **kwargs):
-        captured.update(kwargs)
+        calls.append(kwargs)
         return [("conv", None, 0, None)]
 
     monkeypatch.setattr(page_context_module, "list_inbox_conversations", fake_list_inbox_conversations)
@@ -298,16 +298,17 @@ def test_manager_active_conversation_loader_uses_global_active_limit(monkeypatch
     )
 
     assert rows == [{"id": "conv-1"}]
-    assert captured["statuses"] == [ConversationStatus.open, ConversationStatus.pending]
-    assert captured["limit"] == 50
-    assert captured["offset"] == 0
+    global_call = calls[0]
+    assert global_call["statuses"] == [ConversationStatus.open, ConversationStatus.pending]
+    assert global_call["limit"] == 50
+    assert global_call["offset"] == 0
 
 
 def test_manager_active_conversation_loader_expands_past_default_for_agent_workload(monkeypatch):
-    captured: dict[str, object] = {}
+    calls: list[dict[str, object]] = []
 
     def fake_list_inbox_conversations(_db, **kwargs):
-        captured.update(kwargs)
+        calls.append(kwargs)
         return []
 
     monkeypatch.setattr(page_context_module, "list_inbox_conversations", fake_list_inbox_conversations)
@@ -324,4 +325,49 @@ def test_manager_active_conversation_loader_expands_past_default_for_agent_workl
         },
     )
 
-    assert captured["limit"] == 57
+    assert calls[0]["limit"] == 57
+
+
+def test_manager_active_conversation_loader_supplements_each_agent_full_workload(monkeypatch):
+    calls: list[dict[str, object]] = []
+
+    def fake_list_inbox_conversations(_db, **kwargs):
+        calls.append(kwargs)
+        if kwargs.get("assignment") == "agent":
+            return [
+                {
+                    "id": f"monica-{idx}",
+                    "contact": {"name": f"Customer {idx}"},
+                    "channel": "whatsapp",
+                    "status": "open",
+                    "assigned_agent_id": "agent-monica",
+                }
+                for idx in range(21)
+            ]
+        return [
+            {
+                "id": f"monica-{idx}",
+                "contact": {"name": f"Customer {idx}"},
+                "channel": "whatsapp",
+                "status": "open",
+                "assigned_agent_id": "agent-monica",
+            }
+            for idx in range(8)
+        ]
+
+    monkeypatch.setattr(page_context_module, "list_inbox_conversations", fake_list_inbox_conversations)
+    monkeypatch.setattr(page_context_module, "_format_conversation_list_rows", lambda _db, rows: list(rows))
+    monkeypatch.setattr(page_context_module, "enrich_formatted_conversations_with_labels", lambda *_args: None)
+
+    rows = _load_manager_active_conversations(
+        SimpleNamespace(),
+        stats={"open": 8, "pending": 0},
+        assignment_counts={"assigned": 8, "unassigned": 0},
+        agent_availability={"agent-monica": {"active_chats": 21}},
+    )
+
+    agent_calls = [call for call in calls if call.get("assignment") == "agent"]
+    assert len(agent_calls) == 1
+    assert agent_calls[0]["filter_agent_id"] == "agent-monica"
+    assert agent_calls[0]["limit"] == 21
+    assert len(rows) == 21
