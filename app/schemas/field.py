@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 from app.models.field import DevicePlatform, FieldAttachmentKind
 from app.models.material_request import MaterialRequestPriority
 from app.models.sales_order import SalesOrderPaymentStatus, SalesOrderStatus
+from app.schemas.expense_request import ExpenseRequestItemCreate
 from app.schemas.material_request import MaterialRequestItemCreate, MaterialRequestRead
 
 
@@ -198,6 +199,17 @@ class FieldMaterialRequestCreate(BaseModel):
     destination_location_id: UUID | None = None
     items: list[MaterialRequestItemCreate] = Field(default_factory=list, max_length=100)
     submit: bool = True
+
+
+class FieldExpenseRequestCreate(BaseModel):
+    ticket_id: UUID | None = None
+    project_id: UUID | None = None
+    work_order_id: UUID | None = None
+    purpose: str = Field(min_length=1, max_length=500)
+    expense_date: date | None = None
+    currency: str | None = Field(default=None, min_length=3, max_length=3)
+    notes: str | None = Field(default=None, max_length=5000)
+    items: list[ExpenseRequestItemCreate] = Field(min_length=1, max_length=50)
 
 
 class FieldCustomerSearchItem(BaseModel):

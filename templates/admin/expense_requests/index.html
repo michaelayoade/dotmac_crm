@@ -1,0 +1,111 @@
+{% extends "layouts/admin.html" %}
+{% from "components/ui/macros.html" import status_badge, empty_state %}
+
+{% block title %}Expense Requests - Admin{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between animate-fade-in-up">
+        <div class="flex items-center gap-4">
+            <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 shadow-lg shadow-amber-500/25">
+                <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3-1.5L11 21l3-1.5L17 21l2-1z"/></svg>
+            </div>
+            <div>
+                <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Expense Requests</h1>
+                <p class="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Field expenses raised in the technician app — approved and paid in ERP</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <form method="GET" action="/admin/operations/expense-requests" class="grid w-full gap-3 sm:grid-cols-5 sm:items-end">
+        <div>
+            <label for="status" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</label>
+            <select id="status" name="status" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                <option value="" {% if not filter_status %}selected{% endif %}>All statuses</option>
+                {% for value, label in status_choices %}
+                <option value="{{ value }}" {% if filter_status == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="erp_status" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">ERP Status</label>
+            <select id="erp_status" name="erp_status" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                <option value="" {% if not filter_erp_status %}selected{% endif %}>All ERP statuses</option>
+                <option value="pending_approval" {% if filter_erp_status == 'pending_approval' %}selected{% endif %}>Pending approval</option>
+                <option value="approved" {% if filter_erp_status == 'approved' %}selected{% endif %}>Approved</option>
+                <option value="paid" {% if filter_erp_status == 'paid' %}selected{% endif %}>Paid</option>
+                <option value="rejected" {% if filter_erp_status == 'rejected' %}selected{% endif %}>Rejected</option>
+                <option value="synced" {% if filter_erp_status == 'synced' %}selected{% endif %}>Synced</option>
+                <option value="failed" {% if filter_erp_status == 'failed' %}selected{% endif %}>Failed sync</option>
+                <option value="retrying" {% if filter_erp_status == 'retrying' %}selected{% endif %}>Retrying</option>
+                <option value="not_configured" {% if filter_erp_status == 'not_configured' %}selected{% endif %}>Not configured</option>
+            </select>
+        </div>
+        <div>
+            <label for="date_from" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+            <input id="date_from" name="date_from" type="date" value="{{ filter_date_from }}" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200" />
+        </div>
+        <div>
+            <label for="date_to" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+            <input id="date_to" name="date_to" type="date" value="{{ filter_date_to }}" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200" />
+        </div>
+        <div class="flex gap-2">
+            <button type="submit" class="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-500">Apply</button>
+            <a href="/admin/operations/expense-requests" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Reset</a>
+        </div>
+    </form>
+
+    <!-- Table -->
+    <div class="overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
+        {% if items %}
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                <thead class="bg-slate-50 dark:bg-slate-800/60">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Number</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Purpose</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Requested By</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">ERP</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Created</th>
+                        <th class="px-4 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-slate-700/60">
+                    {% for er in items %}
+                    <tr class="transition hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                        <td class="px-4 py-3 text-sm font-semibold text-slate-900 dark:text-white">
+                            <a href="/admin/operations/expense-requests/{{ er.id }}" class="hover:text-amber-600 dark:hover:text-amber-400">
+                                {{ er.number if er.number else er.id | string | truncate(8, True, '') }}
+                            </a>
+                        </td>
+                        <td class="max-w-xs truncate px-4 py-3 text-sm text-slate-600 dark:text-slate-300" title="{{ er.purpose }}">{{ er.purpose }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{% if er.requested_by %}{{ er.requested_by.first_name }} {{ er.requested_by.last_name }}{% endif %}</td>
+                        <td class="px-4 py-3 text-right text-sm font-semibold text-slate-900 dark:text-white">{{ er.currency or 'NGN' }} {{ '{:,.2f}'.format(er.total_amount) }}</td>
+                        <td class="px-4 py-3">{{ status_badge(er.status.value) }}</td>
+                        <td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                            {% if er.erp_claim_status %}
+                                {{ er.erp_claim_status | replace('_', ' ') | title }}
+                            {% elif er.erp_sync_status %}
+                                {{ er.erp_sync_status.value | replace('_', ' ') | title }}
+                            {% else %}
+                                <span class="text-slate-400 dark:text-slate-500">&mdash;</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">{{ er.created_at.strftime('%d %b %Y') }}</td>
+                        <td class="px-4 py-3 text-right">
+                            <a href="/admin/operations/expense-requests/{{ er.id }}" class="text-sm font-semibold text-amber-600 hover:text-amber-500 dark:text-amber-400">View</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        {{ empty_state("No expense requests", "Expense requests raised by field technicians will appear here.") }}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -104,6 +104,14 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
             ),
             icon: const Icon(Icons.inventory_2_outlined),
           ),
+          IconButton(
+            tooltip: 'Request expense',
+            onPressed: () => context.push(
+              '/expenses/new?workOrderId=${Uri.encodeComponent(job.id)}'
+              '&workOrderLabel=${Uri.encodeComponent(job.title)}',
+            ),
+            icon: const Icon(Icons.receipt_long_outlined),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Center(

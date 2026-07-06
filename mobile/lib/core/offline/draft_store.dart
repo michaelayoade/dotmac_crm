@@ -6,6 +6,7 @@ import 'database.dart';
 
 const materialRequestDraftId = 'material_request:new';
 const salesOrderDraftId = 'sales_order:new';
+const expenseRequestDraftId = 'expense_request:new';
 
 class DraftStore {
   const DraftStore(this.db);

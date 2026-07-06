@@ -255,6 +255,23 @@ void main() {
     expect(launched.single.scheme, 'tel');
   });
 
+  testWidgets('job detail app bar offers material and expense requests', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        const JobDetailScreen(jobId: 'wo-1'),
+        overrides: [
+          jobDetailProvider('wo-1').overrideWith((ref) async => _detail()),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('Request materials'), findsOneWidget);
+    expect(find.byTooltip('Request expense'), findsOneWidget);
+  });
+
   testWidgets('job detail shows linked material requests', (tester) async {
     await tester.pumpWidget(
       _wrap(

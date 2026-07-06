@@ -1231,6 +1231,349 @@ def refresh_pending_material_request_erp_statuses(limit: int = 50):
 
 
 @celery_app.task(
+    name="app.tasks.integrations.sync_expense_request_to_erp",
+    bind=True,
+    time_limit=60,
+    soft_time_limit=45,
+    max_retries=5,
+    autoretry_for=(DotMacERPTransientError,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+)
+def sync_expense_request_to_erp(self, expense_request_id: str):
+    """Push a submitted field expense request to DotMac ERP as an expense claim.
+
+    Args:
+        expense_request_id: UUID of the expense request to sync
+
+    Returns:
+        Dict with sync result
+    """
+    from app.services.dotmac_erp import (
+        DotMacERPAuthError,
+        DotMacERPError,
+        DotMacERPRateLimitError,
+        DotMacERPTransientError,
+    )
+    from app.services.dotmac_erp.expense_request_sync import dotmac_erp_expense_request_sync
+
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("EXPENSE_REQUEST_SYNC_START expense_request_id=%s", expense_request_id)
+
+    try:
+        from sqlalchemy.orm import selectinload
+
+        from app.models.expense_request import ExpenseRequest, ExpenseRequestERPSyncStatus
+
+        er = session.get(
+            ExpenseRequest,
+            coerce_uuid(expense_request_id),
+            options=[selectinload(ExpenseRequest.items)],
+        )
+        if not er:
+            logger.warning("EXPENSE_REQUEST_SYNC_NOT_FOUND expense_request_id=%s", expense_request_id)
+            return {"success": False, "error": "Expense request not found"}
+
+        er.erp_sync_status = ExpenseRequestERPSyncStatus.pending
+        er.erp_sync_error = None
+        er.erp_sync_attempts = (er.erp_sync_attempts or 0) + 1
+        session.commit()
+
+        sync_service = dotmac_erp_expense_request_sync(session)
+        try:
+            result = sync_service.sync_expense_request(er)
+        finally:
+            sync_service.close()
+
+        if result.success:
+            er.erp_sync_status = ExpenseRequestERPSyncStatus.synced
+            er.erp_sync_error = None
+            er.erp_synced_at = datetime.now(UTC)
+            session.commit()
+            logger.info(
+                "EXPENSE_REQUEST_SYNC_COMPLETE expense_request_id=%s erp_claim_id=%s",
+                expense_request_id,
+                result.erp_expense_claim_id,
+            )
+        else:
+            status = "error"
+            er.erp_sync_status = ExpenseRequestERPSyncStatus.failed
+            er.erp_sync_error = (result.error or "ERP sync failed")[:500]
+            session.commit()
+            logger.warning(
+                "EXPENSE_REQUEST_SYNC_FAILED expense_request_id=%s error=%s",
+                expense_request_id,
+                result.error,
+            )
+
+        return {
+            "success": result.success,
+            "expense_request_id": result.expense_request_id,
+            "erp_expense_claim_id": result.erp_expense_claim_id,
+            "error": result.error,
+        }
+
+    except ValueError as e:
+        status = "error"
+        if "er" in locals() and er:
+            from app.models.expense_request import ExpenseRequestERPSyncStatus
+
+            er.erp_sync_status = ExpenseRequestERPSyncStatus.not_configured
+            er.erp_sync_error = str(e)[:500]
+            session.commit()
+        logger.error("EXPENSE_REQUEST_SYNC_NOT_CONFIGURED expense_request_id=%s error=%s", expense_request_id, e)
+        return {"success": False, "error": str(e), "error_type": "not_configured"}
+    except DotMacERPRateLimitError as e:
+        status = "retry"
+        if "er" in locals() and er:
+            from app.models.expense_request import ExpenseRequestERPSyncStatus
+
+            er.erp_sync_status = ExpenseRequestERPSyncStatus.retrying
+            er.erp_sync_error = str(e)[:500]
+            session.commit()
+        retry_after = e.retry_after or 60
+        logger.warning(
+            "EXPENSE_REQUEST_SYNC_RATE_LIMITED expense_request_id=%s retry_after=%s",
+            expense_request_id,
+            retry_after,
+        )
+        raise self.retry(exc=e, countdown=retry_after)
+    except DotMacERPAuthError as e:
+        status = "error"
+        if "er" in locals() and er:
+            from app.models.expense_request import ExpenseRequestERPSyncStatus
+
+            er.erp_sync_status = ExpenseRequestERPSyncStatus.failed
+            er.erp_sync_error = str(e)[:500]
+            session.commit()
+        logger.error(
+            "EXPENSE_REQUEST_SYNC_AUTH_ERROR expense_request_id=%s error=%s",
+            expense_request_id,
+            str(e),
+        )
+        return {"success": False, "error": str(e), "error_type": "auth"}
+    except DotMacERPTransientError as e:
+        status = "retry"
+        if "er" in locals() and er:
+            from app.models.expense_request import ExpenseRequestERPSyncStatus
+
+            er.erp_sync_status = ExpenseRequestERPSyncStatus.retrying
+            er.erp_sync_error = str(e)[:500]
+            session.commit()
+        logger.warning(
+            "EXPENSE_REQUEST_SYNC_TRANSIENT expense_request_id=%s error=%s",
+            expense_request_id,
+            str(e),
+        )
+        raise
+    except DotMacERPError as e:
+        status = "error"
+        if "er" in locals() and er:
+            from app.models.expense_request import ExpenseRequestERPSyncStatus
+
+            er.erp_sync_status = ExpenseRequestERPSyncStatus.failed
+            er.erp_sync_error = str(e)[:500]
+            session.commit()
+        logger.error(
+            "EXPENSE_REQUEST_SYNC_ERROR expense_request_id=%s error=%s",
+            expense_request_id,
+            str(e),
+        )
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        status = "error"
+        if "er" in locals() and er:
+            try:
+                from app.models.expense_request import ExpenseRequestERPSyncStatus
+
+                session.rollback()
+                er.erp_sync_status = ExpenseRequestERPSyncStatus.failed
+                er.erp_sync_error = str(e)[:500]
+                session.commit()
+            except Exception:
+                session.rollback()
+        logger.exception(
+            "EXPENSE_REQUEST_SYNC_FAILED expense_request_id=%s error=%s",
+            expense_request_id,
+            str(e),
+        )
+        session.rollback()
+        raise
+
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("expense_request_sync", status, duration)
+
+
+@celery_app.task(
+    name="app.tasks.integrations.refresh_expense_request_erp_status",
+    bind=True,
+    time_limit=60,
+    soft_time_limit=45,
+    max_retries=3,
+    autoretry_for=(DotMacERPTransientError,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+)
+def refresh_expense_request_erp_status(self, expense_request_id: str):
+    """Pull the latest ERP claim status for one expense request."""
+    from app.services.dotmac_erp import DotMacERPError
+    from app.services.dotmac_erp.expense_request_sync import dotmac_erp_expense_request_sync
+
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("EXPENSE_REQUEST_ERP_STATUS_REFRESH_START expense_request_id=%s", expense_request_id)
+
+    try:
+        from sqlalchemy.orm import selectinload
+
+        from app.models.expense_request import ExpenseRequest
+
+        er = session.get(
+            ExpenseRequest,
+            coerce_uuid(expense_request_id),
+            options=[selectinload(ExpenseRequest.items)],
+        )
+        if not er:
+            return {"success": False, "error": "Expense request not found"}
+        if not er.erp_expense_claim_id:
+            return {"success": False, "error": "Expense request has not been synced to ERP yet"}
+
+        sync_service = dotmac_erp_expense_request_sync(session)
+        try:
+            result = sync_service.refresh_expense_request_status(er)
+        finally:
+            sync_service.close()
+
+        if not result.success:
+            status = "error"
+        logger.info(
+            "EXPENSE_REQUEST_ERP_STATUS_REFRESH_COMPLETE expense_request_id=%s claim_status=%s",
+            expense_request_id,
+            result.erp_claim_status,
+        )
+        return {
+            "success": result.success,
+            "expense_request_id": result.expense_request_id,
+            "erp_claim_status": result.erp_claim_status,
+            "error": result.error,
+        }
+    except ValueError as e:
+        status = "error"
+        logger.warning(
+            "EXPENSE_REQUEST_ERP_STATUS_REFRESH_NOT_CONFIGURED expense_request_id=%s error=%s",
+            expense_request_id,
+            e,
+        )
+        return {"success": False, "error": str(e), "error_type": "not_configured"}
+    except DotMacERPTransientError:
+        status = "retry"
+        raise
+    except DotMacERPError as e:
+        status = "error"
+        logger.error(
+            "EXPENSE_REQUEST_ERP_STATUS_REFRESH_ERROR expense_request_id=%s error=%s",
+            expense_request_id,
+            str(e),
+        )
+        return {"success": False, "error": str(e)}
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("expense_request_erp_status_refresh", status, duration)
+
+
+@celery_app.task(
+    name="app.tasks.integrations.refresh_pending_expense_request_erp_statuses",
+    time_limit=300,
+    soft_time_limit=240,
+)
+def refresh_pending_expense_request_erp_statuses(batch_limit: int = 100):
+    """Poll ERP for claim status on expense requests awaiting approval/payment."""
+    from app.services.dotmac_erp import DotMacERPError
+    from app.services.dotmac_erp.expense_request_sync import dotmac_erp_expense_request_sync
+
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    errors: list[str] = []
+    results: dict[str, object] = {"processed": 0, "updated": 0, "errors": errors}
+    processed = 0
+    updated = 0
+
+    try:
+        from sqlalchemy.orm import selectinload
+
+        from app.models.expense_request import ExpenseRequest, ExpenseRequestStatus
+
+        batch_limit = max(1, min(int(batch_limit or 100), 200))
+        pending = (
+            session.query(ExpenseRequest)
+            .options(selectinload(ExpenseRequest.items))
+            .filter(ExpenseRequest.is_active.is_(True))
+            .filter(ExpenseRequest.erp_expense_claim_id.isnot(None))
+            .filter(ExpenseRequest.status.in_([ExpenseRequestStatus.submitted, ExpenseRequestStatus.approved]))
+            .order_by(ExpenseRequest.updated_at.asc())
+            .limit(batch_limit)
+            .all()
+        )
+        if not pending:
+            return results
+
+        try:
+            sync_service = dotmac_erp_expense_request_sync(session)
+        except ValueError:
+            logger.info("EXPENSE_REQUEST_ERP_STATUS_REFRESH_SKIPPED reason=not_configured")
+            return results
+
+        try:
+            for er in pending:
+                processed += 1
+                try:
+                    result = sync_service.refresh_expense_request_status(er)
+                    if result.success:
+                        updated += 1
+                    elif result.error_type != "NotFound":
+                        errors.append(f"{er.id}: {result.error}")
+                except DotMacERPError as exc:
+                    session.rollback()
+                    errors.append(f"{er.id}: {exc}")
+        finally:
+            sync_service.close()
+
+        results["processed"] = processed
+        results["updated"] = updated
+        logger.info(
+            "PENDING_EXPENSE_REQUEST_ERP_STATUS_REFRESH_COMPLETE processed=%s updated=%s errors=%s",
+            processed,
+            updated,
+            len(errors),
+        )
+        return results
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("pending_expense_request_erp_status_refresh", status, duration)
+
+
+@celery_app.task(
     name="app.tasks.integrations.sync_purchase_order_to_erp",
     bind=True,
     time_limit=60,
