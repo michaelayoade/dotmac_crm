@@ -2329,12 +2329,14 @@ function inboxController() {
             try {
                 const body = new URLSearchParams();
                 body.set('agent_id', agentId);
+                const token = this.getCsrfToken();
                 const resp = await fetch(`/admin/crm/inbox/conversation/${encodeURIComponent(chatId)}/assignment`, {
                     method: 'POST',
                     headers: {
                         Accept: 'application/json',
                         'Content-Type': 'application/x-www-form-urlencoded',
                         'HX-Request': 'true',
+                        'X-CSRF-Token': token || '',
                     },
                     body,
                 });
