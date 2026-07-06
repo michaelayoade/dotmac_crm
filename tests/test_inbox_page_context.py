@@ -4,8 +4,14 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from app.models.crm.enums import ConversationStatus
+from app.services.crm.inbox import page_context as page_context_module
 from app.services.crm.inbox.listing import InboxListResult
-from app.services.crm.inbox.page_context import build_inbox_conversation_detail_context, build_inbox_page_context
+from app.services.crm.inbox.page_context import (
+    _build_manager_panel_context,
+    _load_manager_active_conversations,
+    build_inbox_conversation_detail_context,
+    build_inbox_page_context,
+)
 
 
 def _run_async(coro):
@@ -239,3 +245,83 @@ def test_build_inbox_page_context_passes_requested_offset(monkeypatch):
 
     assert captured["offset"] == 100
     assert context["conversations_page"] == 3
+
+
+def test_manager_panel_keeps_all_active_conversations_for_agent():
+    agent = SimpleNamespace(id="agent-1")
+    conversations = [
+        {
+            "id": f"conv-{idx}",
+            "contact": {"name": f"Customer {idx}"},
+            "channel": "whatsapp",
+            "status": "open",
+            "assigned_agent_id": "agent-1",
+            "assigned_agent_name": "Ada Agent",
+        }
+        for idx in range(12)
+    ]
+
+    panel = _build_manager_panel_context(
+        agents=[agent],
+        agent_labels={"agent-1": "Ada Agent"},
+        agent_availability={"agent-1": {"status": "online", "active_chats": 12, "cap": 20}},
+        stats={"open": 12},
+        assignment_counts={"assigned": 12},
+        channel_stats={},
+        conversations=conversations,
+        current_user={"roles": ["admin"], "permissions": ["crm:inbox:write"]},
+    )
+
+    assert len(panel["active_conversations"]) == 12
+    assert len(panel["agents"][0]["active_conversations"]) == 12
+
+
+def test_manager_active_conversation_loader_uses_global_active_limit(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_list_inbox_conversations(_db, **kwargs):
+        captured.update(kwargs)
+        return [("conv", None, 0, None)]
+
+    monkeypatch.setattr(page_context_module, "list_inbox_conversations", fake_list_inbox_conversations)
+    monkeypatch.setattr(page_context_module, "_format_conversation_list_rows", lambda _db, rows: [{"id": "conv-1"}])
+    monkeypatch.setattr(page_context_module, "enrich_formatted_conversations_with_labels", lambda *_args: None)
+
+    rows = _load_manager_active_conversations(
+        SimpleNamespace(),
+        stats={"open": 8, "pending": 0},
+        assignment_counts={"assigned": 8, "unassigned": 0},
+        agent_availability={
+            "agent-monica": {"active_chats": 23},
+            "agent-other": {"active_chats": 4},
+        },
+    )
+
+    assert rows == [{"id": "conv-1"}]
+    assert captured["statuses"] == [ConversationStatus.open, ConversationStatus.pending]
+    assert captured["limit"] == 50
+    assert captured["offset"] == 0
+
+
+def test_manager_active_conversation_loader_expands_past_default_for_agent_workload(monkeypatch):
+    captured: dict[str, object] = {}
+
+    def fake_list_inbox_conversations(_db, **kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(page_context_module, "list_inbox_conversations", fake_list_inbox_conversations)
+    monkeypatch.setattr(page_context_module, "_format_conversation_list_rows", lambda _db, rows: [])
+    monkeypatch.setattr(page_context_module, "enrich_formatted_conversations_with_labels", lambda *_args: None)
+
+    _load_manager_active_conversations(
+        SimpleNamespace(),
+        stats={"open": 8, "pending": 0},
+        assignment_counts={"assigned": 8, "unassigned": 0},
+        agent_availability={
+            "agent-monica": {"active_chats": 53},
+            "agent-other": {"active_chats": 4},
+        },
+    )
+
+    assert captured["limit"] == 57

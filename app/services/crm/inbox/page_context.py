@@ -13,7 +13,7 @@ from app.logic import private_note_logic
 from app.models.connector import ConnectorType
 from app.models.crm.campaign import Campaign
 from app.models.crm.conversation import Conversation, ConversationAssignment, ConversationSummary, Message
-from app.models.crm.enums import ChannelType, MessageDirection
+from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection
 from app.models.crm.team import CrmAgent, CrmTeam
 from app.models.customer_retention import CustomerRetentionEngagement
 from app.models.domain_settings import SettingDomain
@@ -45,13 +45,14 @@ from app.services.crm.inbox.labels import enrich_formatted_conversations_with_la
 from app.services.crm.inbox.listing import DEFAULT_INBOX_PAGE_SIZE, load_inbox_list
 from app.services.crm.inbox.macros import conversation_macros
 from app.services.crm.inbox.permissions import can_assign_conversation, can_view_manager_dashboard
-from app.services.crm.inbox.queries import get_assignment_counts
+from app.services.crm.inbox.queries import get_assignment_counts, list_inbox_conversations
 from app.services.crm.inbox.templates import message_templates
 from app.services.settings_spec import resolve_value
 from app.services.time_preferences import resolve_company_time_prefs
 
 logger = logging.getLogger(__name__)
 _DETAIL_CHOICES_TTL_SECONDS = 30
+_MANAGER_PANEL_MIN_CHAT_LIMIT = DEFAULT_INBOX_PAGE_SIZE
 _ACTIVE_TICKET_TERMINAL_STATUSES = {
     TicketStatus.closed,
     TicketStatus.canceled,
@@ -369,6 +370,41 @@ def _format_conversation_list_rows(db: Session, conversations_raw: list[tuple]) 
     return rows
 
 
+def _manager_active_chat_limit(
+    stats: dict | None,
+    assignment_counts: dict | None,
+    agent_availability: dict | None,
+) -> int:
+    stats = stats or {}
+    assignment_counts = assignment_counts or {}
+    agent_availability = agent_availability or {}
+    active_total = int(stats.get("open") or 0) + int(stats.get("pending") or 0)
+    assignment_total = int(assignment_counts.get("assigned") or 0) + int(assignment_counts.get("unassigned") or 0)
+    agent_active_total = sum(
+        int((availability or {}).get("active_chats") or 0) for availability in agent_availability.values()
+    )
+    return max(_MANAGER_PANEL_MIN_CHAT_LIMIT, active_total, assignment_total, agent_active_total, 1)
+
+
+def _load_manager_active_conversations(
+    db: Session,
+    *,
+    stats: dict | None,
+    assignment_counts: dict | None,
+    agent_availability: dict | None,
+) -> list[dict]:
+    conversations_raw = list_inbox_conversations(
+        db,
+        statuses=[ConversationStatus.open, ConversationStatus.pending],
+        exclude_superseded_resolved=False,
+        limit=_manager_active_chat_limit(stats, assignment_counts, agent_availability),
+        offset=0,
+    )
+    rows = _format_conversation_list_rows(db, conversations_raw)
+    enrich_formatted_conversations_with_labels(db, rows)
+    return rows
+
+
 def _build_manager_panel_context(
     *,
     agents: list,
@@ -508,9 +544,9 @@ def _build_manager_panel_context(
             "comments": int(channel_stats.get("comments") or 0),
         },
         "agents": agent_rows,
-        "active_conversations": active_conversations[:10],
-        "unassigned_conversations": unassigned_conversations[:10],
-        "attention_conversations": attention_conversations[:10],
+        "active_conversations": active_conversations,
+        "unassigned_conversations": unassigned_conversations,
+        "attention_conversations": attention_conversations,
     }
 
 
@@ -859,6 +895,16 @@ async def build_inbox_page_context(
     can_view_manager = can_view_manager_dashboard(current_roles, current_scopes)
     manager_panel = {"can_view": False, "can_reassign": False}
     if can_view_manager:
+        manager_conversations = conversations
+        try:
+            manager_conversations = _load_manager_active_conversations(
+                db,
+                stats=stats,
+                assignment_counts=assignment_counts,
+                agent_availability=assignment_options.get("agent_availability"),
+            )
+        except Exception:
+            logger.debug("Failed to load complete manager active conversation list.", exc_info=True)
         manager_panel = _build_manager_panel_context(
             agents=assignment_options.get("agents") or [],
             agent_labels=assignment_options.get("agent_labels"),
@@ -866,7 +912,7 @@ async def build_inbox_page_context(
             stats=stats,
             assignment_counts=assignment_counts,
             channel_stats=channel_stats,
-            conversations=conversations,
+            conversations=manager_conversations,
             current_user=current_user,
         )
     templates = _load_message_template_choices(db) if selected_conversation else []
