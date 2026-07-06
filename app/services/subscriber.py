@@ -14,7 +14,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.person import ChannelType, PartyStatus, Person, PersonChannel
@@ -135,14 +135,39 @@ class SubscriberManager:
         )
 
     def get_by_external_id(self, db: Session, external_system: str, external_id: str) -> Subscriber | None:
-        """Get subscriber by external system reference."""
+        """Get subscriber by external system reference.
+
+        Ordered by ``created_at`` so that if duplicate mirror rows exist for one
+        external ref, resolution is deterministic (oldest wins) rather than
+        arbitrary — a subscriber's person link and status then always resolve to
+        the same row. New duplicates are prevented by the advisory lock in
+        ``_lock_external_ref``.
+        """
         return (
             db.query(Subscriber)
             .filter(
                 Subscriber.external_system == external_system,
                 Subscriber.external_id == external_id,
             )
+            .order_by(Subscriber.created_at, Subscriber.id)
             .first()
+        )
+
+    @staticmethod
+    def _lock_external_ref(db: Session, external_system: str, external_id: str) -> None:
+        """Serialize concurrent get-or-create for one external subscriber ref.
+
+        The ``(external_system, external_id)`` index is non-unique, so two
+        reconcile/sync passes racing on the same ref both see "not found" and
+        both insert. A transaction-level advisory lock makes the second block
+        until the first commits, so it updates the existing mirror row instead
+        of creating a duplicate. No-op off PostgreSQL (SQLite test harness).
+        """
+        if not external_id or db.get_bind().dialect.name != "postgresql":
+            return
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": f"subscriber_external:{external_system}:{external_id}"},
         )
 
     def get_by_subscriber_number(self, db: Session, subscriber_number: str) -> Subscriber | None:
@@ -200,6 +225,9 @@ class SubscriberManager:
         Sync subscriber data from external system.
         Creates or updates subscriber based on external_id.
         """
+        # Serialize concurrent syncs for this ref before the find so a parallel
+        # pass can't slip a duplicate mirror row in between our find and create.
+        self._lock_external_ref(db, external_system, external_id)
         subscriber = self.get_by_external_id(db, external_system, external_id)
 
         sync_data = {
