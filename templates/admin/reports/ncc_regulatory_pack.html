@@ -137,10 +137,33 @@
     </div>
     {% if subscribers.available %}
       {% set report = subscribers.report %}
+      {% set matrix = report.subscription_matrix if report.subscription_matrix else {} %}
+      {% set corporate = matrix.get('corporate', {}) %}
+      {% set individual = matrix.get('individual', {}) %}
+      {% set corporate_wired = corporate.get('wired', 0) %}
+      {% set corporate_wireless = corporate.get('wireless', 0) %}
+      {% set individual_wired = individual.get('wired', 0) %}
+      {% set individual_wireless = individual.get('wireless', 0) %}
+      {% set matrix_total = corporate_wired + corporate_wireless + individual_wired + individual_wireless %}
+      {% set billing_mode = report.by_billing_mode if report.by_billing_mode else {} %}
+      {% set speed_band = report.by_speed_band if report.by_speed_band else {} %}
+      {% set average_speed_payload = report.average_speed if report.average_speed else {} %}
+      {% set average_speed = report.average_internet_speed_mbps
+        if report.average_internet_speed_mbps is defined and report.average_internet_speed_mbps is not none
+        else (
+          report.average_download_speed_mbps
+          if report.average_download_speed_mbps is defined and report.average_download_speed_mbps is not none
+          else average_speed_payload.get('average_mbps')
+        )
+      %}
       <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div class="rounded-xl bg-slate-50 p-4 dark:bg-slate-700/40">
-          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Active subscriptions</p>
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total active internet subscriptions</p>
           <p class="mt-1 font-display text-2xl font-bold tabular-nums text-slate-900 dark:text-white">{{ report.total_active_subscriptions }}</p>
+        </div>
+        <div class="rounded-xl bg-slate-50 p-4 dark:bg-slate-700/40">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Average internet speed</p>
+          <p class="mt-1 font-display text-2xl font-bold tabular-nums text-slate-900 dark:text-white">{{ average_speed ~ ' Mbps' if average_speed is not none else '—' }}</p>
         </div>
         {% if report.network_capacity %}
         <div class="rounded-xl bg-slate-50 p-4 dark:bg-slate-700/40">
@@ -153,14 +176,77 @@
         </div>
         {% endif %}
       </div>
+
+      <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200/70 dark:border-slate-700/60">
+        <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+          <thead class="bg-slate-50 dark:bg-slate-700/40">
+            <tr>
+              <th scope="col" class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">By customer type</th>
+              <th scope="col" class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Wired subscriptions</th>
+              <th scope="col" class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Wireless subscriptions</th>
+              <th scope="col" class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 dark:divide-slate-700/60">
+            <tr>
+              <td class="px-3 py-2 font-medium text-slate-700 dark:text-slate-300">Active internet service provisions - Corporate</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums text-slate-900 dark:text-white">{{ corporate_wired }}</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums text-slate-900 dark:text-white">{{ corporate_wireless }}</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-white">{{ corporate_wired + corporate_wireless }}</td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2 font-medium text-slate-700 dark:text-slate-300">Active internet service provisions - Individual</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums text-slate-900 dark:text-white">{{ individual_wired }}</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums text-slate-900 dark:text-white">{{ individual_wireless }}</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-white">{{ individual_wired + individual_wireless }}</td>
+            </tr>
+            <tr class="bg-slate-50/70 dark:bg-slate-700/30">
+              <td class="px-3 py-2 font-semibold text-slate-900 dark:text-white">Total active internet subscriptions</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums text-slate-900 dark:text-white">{{ corporate_wired + individual_wired }}</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums text-slate-900 dark:text-white">{{ corporate_wireless + individual_wireless }}</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums font-bold text-slate-900 dark:text-white">{{ matrix_total }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-4 overflow-x-auto rounded-xl border border-slate-200/70 dark:border-slate-700/60">
+        <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+          <thead class="bg-slate-50 dark:bg-slate-700/40">
+            <tr>
+              <th scope="col" class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Internet speed band</th>
+              <th scope="col" class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Subscribers</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 dark:divide-slate-700/60">
+            <tr>
+              <td class="px-3 py-2 text-slate-700 dark:text-slate-300">a. 256 kbits/s - &lt; 2 Mbits/s</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-white">{{ speed_band.get('256kbps-<2Mbps', 0) }}</td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2 text-slate-700 dark:text-slate-300">b. 2 Mbits/s - &lt; 10 Mbits/s</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-white">{{ speed_band.get('2Mbps-<10Mbps', 0) }}</td>
+            </tr>
+            <tr>
+              <td class="px-3 py-2 text-slate-700 dark:text-slate-300">c. 10 Mbits/s &amp; above</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-white">{{ speed_band.get('10Mbps+', 0) }}</td>
+            </tr>
+            {% if speed_band.get('unknown') %}
+            <tr>
+              <td class="px-3 py-2 text-slate-700 dark:text-slate-300">Unknown speed</td>
+              <td class="px-3 py-2 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-white">{{ speed_band.get('unknown') }}</td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+
       <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {{ count_table("By connection", report.by_connection) }}
-        {{ count_table("By customer type", report.by_customer_type) }}
-        {{ count_table("By speed band", report.by_speed_band) }}
+        {{ count_table("By billing mode", billing_mode) }}
       </div>
       <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         {{ count_table("By region (geopolitical zone)", report.by_region) }}
-        {{ count_table("By state", report.by_state) }}
+        {{ count_table("Total active internet subscriptions per state", report.by_state) }}
       </div>
     {% else %}
       {{ unavailable_notice(subscribers) }}

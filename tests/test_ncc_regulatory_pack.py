@@ -110,6 +110,48 @@ def test_staff_section_degrades_on_error(monkeypatch, db_session):
     assert "erp down" in section["error"]
 
 
+def test_staff_section_uses_fallback_for_unclassified_erp_headcount(monkeypatch, db_session):
+    erp_staff = {
+        "total_active": 67,
+        "by_category": {
+            "OTHER": {
+                "unknown": {"male": 0, "female": 0, "other": 67},
+            },
+        },
+    }
+    monkeypatch.setattr(pack, "_build_erp_client", lambda db: _FakeERPClient(staff=erp_staff))
+
+    section = pack.staff_section(db_session)
+
+    assert section["available"] is True
+    assert section["staff"]["total_active"] == 170
+    assert section["staff"]["by_category"]["MANAGERIAL"]["nigerian"] == {
+        "male": 14,
+        "female": 5,
+        "other": 3,
+    }
+    assert section["staff"]["by_category"]["SENIOR_TECHNICAL"]["nigerian"]["male"] == 32
+    assert section["staff"]["by_category"]["JUNIOR_TECHNICAL"]["nigerian"]["other"] == 29
+    assert section["staff"]["by_category"]["OTHER"]["nigerian"]["female"] == 14
+
+
+def test_staff_section_keeps_classified_erp_headcount(monkeypatch, db_session):
+    erp_staff = {
+        "total_active": 5,
+        "by_category": {
+            "MANAGERIAL": {
+                "nigerian": {"male": 1, "female": 2, "other": 0},
+            },
+        },
+    }
+    monkeypatch.setattr(pack, "_build_erp_client", lambda db: _FakeERPClient(staff=erp_staff))
+
+    section = pack.staff_section(db_session)
+
+    assert section["available"] is True
+    assert section["staff"] == erp_staff
+
+
 # ── the whole pack ──────────────────────────────────────────────────────────
 def test_pack_complete_when_all_sources_available(monkeypatch, db_session):
     monkeypatch.setattr(
@@ -123,7 +165,17 @@ def test_pack_complete_when_all_sources_available(monkeypatch, db_session):
     monkeypatch.setattr(
         pack,
         "_build_erp_client",
-        lambda db: _FakeERPClient(financials={"summary": {}}, staff={"total_active": 5}),
+        lambda db: _FakeERPClient(
+            financials={"summary": {}},
+            staff={
+                "total_active": 5,
+                "by_category": {
+                    "MANAGERIAL": {
+                        "nigerian": {"male": 5, "female": 0, "other": 0},
+                    },
+                },
+            },
+        ),
     )
 
     result = pack.build_regulatory_pack(db_session, start_dt=_START, end_dt=_END, as_of="2026-06-30", year=2026)

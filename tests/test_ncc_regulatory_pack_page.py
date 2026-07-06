@@ -62,7 +62,17 @@ def _full_pack() -> dict:
                 "total_active_subscriptions": 42,
                 "by_connection": {"wired": 30, "wireless": 12},
                 "by_customer_type": {"individual": 40, "corporate": 2},
-                "by_speed_band": {"10Mbps+": 42},
+                "subscription_matrix": {
+                    "corporate": {"wired": 1, "wireless": 1},
+                    "individual": {"wired": 29, "wireless": 11},
+                },
+                "by_billing_mode": {"prepaid": 30, "postpaid": 12},
+                "by_speed_band": {"256kbps-<2Mbps": 2, "2Mbps-<10Mbps": 10, "10Mbps+": 30},
+                "by_access_technology": {"3g": 3, "4g": 4},
+                "average_internet_speed_mbps": 11.53,
+                "average_download_speed_mbps": 11.53,
+                "average_upload_speed_mbps": 11.53,
+                "average_speed": {"average_mbps": 11.53},
                 "by_region": {"South West": 42},
                 "by_state": {"Lagos": 42},
                 "network_capacity": {"points_of_presence": 28, "data_usage_tb": "2760.96"},
@@ -129,6 +139,16 @@ def test_page_renders_all_sections_when_available(render_pack):
     assert "Lagos" in html
     assert "N100" in html  # revenue
     assert "MANAGERIAL" in html.upper()
+    assert "Total active internet subscriptions" in html
+    assert "Active internet service provisions - Corporate" in html
+    assert "Active internet service provisions - Individual" in html
+    assert "By customer type" in html
+    assert "Wired subscriptions" in html
+    assert "Wireless subscriptions" in html
+    assert "Average internet speed" in html
+    assert "11.53 Mbps" in html
+    assert "a. 256 kbits/s" in html
+    assert "Total active internet subscriptions per state" in html
     assert "Download JSON" in html
     # all sources available → no "Unavailable" pill text
     assert "Unavailable" not in html

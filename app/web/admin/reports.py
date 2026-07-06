@@ -4068,8 +4068,6 @@ def _build_ncc_records(db: Session, start_dt: datetime, end_dt: datetime) -> lis
             continue
 
         person = _ticket_ncc_person(ticket, fallback_people_by_label)
-        if _ncc_uses_splynx_data(ticket, person):
-            continue
         first_name, last_name = _ticket_name_parts(ticket, person)
         if not first_name and not last_name:
             continue
@@ -4129,8 +4127,6 @@ def _build_ncc_records(db: Session, start_dt: datetime, end_dt: datetime) -> lis
         )
         if not record["First Name"] and not record["Last Name"]:
             continue
-        if _contains_splynx_marker(record):
-            continue
         if _ncc_name_contains_test(record["First Name"]) or _ncc_name_contains_test(record["Last Name"]):
             continue
         records.append(record)
@@ -4153,29 +4149,6 @@ def _filter_ncc_records(records: list[dict[str, str]], query: str | None) -> lis
         for record in records
         if normalized_query in " ".join(str(record.get(column, "")) for column in _NCC_COLUMNS).lower()
     ]
-
-
-def _contains_splynx_marker(value: object) -> bool:
-    if value is None:
-        return False
-    if isinstance(value, dict):
-        return any(_contains_splynx_marker(key) or _contains_splynx_marker(item) for key, item in value.items())
-    if isinstance(value, (list, tuple, set)):
-        return any(_contains_splynx_marker(item) for item in value)
-    return "splynx" in str(value).lower()
-
-
-def _ncc_uses_splynx_data(ticket: Ticket, person: Person | None) -> bool:
-    subscriber = ticket.subscriber
-    if subscriber is not None:
-        if str(subscriber.external_system or "").strip().lower() == "splynx":
-            return True
-        if _contains_splynx_marker(subscriber.sync_metadata):
-            return True
-    for candidate in (ticket.metadata_, getattr(person, "metadata_", None)):
-        if _contains_splynx_marker(candidate):
-            return True
-    return False
 
 
 @router.get("/operations")
@@ -4298,7 +4271,7 @@ def ncc_regulatory_pack(
     from app.services import ncc_regulatory_pack as pack_service
 
     start_dt, end_dt, _, _ = _parse_ncc_window(start_date, end_date)
-    resolved_as_of = as_of or end_dt.date().isoformat()
+    resolved_as_of = (as_of or "").strip() or end_dt.date().isoformat()
     resolved_year = year or end_dt.year
     capacity = {
         "access_capacity_gbps": access_capacity_gbps,
