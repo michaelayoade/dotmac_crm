@@ -881,6 +881,19 @@ def build_beat_schedule() -> dict:
             enabled=dotmac_erp_contact_sync_enabled,
             interval_seconds=dotmac_erp_contact_sync_interval_seconds,
         )
+        dotmac_erp_identity_drift_enabled_env = _env_bool("DOTMAC_ERP_IDENTITY_DRIFT_ENABLED")
+        dotmac_erp_identity_drift_enabled = (
+            dotmac_erp_contact_sync_enabled
+            if dotmac_erp_identity_drift_enabled_env is None
+            else dotmac_erp_identity_drift_enabled_env
+        )
+        _sync_scheduled_task(
+            session,
+            name="dotmac_erp_identity_drift",
+            task_name="app.tasks.integrations.detect_dotmac_erp_identity_drift",
+            enabled=dotmac_erp_identity_drift_enabled,
+            interval_seconds=86400,
+        )
 
         # DotMac ERP team sync - pulls departments from ERP into ServiceTeam
         dotmac_erp_team_sync_enabled = _effective_bool(

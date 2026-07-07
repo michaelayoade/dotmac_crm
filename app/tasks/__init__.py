@@ -32,6 +32,7 @@ from app.tasks.field import prune_field_location_pings
 from app.tasks.gis import sync_gis_sources
 from app.tasks.infrastructure_health import run_infrastructure_health_checks
 from app.tasks.integrations import (
+    detect_dotmac_erp_identity_drift,
     refresh_material_request_erp_status,
     refresh_pending_material_request_erp_statuses,
     run_integration_job,
@@ -88,6 +89,7 @@ __all__ = [
     "compute_weekly_scores",
     "deliver_notification_queue",
     "deliver_webhook",
+    "detect_dotmac_erp_identity_drift",
     "detect_sla_breaches",
     "distribute_survey",
     "execute_campaign",
