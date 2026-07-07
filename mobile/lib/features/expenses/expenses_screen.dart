@@ -97,27 +97,56 @@ class _ExpenseRequestTile extends StatelessWidget {
         : DateFormat('d MMM, HH:mm').format(request.createdAt!.toLocal());
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Icon(
-          Icons.receipt_long_outlined,
-          color: _expenseStatusColor(context, request.status),
-        ),
-        title: Text(request.purpose ?? request.displayNumber),
-        subtitle: Wrap(
-          spacing: 6,
-          runSpacing: 4,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            _ExpenseStatusChip(status: request.status),
-            Text(request.displayNumber),
-            if (date != null) Text(date),
-          ],
-        ),
-        trailing: Text(
-          _money(request.currency, request.totalAmount),
-          style: const TextStyle(fontWeight: FontWeight.w600),
-        ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
         onTap: () => context.push('/expenses/${request.id}'),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.receipt_long_outlined,
+                color: _expenseStatusColor(context, request.status),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      request.purpose ?? request.displayNumber,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        _ExpenseStatusChip(status: request.status),
+                        Text(request.displayNumber),
+                        if (date != null) Text(date),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 112),
+                child: Text(
+                  _money(request.currency, request.totalAmount),
+                  textAlign: TextAlign.right,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -415,18 +444,48 @@ class _ExpenseRequestItemTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: Text(item.description ?? item.categoryLabel),
-      subtitle: Text(
-        [
-          item.categoryLabel,
-          if (item.vendorName != null && item.vendorName!.isNotEmpty)
-            item.vendorName!,
-          if (item.notes != null && item.notes!.isNotEmpty) item.notes!,
-        ].join(' · '),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.description ?? item.categoryLabel,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  [
+                    item.categoryLabel,
+                    if (item.vendorName != null && item.vendorName!.isNotEmpty)
+                      item.vendorName!,
+                    if (item.notes != null && item.notes!.isNotEmpty)
+                      item.notes!,
+                  ].join(' · '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 112),
+            child: Text(
+              _money(currency, item.amount),
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
       ),
-      trailing: Text(_money(currency, item.amount)),
     );
   }
 }
@@ -810,26 +869,50 @@ class _NewExpenseRequestScreenState
           ),
           const SizedBox(height: 16),
           for (final (index, item) in _items.indexed)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.receipt_long_outlined),
-              title: Text(item.description),
-              subtitle: Text(
-                [
-                  item.categoryName ?? item.categoryCode,
-                  if (item.vendorName != null &&
-                      item.vendorName!.trim().isNotEmpty)
-                    item.vendorName!.trim(),
-                  if (item.receiptUrl != null &&
-                      item.receiptUrl!.trim().isNotEmpty)
-                    'receipt attached',
-                ].join(' · '),
-              ),
-              trailing: Wrap(
-                spacing: 4,
-                crossAxisAlignment: WrapCrossAlignment.center,
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(_money('NGN', item.amount)),
+                  const Icon(Icons.receipt_long_outlined),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          [
+                            item.categoryName ?? item.categoryCode,
+                            if (item.vendorName != null &&
+                                item.vendorName!.trim().isNotEmpty)
+                              item.vendorName!.trim(),
+                            if (item.receiptUrl != null &&
+                                item.receiptUrl!.trim().isNotEmpty)
+                              'receipt attached',
+                          ].join(' · '),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 104),
+                    child: Text(
+                      _money('NGN', item.amount),
+                      textAlign: TextAlign.right,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
                   IconButton(
                     tooltip: 'Remove expense',
                     onPressed: () => _removeLine(index),

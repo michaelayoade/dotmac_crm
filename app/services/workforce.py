@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.domain_settings import SettingDomain
 from app.models.notification import Notification, NotificationChannel, NotificationStatus
 from app.models.person import Person
-from app.models.projects import Project
+from app.models.projects import Project, ProjectComment, ProjectTask, ProjectTaskComment, TaskStatus
 from app.models.subscriber import Subscriber
 from app.models.tickets import Ticket, TicketComment
 from app.models.workforce import (
@@ -189,6 +189,204 @@ def _notify_work_order_assignment_customer(db: Session, work_order: WorkOrder) -
         send_technician_assigned_notification(db, str(work_order.id))
     except Exception:
         logger.exception("work_order_customer_assignment_notification_failed work_order_id=%s", work_order.id)
+
+
+_WORK_ORDER_TASK_STATUS: dict[WorkOrderStatus, TaskStatus] = {
+    WorkOrderStatus.in_progress: TaskStatus.in_progress,
+    WorkOrderStatus.completed: TaskStatus.done,
+    WorkOrderStatus.canceled: TaskStatus.blocked,
+}
+_paused_status = getattr(WorkOrderStatus, "paused", None)
+if _paused_status is not None:
+    _WORK_ORDER_TASK_STATUS[_paused_status] = TaskStatus.in_progress
+
+
+def _linked_project_task(db: Session, work_order: WorkOrder) -> ProjectTask | None:
+    return (
+        db.query(ProjectTask)
+        .filter(ProjectTask.work_order_id == work_order.id)
+        .filter(ProjectTask.is_active.is_(True))
+        .order_by(ProjectTask.created_at.asc())
+        .first()
+    )
+
+
+def _project_context_for_work_order(db: Session, work_order: WorkOrder) -> tuple[ProjectTask | None, object | None]:
+    task = _linked_project_task(db, work_order)
+    project_id = task.project_id if task else work_order.project_id
+    return task, project_id
+
+
+def _add_project_context_comment(
+    db: Session,
+    work_order: WorkOrder,
+    *,
+    body: str,
+    author_person_id=None,
+    attachments: list | None = None,
+) -> bool:
+    task, project_id = _project_context_for_work_order(db, work_order)
+    added = False
+    if task is not None:
+        db.add(
+            ProjectTaskComment(
+                task_id=task.id,
+                author_person_id=author_person_id,
+                body=body,
+                attachments=attachments,
+            )
+        )
+        added = True
+    if project_id is not None:
+        db.add(
+            ProjectComment(
+                project_id=project_id,
+                author_person_id=author_person_id,
+                body=body,
+                attachments=attachments,
+            )
+        )
+        added = True
+    return added
+
+
+def mirror_work_order_field_update_to_project_context(
+    db: Session,
+    work_order: WorkOrder,
+    *,
+    body: str,
+    author_person_id=None,
+    attachments: list | None = None,
+) -> bool:
+    """Mirror field execution updates onto linked installation project timelines."""
+    return _add_project_context_comment(
+        db,
+        work_order,
+        body=body,
+        author_person_id=author_person_id,
+        attachments=attachments,
+    )
+
+
+def _work_order_note_preview(body: str | None, limit: int = 180) -> str:
+    preview = " ".join((body or "").split())
+    if len(preview) > limit:
+        return preview[: limit - 3].rstrip() + "..."
+    return preview
+
+
+def _prepare_work_order_note_notification(
+    db: Session, work_order: WorkOrder, note: WorkOrderNote
+) -> tuple[str, dict] | None:
+    assignee_id = work_order.assigned_to_person_id
+    if not assignee_id or note.author_person_id == assignee_id:
+        return None
+
+    person = db.get(Person, assignee_id)
+    if person is None:
+        return None
+
+    preview = _work_order_note_preview(note.body)
+    target_url = f"/admin/operations/work-orders/{work_order.id}"
+    recipient = _compact(person.email) or str(person.id)
+    db.add(
+        Notification(
+            channel=NotificationChannel.push,
+            recipient=recipient,
+            subject=f"New work order comment: {work_order.title}"[:200],
+            body=f"{preview}\n\nOpen: {target_url}" if preview else f"Open: {target_url}",
+            status=NotificationStatus.delivered,
+            sent_at=datetime.now(UTC),
+        )
+    )
+    return (
+        str(person.id),
+        {
+            "kind": "work_order_comment",
+            "title": "New work order comment",
+            "subtitle": work_order.title,
+            "preview": preview,
+            "target_url": target_url,
+            "work_order_id": str(work_order.id),
+            "note_id": str(note.id),
+        },
+    )
+
+
+def _broadcast_work_order_note_notification(
+    db: Session,
+    work_order: WorkOrder,
+    notification_target: tuple[str, dict] | None,
+) -> None:
+    if notification_target is None:
+        return
+    person_id, payload = notification_target
+    try:
+        from app.websocket.broadcaster import broadcast_agent_notification
+
+        broadcast_agent_notification(person_id, payload)
+    except Exception:
+        logger.exception("work_order_note_realtime_notification_failed work_order_id=%s", work_order.id)
+    try:
+        from app.services.push import queue_work_order_comment_push
+
+        queue_work_order_comment_push(db, work_order, note_preview=payload.get("preview"))
+    except Exception:
+        logger.exception("work_order_note_push_notification_failed work_order_id=%s", work_order.id)
+
+
+def _sync_project_task_from_work_order_status(
+    db: Session,
+    work_order: WorkOrder,
+    previous_status: WorkOrderStatus | None,
+    *,
+    add_comment: bool,
+) -> bool:
+    task = _linked_project_task(db, work_order)
+    if task is None or work_order.status is None:
+        return False
+
+    target_status = _WORK_ORDER_TASK_STATUS.get(work_order.status)
+    if target_status is None:
+        return False
+
+    changed = False
+    if task.status != target_status:
+        task.status = target_status
+        changed = True
+        if target_status == TaskStatus.done and task.completed_at is None:
+            task.completed_at = work_order.completed_at or datetime.now(UTC)
+        elif target_status != TaskStatus.done:
+            task.completed_at = None
+
+    metadata = dict(task.metadata_ or {})
+    status_value = work_order.status.value
+    if metadata.get("last_work_order_status") != status_value or metadata.get("last_work_order_id") != str(
+        work_order.id
+    ):
+        metadata["last_work_order_id"] = str(work_order.id)
+        metadata["last_work_order_status"] = status_value
+        metadata["last_work_order_status_at"] = datetime.now(UTC).isoformat()
+        task.metadata_ = metadata
+        changed = True
+
+    if add_comment:
+        from_label = previous_status.value if previous_status else "none"
+        body = (
+            f"Work order {str(work_order.id)[:8]} status changed from {from_label} "
+            f"to {work_order.status.value}; linked task is now {target_status.value}."
+        )
+        changed = (
+            _add_project_context_comment(
+                db,
+                work_order,
+                body=body,
+                author_person_id=work_order.assigned_to_person_id,
+            )
+            or changed
+        )
+
+    return changed
 
 
 def emit_work_order_status_events(

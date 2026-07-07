@@ -2,7 +2,12 @@ import 'dart:async';
 
 /// A push notification as the app consumes it.
 class PushMessage {
-  const PushMessage({this.title, this.body, this.data = const {}, this.fromTap = false});
+  const PushMessage({
+    this.title,
+    this.body,
+    this.data = const {},
+    this.fromTap = false,
+  });
 
   final String? title;
   final String? body;
@@ -64,10 +69,13 @@ class FakePushSource implements PushSource {
 }
 
 /// Deep-link resolution for backend push payloads.
-/// type=work_order_assigned → the job detail route.
+/// Work-order assignment/comment pushes both open the job detail route.
 String? routeForMessage(Map<String, String> data) {
-  if (data['type'] == 'work_order_assigned' && data['work_order_id'] != null) {
-    return '/jobs/${data['work_order_id']}';
+  final workOrderId = data['work_order_id'];
+  if (workOrderId == null || workOrderId.trim().isEmpty) return null;
+  if (data['type'] == 'work_order_assigned' ||
+      data['type'] == 'work_order_comment') {
+    return '/jobs/$workOrderId';
   }
   return null;
 }
