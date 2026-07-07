@@ -1,11 +1,14 @@
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.schemas.common import ListResponse
 from app.schemas.expense_request import ExpenseCategoryRead, ExpenseRequestRead
-from app.schemas.field import FieldExpenseRequestCreate
+from app.schemas.field import FieldAttachmentRead, FieldExpenseRequestCreate
+from app.schemas.typeahead import TypeaheadItem
+from app.services import typeahead as typeahead_service
 from app.services.auth_dependencies import require_user_auth
+from app.services.field import field_attachments
 from app.services.field.expense_requests import field_expense_requests
 from app.services.response import list_response
 
@@ -36,6 +39,47 @@ def list_field_expense_categories(
     db: Session = Depends(get_db),
 ):
     return field_expense_requests.list_categories(db)
+
+
+@router.get("/vendors", response_model=ListResponse[TypeaheadItem])
+def list_field_expense_vendors(
+    q: str = Query(default=""),
+    limit: int = Query(default=25, ge=1, le=50),
+    auth=Depends(require_user_auth),
+    db: Session = Depends(get_db),
+):
+    del auth
+    return typeahead_service.vendors_response(db, q, limit)
+
+
+@router.post(
+    "/receipts",
+    response_model=FieldAttachmentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def upload_field_expense_receipt(
+    file: UploadFile = File(...),
+    work_order_id: str = Form(...),
+    client_ref: str | None = Form(default=None),
+    latitude: float | None = Form(default=None),
+    longitude: float | None = Form(default=None),
+    captured_at: str | None = Form(default=None),
+    auth=Depends(require_user_auth),
+    db: Session = Depends(get_db),
+):
+    return field_attachments.create(
+        db,
+        kind="photo",
+        file_name=file.filename or "receipt",
+        mime_type=file.content_type or "",
+        content=file.file.read(),
+        client_ref=client_ref,
+        work_order_id=work_order_id,
+        latitude=latitude,
+        longitude=longitude,
+        captured_at=captured_at,
+        uploaded_by_person_id=auth["person_id"],
+    )
 
 
 @router.post("", response_model=ExpenseRequestRead, status_code=status.HTTP_201_CREATED)

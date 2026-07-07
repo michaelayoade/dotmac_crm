@@ -142,7 +142,25 @@ def test_work_order_note_mirrors_to_linked_ticket(db_session, assigned_job, pers
     assert note.body in comment.body
 
 
-def test_external_work_order_note_mirrors_to_external_ticket_comment(db_session, assigned_job, person):
+def test_external_work_order_note_mirrors_to_external_ticket_comment(db_session, assigned_job, person, monkeypatch):
+    customer_updates: list[dict] = []
+
+    def _capture_customer_update(db, *, ticket_id, comment_id, actor_person_id, request=None):
+        customer_updates.append(
+            {
+                "ticket_id": ticket_id,
+                "comment_id": comment_id,
+                "actor_person_id": actor_person_id,
+                "request": request,
+            }
+        )
+        return {"ticket_id": ticket_id, "comment_id": comment_id}
+
+    monkeypatch.setattr(
+        "app.services.tickets.tickets.notify_customer_of_public_technician_comment",
+        _capture_customer_update,
+    )
+
     note = work_order_notes.create(
         db_session,
         WorkOrderNoteCreate(
@@ -157,6 +175,14 @@ def test_external_work_order_note_mirrors_to_external_ticket_comment(db_session,
     assert note.is_internal is False
     assert comment.is_internal is False
     assert note.body in comment.body
+    assert customer_updates == [
+        {
+            "ticket_id": str(assigned_job.ticket_id),
+            "comment_id": str(comment.id),
+            "actor_person_id": str(person.id),
+            "request": None,
+        }
+    ]
 
 
 def test_worklog_schema_never_exposes_rates():

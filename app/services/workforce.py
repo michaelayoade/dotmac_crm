@@ -9,7 +9,7 @@ from app.models.notification import Notification, NotificationChannel, Notificat
 from app.models.person import Person
 from app.models.projects import Project, ProjectComment, ProjectTask, ProjectTaskComment, TaskStatus
 from app.models.subscriber import Subscriber
-from app.models.tickets import Ticket, TicketComment
+from app.models.tickets import Ticket
 from app.models.workforce import (
     WorkOrder,
     WorkOrderAssignment,
@@ -21,6 +21,7 @@ from app.queries.workforce import (
     WorkOrderNoteQuery,
     WorkOrderQuery,
 )
+from app.schemas.tickets import TicketCommentCreate
 from app.schemas.workforce import (
     WorkOrderAssignmentCreate,
     WorkOrderAssignmentUpdate,
@@ -1013,6 +1014,8 @@ class WorkOrderAssignments(ListResponseMixin):
 class WorkOrderNotes(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload: WorkOrderNoteCreate):
+        from app.services import tickets as tickets_service
+
         work_order = db.get(WorkOrder, payload.work_order_id)
         if not work_order:
             raise HTTPException(status_code=404, detail="Work order not found")
@@ -1020,16 +1023,26 @@ class WorkOrderNotes(ListResponseMixin):
             _ensure_person(db, str(payload.author_person_id))
         note = WorkOrderNote(**payload.model_dump())
         db.add(note)
+        db.flush()
+        ticket_comment = None
         if work_order.ticket_id:
-            db.add(
-                TicketComment(
+            ticket_comment = tickets_service.ticket_comments.create(
+                db,
+                TicketCommentCreate(
                     ticket_id=work_order.ticket_id,
                     author_person_id=payload.author_person_id,
                     body=f"Work order note from {str(work_order.id)[:8]}: {payload.body}",
                     is_internal=payload.is_internal,
                     attachments=payload.attachments,
-                )
+                ),
             )
+            if payload.author_person_id and not payload.is_internal:
+                tickets_service.tickets.notify_customer_of_public_technician_comment(
+                    db,
+                    ticket_id=str(work_order.ticket_id),
+                    comment_id=str(ticket_comment.id),
+                    actor_person_id=str(payload.author_person_id),
+                )
         db.commit()
         db.refresh(note)
         return note
