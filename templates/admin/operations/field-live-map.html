@@ -18,6 +18,40 @@
   </div>
 
   <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <div class="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700 lg:flex-row lg:items-center lg:justify-between">
+      <div class="flex flex-wrap items-center gap-3 text-xs">
+        <span class="font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Work orders</span>
+        <label class="inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+          <input type="checkbox" class="work-order-status rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900" value="scheduled" checked>
+          Scheduled
+        </label>
+        <label class="inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+          <input type="checkbox" class="work-order-status rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900" value="dispatched" checked>
+          Dispatched
+        </label>
+        <label class="inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+          <input type="checkbox" class="work-order-status rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900" value="in_progress" checked>
+          In progress
+        </label>
+        <label class="inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+          <input type="checkbox" class="work-order-status rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900" value="paused" checked>
+          Paused
+        </label>
+        <select id="work-order-type-filter" class="rounded-lg border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+          <option value="">All work types</option>
+          <option value="install">Install</option>
+          <option value="repair">Repair</option>
+          <option value="survey">Survey</option>
+          <option value="maintenance">Maintenance</option>
+          <option value="disconnect">Disconnect</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+        <span><span id="work-order-map-count" class="font-semibold text-slate-900 dark:text-white">0</span> mapped jobs</span>
+        <span><span id="work-order-unmapped-count" class="font-semibold text-slate-900 dark:text-white">0</span> unmapped</span>
+      </div>
+    </div>
     <div id="field-live-map" class="w-full" style="height:66vh;min-height:420px;background:#f1f5f9;"></div>
   </div>
   <div id="live-map-mapnotice" class="hidden rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
@@ -29,6 +63,7 @@
   </div>
 
   <div id="live-map-list" class="grid gap-2 sm:grid-cols-2"></div>
+  <div id="work-order-unmapped-list" class="hidden rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-900"></div>
 
   <section class="space-y-3">
     <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -95,6 +130,7 @@
   let tileLoaded = false;
   let tileErrorCount = 0;
   const markers = new Map();
+  const jobMarkers = new Map();
   const trails = new Map();
   const latestById = new Map();
   let hasFit = false;
@@ -104,6 +140,11 @@
   const mapNoticeEl = document.getElementById("live-map-mapnotice");
   const emptyEl = document.getElementById("live-map-empty");
   const listEl = document.getElementById("live-map-list");
+  const workOrderTypeFilterEl = document.getElementById("work-order-type-filter");
+  const workOrderStatusEls = Array.from(document.querySelectorAll(".work-order-status"));
+  const workOrderMapCountEl = document.getElementById("work-order-map-count");
+  const workOrderUnmappedCountEl = document.getElementById("work-order-unmapped-count");
+  const workOrderUnmappedListEl = document.getElementById("work-order-unmapped-list");
   const trackingRowsEl = document.getElementById("tracking-state-rows");
   const trackingTotalEl = document.getElementById("tracking-total");
   const trackingSharingEl = document.getElementById("tracking-sharing");
@@ -159,6 +200,13 @@
     return Number.isFinite(num) ? num.toFixed(6) : "";
   };
 
+  const fmtDateTime = (iso) => {
+    if (!iso) return "Unscheduled";
+    const ts = Date.parse(iso);
+    if (Number.isNaN(ts)) return "Unscheduled";
+    return new Date(ts).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
+
   const escapeHtml = (value) => String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -175,6 +223,16 @@
     return `<span class="inline-flex rounded-lg px-2 py-1 text-xs font-semibold ring-1 ring-inset ${tones[tone] || tones.slate}">${escapeHtml(label)}</span>`;
   };
 
+  const workOrderStatusLabel = (status) => String(status || "unknown").replaceAll("_", " ");
+
+  const workOrderColor = (status) => {
+    if (status === "in_progress") return "#2563eb";
+    if (status === "dispatched") return "#7c3aed";
+    if (status === "paused") return "#f59e0b";
+    if (status === "scheduled") return "#0f766e";
+    return "#64748b";
+  };
+
   // Field-tech status colours (operations domain: emerald on shift).
   const colorFor = (status) => {
     if (status === "on_shift") return "#10b981";
@@ -189,6 +247,18 @@
       html: `<span style="display:block;width:14px;height:14px;border-radius:9999px;border:2px solid #fff;background:${colorFor(status)};box-shadow:0 0 0 1px rgba(15,23,42,.25)"></span>`,
       iconSize: [14, 14],
       iconAnchor: [7, 7]
+    });
+  };
+
+  const workOrderIcon = (status) => {
+    if (!mapEnabled || !map) return null;
+    const color = workOrderColor(status);
+    return L.divIcon({
+      className: "field-work-order-pin",
+      html: `<span style="display:block;width:18px;height:18px;transform:rotate(45deg);border-radius:5px 5px 5px 1px;border:2px solid #fff;background:${color};box-shadow:0 1px 4px rgba(15,23,42,.35)"></span>`,
+      iconSize: [18, 18],
+      iconAnchor: [9, 17],
+      popupAnchor: [0, -14]
     });
   };
 
@@ -212,6 +282,23 @@
       </div>
     `;
   };
+
+  const workOrderPopupHtml = (row) => `
+    <div class="text-xs leading-5">
+      <div><strong>${escapeHtml(row.title || "Work order")}</strong></div>
+      <div>Status: ${escapeHtml(workOrderStatusLabel(row.status))}</div>
+      <div>Type: ${escapeHtml(workOrderStatusLabel(row.work_type))}</div>
+      <div>Assignee: ${escapeHtml(row.assigned_to_label || "Unassigned")}</div>
+      <div>Schedule: ${escapeHtml(fmtDateTime(row.scheduled_start))}</div>
+      ${row.subscriber_label ? `<div>Customer: ${escapeHtml(row.subscriber_label)}</div>` : ""}
+      ${row.address_text ? `<div>Address: ${escapeHtml(row.address_text)}</div>` : ""}
+      <div class="mt-1">
+        <button type="button" data-focus-job="${escapeHtml(row.id)}" style="color:#2563eb;text-decoration:underline;background:none;border:0;padding:0;cursor:pointer;">Show on Map</button>
+        &nbsp;·&nbsp;
+        <a href="${escapeHtml(row.detail_url)}" style="color:#2563eb;text-decoration:underline;">Open work order</a>
+      </div>
+    </div>
+  `;
 
   const renderTrackingStates = (payload) => {
     const items = Array.isArray(payload && payload.items) ? payload.items : [];
@@ -263,6 +350,82 @@
     mapEl.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const focusJob = (jobId) => {
+    const marker = jobMarkers.get(String(jobId));
+    if (!marker) return;
+    if (!mapEnabled || !map) { showMapNotice(); return; }
+    map.invalidateSize();
+    map.setView(marker.getLatLng(), Math.max(map.getZoom(), 16));
+    marker.openPopup();
+    mapEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const selectedWorkOrderStatuses = () => {
+    const selected = workOrderStatusEls.filter((el) => el.checked).map((el) => el.value);
+    return selected.length > 0 ? selected : ["scheduled", "dispatched", "in_progress", "paused"];
+  };
+
+  const workOrderFeedUrl = () => {
+    const params = new URLSearchParams({ limit: "500" });
+    selectedWorkOrderStatuses().forEach((status) => params.append("statuses", status));
+    if (workOrderTypeFilterEl && workOrderTypeFilterEl.value) {
+      params.set("work_type", workOrderTypeFilterEl.value);
+    }
+    return `/admin/operations/field-techs/work-orders?${params.toString()}`;
+  };
+
+  const renderWorkOrders = (payload) => {
+    const items = Array.isArray(payload && payload.items) ? payload.items : [];
+    const unmapped = Array.isArray(payload && payload.unmapped) ? payload.unmapped : [];
+    if (workOrderMapCountEl) workOrderMapCountEl.textContent = String(items.length);
+    if (workOrderUnmappedCountEl) workOrderUnmappedCountEl.textContent = String(unmapped.length);
+
+    if (mapEnabled && map) {
+      const nextIds = new Set(items.map((row) => String(row.id)));
+      jobMarkers.forEach((marker, id) => {
+        if (!nextIds.has(id)) { map.removeLayer(marker); jobMarkers.delete(id); }
+      });
+      items.forEach((row) => {
+        const id = String(row.id);
+        const lat = Number(row.latitude);
+        const lng = Number(row.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        const pos = [lat, lng];
+        const existing = jobMarkers.get(id);
+        if (existing) {
+          existing.setLatLng(pos);
+          existing.setIcon(workOrderIcon(row.status));
+          existing.setPopupContent(workOrderPopupHtml(row));
+        } else {
+          const marker = L.marker(pos, { icon: workOrderIcon(row.status), zIndexOffset: -100 }).addTo(map);
+          marker.bindPopup(workOrderPopupHtml(row));
+          jobMarkers.set(id, marker);
+        }
+      });
+    }
+
+    if (workOrderUnmappedListEl) {
+      workOrderUnmappedListEl.classList.toggle("hidden", unmapped.length === 0);
+      workOrderUnmappedListEl.innerHTML = unmapped.length === 0 ? "" : `
+        <div class="mb-2 font-semibold text-slate-900 dark:text-white">Work orders without map coordinates</div>
+        <div class="grid gap-2 sm:grid-cols-2">
+          ${unmapped.slice(0, 8).map((row) => `
+            <a href="${escapeHtml(row.detail_url)}" class="block rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
+              <div class="font-semibold">${escapeHtml(row.title || "Work order")}</div>
+              <div>${escapeHtml(workOrderStatusLabel(row.status))} · ${escapeHtml(row.assigned_to_label || "Unassigned")}</div>
+              <div class="text-slate-500 dark:text-slate-400">${escapeHtml(row.address_text || "No address available")}</div>
+            </a>
+          `).join("")}
+        </div>
+        ${unmapped.length > 8 ? `<div class="mt-2 text-xs text-slate-500 dark:text-slate-400">Showing 8 of ${unmapped.length} unmapped work orders.</div>` : ""}
+      `;
+    }
+
+    return items
+      .map((row) => [Number(row.latitude), Number(row.longitude)])
+      .filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng));
+  };
+
   // Draw each tech's recent movement as a polyline beneath their marker.
   // Trails are best-effort: a tracks-feed failure must not blank the map.
   const renderTrails = (payload) => {
@@ -300,11 +463,15 @@
       }).then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
       fetch("/admin/operations/field-techs/tracks?window_minutes=30&stale_after_seconds=120&limit=500", {
         headers: { "Accept": "application/json" }
-      }).then((r) => r.ok ? r.json() : { items: [] }).catch(() => ({ items: [] }))
+      }).then((r) => r.ok ? r.json() : { items: [] }).catch(() => ({ items: [] })),
+      fetch(workOrderFeedUrl(), {
+        headers: { "Accept": "application/json" }
+      }).then((r) => r.ok ? r.json() : { items: [], unmapped: [] }).catch(() => ({ items: [], unmapped: [] }))
     ])
-      .then(([data, states, tracks]) => {
+      .then(([data, states, tracks, workOrders]) => {
         renderTrackingStates(states);
         renderTrails(tracks);
+        const jobBounds = renderWorkOrders(workOrders);
         const items = Array.isArray(data && data.items) ? data.items : [];
         latestById.clear();
         items.forEach((i) => latestById.set(String(i.person_id), i));
@@ -362,8 +529,9 @@
         }
         if (emptyEl) emptyEl.classList.toggle("hidden", items.length !== 0);
 
-        if (mapEnabled && map && bounds.length > 0 && !hasFit) {
-          map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+        const initialBounds = bounds.concat(jobBounds);
+        if (mapEnabled && map && initialBounds.length > 0 && !hasFit) {
+          map.fitBounds(initialBounds, { padding: [30, 30], maxZoom: 16 });
           hasFit = true;
         }
       })
@@ -372,6 +540,9 @@
 
   refresh();
   window.setInterval(refresh, 30000);
+
+  workOrderStatusEls.forEach((el) => el.addEventListener("change", refresh));
+  if (workOrderTypeFilterEl) workOrderTypeFilterEl.addEventListener("change", refresh);
 
   document.addEventListener("click", (event) => {
     const target = event.target;
@@ -382,6 +553,17 @@
     if (!personId) return;
     event.preventDefault();
     focusTech(personId);
+  });
+
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest("[data-focus-job]");
+    if (!button) return;
+    const jobId = button.getAttribute("data-focus-job");
+    if (!jobId) return;
+    event.preventDefault();
+    focusJob(jobId);
   });
 })();
 </script>

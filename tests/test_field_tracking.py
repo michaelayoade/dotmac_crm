@@ -13,6 +13,7 @@ from starlette.requests import Request
 from app.models.field import FieldJobEvent, WorkOrderEvent
 from app.models.field_location import FieldPresenceStatus, FieldTechPresence
 from app.models.person import Person
+from app.models.subscriber import Subscriber
 from app.models.workforce import WorkOrder, WorkOrderStatus
 from app.schemas.tickets import TicketCreate
 from app.services.field import tracking
@@ -253,6 +254,97 @@ def test_route_serializes_live_tech_pin(db_session):
     assert pos is not None
     assert pos["latitude"] == 6.5 and pos["longitude"] == 3.3
     assert isinstance(pos["updated_at"], str)  # ISO string, JSON-safe
+
+
+# ── admin live map work-order layer ──────────────────────────────────────────
+
+
+def test_admin_field_map_work_orders_feed_splits_mapped_and_unmapped(db_session):
+    from app.web.admin import operations as operations_web
+
+    tech = _make_tech(db_session)
+    customer = Person(first_name="Sam", last_name="Ade", email=f"customer-{uuid.uuid4().hex[:8]}@example.com")
+    db_session.add(customer)
+    db_session.flush()
+    subscriber = Subscriber(person_id=customer.id, subscriber_number="SUB-100", account_number="ACCT-100")
+    db_session.add(subscriber)
+    db_session.commit()
+    db_session.refresh(subscriber)
+
+    mapped = _make_work_order(
+        db_session,
+        status=WorkOrderStatus.dispatched,
+        assigned_to=tech.id,
+        subscriber_id=subscriber.id,
+        metadata_={
+            "resolved_location": {
+                "latitude": 6.5244,
+                "longitude": 3.3792,
+                "address_text": "1 Marina, Lagos",
+                "source": "manual",
+            }
+        },
+    )
+    unmapped = _make_work_order(db_session, status=WorkOrderStatus.scheduled)
+    completed = _make_work_order(
+        db_session,
+        status=WorkOrderStatus.completed,
+        metadata_={"resolved_location": {"latitude": 6.6, "longitude": 3.4}},
+    )
+
+    response = operations_web.field_tech_work_orders_feed(
+        None,
+        statuses=None,
+        assigned_to_person_id=None,
+        work_type=None,
+        scheduled_from=None,
+        scheduled_to=None,
+        limit=500,
+        db=db_session,
+        _auth=None,
+    )
+    body = json.loads(response.body)
+
+    assert response.status_code == 200
+    assert [item["id"] for item in body["items"]] == [str(mapped.id)]
+    assert [item["id"] for item in body["unmapped"]] == [str(unmapped.id)]
+    assert body["total"] == 2
+    assert str(completed.id) not in {item["id"] for item in body["items"] + body["unmapped"]}
+    assert body["items"][0]["assigned_to_label"] == "Alex Rivera"
+    assert body["items"][0]["subscriber_label"] == "Sam Ade (ACCT-100)"
+    assert body["items"][0]["location_source"] == "manual"
+
+
+def test_admin_field_map_work_orders_feed_honors_status_filter(db_session):
+    from app.web.admin import operations as operations_web
+
+    scheduled = _make_work_order(
+        db_session,
+        status=WorkOrderStatus.scheduled,
+        metadata_={"resolved_location": {"latitude": 6.5, "longitude": 3.3}},
+    )
+    in_progress = _make_work_order(
+        db_session,
+        status=WorkOrderStatus.in_progress,
+        metadata_={"resolved_location": {"latitude": 6.6, "longitude": 3.4}},
+    )
+
+    response = operations_web.field_tech_work_orders_feed(
+        None,
+        statuses=["in_progress"],
+        assigned_to_person_id=None,
+        work_type=None,
+        scheduled_from=None,
+        scheduled_to=None,
+        limit=500,
+        db=db_session,
+        _auth=None,
+    )
+    body = json.loads(response.body)
+
+    assert [item["id"] for item in body["items"]] == [str(in_progress.id)]
+    assert str(scheduled.id) not in {item["id"] for item in body["items"] + body["unmapped"]}
+    assert body["statuses"] == ["in_progress"]
 
 
 # ── follow-ups: terminal-state action gating (#2) ────────────────────────────
