@@ -6,6 +6,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../app/theme.dart';
+import '../../app/widgets/primary_action_button.dart';
 import '../../core/offline/draft_store.dart';
 import '../execution/execution_controller.dart';
 import 'expense_models.dart';
@@ -43,8 +45,8 @@ class ExpensesScreen extends ConsumerWidget {
                   child: Text(
                     'Expense requests',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                 ),
                 FilledButton.icon(
@@ -374,8 +376,8 @@ class _TimelineRow extends StatelessWidget {
     final color = error
         ? Theme.of(context).colorScheme.error
         : active || complete
-        ? Theme.of(context).colorScheme.primary
-        : Theme.of(context).disabledColor;
+            ? Theme.of(context).colorScheme.primary
+            : Theme.of(context).disabledColor;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -384,8 +386,8 @@ class _TimelineRow extends StatelessWidget {
             error
                 ? Icons.cancel_outlined
                 : complete
-                ? Icons.check_circle
-                : Icons.radio_button_unchecked,
+                    ? Icons.check_circle
+                    : Icons.radio_button_unchecked,
             size: 18,
             color: color,
           ),
@@ -602,7 +604,7 @@ class _NewExpenseRequestScreenState
       setState(
         () => _lineError =
             'Amount is above the ${_selectedCategory!.displayName} '
-            'limit of ${maxAmount.toStringAsFixed(2)}.',
+                'limit of ${maxAmount.toStringAsFixed(2)}.',
       );
       return;
     }
@@ -651,9 +653,8 @@ class _NewExpenseRequestScreenState
   }
 
   Future<void> _loadDraft() async {
-    final draft = await ref
-        .read(draftStoreProvider)
-        .load(expenseRequestDraftId);
+    final draft =
+        await ref.read(draftStoreProvider).load(expenseRequestDraftId);
     if (!mounted || draft == null) return;
     setState(() {
       _purpose.text = draft['purpose'] as String? ?? '';
@@ -671,19 +672,17 @@ class _NewExpenseRequestScreenState
   }
 
   Future<void> _saveDraft() async {
-    await ref
-        .read(draftStoreProvider)
-        .save(
-          id: expenseRequestDraftId,
-          type: 'expense_request',
-          payload: {
-            'purpose': _purpose.text,
-            'expense_date': DateFormat('yyyy-MM-dd').format(_expenseDate),
-            'notes': _notes.text,
-            'work_order_id': _workOrderId.text,
-            'items': _items.map(_expenseDraftItemJson).toList(),
-          },
-        );
+    await ref.read(draftStoreProvider).save(
+      id: expenseRequestDraftId,
+      type: 'expense_request',
+      payload: {
+        'purpose': _purpose.text,
+        'expense_date': DateFormat('yyyy-MM-dd').format(_expenseDate),
+        'notes': _notes.text,
+        'work_order_id': _workOrderId.text,
+        'items': _items.map(_expenseDraftItemJson).toList(),
+      },
+    );
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
@@ -708,9 +707,7 @@ class _NewExpenseRequestScreenState
       _lineError = '';
     });
     try {
-      final url = await ref
-          .read(expensesRepositoryProvider)
-          .uploadReceipt(
+      final url = await ref.read(expensesRepositoryProvider).uploadReceipt(
             workOrderId: workOrderId,
             filePath: picked.path,
             fileName: picked.name,
@@ -780,9 +777,7 @@ class _NewExpenseRequestScreenState
     );
     setState(() => _saving = true);
     try {
-      final request = await ref
-          .read(expensesRepositoryProvider)
-          .createRequest(
+      final request = await ref.read(expensesRepositoryProvider).createRequest(
             purpose: _purpose.text,
             clientRef: clientRef,
             expenseDate: DateFormat('yyyy-MM-dd').format(_expenseDate),
@@ -806,9 +801,7 @@ class _NewExpenseRequestScreenState
     } on DioException catch (error) {
       if (!mounted) return;
       if (error.response == null) {
-        await ref
-            .read(syncServiceProvider)
-            .enqueue(
+        await ref.read(syncServiceProvider).enqueue(
               kind: 'expense_request',
               clientRef: clientRef,
               payload: payload,
@@ -943,7 +936,24 @@ class _NewExpenseRequestScreenState
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  decoration: const InputDecoration(labelText: 'Amount'),
+                  style: const TextStyle(
+                    fontFamily: 'Outfit',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                  decoration: InputDecoration(
+                    labelText: 'Amount',
+                    prefixText: '₦ ',
+                    prefixStyle: const TextStyle(
+                      fontFamily: 'Outfit',
+                      fontWeight: FontWeight.w700,
+                      fontSize: 18,
+                      color: AppColors.primary,
+                    ),
+                    filled: true,
+                    fillColor: AppColors.primary.withValues(alpha: 0.06),
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -1080,9 +1090,10 @@ class _NewExpenseRequestScreenState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              FilledButton(
+              PrimaryActionButton(
                 onPressed: _items.isEmpty || _saving ? null : _submit,
-                child: Text(_saving ? 'Submitting...' : 'Submit request'),
+                icon: Icons.check_rounded,
+                label: _saving ? 'Submitting…' : 'Submit request',
               ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
@@ -1119,20 +1130,18 @@ String _expenseErrorMessage(DioException error, String fallback) {
     final detail = data['detail'];
     if (detail is String && detail.trim().isNotEmpty) return detail.trim();
     if (detail is List && detail.isNotEmpty) {
-      return detail
-          .map((item) {
-            if (item is Map) {
-              final location = item['loc'];
-              final message = item['msg'];
-              final locationText = location is List ? location.join('.') : null;
-              if (message is String && locationText != null) {
-                return '$locationText: $message';
-              }
-              if (message is String) return message;
-            }
-            return item.toString();
-          })
-          .join('\n');
+      return detail.map((item) {
+        if (item is Map) {
+          final location = item['loc'];
+          final message = item['msg'];
+          final locationText = location is List ? location.join('.') : null;
+          if (message is String && locationText != null) {
+            return '$locationText: $message';
+          }
+          if (message is String) return message;
+        }
+        return item.toString();
+      }).join('\n');
     }
   }
   return fallback;
@@ -1213,15 +1222,15 @@ class _StatusStep {
 }
 
 Map<String, dynamic> _expenseDraftItemJson(ExpenseItemDraft item) => {
-  'category_code': item.categoryCode,
-  'category_name': item.categoryName,
-  'description': item.description,
-  'amount': item.amount,
-  'expense_date': item.expenseDate,
-  'vendor_name': item.vendorName,
-  'receipt_url': item.receiptUrl,
-  'notes': item.notes,
-};
+      'category_code': item.categoryCode,
+      'category_name': item.categoryName,
+      'description': item.description,
+      'amount': item.amount,
+      'expense_date': item.expenseDate,
+      'vendor_name': item.vendorName,
+      'receipt_url': item.receiptUrl,
+      'notes': item.notes,
+    };
 
 List<ExpenseItemDraft> _expenseDraftItems(Object? raw) {
   if (raw is! List) return const [];

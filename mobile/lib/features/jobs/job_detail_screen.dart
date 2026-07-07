@@ -6,6 +6,9 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/theme.dart';
+import '../../app/widgets/primary_action_button.dart';
+import '../../app/widgets/section_header.dart';
+import '../../app/widgets/status_pill.dart';
 import '../execution/completion_wizard.dart';
 import '../execution/execution_controller.dart';
 import 'job_models.dart';
@@ -16,6 +19,15 @@ import 'location_pin_screen.dart';
 typedef UriLauncher = Future<bool> Function(Uri uri);
 
 final uriLauncherProvider = Provider<UriLauncher>((ref) => launchUrl);
+
+/// Icon for a primary work action (start / pause / resume / complete / …).
+IconData _workActionIcon(String action) => switch (action) {
+      'start' => Icons.play_arrow_rounded,
+      'resume' => Icons.play_arrow_rounded,
+      'pause' => Icons.pause_rounded,
+      'complete' => Icons.check_rounded,
+      _ => Icons.bolt_rounded,
+    };
 
 class JobDetailScreen extends ConsumerWidget {
   const JobDetailScreen({super.key, required this.jobId});
@@ -90,7 +102,6 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
     final executionActions = actions
         .where((action) => action != 'en_route' && action != 'arrived')
         .toList();
-    final statusColor = AppColors.status(job.status);
 
     return Scaffold(
       appBar: AppBar(
@@ -113,16 +124,8 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
             icon: const Icon(Icons.receipt_long_outlined),
           ),
           Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Center(
-              child: Row(
-                children: [
-                  Icon(Icons.circle, size: 10, color: statusColor),
-                  const SizedBox(width: 6),
-                  Text(statusLabel(job.status)),
-                ],
-              ),
-            ),
+            padding: const EdgeInsets.only(right: AppSpace.md),
+            child: Center(child: StatusPill(job.status, compact: true)),
           ),
         ],
       ),
@@ -138,23 +141,27 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
+              [
+                if (detail.ticketRef != null) '#${detail.ticketRef}',
+                job.workType.toUpperCase(),
+              ].join('  ·  '),
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
+                  ),
+            ),
+            const SizedBox(height: 4),
+            Text(
               job.title,
               style: Theme.of(
                 context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
             ),
-            if (detail.ticketRef != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  'Ticket ${detail.ticketRef}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpace.lg),
             _LocationCard(jobId: job.id, location: detail.location),
             if (detail.customer != null) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.sm),
               _CustomerCard(customer: detail.customer!),
             ],
             if (travelActions.isNotEmpty) ...[
@@ -183,37 +190,24 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ],
             if (job.description != null && job.description!.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.lg),
+              const SectionHeader('Scope of work'),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Scope of work',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(job.description!),
-                    ],
-                  ),
+                  padding: const EdgeInsets.all(AppSpace.md),
+                  child: Text(job.description!),
                 ),
               ),
             ],
             if (detail.materialRequests.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.lg),
+              const SectionHeader('Material requests'),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(AppSpace.md),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Material requests',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 8),
                       for (final request in detail.materialRequests)
                         _MaterialRequestListTile(request: request),
                     ],
@@ -222,18 +216,14 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ],
             if (detail.history.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.lg),
+              const SectionHeader('History'),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(AppSpace.md),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'History',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 8),
                       for (final item in detail.history)
                         _HistoryTile(item: item),
                     ],
@@ -281,8 +271,8 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                         onChanged: _isSavingNote
                             ? null
                             : (value) => setState(
-                                () => _isInternalNote = value ?? true,
-                              ),
+                                  () => _isInternalNote = value ?? true,
+                                ),
                       ),
                       const SizedBox(height: 12),
                       OverflowBar(
@@ -293,12 +283,12 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                             onPressed: _isSavingNote
                                 ? null
                                 : () => setState(() {
-                                    _isAddingNote = false;
-                                    _isInternalNote = true;
-                                    _noteError = '';
-                                    _noteFocusNode.unfocus();
-                                    _noteController.clear();
-                                  }),
+                                      _isAddingNote = false;
+                                      _isInternalNote = true;
+                                      _noteError = '';
+                                      _noteFocusNode.unfocus();
+                                      _noteController.clear();
+                                    }),
                             child: const Text('Cancel'),
                           ),
                           FilledButton(
@@ -324,18 +314,14 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ],
             if (detail.materials.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.lg),
+              const SectionHeader('Materials'),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(AppSpace.md),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Materials',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 8),
                       for (final material in detail.materials)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),
@@ -356,18 +342,14 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ],
             if (_notes.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.lg),
+              const SectionHeader('Notes'),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(AppSpace.md),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Notes',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 8),
                       for (final note in _notes)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),
@@ -391,13 +373,14 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     for (final action in executionActions) ...[
-                      FilledButton(
+                      PrimaryActionButton(
                         key: Key('work-action-$action'),
                         onPressed: () => _runWorkAction(job.id, action),
-                        child: Text(actionLabel(action)),
+                        icon: _workActionIcon(action),
+                        label: actionLabel(action),
                       ),
                       if (action != executionActions.last)
-                        const SizedBox(height: 8),
+                        const SizedBox(height: AppSpace.sm),
                     ],
                     TextButton(
                       key: const Key('unable-action'),
@@ -442,9 +425,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
       final destination = await _pickDestination(jobId);
       if (destination == null) return;
       _activeDestination = destination;
-      await ref
-          .read(executionControllerProvider.notifier)
-          .transition(
+      await ref.read(executionControllerProvider.notifier).transition(
             jobId,
             action,
             payload: destination.toTransitionPayload(),
@@ -453,9 +434,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
       final destination = _activeDestination ?? await _pickDestination(jobId);
       if (destination == null) return;
       _activeDestination = destination;
-      await ref
-          .read(executionControllerProvider.notifier)
-          .transition(
+      await ref.read(executionControllerProvider.notifier).transition(
             jobId,
             action,
             payload: destination.toTransitionPayload(),
@@ -472,9 +451,8 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
   Future<JobDestination?> _pickDestination(String jobId) async {
     List<JobDestination> destinations;
     try {
-      destinations = await ref
-          .read(jobsRepositoryProvider)
-          .fetchDestinations(jobId);
+      destinations =
+          await ref.read(jobsRepositoryProvider).fetchDestinations(jobId);
     } catch (_) {
       destinations = const [
         JobDestination(destinationType: 'customer', label: 'Customer site'),
@@ -502,8 +480,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                 ),
                 leading: Icon(_destinationIcon(destination.destinationType)),
                 title: Text(destination.label),
-                subtitle:
-                    destination.addressText == null ||
+                subtitle: destination.addressText == null ||
                         destination.addressText!.isEmpty
                     ? Text(destination.destinationType.replaceAll('_', ' '))
                     : Text(destination.addressText!),
@@ -626,8 +603,8 @@ class _NoteTile extends StatelessWidget {
           Text(
             meta,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
           ),
         Text(_noteBody(note)),
       ],
@@ -709,8 +686,8 @@ class _HistoryTile extends StatelessWidget {
             Text(
               meta,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
             ),
         ],
       ),
@@ -810,22 +787,36 @@ class _LocationCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final uri = location.mapsUri;
+    final text = Theme.of(context).textTheme;
+    final soft = Theme.of(context).colorScheme.onSurfaceVariant;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpace.md),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                const Icon(Icons.place_outlined, size: 20),
-                const SizedBox(width: 8),
+                const _LeadingIcon(Icons.place_outlined, accent: true),
+                const SizedBox(width: AppSpace.md),
                 Expanded(
-                  child: Text(location.addressText ?? 'No address on file'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Site',
+                          style: text.labelSmall?.copyWith(color: soft)),
+                      const SizedBox(height: 1),
+                      Text(
+                        location.addressText ?? 'No address on file',
+                        style: text.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpace.md),
             Wrap(
               spacing: 10,
               runSpacing: 10,
@@ -866,6 +857,28 @@ class _LocationCard extends ConsumerWidget {
   }
 }
 
+/// Leading icon in a soft tinted square — the mockup's info-card motif.
+class _LeadingIcon extends StatelessWidget {
+  const _LeadingIcon(this.icon, {this.accent = false});
+
+  final IconData icon;
+  final bool accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final base = accent ? AppColors.accent : AppColors.primary;
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: base.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadii.tile),
+      ),
+      child: Icon(icon, size: 20, color: base),
+    );
+  }
+}
+
 class _CustomerCard extends ConsumerWidget {
   const _CustomerCard({required this.customer});
 
@@ -873,35 +886,37 @@ class _CustomerCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final text = Theme.of(context).textTheme;
+    final soft = Theme.of(context).colorScheme.onSurfaceVariant;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpace.md),
         child: Row(
           children: [
-            CircleAvatar(
-              child: Text((customer.name ?? '?').substring(0, 1).toUpperCase()),
-            ),
-            const SizedBox(width: 12),
+            const _LeadingIcon(Icons.person_outline),
+            const SizedBox(width: AppSpace.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text('Customer',
+                      style: text.labelSmall?.copyWith(color: soft)),
+                  const SizedBox(height: 1),
                   Text(
-                    customer.name ?? 'Customer',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                    [
+                      customer.name ?? 'Customer',
+                      if (customer.phone != null) customer.phone!,
+                    ].join(' · '),
+                    style:
+                        text.titleSmall?.copyWith(fontWeight: FontWeight.w600),
                   ),
                   if (customer.servicePlan != null)
-                    Text(
-                      customer.servicePlan!,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
+                    Text(customer.servicePlan!, style: text.bodySmall),
                 ],
               ),
             ),
             if (customer.phone != null)
-              IconButton(
+              IconButton.filledTonal(
                 key: const Key('call-button'),
                 onPressed: () => ref.read(uriLauncherProvider)(
                   Uri.parse('tel:${customer.phone}'),
