@@ -144,7 +144,8 @@
       {% set corporate_wireless = corporate.get('wireless', 0) %}
       {% set individual_wired = individual.get('wired', 0) %}
       {% set individual_wireless = individual.get('wireless', 0) %}
-      {% set matrix_total = corporate_wired + corporate_wireless + individual_wired + individual_wireless %}
+      {% set raw_matrix_total = corporate_wired + corporate_wireless + individual_wired + individual_wireless %}
+      {% set matrix_total = report.total_active_subscriptions if report.total_active_subscriptions is defined else raw_matrix_total %}
       {% set billing_mode = report.by_billing_mode if report.by_billing_mode else {} %}
       {% set speed_band = report.by_speed_band if report.by_speed_band else {} %}
       {% set average_speed_payload = report.average_speed if report.average_speed else {} %}

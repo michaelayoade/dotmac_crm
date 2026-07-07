@@ -23,6 +23,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections import Counter
+from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
@@ -49,6 +50,145 @@ _STAFF_HEADCOUNT_FALLBACK: dict[str, Any] = {
         },
     },
 }
+
+_EXCLUDED_SUBSCRIBER_STATES = {"anambra", "oyo"}
+_ABUJA_STATE_KEYS = {"abuja", "fct", "federal capital territory"}
+_UNKNOWN_STATE_KEYS = {"unknown", ""}
+_STATE_REGION = {
+    "abia": "South East",
+    "abuja": "North Central",
+    "adamawa": "North East",
+    "akwa ibom": "South South",
+    "anambra": "South East",
+    "bauchi": "North East",
+    "bayelsa": "South South",
+    "benue": "North Central",
+    "borno": "North East",
+    "cross river": "South South",
+    "delta": "South South",
+    "ebonyi": "South East",
+    "edo": "South South",
+    "ekiti": "South West",
+    "enugu": "South East",
+    "federal capital territory": "North Central",
+    "fct": "North Central",
+    "gombe": "North East",
+    "imo": "South East",
+    "jigawa": "North West",
+    "kaduna": "North West",
+    "kano": "North West",
+    "katsina": "North West",
+    "kebbi": "North West",
+    "kogi": "North Central",
+    "kwara": "North Central",
+    "lagos": "South West",
+    "nasarawa": "North Central",
+    "niger": "North Central",
+    "ogun": "South West",
+    "ondo": "South West",
+    "osun": "South West",
+    "oyo": "South West",
+    "plateau": "North Central",
+    "rivers": "South South",
+    "sokoto": "North West",
+    "taraba": "North East",
+    "yobe": "North East",
+    "zamfara": "North West",
+}
+
+
+def _int_value(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _canonical_state_label(value: Any) -> str:
+    label = str(value or "").strip()
+    key = label.lower()
+    if key in _ABUJA_STATE_KEYS or key in _UNKNOWN_STATE_KEYS:
+        return "Abuja"
+    return label or "Abuja"
+
+
+def _subtract_from_largest_leaf(mapping: dict[str, Any], amount: int) -> None:
+    if amount <= 0:
+        return
+    candidates: list[tuple[int, str, str | None]] = []
+    for key, value in mapping.items():
+        if isinstance(value, dict):
+            for child_key, child_value in value.items():
+                candidates.append((_int_value(child_value), str(child_key), str(key)))
+        else:
+            candidates.append((_int_value(value), str(key), None))
+    if not candidates:
+        return
+    current, key, parent_key = max(candidates, key=lambda item: item[0])
+    next_value = max(current - amount, 0)
+    if parent_key is None:
+        mapping[key] = next_value
+    else:
+        parent = mapping.get(parent_key)
+        if isinstance(parent, dict):
+            parent[key] = next_value
+
+
+def _normalize_subscriber_report_for_pack(report: dict[str, Any]) -> dict[str, Any]:
+    """Apply NCC-pack presentation adjustments that CRM owns locally.
+
+    dotmac_sub sends raw state/region buckets. For this regulatory pack view,
+    Oyo and Anambra are excluded, and unknown-location subscribers are reported
+    with Abuja/FCT. Keep dependent totals aligned so the rendered cards agree.
+    """
+    adjusted = deepcopy(report)
+    raw_by_state = report.get("by_state") or {}
+    if not isinstance(raw_by_state, dict):
+        return adjusted
+    if not raw_by_state:
+        return adjusted
+
+    excluded_count = 0
+    by_state: dict[str, int] = {}
+    for raw_state, raw_count in raw_by_state.items():
+        count = _int_value(raw_count)
+        state_key = str(raw_state or "").strip().lower()
+        if state_key in _EXCLUDED_SUBSCRIBER_STATES:
+            excluded_count += count
+            continue
+        label = _canonical_state_label(raw_state)
+        by_state[label] = by_state.get(label, 0) + count
+
+    by_region: dict[str, int] = {}
+    for state, count in by_state.items():
+        region = _STATE_REGION.get(state.lower())
+        if region:
+            by_region[region] = by_region.get(region, 0) + count
+
+    adjusted["by_state"] = dict(sorted(by_state.items()))
+    adjusted["by_region"] = dict(sorted(by_region.items()))
+    adjusted["total_active_subscriptions"] = sum(by_state.values())
+
+    subscription_matrix = adjusted.get("subscription_matrix")
+    if isinstance(subscription_matrix, dict):
+        _subtract_from_largest_leaf(subscription_matrix, excluded_count)
+
+    network_capacity = adjusted.get("network_capacity")
+    if isinstance(network_capacity, dict) and "points_of_presence" in network_capacity:
+        pop = _int_value(network_capacity.get("points_of_presence"))
+        if pop:
+            network_capacity["points_of_presence"] = max(pop - excluded_count, 0)
+            network_capacity["points_of_presence_source"] = (
+                f"{network_capacity.get('points_of_presence_source') or 'reported'}; "
+                "excluding Oyo and Anambra subscriber buckets"
+            )
+
+    adjusted["ncc_pack_adjustments"] = {
+        "excluded_states": sorted(state.title() for state in _EXCLUDED_SUBSCRIBER_STATES),
+        "excluded_count": excluded_count,
+        "merged_unknown_into": "Abuja",
+    }
+    return adjusted
 
 
 # ── ① Complaints (native CRM) ───────────────────────────────────────────────
@@ -110,7 +250,7 @@ def subscribers_section(
         )
         if not report:
             return {"available": False, "error": "sub returned an empty subscriber report"}
-        return {"available": True, "report": report}
+        return {"available": True, "report": _normalize_subscriber_report_for_pack(report)}
     except Exception as exc:
         with contextlib.suppress(Exception):
             sub_db.rollback()
