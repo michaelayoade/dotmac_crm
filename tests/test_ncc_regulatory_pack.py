@@ -68,6 +68,54 @@ def test_subscribers_section_available(monkeypatch, db_session):
     assert section["report"]["total_active_subscriptions"] == 42
 
 
+def test_subscribers_section_applies_pack_state_adjustments(monkeypatch, db_session):
+    monkeypatch.setattr(
+        "app.services.selfcare.fetch_ncc_subscriber_report",
+        lambda db, **kw: {
+            "total_active_subscriptions": 2868,
+            "by_state": {
+                "Anambra": 1,
+                "Federal Capital Territory": 2414,
+                "Lagos": 114,
+                "Oyo": 5,
+                "Unknown": 334,
+            },
+            "by_region": {
+                "North Central": 2414,
+                "South East": 1,
+                "South West": 119,
+                "Unknown": 334,
+            },
+            "subscription_matrix": {
+                "corporate": {"wired": 10, "wireless": 20},
+                "individual": {"wired": 1000, "wireless": 1838},
+            },
+            "network_capacity": {
+                "points_of_presence": 36,
+                "points_of_presence_source": "active_pop_sites",
+            },
+        },
+    )
+
+    section = pack.subscribers_section(db_session, as_of="2026-07-07")
+
+    report = section["report"]
+    assert section["available"] is True
+    assert report["by_state"] == {"Abuja": 2748, "Lagos": 114}
+    assert report["by_region"] == {"North Central": 2748, "South West": 114}
+    assert report["total_active_subscriptions"] == 2862
+    assert sum(report["by_state"].values()) == report["total_active_subscriptions"]
+    assert sum(report["by_region"].values()) == report["total_active_subscriptions"]
+    assert (
+        report["subscription_matrix"]["corporate"]["wired"]
+        + report["subscription_matrix"]["corporate"]["wireless"]
+        + report["subscription_matrix"]["individual"]["wired"]
+        + report["subscription_matrix"]["individual"]["wireless"]
+    ) == report["total_active_subscriptions"]
+    assert report["network_capacity"]["points_of_presence"] == 30
+    assert report["ncc_pack_adjustments"]["excluded_count"] == 6
+
+
 def test_subscribers_section_degrades_on_error(monkeypatch, db_session):
     def _boom(db, **kw):
         raise RuntimeError("sub unreachable")
