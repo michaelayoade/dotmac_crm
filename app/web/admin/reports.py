@@ -7,7 +7,7 @@ import logging
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, TypedDict
 from urllib.parse import quote, urlencode
@@ -15,7 +15,7 @@ from uuid import UUID
 from xml.sax.saxutils import escape  # nosec B406 - only XML-escapes generated workbook values
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from fastapi import APIRouter, Depends, Form, Query, Request, Response
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -1792,6 +1792,97 @@ def _parse_date_range(
     return start_dt, end_dt
 
 
+class _CrmPerformanceDateRange(TypedDict):
+    start_dt: datetime
+    end_dt: datetime
+    start_date: str
+    end_date: str
+    error: str | None
+    custom_range: bool
+
+
+def _resolve_crm_performance_date_range(
+    days: int | None,
+    start_date: str | None,
+    end_date: str | None,
+    *,
+    now: datetime | None = None,
+) -> _CrmPerformanceDateRange:
+    """Resolve and validate the CRM performance report date window."""
+    current = now or datetime.now(UTC)
+    resolved_days = days or 30
+    start_value = (start_date or "").strip()
+    end_value = (end_date or "").strip()
+
+    if start_value and end_value:
+        try:
+            parsed_start = datetime.fromisoformat(start_value).replace(tzinfo=UTC)
+            parsed_end = datetime.fromisoformat(end_value).replace(tzinfo=UTC)
+        except ValueError:
+            return {
+                "start_dt": current - timedelta(days=resolved_days),
+                "end_dt": current,
+                "start_date": start_value,
+                "end_date": end_value,
+                "error": "Enter valid start and end dates.",
+                "custom_range": True,
+            }
+
+        if parsed_start.date() > parsed_end.date():
+            return {
+                "start_dt": current - timedelta(days=resolved_days),
+                "end_dt": current,
+                "start_date": start_value,
+                "end_date": end_value,
+                "error": "Start date must be on or before end date.",
+                "custom_range": True,
+            }
+        if parsed_end.date() > current.date():
+            return {
+                "start_dt": current - timedelta(days=resolved_days),
+                "end_dt": current,
+                "start_date": start_value,
+                "end_date": end_value,
+                "error": "End date cannot be in the future.",
+                "custom_range": True,
+            }
+
+        start_dt = parsed_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_dt = parsed_end.replace(hour=23, minute=59, second=59, microsecond=999999)
+        matches_selected_preset = (
+            parsed_start.date() == current.date() - timedelta(days=resolved_days)
+            and parsed_end.date() == current.date()
+        )
+        return {
+            "start_dt": start_dt,
+            "end_dt": end_dt,
+            "start_date": parsed_start.date().isoformat(),
+            "end_date": parsed_end.date().isoformat(),
+            "error": None,
+            "custom_range": not matches_selected_preset,
+        }
+
+    if start_value or end_value:
+        return {
+            "start_dt": current - timedelta(days=resolved_days),
+            "end_dt": current,
+            "start_date": start_value,
+            "end_date": end_value,
+            "error": "Select both a start date and an end date.",
+            "custom_range": True,
+        }
+
+    start_dt = current - timedelta(days=resolved_days)
+    return {
+        "start_dt": start_dt,
+        "end_dt": current,
+        "start_date": start_dt.date().isoformat(),
+        "end_date": current.date().isoformat(),
+        "error": None,
+        "custom_range": False,
+    }
+
+
 def _csv_response(data: list[dict], filename: str) -> StreamingResponse:
     """Create a CSV streaming response."""
     if not data:
@@ -1859,6 +1950,10 @@ def _ncc_export_filename(value: datetime | None = None) -> str:
     if report_dt.tzinfo is None:
         report_dt = report_dt.replace(tzinfo=UTC)
     return f"{_NCC_OPERATOR_NAME}_Week{_ncc_submission_week(report_dt)}_{report_dt:%Y%m}.xlsx"
+
+
+def _ncc_regulatory_pack_filename(start_dt: datetime, end_dt: datetime, extension: str) -> str:
+    return f"{_NCC_OPERATOR_NAME}_NCC_Regulatory_Pack_{start_dt:%Y%m%d}_{end_dt:%Y%m%d}.{extension}"
 
 
 def _ncc_export_column_widths(records: list[dict[str, str]], columns: list[str]) -> list[float]:
@@ -4289,7 +4384,77 @@ def ncc_regulatory_pack(
         reseller_id=reseller_id,
         capacity=capacity,
     )
-    return JSONResponse(content=pack)
+    return JSONResponse(
+        content=pack,
+        headers={
+            "Content-Disposition": f'attachment; filename="{_ncc_regulatory_pack_filename(start_dt, end_dt, "json")}"'
+        },
+    )
+
+
+@router.get(
+    "/ncc/regulatory-pack.pdf",
+    dependencies=[Depends(require_any_permission("reports:operations", "reports"))],
+)
+def ncc_regulatory_pack_pdf(
+    request: Request,
+    db: Session = Depends(get_db),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    as_of: str | None = Query(None),
+    year: int | None = Query(None),
+) -> Response:
+    """Download the NCC regulatory pack as a table-based PDF."""
+    from app.services import ncc_regulatory_pack as pack_service
+    from app.services.pdf_utils import ensure_pydyf_compat
+
+    start_dt, end_dt, start_value, end_value = _parse_ncc_window(start_date, end_date)
+    as_of_value = (as_of or "").strip() or end_dt.date().isoformat()
+    year_value = year or end_dt.year
+    pack = pack_service.build_regulatory_pack(
+        db,
+        start_dt=start_dt,
+        end_dt=end_dt,
+        as_of=as_of_value,
+        year=year_value,
+    )
+    html = templates.get_template("admin/reports/ncc_regulatory_pack_pdf.html").render(
+        {
+            "request": request,
+            "pack": pack,
+            "window_start": start_value,
+            "window_end": end_value,
+            "as_of_value": as_of_value,
+            "year_value": year_value,
+            "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        }
+    )
+    try:
+        db.commit()
+    except Exception:
+        logger.exception("ncc_regulatory_pack_pdf_transaction_close_failed")
+        db.rollback()
+    try:
+        from weasyprint import HTML
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail="WeasyPrint is not installed on the server.") from exc
+
+    ensure_pydyf_compat()
+    started = time.perf_counter()
+    pdf_bytes = HTML(string=html, base_url=str(request.base_url)).write_pdf()
+    logger.info(
+        "ncc_regulatory_pack_pdf_generated bytes=%s duration_ms=%.2f",
+        len(pdf_bytes),
+        (time.perf_counter() - started) * 1000,
+    )
+    return Response(
+        pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{_ncc_regulatory_pack_filename(start_dt, end_dt, "pdf")}"',
+            "Cache-Control": "no-store, max-age=0",
+        },
+    )
 
 
 @router.get(
@@ -4342,6 +4507,9 @@ def ncc_regulatory_pack_page(
             "as_of_value": as_of_value,
             "year_value": year_value,
             "export_url": f"/admin/reports/ncc/regulatory-pack?{urlencode(export_params)}",
+            "export_filename": _ncc_regulatory_pack_filename(start_dt, end_dt, "json"),
+            "pdf_export_url": f"/admin/reports/ncc/regulatory-pack.pdf?{urlencode(export_params)}",
+            "pdf_export_filename": _ncc_regulatory_pack_filename(start_dt, end_dt, "pdf"),
         },
     )
 
@@ -6817,6 +6985,8 @@ def crm_performance_report(
     request: Request,
     db: Session = Depends(get_db),
     days: int = Query(30, ge=7, le=90),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
     agent_id: str | None = Query(None),
     team_id: str | None = Query(None),
     channel_type: str | None = Query(None),
@@ -6826,37 +6996,46 @@ def crm_performance_report(
 
     user = get_current_user(request)
     now = datetime.now(UTC)
-    start_date = now - timedelta(days=days)
+    date_range = _resolve_crm_performance_date_range(days, start_date, end_date, now=now)
+    start_dt = date_range["start_dt"]
+    end_dt = date_range["end_dt"]
+    validation_error = date_range["error"]
+    report_ready = validation_error is None
 
-    # Get inbox KPIs
-    inbox_stats = crm_reports_service.inbox_kpis(
-        db=db,
-        start_at=start_date,
-        end_at=now,
-        channel_type=channel_type,
-        agent_id=agent_id,
-        team_id=team_id,
-    )
+    inbox_stats = {"messages": {"total": 0, "inbound": 0, "outbound": 0, "by_channel": {}, "by_email_inbox": {}}}
+    agent_stats: list[dict[str, Any]] = []
+    trend_data: list[dict[str, Any]] = []
 
-    # Get per-agent performance metrics
-    agent_stats = crm_reports_service.agent_performance_metrics(
-        db=db,
-        start_at=start_date,
-        end_at=now,
-        agent_id=agent_id,
-        team_id=team_id,
-        channel_type=channel_type,
-    )
+    if report_ready:
+        # Get inbox KPIs
+        inbox_stats = crm_reports_service.inbox_kpis(
+            db=db,
+            start_at=start_dt,
+            end_at=end_dt,
+            channel_type=channel_type,
+            agent_id=agent_id,
+            team_id=team_id,
+        )
 
-    # Get conversation trend data
-    trend_data = crm_reports_service.conversation_trend(
-        db=db,
-        start_at=start_date,
-        end_at=now,
-        agent_id=agent_id,
-        team_id=team_id,
-        channel_type=channel_type,
-    )
+        # Get per-agent performance metrics
+        agent_stats = crm_reports_service.agent_performance_metrics(
+            db=db,
+            start_at=start_dt,
+            end_at=end_dt,
+            agent_id=agent_id,
+            team_id=team_id,
+            channel_type=channel_type,
+        )
+
+        # Get conversation trend data
+        trend_data = crm_reports_service.conversation_trend(
+            db=db,
+            start_at=start_dt,
+            end_at=end_dt,
+            agent_id=agent_id,
+            team_id=team_id,
+            channel_type=channel_type,
+        )
 
     # Summary stats
     total_conversations = sum(agent["total_conversations"] for agent in agent_stats)
@@ -6903,16 +7082,23 @@ def crm_performance_report(
     agent_labels = crm_team_service.get_agent_labels(db, agents)
 
     # Channel type breakdown (ensure key channels appear even with zero data)
-    channel_breakdown = inbox_stats.get("messages", {}).get("by_channel", {})
+    messages_stats = inbox_stats.get("messages", {})
+    messages_mapping = messages_stats if isinstance(messages_stats, Mapping) else {}
+    channel_breakdown_raw = messages_mapping.get("by_channel", {})
+    channel_breakdown: dict[str, Any] = (
+        dict(channel_breakdown_raw) if isinstance(channel_breakdown_raw, Mapping) else {}
+    )
     channel_labels: dict[str, str] = {}
-    email_inbox_breakdown = inbox_stats.get("messages", {}).get("by_email_inbox", {}) or {}
+    email_inbox_breakdown_raw = messages_mapping.get("by_email_inbox", {})
+    email_inbox_breakdown = dict(email_inbox_breakdown_raw) if isinstance(email_inbox_breakdown_raw, Mapping) else {}
 
     if email_inbox_breakdown:
         channel_breakdown.pop(str(ChannelType.email), None)
         for inbox_id, data in email_inbox_breakdown.items():
             inbox_key = f"email:{inbox_id}"
-            channel_breakdown[inbox_key] = data.get("count", 0)
-            inbox_label = data.get("label") or "Unknown Inbox"
+            inbox_data = data if isinstance(data, Mapping) else {}
+            channel_breakdown[inbox_key] = inbox_data.get("count", 0)
+            inbox_label = inbox_data.get("label") or "Unknown Inbox"
             channel_labels[inbox_key] = f"Email - {inbox_label}"
 
     for channel in (ChannelType.whatsapp, ChannelType.facebook_messenger, ChannelType.instagram_dm):
@@ -6947,6 +7133,12 @@ def crm_performance_report(
             "channel_labels": channel_labels,
             # Filters
             "days": days,
+            "custom_range": date_range["custom_range"],
+            "start_date": date_range["start_date"],
+            "end_date": date_range["end_date"],
+            "max_date": now.date().isoformat(),
+            "date_range_error": validation_error,
+            "report_ready": report_ready,
             "selected_agent_id": agent_id,
             "selected_team_id": team_id,
             "selected_channel_type": channel_type,
@@ -6970,7 +7162,11 @@ def crm_performance_report_export(
     channel_type: str | None = Query(None),
 ):
     """Export CRM performance report as CSV."""
-    start_dt, end_dt = _parse_date_range(days, start_date, end_date)
+    date_range = _resolve_crm_performance_date_range(days, start_date, end_date)
+    if date_range["error"]:
+        raise HTTPException(status_code=400, detail=date_range["error"])
+    start_dt = date_range["start_dt"]
+    end_dt = date_range["end_dt"]
 
     # Get per-agent performance metrics
     agent_stats = crm_reports_service.agent_performance_metrics(
