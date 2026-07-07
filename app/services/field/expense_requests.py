@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, selectinload
 
@@ -15,6 +17,55 @@ from app.services.response import ListResponseMixin
 
 
 class FieldExpenseRequests(ListResponseMixin):
+    @staticmethod
+    def _find_by_client_ref(db: Session, person_id: str, client_ref: str | None) -> ExpenseRequest | None:
+        if not client_ref:
+            return None
+        rows = (
+            db.query(ExpenseRequest)
+            .options(selectinload(ExpenseRequest.items))
+            .filter(ExpenseRequest.is_active.is_(True))
+            .filter(ExpenseRequest.requested_by_person_id == coerce_uuid(person_id))
+            .order_by(ExpenseRequest.created_at.desc())
+            .limit(200)
+            .all()
+        )
+        for row in rows:
+            metadata = row.metadata_ if isinstance(row.metadata_, dict) else {}
+            if metadata.get("client_ref") == client_ref:
+                return row
+        return None
+
+    @staticmethod
+    def _validate_category_rules(db: Session, payload: FieldExpenseRequestCreate) -> None:
+        try:
+            categories = {item.category_code: item for item in FieldExpenseRequests.list_categories(db)}
+        except HTTPException as exc:
+            if exc.status_code != 502:
+                raise
+            categories = {}
+        if not categories:
+            return
+
+        for item in payload.items:
+            category = categories.get(item.category_code)
+            if category is None:
+                continue
+            if category.requires_receipt and not (item.receipt_url or "").strip():
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{category.category_name or category.category_code} requires a receipt",
+                )
+            max_amount = category.max_amount_per_claim
+            if isinstance(max_amount, Decimal) and item.amount > max_amount:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"{category.category_name or category.category_code} exceeds the "
+                        f"maximum claim amount of {max_amount}"
+                    ),
+                )
+
     @staticmethod
     def list_mine(
         db: Session,
@@ -48,6 +99,12 @@ class FieldExpenseRequests(ListResponseMixin):
         person_id: str,
         payload: FieldExpenseRequestCreate,
     ) -> ExpenseRequest:
+        existing = FieldExpenseRequests._find_by_client_ref(db, person_id, payload.client_ref)
+        if existing is not None:
+            return existing
+
+        FieldExpenseRequests._validate_category_rules(db, payload)
+
         work_order_id = payload.work_order_id
         ticket_id = payload.ticket_id
         project_id = payload.project_id
@@ -66,6 +123,7 @@ class FieldExpenseRequests(ListResponseMixin):
             expense_date=payload.expense_date,
             currency=payload.currency,
             notes=payload.notes,
+            metadata_={"client_ref": payload.client_ref} if payload.client_ref else None,
             items=payload.items,
         )
         return expense_requests.create(db, create_payload)

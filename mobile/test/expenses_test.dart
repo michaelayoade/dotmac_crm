@@ -170,6 +170,7 @@ void main() {
       expect(data['purpose'], 'Site logistics');
       expect(data['work_order_id'], 'wo-1');
       expect(data['expense_date'], '2026-07-06');
+      expect(data['client_ref'], 'expense-client-ref-1');
       expect(data.containsKey('project_id'), isFalse);
       expect(data['items'], [
         {
@@ -178,6 +179,7 @@ void main() {
           'description': 'Taxi from depot',
           'amount': '2500.00',
           'vendor_name': 'City Cabs',
+          'receipt_url': 'https://receipts.test/taxi.jpg',
         },
       ]);
       return (
@@ -205,6 +207,7 @@ void main() {
         .read(expensesRepositoryProvider)
         .createRequest(
           purpose: 'Site logistics',
+          clientRef: 'expense-client-ref-1',
           workOrderId: 'wo-1',
           expenseDate: '2026-07-06',
           items: [
@@ -214,6 +217,7 @@ void main() {
               description: 'Taxi from depot',
               amount: 2500,
               vendorName: 'City Cabs',
+              receiptUrl: 'https://receipts.test/taxi.jpg',
             ),
           ],
         );
@@ -221,6 +225,31 @@ void main() {
     expect(request.number, 'EXP-0009');
     expect(request.items.single.categoryLabel, 'Transport');
     expect(request.totalAmount, 2500.0);
+  });
+
+  test('buildExpenseRequestPayload includes client ref and receipt urls', () {
+    final payload = buildExpenseRequestPayload(
+      purpose: 'Fuel',
+      clientRef: 'expense-client-ref-2',
+      items: const [
+        ExpenseItemDraft(
+          categoryCode: 'FUEL',
+          description: 'Diesel',
+          amount: 5000,
+          receiptUrl: 'https://receipts.test/fuel.jpg',
+        ),
+      ],
+    );
+
+    expect(payload['client_ref'], 'expense-client-ref-2');
+    expect(payload['items'], [
+      {
+        'category_code': 'FUEL',
+        'description': 'Diesel',
+        'amount': '5000.00',
+        'receipt_url': 'https://receipts.test/fuel.jpg',
+      },
+    ]);
   });
 
   test('cancelRequest posts to the cancel endpoint', () async {
@@ -516,6 +545,56 @@ void main() {
     expect(find.byKey(const Key('expense-category')), findsNothing);
   });
 
+  testWidgets('new expense request requires receipt for receipt categories', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          expenseCategoriesProvider.overrideWith(
+            (ref) async => const [
+              ExpenseCategory(
+                categoryCode: 'FUEL',
+                categoryName: 'Fuel',
+                requiresReceipt: true,
+              ),
+            ],
+          ),
+        ],
+        child: const MaterialApp(home: NewExpenseRequestScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('expense-category')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Fuel').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('expense-description')),
+      'Diesel',
+    );
+    await tester.enterText(find.byKey(const Key('expense-amount')), '5000');
+    await tester.tap(find.byKey(const Key('add-expense-line')));
+    await tester.pump();
+
+    expect(find.text('Fuel requires a receipt.'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('expense-receipt-url')),
+      'https://receipts.test/fuel.jpg',
+    );
+    await tester.tap(find.byKey(const Key('add-expense-line')));
+    await tester.pump();
+
+    expect(find.text('Fuel requires a receipt.'), findsNothing);
+    expect(find.text('Diesel'), findsOneWidget);
+    expect(find.textContaining('receipt attached'), findsOneWidget);
+  });
+
   test(
     'DraftStore saves, loads and deletes an expense request draft',
     () async {
@@ -530,11 +609,7 @@ void main() {
           'purpose': 'Fuel for generator',
           'expense_date': '2026-07-06',
           'items': [
-            {
-              'category_code': 'FUEL',
-              'description': 'Diesel',
-              'amount': 150.0,
-            },
+            {'category_code': 'FUEL', 'description': 'Diesel', 'amount': 150.0},
           ],
         },
       );

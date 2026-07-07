@@ -11,7 +11,7 @@ from app.models.person import Person
 from app.schemas.expense_request import ExpenseRequestItemCreate
 from app.schemas.field import FieldExpenseRequestCreate
 from app.schemas.workforce import WorkOrderUpdate
-from app.services.field.expense_requests import field_expense_requests
+from app.services.field.expense_requests import FieldExpenseRequests, field_expense_requests
 from app.services.workforce import work_orders
 
 
@@ -51,6 +51,74 @@ def test_field_create_expense_request_without_job(db_session, person):
     with patch("app.tasks.integrations.sync_expense_request_to_erp.delay"):
         er = field_expense_requests.create(db_session, str(person.id), _payload())
     assert er.work_order_id is None
+
+
+def test_field_create_expense_request_is_idempotent_by_client_ref(db_session, person):
+    payload = _payload(client_ref="expense-client-ref-1")
+    with patch("app.tasks.integrations.sync_expense_request_to_erp.delay") as delay_mock:
+        first = field_expense_requests.create(db_session, str(person.id), payload)
+        second = field_expense_requests.create(db_session, str(person.id), payload)
+
+    assert second.id == first.id
+    assert first.metadata_["client_ref"] == "expense-client-ref-1"
+    delay_mock.assert_called_once_with(str(first.id))
+
+
+def test_field_create_enforces_receipt_required_category(db_session, person, monkeypatch):
+    monkeypatch.setattr(
+        FieldExpenseRequests,
+        "list_categories",
+        staticmethod(
+            lambda _db: [
+                type(
+                    "Category",
+                    (),
+                    {
+                        "category_code": "TRANSPORT",
+                        "category_name": "Transport",
+                        "requires_receipt": True,
+                        "max_amount_per_claim": None,
+                    },
+                )()
+            ]
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        field_expense_requests.create(db_session, str(person.id), _payload())
+
+    assert exc.value.status_code == 422
+    assert "receipt" in exc.value.detail.lower()
+
+    with patch("app.tasks.integrations.sync_expense_request_to_erp.delay"):
+        er = field_expense_requests.create(
+            db_session,
+            str(person.id),
+            _payload(
+                items=[
+                    ExpenseRequestItemCreate(
+                        category_code="TRANSPORT",
+                        description="Keke to site and back",
+                        amount=Decimal("2500.00"),
+                        receipt_url="/api/v1/field/attachments/receipt/content",
+                    )
+                ]
+            ),
+        )
+
+    assert er.items[0].receipt_url == "/api/v1/field/attachments/receipt/content"
+
+
+def test_field_create_allows_expense_when_category_lookup_is_unavailable(db_session, person, monkeypatch):
+    def _raise(_db):
+        raise HTTPException(status_code=502, detail="Cannot load expense categories")
+
+    monkeypatch.setattr(FieldExpenseRequests, "list_categories", staticmethod(_raise))
+
+    with patch("app.tasks.integrations.sync_expense_request_to_erp.delay"):
+        er = field_expense_requests.create(db_session, str(person.id), _payload())
+
+    assert er.items[0].category_code == "TRANSPORT"
 
 
 def test_field_create_rejects_unassigned_work_order(db_session, work_order, person):
