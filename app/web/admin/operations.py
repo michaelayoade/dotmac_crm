@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.csrf import get_csrf_token
 from app.db import get_db
@@ -22,6 +22,7 @@ from app.models.inventory import InventoryItem
 from app.models.person import Person
 from app.models.projects import Project, ProjectTask, ProjectType
 from app.models.sales_order import SalesOrder, SalesOrderPaymentStatus, SalesOrderStatus
+from app.models.subscriber import Subscriber
 from app.models.tickets import Ticket
 from app.models.vendor import InstallationProject
 from app.models.workforce import WorkOrder, WorkOrderPriority, WorkOrderStatus, WorkOrderType
@@ -36,6 +37,7 @@ from app.services import vendor as vendor_service
 from app.services import workforce as workforce_service
 from app.services.auth_dependencies import require_any_permission, require_permission
 from app.services.common import coerce_uuid
+from app.services.field.location import cached_job_location
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.templates import Jinja2Templates
 
@@ -1473,6 +1475,24 @@ def field_techs_map(
     )
 
 
+_FIELD_MAP_DEFAULT_WORK_ORDER_STATUSES = (
+    WorkOrderStatus.scheduled,
+    WorkOrderStatus.dispatched,
+    WorkOrderStatus.in_progress,
+    WorkOrderStatus.paused,
+)
+
+
+def _enum_value(value) -> str | None:
+    if value is None:
+        return None
+    return getattr(value, "value", value)
+
+
+def _date_iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
 def _person_label(person: Person | None) -> str:
     if person is None:
         return "Technician"
@@ -1480,6 +1500,133 @@ def _person_label(person: Person | None) -> str:
         return person.display_name
     full = f"{person.first_name or ''} {person.last_name or ''}".strip()
     return full or "Technician"
+
+
+def _subscriber_label(subscriber: Subscriber | None) -> str | None:
+    if subscriber is None:
+        return None
+    account = subscriber.account_number or subscriber.subscriber_number
+    label = subscriber.display_name
+    if account and account != label:
+        return f"{label} ({account})"
+    return label
+
+
+def _coerce_map_coordinate(value) -> float | None:
+    try:
+        coordinate = float(value)
+    except (TypeError, ValueError):
+        return None
+    return coordinate if math.isfinite(coordinate) else None
+
+
+def _work_order_location_for_map(work_order: WorkOrder) -> dict:
+    location = cached_job_location(work_order) or {}
+    latitude = _coerce_map_coordinate(location.get("latitude"))
+    longitude = _coerce_map_coordinate(location.get("longitude"))
+    address_text = location.get("address_text") or workforce_service._resolve_site_address(work_order)
+    return {
+        "latitude": latitude,
+        "longitude": longitude,
+        "address_text": address_text,
+        "source": location.get("source") or ("cached" if latitude is not None and longitude is not None else "none"),
+        "is_mapped": latitude is not None and longitude is not None,
+    }
+
+
+def _field_map_work_order_payload(work_order: WorkOrder) -> dict:
+    location = _work_order_location_for_map(work_order)
+    ticket = work_order.ticket
+    project = work_order.project
+    return {
+        "id": str(work_order.id),
+        "title": work_order.title,
+        "status": _enum_value(work_order.status),
+        "priority": _enum_value(work_order.priority),
+        "work_type": _enum_value(work_order.work_type),
+        "scheduled_start": _date_iso(work_order.scheduled_start),
+        "scheduled_end": _date_iso(work_order.scheduled_end),
+        "assigned_to_person_id": str(work_order.assigned_to_person_id) if work_order.assigned_to_person_id else None,
+        "assigned_to_label": _person_label(work_order.assigned_to) if work_order.assigned_to_person_id else None,
+        "subscriber_id": str(work_order.subscriber_id) if work_order.subscriber_id else None,
+        "subscriber_label": _subscriber_label(work_order.subscriber),
+        "ticket_id": str(work_order.ticket_id) if work_order.ticket_id else None,
+        "ticket_label": ticket.number or ticket.title if ticket else None,
+        "project_id": str(work_order.project_id) if work_order.project_id else None,
+        "project_label": project.name if project else None,
+        "latitude": location["latitude"],
+        "longitude": location["longitude"],
+        "address_text": location["address_text"],
+        "location_source": location["source"],
+        "is_mapped": location["is_mapped"],
+        "detail_url": f"/admin/operations/work-orders/{work_order.id}",
+    }
+
+
+def _field_map_statuses(statuses: list[str] | None) -> list[WorkOrderStatus]:
+    parsed: list[WorkOrderStatus] = []
+    for raw in statuses or []:
+        with contextlib.suppress(ValueError):
+            parsed.append(WorkOrderStatus(str(raw)))
+    return parsed or list(_FIELD_MAP_DEFAULT_WORK_ORDER_STATUSES)
+
+
+@router.get("/field-techs/work-orders")
+def field_tech_work_orders_feed(
+    request: Request,
+    statuses: list[str] | None = Query(default=None),
+    assigned_to_person_id: str | None = Query(default=None),
+    work_type: str | None = Query(default=None),
+    scheduled_from: str | None = Query(default=None),
+    scheduled_to: str | None = Query(default=None),
+    limit: int = Query(default=500, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    _auth=Depends(require_permission("operations:work_order:read")),
+):
+    """Cached work-order location feed for the admin field-services map."""
+    query = (
+        db.query(WorkOrder)
+        .options(
+            joinedload(WorkOrder.assigned_to),
+            joinedload(WorkOrder.subscriber).joinedload(Subscriber.person),
+            joinedload(WorkOrder.subscriber).joinedload(Subscriber.organization),
+            joinedload(WorkOrder.ticket),
+            joinedload(WorkOrder.project),
+        )
+        .filter(WorkOrder.is_active.is_(True))
+        .filter(WorkOrder.status.in_(_field_map_statuses(statuses)))
+    )
+
+    if assigned_to_person_id:
+        query = query.filter(WorkOrder.assigned_to_person_id == coerce_uuid(assigned_to_person_id))
+    if work_type:
+        with contextlib.suppress(ValueError):
+            query = query.filter(WorkOrder.work_type == WorkOrderType(work_type))
+    if scheduled_from_dt := _parse_local_datetime(scheduled_from):
+        query = query.filter(WorkOrder.scheduled_start >= scheduled_from_dt)
+    if scheduled_to_dt := _parse_local_datetime(scheduled_to):
+        query = query.filter(WorkOrder.scheduled_start <= scheduled_to_dt)
+
+    work_orders = (
+        query.order_by(WorkOrder.scheduled_start.asc().nullslast(), WorkOrder.created_at.desc()).limit(limit).all()
+    )
+    rows = [_field_map_work_order_payload(work_order) for work_order in work_orders]
+    mapped = [row for row in rows if row["is_mapped"]]
+    unmapped = [row for row in rows if not row["is_mapped"]]
+    return JSONResponse(
+        jsonable_encoder(
+            {
+                "items": mapped,
+                "unmapped": unmapped,
+                "count": len(mapped),
+                "unmapped_count": len(unmapped),
+                "total": len(rows),
+                "statuses": [_enum_value(status) for status in _field_map_statuses(statuses)],
+                "limit": limit,
+                "offset": 0,
+            }
+        )
+    )
 
 
 @router.get("/field-techs/{person_id}/history")
