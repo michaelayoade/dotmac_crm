@@ -28,17 +28,21 @@ GoRouter buildRouter(Ref ref) {
     refreshListenable: listenable,
     redirect: (context, state) {
       final auth = ref.read(authControllerProvider);
+      final atRestore = state.matchedLocation == '/restore';
       final atLogin = state.matchedLocation == '/login';
       final atMfa = state.matchedLocation == '/mfa';
       final atUpgrade = state.matchedLocation == '/upgrade';
       return switch (auth) {
+        RestoringSession() => atRestore ? null : '/restore',
         Unauthenticated() => atLogin ? null : '/login',
         AwaitingMfa() => atMfa ? null : '/mfa',
         UpgradeRequired() => atUpgrade ? null : '/upgrade',
-        Authenticated() => (atLogin || atMfa || atUpgrade) ? '/today' : null,
+        Authenticated() =>
+          (atRestore || atLogin || atMfa || atUpgrade) ? '/today' : null,
       };
     },
     routes: [
+      GoRoute(path: '/restore', builder: (_, _) => const _RestoreScreen()),
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       GoRoute(path: '/mfa', builder: (_, _) => const MfaScreen()),
       GoRoute(
@@ -122,6 +126,15 @@ GoRouter buildRouter(Ref ref) {
 }
 
 final routerProvider = Provider<GoRouter>(buildRouter);
+
+class _RestoreScreen extends StatelessWidget {
+  const _RestoreScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+  }
+}
 
 /// Vendor crews get their Projects module where techs see Today.
 class _HomeSwitch extends ConsumerWidget {

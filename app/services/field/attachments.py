@@ -138,23 +138,28 @@ def _caller_can_access(
     db: Session,
     person_id: str | None,
     *,
+    vendor_user_id=None,
     work_order_id=None,
     installation_project_id=None,
 ) -> bool:
     """True if the caller may touch an attachment governed by this work order
     (staff assignment) or installation project (their vendor)."""
-    if person_id is None:
+    if person_id is None and vendor_user_id is None:
         return False
     from app.services.field.jobs import caller_can_access
 
-    if work_order_id is not None:
+    if person_id is not None and work_order_id is not None:
         work_order = db.get(WorkOrder, work_order_id)
         if work_order and caller_can_access(db, person_id, work_order):
             return True
     if installation_project_id is not None:
-        from app.services.vendor_portal import get_vendor_user
+        from app.models.vendor import VendorUser
 
-        vendor_user = get_vendor_user(db, person_id)
+        vendor_user = db.get(VendorUser, coerce_uuid(vendor_user_id)) if vendor_user_id else None
+        if vendor_user is None and person_id is not None:
+            from app.services.vendor_portal import get_vendor_user
+
+            vendor_user = get_vendor_user(db, person_id)
         if vendor_user:
             project = db.get(InstallationProject, installation_project_id)
             if project and project.assigned_vendor_id == vendor_user.vendor_id:
@@ -236,12 +241,24 @@ class FieldAttachments(ListResponseMixin):
             raise HTTPException(status_code=404, detail="Work order note not found")
         asset_uuid = _validate_asset_target(db, asset_type, asset_id)
 
+        uploader_person_uuid = coerce_uuid(uploaded_by_person_id) if uploaded_by_person_id else None
+        uploader_vendor_user_uuid = coerce_uuid(uploaded_by_vendor_user_id) if uploaded_by_vendor_user_id else None
+        if project_uuid and uploader_vendor_user_uuid is None and uploader_person_uuid is not None:
+            from app.services.vendor_portal import get_vendor_user
+
+            vendor_user = get_vendor_user(db, str(uploader_person_uuid))
+            project = db.get(InstallationProject, project_uuid)
+            if vendor_user and project and project.assigned_vendor_id == vendor_user.vendor_id:
+                uploader_vendor_user_uuid = vendor_user.id
+                uploader_person_uuid = None
+
         # The caller must be assigned to the governing work order / own the
         # vendor project — otherwise it's a foreign job (uniform 404).
         governing_wo = work_order_uuid or (note_obj.work_order_id if note_obj else None)
         if not _caller_can_access(
             db,
-            uploaded_by_person_id,
+            str(uploader_person_uuid) if uploader_person_uuid else None,
+            vendor_user_id=uploader_vendor_user_uuid,
             work_order_id=governing_wo,
             installation_project_id=project_uuid,
         ):
@@ -266,10 +283,8 @@ class FieldAttachments(ListResponseMixin):
             longitude=longitude if longitude is not None else exif_lng,
             captured_at=_coerce_captured_at(captured_at),
             signer_name=signer_name,
-            uploaded_by_person_id=coerce_uuid(uploaded_by_person_id) if uploaded_by_person_id else None,
-            uploaded_by_vendor_user_id=(
-                coerce_uuid(uploaded_by_vendor_user_id) if uploaded_by_vendor_user_id else None
-            ),
+            uploaded_by_person_id=uploader_person_uuid,
+            uploaded_by_vendor_user_id=uploader_vendor_user_uuid,
             client_ref=client_ref_uuid,
         )
         db.add(attachment)
