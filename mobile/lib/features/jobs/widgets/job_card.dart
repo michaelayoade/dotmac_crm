@@ -17,7 +17,7 @@ class JobCard extends StatelessWidget {
   String get _window {
     final start = job.scheduledStart?.toLocal();
     final end = job.scheduledEnd?.toLocal();
-    if (start == null) return 'Unscheduled';
+    if (start == null) return 'No time set';
     final f = DateFormat.Hm();
     return end == null
         ? f.format(start)
