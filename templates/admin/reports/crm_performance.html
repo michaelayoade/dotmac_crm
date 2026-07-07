@@ -14,13 +14,31 @@
             <h1 class="text-2xl font-bold text-slate-900 dark:text-white">CRM Performance</h1>
             <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Agent and team conversation metrics</p>
         </div>
-        <form method="GET" action="/admin/reports/crm-performance" class="flex flex-wrap items-center gap-2">
-            <select name="days" class="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                <option value="7" {% if days == 7 %}selected{% endif %}>Last 7 Days</option>
-                <option value="30" {% if days == 30 %}selected{% endif %}>Last 30 Days</option>
-                <option value="60" {% if days == 60 %}selected{% endif %}>Last 60 Days</option>
-                <option value="90" {% if days == 90 %}selected{% endif %}>Last 90 Days</option>
-            </select>
+        <form id="crm-performance-filters" method="GET" action="/admin/reports/crm-performance" class="flex flex-wrap items-end gap-2">
+            <input id="crm-days" type="hidden" name="days" value="{{ days }}">
+            <div class="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                <div class="flex flex-wrap gap-1" role="group" aria-label="Quick date ranges">
+                    {% for preset_days in [7, 30, 60, 90] %}
+                    <button
+                        type="button"
+                        data-range-preset="{{ preset_days }}"
+                        class="rounded-lg px-3 py-1.5 text-xs font-medium transition {% if days == preset_days and not custom_range %}bg-primary-600 text-white{% else %}bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600{% endif %}">
+                        Last {{ preset_days }} Days
+                    </button>
+                    {% endfor %}
+                </div>
+                <div class="grid gap-2 sm:grid-cols-2">
+                    <label for="crm-start-date" class="text-xs font-medium text-slate-600 dark:text-slate-300">
+                        Start
+                        <input id="crm-start-date" type="date" name="start_date" value="{{ start_date }}" max="{{ max_date }}" class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </label>
+                    <label for="crm-end-date" class="text-xs font-medium text-slate-600 dark:text-slate-300">
+                        End
+                        <input id="crm-end-date" type="date" name="end_date" value="{{ end_date }}" max="{{ max_date }}" class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </label>
+                </div>
+                <p id="crm-date-range-error" class="{% if not date_range_error %}hidden {% endif %}text-xs font-medium text-rose-600 dark:text-rose-400">{{ date_range_error or "" }}</p>
+            </div>
             <select name="team_id" class="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                 <option value="">All Teams</option>
                 {% for team in teams %}
@@ -43,13 +61,97 @@
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
                 Filter
             </button>
-            <a href="/admin/reports/crm-performance/export?days={{ days }}{% if selected_agent_id %}&agent_id={{ selected_agent_id }}{% endif %}{% if selected_team_id %}&team_id={{ selected_team_id }}{% endif %}{% if selected_channel_type %}&channel_type={{ selected_channel_type }}{% endif %}" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <a href="/admin/reports/crm-performance/export?days={{ days }}{% if start_date %}&start_date={{ start_date }}{% endif %}{% if end_date %}&end_date={{ end_date }}{% endif %}{% if selected_agent_id %}&agent_id={{ selected_agent_id }}{% endif %}{% if selected_team_id %}&team_id={{ selected_team_id }}{% endif %}{% if selected_channel_type %}&channel_type={{ selected_channel_type }}{% endif %}" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                 Export CSV
             </a>
         </form>
     </div>
 
-    {% include "shared/reports/_crm_performance_body.html" %}
+    {% if report_ready %}
+        {% include "shared/reports/_crm_performance_body.html" %}
+    {% else %}
+        <div class="rounded-xl border border-rose-200 bg-rose-50 p-6 shadow-sm dark:border-rose-900/50 dark:bg-rose-950/30">
+            <h2 class="text-base font-semibold text-rose-900 dark:text-rose-100">Date range needs attention</h2>
+            <p class="mt-2 text-sm text-rose-700 dark:text-rose-200">{{ date_range_error }}</p>
+            <p class="mt-1 text-sm text-rose-600 dark:text-rose-300">No CRM Performance data is shown until the date range is corrected.</p>
+        </div>
+    {% endif %}
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('crm-performance-filters');
+    const daysInput = document.getElementById('crm-days');
+    const startInput = document.getElementById('crm-start-date');
+    const endInput = document.getElementById('crm-end-date');
+    const errorEl = document.getElementById('crm-date-range-error');
+    if (!form || !daysInput || !startInput || !endInput || !errorEl) return;
+
+    function formatDate(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    function showError(message) {
+        errorEl.textContent = message || '';
+        errorEl.classList.toggle('hidden', !message);
+    }
+
+    function validateRange() {
+        showError('');
+        if (!startInput.value || !endInput.value) {
+            showError('Select both a start date and an end date.');
+            return false;
+        }
+        const startDate = new Date(`${startInput.value}T00:00:00`);
+        const endDate = new Date(`${endInput.value}T00:00:00`);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+            showError('Enter valid start and end dates.');
+            return false;
+        }
+        if (startDate > endDate) {
+            showError('Start date must be on or before end date.');
+            return false;
+        }
+        if (endDate > today) {
+            showError('End date cannot be in the future.');
+            return false;
+        }
+        return true;
+    }
+
+    document.querySelectorAll('[data-range-preset]').forEach((button) => {
+        button.addEventListener('click', function() {
+            const days = Number(button.dataset.rangePreset || '30');
+            const endDate = new Date();
+            endDate.setHours(0, 0, 0, 0);
+            const startDate = new Date(endDate);
+            startDate.setDate(startDate.getDate() - days);
+            daysInput.value = String(days);
+            startInput.value = formatDate(startDate);
+            endInput.value = formatDate(endDate);
+            if (validateRange()) {
+                form.submit();
+            }
+        });
+    });
+
+    [startInput, endInput].forEach((input) => {
+        input.addEventListener('change', function() {
+            daysInput.value = '30';
+            validateRange();
+        });
+    });
+
+    form.addEventListener('submit', function(event) {
+        if (!validateRange()) {
+            event.preventDefault();
+        }
+    });
+});
+</script>
 {% endblock %}
