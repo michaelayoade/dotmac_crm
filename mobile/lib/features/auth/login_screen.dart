@@ -101,7 +101,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             onSelectionChanged: _busy
                                 ? null
                                 : (selection) =>
-                                      setState(() => _mode = selection.first),
+                                    setState(() => _mode = selection.first),
                           ),
                           const SizedBox(height: 20),
                           TextFormField(
@@ -138,8 +138,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 onPressed: _busy
                                     ? null
                                     : () => setState(
-                                        () => _showPassword = !_showPassword,
-                                      ),
+                                          () => _showPassword = !_showPassword,
+                                        ),
                                 icon: Icon(
                                   _showPassword
                                       ? Icons.visibility_off_outlined
@@ -208,17 +208,26 @@ class _LoginHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Container(
-          width: 52,
-          height: 52,
-          decoration: BoxDecoration(
-            color: colorScheme.primary,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Icon(
-            Icons.route_outlined,
-            color: colorScheme.onPrimary,
-            size: 30,
+        ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Image.asset(
+            'assets/images/app_icon.png',
+            width: 52,
+            height: 52,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: colorScheme.primary,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                Icons.route_outlined,
+                color: colorScheme.onPrimary,
+                size: 30,
+              ),
+            ),
           ),
         ),
         const SizedBox(width: 14),
