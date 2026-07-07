@@ -400,6 +400,33 @@ def queue_work_order_assignment_push(db: Session, work_order) -> None:
             logger.warning("push_sync_fallback_failed work_order_id=%s", work_order.id, exc_info=True)
 
 
+def queue_work_order_comment_push(db: Session, work_order, *, note_preview: str | None = None) -> None:
+    """Enqueue a comment push for the work order's assigned technician."""
+    if not work_order.assigned_to_person_id:
+        return
+    person_id = str(work_order.assigned_to_person_id)
+    preview = " ".join((note_preview or "").split())
+    title = "New work order comment"
+    body = f"{work_order.title}: {preview}" if preview else f"{work_order.title} has a new comment"
+    data = {
+        "type": "work_order_comment",
+        "work_order_id": str(work_order.id),
+        "title": title,
+        "body": body,
+        "preview": preview,
+    }
+    try:
+        from app.tasks.push import send_push_to_person
+
+        send_push_to_person.delay(person_id=person_id, title=title, body=body, data=data)
+    except Exception:
+        logger.debug("comment_push_enqueue_failed_falling_back_to_sync", exc_info=True)
+        try:
+            push_sender.send_to_person(db, person_id, title=title, body=body, data=data)
+        except Exception:
+            logger.warning("comment_push_sync_fallback_failed work_order_id=%s", work_order.id, exc_info=True)
+
+
 def queue_vendor_quote_approved_push(db: Session, quote) -> None:
     """Notify a vendor's crew that their bid was approved.
 
