@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/theme.dart';
+import '../../app/widgets/primary_action_button.dart';
+import '../../app/widgets/status_pill.dart';
 import '../execution/completion_wizard.dart';
 import '../execution/execution_controller.dart';
 import 'job_models.dart';
@@ -16,6 +18,15 @@ import 'location_pin_screen.dart';
 typedef UriLauncher = Future<bool> Function(Uri uri);
 
 final uriLauncherProvider = Provider<UriLauncher>((ref) => launchUrl);
+
+/// Icon for a primary work action (start / pause / resume / complete / …).
+IconData _workActionIcon(String action) => switch (action) {
+      'start' => Icons.play_arrow_rounded,
+      'resume' => Icons.play_arrow_rounded,
+      'pause' => Icons.pause_rounded,
+      'complete' => Icons.check_rounded,
+      _ => Icons.bolt_rounded,
+    };
 
 class JobDetailScreen extends ConsumerWidget {
   const JobDetailScreen({super.key, required this.jobId});
@@ -90,7 +101,6 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
     final executionActions = actions
         .where((action) => action != 'en_route' && action != 'arrived')
         .toList();
-    final statusColor = AppColors.status(job.status);
 
     return Scaffold(
       appBar: AppBar(
@@ -113,16 +123,8 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
             icon: const Icon(Icons.receipt_long_outlined),
           ),
           Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Center(
-              child: Row(
-                children: [
-                  Icon(Icons.circle, size: 10, color: statusColor),
-                  const SizedBox(width: 6),
-                  Text(statusLabel(job.status)),
-                ],
-              ),
-            ),
+            padding: const EdgeInsets.only(right: AppSpace.md),
+            child: Center(child: StatusPill(job.status, compact: true)),
           ),
         ],
       ),
@@ -281,8 +283,8 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                         onChanged: _isSavingNote
                             ? null
                             : (value) => setState(
-                                () => _isInternalNote = value ?? true,
-                              ),
+                                  () => _isInternalNote = value ?? true,
+                                ),
                       ),
                       const SizedBox(height: 12),
                       OverflowBar(
@@ -293,12 +295,12 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                             onPressed: _isSavingNote
                                 ? null
                                 : () => setState(() {
-                                    _isAddingNote = false;
-                                    _isInternalNote = true;
-                                    _noteError = '';
-                                    _noteFocusNode.unfocus();
-                                    _noteController.clear();
-                                  }),
+                                      _isAddingNote = false;
+                                      _isInternalNote = true;
+                                      _noteError = '';
+                                      _noteFocusNode.unfocus();
+                                      _noteController.clear();
+                                    }),
                             child: const Text('Cancel'),
                           ),
                           FilledButton(
@@ -391,13 +393,14 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     for (final action in executionActions) ...[
-                      FilledButton(
+                      PrimaryActionButton(
                         key: Key('work-action-$action'),
                         onPressed: () => _runWorkAction(job.id, action),
-                        child: Text(actionLabel(action)),
+                        icon: _workActionIcon(action),
+                        label: actionLabel(action),
                       ),
                       if (action != executionActions.last)
-                        const SizedBox(height: 8),
+                        const SizedBox(height: AppSpace.sm),
                     ],
                     TextButton(
                       key: const Key('unable-action'),
@@ -442,9 +445,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
       final destination = await _pickDestination(jobId);
       if (destination == null) return;
       _activeDestination = destination;
-      await ref
-          .read(executionControllerProvider.notifier)
-          .transition(
+      await ref.read(executionControllerProvider.notifier).transition(
             jobId,
             action,
             payload: destination.toTransitionPayload(),
@@ -453,9 +454,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
       final destination = _activeDestination ?? await _pickDestination(jobId);
       if (destination == null) return;
       _activeDestination = destination;
-      await ref
-          .read(executionControllerProvider.notifier)
-          .transition(
+      await ref.read(executionControllerProvider.notifier).transition(
             jobId,
             action,
             payload: destination.toTransitionPayload(),
@@ -472,9 +471,8 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
   Future<JobDestination?> _pickDestination(String jobId) async {
     List<JobDestination> destinations;
     try {
-      destinations = await ref
-          .read(jobsRepositoryProvider)
-          .fetchDestinations(jobId);
+      destinations =
+          await ref.read(jobsRepositoryProvider).fetchDestinations(jobId);
     } catch (_) {
       destinations = const [
         JobDestination(destinationType: 'customer', label: 'Customer site'),
@@ -502,8 +500,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                 ),
                 leading: Icon(_destinationIcon(destination.destinationType)),
                 title: Text(destination.label),
-                subtitle:
-                    destination.addressText == null ||
+                subtitle: destination.addressText == null ||
                         destination.addressText!.isEmpty
                     ? Text(destination.destinationType.replaceAll('_', ' '))
                     : Text(destination.addressText!),
@@ -626,8 +623,8 @@ class _NoteTile extends StatelessWidget {
           Text(
             meta,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
           ),
         Text(_noteBody(note)),
       ],
@@ -709,8 +706,8 @@ class _HistoryTile extends StatelessWidget {
             Text(
               meta,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
             ),
         ],
       ),
@@ -889,8 +886,8 @@ class _CustomerCard extends ConsumerWidget {
                   Text(
                     customer.name ?? 'Customer',
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                          fontWeight: FontWeight.w600,
+                        ),
                   ),
                   if (customer.servicePlan != null)
                     Text(
