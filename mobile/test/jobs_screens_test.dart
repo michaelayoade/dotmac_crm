@@ -23,25 +23,25 @@ JobDetail _detail({
   JobLocation? location,
   List<Map<String, dynamic>> materialRequests = const [],
   List<Map<String, dynamic>> history = const [],
-}) => JobDetail(
-  job: _job(status: status),
-  location:
-      location ??
-      const JobLocation(
-        latitude: 6.43,
-        longitude: 3.42,
-        addressText: '12 Admiralty Way',
-        source: 'geocoded',
+}) =>
+    JobDetail(
+      job: _job(status: status),
+      location: location ??
+          const JobLocation(
+            latitude: 6.43,
+            longitude: 3.42,
+            addressText: '12 Admiralty Way',
+            source: 'geocoded',
+          ),
+      customer: const JobCustomer(
+        name: 'Adaeze Okafor',
+        phone: '+2348012345678',
+        servicePlan: '100 Mbps',
       ),
-  customer: const JobCustomer(
-    name: 'Adaeze Okafor',
-    phone: '+2348012345678',
-    servicePlan: '100 Mbps',
-  ),
-  ticketRef: 'TCK-1001',
-  materialRequests: materialRequests,
-  history: history,
-);
+      ticketRef: 'TCK-1001',
+      materialRequests: materialRequests,
+      history: history,
+    );
 
 Widget _wrap(Widget child, {List<Override> overrides = const []}) =>
     ProviderScope(
@@ -50,25 +50,24 @@ Widget _wrap(Widget child, {List<Override> overrides = const []}) =>
     );
 
 void main() {
-  testWidgets('job card shows work-type color bar and status dot', (
+  testWidgets('job card shows status stripe, pill, and meta', (
     tester,
   ) async {
     await tester.pumpWidget(_wrap(JobCard(job: _job())));
 
-    expect(find.text('INSTALL'), findsOneWidget);
+    expect(find.text('Install'), findsOneWidget); // work type in meta footer
     expect(find.text('Install fiber — Adaeze Okafor'), findsOneWidget);
-    expect(find.text('dispatched'), findsOneWidget);
+    expect(find.text('ASSIGNED'), findsOneWidget); // status pill (dispatched)
     expect(find.text('~90 min'), findsOneWidget);
 
-    final bar = tester
+    // Stripe is the STATUS colour now (state reads three ways).
+    final stripe = tester
         .widgetList<Container>(find.byType(Container))
         .firstWhere(
-          (c) =>
-              c.constraints?.maxWidth == 5 ||
-              c.color == AppColors.workType('install'),
+          (c) => c.color == AppColors.status('dispatched'),
           orElse: () => tester.widget<Container>(find.byType(Container).first),
         );
-    expect(bar.color, AppColors.workType('install'));
+    expect(stripe.color, AppColors.status('dispatched'));
   });
 
   group('action bar shows work actions per status', () {
