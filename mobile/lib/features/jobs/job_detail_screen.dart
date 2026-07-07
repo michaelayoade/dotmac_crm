@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/theme.dart';
 import '../../app/widgets/primary_action_button.dart';
+import '../../app/widgets/section_header.dart';
 import '../../app/widgets/status_pill.dart';
 import '../execution/completion_wizard.dart';
 import '../execution/execution_controller.dart';
@@ -140,23 +141,27 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
+              [
+                if (detail.ticketRef != null) '#${detail.ticketRef}',
+                job.workType.toUpperCase(),
+              ].join('  ·  '),
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
+                  ),
+            ),
+            const SizedBox(height: 4),
+            Text(
               job.title,
               style: Theme.of(
                 context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
             ),
-            if (detail.ticketRef != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  'Ticket ${detail.ticketRef}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpace.lg),
             _LocationCard(jobId: job.id, location: detail.location),
             if (detail.customer != null) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.sm),
               _CustomerCard(customer: detail.customer!),
             ],
             if (travelActions.isNotEmpty) ...[
@@ -185,37 +190,24 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ],
             if (job.description != null && job.description!.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.lg),
+              const SectionHeader('Scope of work'),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Scope of work',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(job.description!),
-                    ],
-                  ),
+                  padding: const EdgeInsets.all(AppSpace.md),
+                  child: Text(job.description!),
                 ),
               ),
             ],
             if (detail.materialRequests.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.lg),
+              const SectionHeader('Material requests'),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(AppSpace.md),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Material requests',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 8),
                       for (final request in detail.materialRequests)
                         _MaterialRequestListTile(request: request),
                     ],
@@ -224,18 +216,14 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ],
             if (detail.history.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.lg),
+              const SectionHeader('History'),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(AppSpace.md),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'History',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 8),
                       for (final item in detail.history)
                         _HistoryTile(item: item),
                     ],
@@ -326,18 +314,14 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ],
             if (detail.materials.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.lg),
+              const SectionHeader('Materials'),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(AppSpace.md),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Materials',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 8),
                       for (final material in detail.materials)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),
@@ -358,18 +342,14 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ],
             if (_notes.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: AppSpace.lg),
+              const SectionHeader('Notes'),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(AppSpace.md),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Notes',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 8),
                       for (final note in _notes)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),
@@ -807,22 +787,36 @@ class _LocationCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final uri = location.mapsUri;
+    final text = Theme.of(context).textTheme;
+    final soft = Theme.of(context).colorScheme.onSurfaceVariant;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpace.md),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                const Icon(Icons.place_outlined, size: 20),
-                const SizedBox(width: 8),
+                const _LeadingIcon(Icons.place_outlined, accent: true),
+                const SizedBox(width: AppSpace.md),
                 Expanded(
-                  child: Text(location.addressText ?? 'No address on file'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Site',
+                          style: text.labelSmall?.copyWith(color: soft)),
+                      const SizedBox(height: 1),
+                      Text(
+                        location.addressText ?? 'No address on file',
+                        style: text.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpace.md),
             Wrap(
               spacing: 10,
               runSpacing: 10,
@@ -863,6 +857,28 @@ class _LocationCard extends ConsumerWidget {
   }
 }
 
+/// Leading icon in a soft tinted square — the mockup's info-card motif.
+class _LeadingIcon extends StatelessWidget {
+  const _LeadingIcon(this.icon, {this.accent = false});
+
+  final IconData icon;
+  final bool accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final base = accent ? AppColors.accent : AppColors.primary;
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: base.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(AppRadii.tile),
+      ),
+      child: Icon(icon, size: 20, color: base),
+    );
+  }
+}
+
 class _CustomerCard extends ConsumerWidget {
   const _CustomerCard({required this.customer});
 
@@ -870,35 +886,37 @@ class _CustomerCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final text = Theme.of(context).textTheme;
+    final soft = Theme.of(context).colorScheme.onSurfaceVariant;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpace.md),
         child: Row(
           children: [
-            CircleAvatar(
-              child: Text((customer.name ?? '?').substring(0, 1).toUpperCase()),
-            ),
-            const SizedBox(width: 12),
+            const _LeadingIcon(Icons.person_outline),
+            const SizedBox(width: AppSpace.md),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text('Customer',
+                      style: text.labelSmall?.copyWith(color: soft)),
+                  const SizedBox(height: 1),
                   Text(
-                    customer.name ?? 'Customer',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                    [
+                      customer.name ?? 'Customer',
+                      if (customer.phone != null) customer.phone!,
+                    ].join(' · '),
+                    style:
+                        text.titleSmall?.copyWith(fontWeight: FontWeight.w600),
                   ),
                   if (customer.servicePlan != null)
-                    Text(
-                      customer.servicePlan!,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
+                    Text(customer.servicePlan!, style: text.bodySmall),
                 ],
               ),
             ),
             if (customer.phone != null)
-              IconButton(
+              IconButton.filledTonal(
                 key: const Key('call-button'),
                 onPressed: () => ref.read(uriLauncherProvider)(
                   Uri.parse('tel:${customer.phone}'),

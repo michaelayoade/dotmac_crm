@@ -295,7 +295,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Material requests'), findsOneWidget);
+    expect(find.text('MATERIAL REQUESTS'), findsOneWidget);
     expect(find.text('MR-1001'), findsOneWidget);
     expect(find.text('submitted · 1 item'), findsOneWidget);
   });
@@ -340,7 +340,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('History'), findsOneWidget);
+    expect(find.text('HISTORY'), findsOneWidget);
     expect(find.text('Material request MR-1001'), findsOneWidget);
     expect(find.text('submitted · 1 item'), findsOneWidget);
     expect(find.text('Checked signal at cabinet'), findsOneWidget);

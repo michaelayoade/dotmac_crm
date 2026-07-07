@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../app/theme.dart';
 import '../../app/widgets/primary_action_button.dart';
 import '../../core/offline/draft_store.dart';
 import '../execution/execution_controller.dart';
@@ -935,7 +936,24 @@ class _NewExpenseRequestScreenState
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
-                  decoration: const InputDecoration(labelText: 'Amount'),
+                  style: const TextStyle(
+                    fontFamily: 'Outfit',
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                  decoration: InputDecoration(
+                    labelText: 'Amount',
+                    prefixText: '₦ ',
+                    prefixStyle: const TextStyle(
+                      fontFamily: 'Outfit',
+                      fontWeight: FontWeight.w700,
+                      fontSize: 18,
+                      color: AppColors.primary,
+                    ),
+                    filled: true,
+                    fillColor: AppColors.primary.withValues(alpha: 0.06),
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
