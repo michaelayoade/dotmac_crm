@@ -1,6 +1,6 @@
 {% extends "layouts/admin.html" %}
 
-{% block title %}Fiber Plant Map - Admin{% endblock %}
+{% block title %}Network Operations Map - Admin{% endblock %}
 
 {% block head %}
 <!-- Leaflet CSS -->
@@ -466,8 +466,8 @@
                 </svg>
             </div>
             <div>
-                <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Fiber Plant Map</h1>
-                <p class="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Interactive map of fiber network infrastructure</p>
+                <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Network Operations Map</h1>
+                <p class="mt-0.5 text-sm text-slate-500 dark:text-slate-400">Fiber, radio, customer-edge assets, and live field crew positions</p>
             </div>
         </div>
         <div class="flex flex-wrap items-center gap-2">
@@ -527,6 +527,7 @@
         <button id="top-chip-access-points" type="button" class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Access Points <span id="top-count-access-points">0</span></button>
         <button id="top-chip-buildings" type="button" class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Buildings <span id="top-count-buildings">0</span></button>
         <button id="top-chip-segments" type="button" class="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">Segments <span id="top-count-segments">0</span></button>
+        <button id="top-chip-field-techs" type="button" class="inline-flex items-center gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300 dark:hover:bg-emerald-900/30">Field Crew <span id="top-count-field-techs">0</span></button>
         <span class="mx-1 h-5 w-px bg-slate-200 dark:bg-slate-700"></span>
         <label class="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
             View
@@ -842,7 +843,7 @@
                                 <input type="checkbox" id="group-overlays" class="h-4 w-4 rounded border-slate-300 text-slate-700 focus:ring-slate-500/20">
                                 <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Overlays</span>
                                 </span>
-                                <span class="text-xs text-slate-500 dark:text-slate-400">Distance Labels</span>
+                                <span class="text-xs text-slate-500 dark:text-slate-400">Crew, Distance Labels</span>
                             </label>
                         </div>
                     </div>
@@ -922,6 +923,13 @@
                         <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-slate-100 transition-colors">Distance Labels</span>
                         </span>
                         <span id="layer-count-distances" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
+                    </label>
+                    <label class="flex items-center justify-between gap-3 cursor-pointer group">
+                        <span class="flex items-center gap-3">
+                        <input type="checkbox" id="layer-field-techs" checked class="h-4 w-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-500/20">
+                        <span class="text-sm font-medium text-slate-700 dark:text-slate-300 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">Field Crew Live</span>
+                        </span>
+                        <span id="layer-count-field-techs" class="text-xs font-semibold text-slate-500 dark:text-slate-400">0</span>
                     </label>
                 </div>
 
@@ -1040,6 +1048,7 @@
     let planSaveMessage = null;
     const allMarkers = [];
     const allFeatures = [];  // For search functionality
+    const fieldTechMarkers = new Map();
 
     // Initialize map
     const map = L.map('fiber-map').setView([0, 0], 2);
@@ -1069,6 +1078,7 @@
         closures: L.layerGroup().addTo(map),
         accessPoints: L.layerGroup().addTo(map),
         buildings: L.layerGroup().addTo(map),
+        fieldTechs: L.layerGroup().addTo(map),
         feeder: L.layerGroup().addTo(map),
         distribution: L.layerGroup().addTo(map),
         drop: L.layerGroup().addTo(map),
@@ -1081,6 +1091,7 @@
         closures: 0,
         accessPoints: 0,
         buildings: 0,
+        fieldTechs: 0,
         feeder: 0,
         distribution: 0,
         drop: 0,
@@ -1094,6 +1105,7 @@
         layerCounts.closures = layers.closures.getLayers().length;
         layerCounts.accessPoints = layers.accessPoints.getLayers().length;
         layerCounts.buildings = layers.buildings.getLayers().length;
+        layerCounts.fieldTechs = layers.fieldTechs.getLayers().length;
         layerCounts.feeder = layers.feeder.getLayers().length;
         layerCounts.distribution = layers.distribution.getLayers().length;
         layerCounts.drop = layers.drop.getLayers().length;
@@ -1106,6 +1118,7 @@
             ['layer-count-closures', layerCounts.closures],
             ['layer-count-access-points', layerCounts.accessPoints],
             ['layer-count-buildings', layerCounts.buildings],
+            ['layer-count-field-techs', layerCounts.fieldTechs],
             ['layer-count-feeder', layerCounts.feeder],
             ['layer-count-distribution', layerCounts.distribution],
             ['layer-count-drop', layerCounts.drop],
@@ -1115,7 +1128,8 @@
             ['top-count-closures', layerCounts.closures],
             ['top-count-access-points', layerCounts.accessPoints],
             ['top-count-buildings', layerCounts.buildings],
-            ['top-count-segments', layerCounts.feeder + layerCounts.distribution + layerCounts.drop]
+            ['top-count-segments', layerCounts.feeder + layerCounts.distribution + layerCounts.drop],
+            ['top-count-field-techs', layerCounts.fieldTechs]
         ];
         mappings.forEach(([id, value]) => {
             const el = document.getElementById(id);
@@ -1131,6 +1145,7 @@
             (document.getElementById('layer-closures')?.checked ? layerCounts.closures : 0) +
             (document.getElementById('layer-access-points')?.checked ? layerCounts.accessPoints : 0) +
             (document.getElementById('layer-buildings')?.checked ? layerCounts.buildings : 0) +
+            (document.getElementById('layer-field-techs')?.checked ? layerCounts.fieldTechs : 0) +
             (document.getElementById('layer-feeder')?.checked ? layerCounts.feeder : 0) +
             (document.getElementById('layer-distribution')?.checked ? layerCounts.distribution : 0) +
             (document.getElementById('layer-drop')?.checked ? layerCounts.drop : 0);
@@ -1154,7 +1169,8 @@
             { chipId: 'top-chip-closures', layerIds: ['layer-closures'] },
             { chipId: 'top-chip-access-points', layerIds: ['layer-access-points'] },
             { chipId: 'top-chip-buildings', layerIds: ['layer-buildings'] },
-            { chipId: 'top-chip-segments', layerIds: ['layer-feeder', 'layer-distribution', 'layer-drop'] }
+            { chipId: 'top-chip-segments', layerIds: ['layer-feeder', 'layer-distribution', 'layer-drop'] },
+            { chipId: 'top-chip-field-techs', layerIds: ['layer-field-techs'] }
         ];
 
         chipConfigs.forEach(({ chipId, layerIds }) => {
@@ -1177,6 +1193,94 @@
             layerIds.forEach((layerId) => setLayerCheckboxChecked(layerId, nextChecked));
             updateTopChipStates();
         });
+    }
+
+    function fieldTechColor(status) {
+        if (status === 'on_shift') return '#10b981';
+        if (status === 'on_break') return '#f59e0b';
+        return '#94a3b8';
+    }
+
+    function fieldTechIcon(status) {
+        const color = fieldTechColor(status);
+        return L.divIcon({
+            className: 'field-tech-live-dot',
+            html: '<span style="display:flex;width:18px;height:18px;align-items:center;justify-content:center;border-radius:9999px;border:2px solid #fff;background:' + color + ';box-shadow:0 0 0 1px rgba(15,23,42,.25),0 8px 16px rgba(15,23,42,.25)"><span style="width:6px;height:6px;border-radius:9999px;background:#fff"></span></span>',
+            iconSize: [18, 18],
+            iconAnchor: [9, 9],
+            popupAnchor: [0, -9]
+        });
+    }
+
+    function formatAgo(iso) {
+        if (!iso) return 'unknown';
+        const ts = Date.parse(iso);
+        if (Number.isNaN(ts)) return 'unknown';
+        const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+        if (sec < 60) return sec + 's ago';
+        return Math.floor(sec / 60) + 'm ago';
+    }
+
+    function fieldTechPopup(row) {
+        const lat = Number(row.latitude);
+        const lng = Number(row.longitude);
+        const accuracy = row.accuracy_m != null ? Number(row.accuracy_m).toFixed(1) + 'm' : 'n/a';
+        const personId = escapeHtml(String(row.person_id || ''));
+        return '<div class="text-xs leading-5">'
+            + '<div><strong>' + escapeHtml(row.person_label || 'Technician') + '</strong></div>'
+            + '<div>Status: ' + escapeHtml(String(row.status || 'unknown').replace(/_/g, ' ')) + '</div>'
+            + '<div>Last update: ' + escapeHtml(formatAgo(row.last_location_at)) + '</div>'
+            + '<div>Lat/Lng: ' + (Number.isFinite(lat) ? lat.toFixed(6) : '') + ', ' + (Number.isFinite(lng) ? lng.toFixed(6) : '') + '</div>'
+            + '<div>Accuracy: ' + escapeHtml(accuracy) + '</div>'
+            + (personId ? '<div class="mt-1"><a href="/admin/operations/field-techs/' + personId + '/movement" style="color:#2563eb;text-decoration:underline;">Movement history</a></div>' : '')
+            + '</div>';
+    }
+
+    async function refreshFieldTechOverlay() {
+        try {
+            const res = await fetch('/admin/operations/field-techs/live-map?stale_after_seconds=120&limit=500', {
+                credentials: 'same-origin',
+                headers: { 'Accept': 'application/json' }
+            });
+            if (!res.ok) {
+                if (res.status === 401 || res.status === 403) return;
+                throw new Error('HTTP ' + res.status);
+            }
+            const data = await res.json();
+            const items = Array.isArray(data && data.items) ? data.items : [];
+            const nextIds = new Set(items.map((item) => String(item.person_id)));
+
+            fieldTechMarkers.forEach((marker, id) => {
+                if (!nextIds.has(id)) {
+                    layers.fieldTechs.removeLayer(marker);
+                    fieldTechMarkers.delete(id);
+                }
+            });
+
+            items.forEach((row) => {
+                const id = String(row.person_id);
+                const lat = Number(row.latitude);
+                const lng = Number(row.longitude);
+                if (!id || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                const pos = [lat, lng];
+                const marker = fieldTechMarkers.get(id);
+                if (marker) {
+                    marker.setLatLng(pos);
+                    marker.setIcon(fieldTechIcon(row.status));
+                    marker.setPopupContent(fieldTechPopup(row));
+                } else {
+                    const nextMarker = L.marker(pos, { icon: fieldTechIcon(row.status), zIndexOffset: 800 });
+                    nextMarker.bindPopup(fieldTechPopup(row));
+                    fieldTechMarkers.set(id, nextMarker);
+                    layers.fieldTechs.addLayer(nextMarker);
+                }
+            });
+            updateLayerCountBadges();
+            updateVisibleFeatureCount();
+            updateTopChipStates();
+        } catch (e) {
+            // Field crew is an operational overlay; a feed failure should not break the plant map.
+        }
     }
 
     // Custom icons
@@ -2581,6 +2685,13 @@
         updateTopChipStates();
         updateGroupCheckboxStates();
     });
+    document.getElementById('layer-field-techs').addEventListener('change', function() {
+        if (this.checked) map.addLayer(layers.fieldTechs);
+        else map.removeLayer(layers.fieldTechs);
+        updateVisibleFeatureCount();
+        updateTopChipStates();
+        updateGroupCheckboxStates();
+    });
     document.getElementById('layer-feeder').addEventListener('change', function() {
         if (this.checked) map.addLayer(layers.feeder);
         else map.removeLayer(layers.feeder);
@@ -2632,6 +2743,7 @@
     bindTopChipFilter('top-chip-access-points', ['layer-access-points']);
     bindTopChipFilter('top-chip-buildings', ['layer-buildings']);
     bindTopChipFilter('top-chip-segments', ['layer-feeder', 'layer-distribution', 'layer-drop']);
+    bindTopChipFilter('top-chip-field-techs', ['layer-field-techs']);
     updateTopChipStates();
 
     // ========== Group toggles (UI-only) ==========
@@ -2640,7 +2752,7 @@
         { id: 'group-osp', layerIds: ['layer-fdh', 'layer-closures', 'layer-olt'] },
         { id: 'group-backbone', layerIds: ['layer-feeder'] },
         { id: 'group-edge', layerIds: ['layer-access-points', 'layer-buildings', 'layer-drop'] },
-        { id: 'group-overlays', layerIds: ['layer-distances'] }
+        { id: 'group-overlays', layerIds: ['layer-field-techs', 'layer-distances'] }
     ];
     const managedLayerIds = Array.from(new Set(GROUP_DEFS.flatMap(g => g.layerIds)));
     let groupApplyInProgress = false;
@@ -2702,6 +2814,7 @@
             'layer-closures',
             'layer-access-points',
             'layer-buildings',
+            'layer-field-techs',
             'layer-feeder',
             'layer-distribution',
             'layer-drop',
@@ -2722,6 +2835,7 @@
             'layer-closures': true,
             'layer-access-points': false,
             'layer-buildings': false,
+            'layer-field-techs': false,
             'layer-feeder': false,
             'layer-distribution': false,
             'layer-drop': false,
@@ -2734,6 +2848,7 @@
             'layer-closures': false,
             'layer-access-points': false,
             'layer-buildings': false,
+            'layer-field-techs': false,
             'layer-feeder': true,
             'layer-distribution': false,
             'layer-drop': false,
@@ -2746,6 +2861,7 @@
             'layer-closures': false,
             'layer-access-points': true,
             'layer-buildings': true,
+            'layer-field-techs': false,
             'layer-feeder': false,
             'layer-distribution': false,
             'layer-drop': true,
@@ -2758,6 +2874,7 @@
             'layer-closures': false,
             'layer-access-points': false,
             'layer-buildings': false,
+            'layer-field-techs': false,
             'layer-feeder': false,
             'layer-distribution': false,
             'layer-drop': false,
@@ -2770,6 +2887,7 @@
             'layer-closures': true,
             'layer-access-points': true,
             'layer-buildings': true,
+            'layer-field-techs': true,
             'layer-feeder': true,
             'layer-distribution': true,
             'layer-drop': true,
@@ -2782,6 +2900,7 @@
             'layer-closures': false,
             'layer-access-points': false,
             'layer-buildings': false,
+            'layer-field-techs': false,
             'layer-feeder': false,
             'layer-distribution': false,
             'layer-drop': false,
@@ -2821,6 +2940,8 @@
     // Initialize group checkbox states from whatever layers are currently on.
     // (Must run after GROUP_FILTER_PRESETS / updateGroupFilterFromLayers are defined.)
     updateGroupCheckboxStates();
+    refreshFieldTechOverlay();
+    window.setInterval(refreshFieldTechOverlay, 30000);
 
     // Keyboard shortcuts
     document.addEventListener('keydown', function(e) {

@@ -64,8 +64,8 @@ GUIDE_MODULES = [
     },
     {
         "key": "fiber-map",
-        "title": "Fiber Map",
-        "summary": "Use layers, search, measure, plan routes, and edit assets.",
+        "title": "Network Operations Map",
+        "summary": "Use asset layers, live field crew, search, measure, route planning, and asset editing.",
         "href": "/admin/user-guide?module=fiber-map",
     },
     {
@@ -661,7 +661,7 @@ GUIDE_DETAILS = {
             "network:read",
         ],
         "quick_links": [
-            {"label": "Fiber Map", "href": "/admin/network/fiber-map"},
+            {"label": "Network Operations Map", "href": "/admin/network/map"},
             {"label": "Fiber Change Requests", "href": "/admin/network/fiber-change-requests"},
             {"label": "Fiber Reports", "href": "/admin/network/fiber/reports"},
         ],
