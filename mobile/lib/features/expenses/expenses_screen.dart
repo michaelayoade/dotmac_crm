@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
@@ -490,6 +491,40 @@ class _ExpenseRequestItemTile extends StatelessWidget {
   }
 }
 
+class _VendorField extends StatelessWidget {
+  const _VendorField({required this.controller, required this.vendors});
+
+  final TextEditingController controller;
+  final AsyncValue<List<String>> vendors;
+
+  @override
+  Widget build(BuildContext context) {
+    final values = vendors.valueOrNull ?? const <String>[];
+    if (values.isEmpty) {
+      return TextField(
+        key: const Key('expense-vendor'),
+        controller: controller,
+        decoration: const InputDecoration(labelText: 'Vendor'),
+      );
+    }
+
+    final selected = values.contains(controller.text) ? controller.text : null;
+    return DropdownButtonFormField<String>(
+      key: const Key('expense-vendor'),
+      initialValue: selected,
+      decoration: const InputDecoration(labelText: 'Vendor'),
+      items: [
+        for (final vendor in values)
+          DropdownMenuItem(
+            value: vendor,
+            child: Text(vendor, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+      ],
+      onChanged: (value) => controller.text = value ?? '',
+    );
+  }
+}
+
 class NewExpenseRequestScreen extends ConsumerStatefulWidget {
   const NewExpenseRequestScreen({
     super.key,
@@ -519,6 +554,8 @@ class _NewExpenseRequestScreenState
   ExpenseCategory? _selectedCategory;
   final _items = <ExpenseItemDraft>[];
   bool _saving = false;
+  bool _receiptUploading = false;
+  String _receiptFileName = '';
   String _submitError = '';
   String _lineError = '';
 
@@ -594,6 +631,7 @@ class _NewExpenseRequestScreenState
       _amount.clear();
       _vendor.clear();
       _receiptUrl.clear();
+      _receiptFileName = '';
       _lineError = '';
     });
   }
@@ -650,6 +688,79 @@ class _NewExpenseRequestScreenState
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Draft saved')));
+  }
+
+  Future<void> _pickReceipt(ImageSource source) async {
+    final workOrderId = _workOrderId.text.trim();
+    if (workOrderId.isEmpty) {
+      setState(
+        () => _lineError = 'Enter a work order ID before uploading a receipt.',
+      );
+      return;
+    }
+    final picked = await ImagePicker().pickImage(
+      source: source,
+      imageQuality: 85,
+    );
+    if (picked == null) return;
+    setState(() {
+      _receiptUploading = true;
+      _lineError = '';
+    });
+    try {
+      final url = await ref
+          .read(expensesRepositoryProvider)
+          .uploadReceipt(
+            workOrderId: workOrderId,
+            filePath: picked.path,
+            fileName: picked.name,
+            clientRef: const Uuid().v4(),
+          );
+      if (!mounted) return;
+      setState(() {
+        _receiptUrl.text = url;
+        _receiptFileName = picked.name;
+      });
+    } on DioException catch (error) {
+      if (!mounted) return;
+      setState(
+        () => _lineError = _expenseErrorMessage(
+          error,
+          'Could not upload receipt.',
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _lineError = 'Could not upload receipt.');
+    } finally {
+      if (mounted) setState(() => _receiptUploading = false);
+    }
+  }
+
+  Future<void> _chooseReceiptSource() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              key: const Key('expense-receipt-camera'),
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take photo'),
+              onTap: () => Navigator.of(context).pop(ImageSource.camera),
+            ),
+            ListTile(
+              key: const Key('expense-receipt-gallery'),
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose from device'),
+              onTap: () => Navigator.of(context).pop(ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source != null) await _pickReceipt(source);
   }
 
   Future<void> _submit() async {
@@ -733,6 +844,7 @@ class _NewExpenseRequestScreenState
   @override
   Widget build(BuildContext context) {
     final categories = ref.watch(expenseCategoriesProvider);
+    final vendors = ref.watch(expenseVendorsProvider);
     final total = _items.fold<double>(0, (sum, item) => sum + item.amount);
     return Scaffold(
       appBar: AppBar(title: const Text('New expense request')),
@@ -836,22 +948,42 @@ class _NewExpenseRequestScreenState
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: TextField(
-                  controller: _vendor,
-                  decoration: const InputDecoration(labelText: 'Vendor'),
-                ),
+                child: _VendorField(controller: _vendor, vendors: vendors),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          TextField(
-            key: const Key('expense-receipt-url'),
-            controller: _receiptUrl,
-            decoration: InputDecoration(
-              labelText: _selectedCategory?.requiresReceipt == true
-                  ? 'Receipt URL required'
-                  : 'Receipt URL',
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextField(
+                  key: const Key('expense-receipt-url'),
+                  controller: _receiptUrl,
+                  decoration: InputDecoration(
+                    labelText: _selectedCategory?.requiresReceipt == true
+                        ? 'Receipt URL required'
+                        : 'Receipt URL',
+                    helperText: _receiptFileName.isEmpty
+                        ? null
+                        : 'Uploaded $_receiptFileName',
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filledTonal(
+                key: const Key('expense-receipt-upload'),
+                onPressed: _receiptUploading ? null : _chooseReceiptSource,
+                icon: _receiptUploading
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.upload_file_outlined),
+                tooltip: 'Upload receipt',
+              ),
+            ],
           ),
           if (_lineError.isNotEmpty) ...[
             const SizedBox(height: 8),
