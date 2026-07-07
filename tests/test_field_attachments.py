@@ -9,6 +9,7 @@ from fastapi.routing import APIRoute
 from app.api.field import router as field_router
 from app.models.field import FieldAttachmentKind
 from app.models.person import Person
+from app.models.vendor import InstallationProject, InstallationProjectStatus, Vendor, VendorUser
 from app.schemas.workforce import WorkOrderUpdate
 from app.services.field import attachments as attachments_module
 from app.services.field import field_attachments
@@ -135,6 +136,40 @@ def test_client_ref_makes_upload_idempotent(db_session, assigned_job, person, fa
     replay = _create(db_session, assigned_job, person, fake_storage, client_ref=client_ref, content=b"different")
     assert replay.id == first.id
     assert len(fake_storage.objects) == 1
+
+
+def test_vendor_project_upload_is_attributed_to_vendor_user(db_session, project, person, fake_storage):
+    vendor = Vendor(name="FiberWorks Ltd", is_active=True)
+    db_session.add(vendor)
+    db_session.flush()
+    vendor_user = VendorUser(vendor_id=vendor.id, person_id=person.id, role="crew_lead", is_active=True)
+    installation_project = InstallationProject(
+        project_id=project.id,
+        assigned_vendor_id=vendor.id,
+        status=InstallationProjectStatus.in_progress,
+    )
+    db_session.add_all([vendor_user, installation_project])
+    db_session.commit()
+
+    attachment = field_attachments.create(
+        db_session,
+        kind="photo",
+        file_name="as-built.jpg",
+        mime_type="image/jpeg",
+        content=b"vendor-evidence",
+        installation_project_id=str(installation_project.id),
+        uploaded_by_person_id=str(person.id),
+    )
+
+    assert attachment.uploaded_by_person_id is None
+    assert attachment.uploaded_by_vendor_user_id == vendor_user.id
+    fetched, content = field_attachments.get_content(
+        db_session,
+        str(attachment.id),
+        caller_person_id=str(person.id),
+    )
+    assert fetched.id == attachment.id
+    assert content == b"vendor-evidence"
 
 
 def test_oversize_upload_rejected_before_write(db_session, assigned_job, person, fake_storage):

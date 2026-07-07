@@ -23,6 +23,11 @@ class _VendorController extends AuthController {
   AuthState build() => const Authenticated(LoginMode.vendor);
 }
 
+class _UnauthedController extends AuthController {
+  @override
+  AuthState build() => const Unauthenticated();
+}
+
 Widget _app({
   bool authenticated = true,
   LocationPingService? locationPingService,
@@ -33,6 +38,8 @@ Widget _app({
     overrides: [
       if (locationPingService != null)
         locationPingServiceProvider.overrideWithValue(locationPingService),
+      if (!authenticated)
+        authControllerProvider.overrideWith(_UnauthedController.new),
       if (authenticated) ...[
         authControllerProvider.overrideWith(controller),
         ...extra,
