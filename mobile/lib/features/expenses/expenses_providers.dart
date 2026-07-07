@@ -36,6 +36,7 @@ class ExpensesRepository {
   Future<ExpenseRequest> createRequest({
     required String purpose,
     required List<ExpenseItemDraft> items,
+    String? clientRef,
     String? expenseDate,
     String? currency,
     String? notes,
@@ -48,21 +49,17 @@ class ExpensesRepository {
         .dio
         .post(
           '/api/v1/field/expense-requests',
-          data: {
-            'purpose': purpose.trim(),
-            if (expenseDate != null && expenseDate.trim().isNotEmpty)
-              'expense_date': expenseDate.trim(),
-            if (currency != null && currency.trim().isNotEmpty)
-              'currency': currency.trim(),
-            if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
-            if (workOrderId != null && workOrderId.trim().isNotEmpty)
-              'work_order_id': workOrderId.trim(),
-            if (projectId != null && projectId.trim().isNotEmpty)
-              'project_id': projectId.trim(),
-            if (ticketId != null && ticketId.trim().isNotEmpty)
-              'ticket_id': ticketId.trim(),
-            'items': items.map((item) => item.toJson()).toList(),
-          },
+          data: buildExpenseRequestPayload(
+            purpose: purpose,
+            items: items,
+            clientRef: clientRef,
+            expenseDate: expenseDate,
+            currency: currency,
+            notes: notes,
+            workOrderId: workOrderId,
+            projectId: projectId,
+            ticketId: ticketId,
+          ),
         );
     return ExpenseRequest.fromJson(
       (response.data as Map).cast<String, dynamic>(),
@@ -87,6 +84,34 @@ class ExpensesRepository {
     return _items(response.data).map(ExpenseCategory.fromJson).toList();
   }
 }
+
+Map<String, dynamic> buildExpenseRequestPayload({
+  required String purpose,
+  required List<ExpenseItemDraft> items,
+  String? clientRef,
+  String? expenseDate,
+  String? currency,
+  String? notes,
+  String? workOrderId,
+  String? projectId,
+  String? ticketId,
+}) => {
+  'purpose': purpose.trim(),
+  if (clientRef != null && clientRef.trim().isNotEmpty)
+    'client_ref': clientRef.trim(),
+  if (expenseDate != null && expenseDate.trim().isNotEmpty)
+    'expense_date': expenseDate.trim(),
+  if (currency != null && currency.trim().isNotEmpty)
+    'currency': currency.trim(),
+  if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+  if (workOrderId != null && workOrderId.trim().isNotEmpty)
+    'work_order_id': workOrderId.trim(),
+  if (projectId != null && projectId.trim().isNotEmpty)
+    'project_id': projectId.trim(),
+  if (ticketId != null && ticketId.trim().isNotEmpty)
+    'ticket_id': ticketId.trim(),
+  'items': items.map((item) => item.toJson()).toList(),
+};
 
 List<Map<String, dynamic>> _items(Object? data) {
   if (data is Map && data['items'] is List) {

@@ -205,6 +205,7 @@ class FieldExpenseRequestCreate(BaseModel):
     ticket_id: UUID | None = None
     project_id: UUID | None = None
     work_order_id: UUID | None = None
+    client_ref: str | None = Field(default=None, max_length=80)
     purpose: str = Field(min_length=1, max_length=500)
     expense_date: date | None = None
     currency: str | None = Field(default=None, min_length=3, max_length=3)

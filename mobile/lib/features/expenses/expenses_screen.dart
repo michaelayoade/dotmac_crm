@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/offline/draft_store.dart';
+import '../execution/execution_controller.dart';
 import 'expense_models.dart';
 import 'expenses_providers.dart';
 
@@ -453,6 +455,7 @@ class _NewExpenseRequestScreenState
   final _description = TextEditingController();
   final _amount = TextEditingController();
   final _vendor = TextEditingController();
+  final _receiptUrl = TextEditingController();
   DateTime _expenseDate = DateTime.now();
   ExpenseCategory? _selectedCategory;
   final _items = <ExpenseItemDraft>[];
@@ -476,6 +479,7 @@ class _NewExpenseRequestScreenState
     _description.dispose();
     _amount.dispose();
     _vendor.dispose();
+    _receiptUrl.dispose();
     super.dispose();
   }
 
@@ -506,6 +510,14 @@ class _NewExpenseRequestScreenState
       );
       return;
     }
+    if (_selectedCategory?.requiresReceipt == true &&
+        _receiptUrl.text.trim().isEmpty) {
+      setState(
+        () => _lineError =
+            '${_selectedCategory!.displayName} requires a receipt.',
+      );
+      return;
+    }
     setState(() {
       _items.add(
         ExpenseItemDraft(
@@ -514,6 +526,7 @@ class _NewExpenseRequestScreenState
           description: description,
           amount: amount,
           vendorName: _vendor.text,
+          receiptUrl: _receiptUrl.text,
         ),
       );
       _selectedCategory = null;
@@ -521,6 +534,7 @@ class _NewExpenseRequestScreenState
       _description.clear();
       _amount.clear();
       _vendor.clear();
+      _receiptUrl.clear();
       _lineError = '';
     });
   }
@@ -585,12 +599,22 @@ class _NewExpenseRequestScreenState
       setState(() => _submitError = 'Purpose is required.');
       return;
     }
+    final clientRef = const Uuid().v4();
+    final payload = buildExpenseRequestPayload(
+      purpose: _purpose.text,
+      clientRef: clientRef,
+      expenseDate: DateFormat('yyyy-MM-dd').format(_expenseDate),
+      notes: _notes.text,
+      workOrderId: _workOrderId.text,
+      items: _items,
+    );
     setState(() => _saving = true);
     try {
       final request = await ref
           .read(expensesRepositoryProvider)
           .createRequest(
             purpose: _purpose.text,
+            clientRef: clientRef,
             expenseDate: DateFormat('yyyy-MM-dd').format(_expenseDate),
             notes: _notes.text,
             workOrderId: _workOrderId.text,
@@ -611,6 +635,22 @@ class _NewExpenseRequestScreenState
       }
     } on DioException catch (error) {
       if (!mounted) return;
+      if (error.response == null) {
+        await ref
+            .read(syncServiceProvider)
+            .enqueue(
+              kind: 'expense_request',
+              clientRef: clientRef,
+              payload: payload,
+            );
+        await ref.read(draftStoreProvider).delete(expenseRequestDraftId);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Expense request queued for sync')),
+        );
+        context.go('/expenses');
+        return;
+      }
       final message = _expenseErrorMessage(
         error,
         'Could not submit expense request',
@@ -744,6 +784,16 @@ class _NewExpenseRequestScreenState
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('expense-receipt-url'),
+            controller: _receiptUrl,
+            decoration: InputDecoration(
+              labelText: _selectedCategory?.requiresReceipt == true
+                  ? 'Receipt URL required'
+                  : 'Receipt URL',
+            ),
+          ),
           if (_lineError.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
@@ -770,6 +820,9 @@ class _NewExpenseRequestScreenState
                   if (item.vendorName != null &&
                       item.vendorName!.trim().isNotEmpty)
                     item.vendorName!.trim(),
+                  if (item.receiptUrl != null &&
+                      item.receiptUrl!.trim().isNotEmpty)
+                    'receipt attached',
                 ].join(' · '),
               ),
               trailing: Wrap(
@@ -951,6 +1004,7 @@ Map<String, dynamic> _expenseDraftItemJson(ExpenseItemDraft item) => {
   'amount': item.amount,
   'expense_date': item.expenseDate,
   'vendor_name': item.vendorName,
+  'receipt_url': item.receiptUrl,
   'notes': item.notes,
 };
 
@@ -969,6 +1023,7 @@ List<ExpenseItemDraft> _expenseDraftItems(Object? raw) {
       },
       expenseDate: data['expense_date'] as String?,
       vendorName: data['vendor_name'] as String?,
+      receiptUrl: data['receipt_url'] as String?,
       notes: data['notes'] as String?,
     );
   }).toList();

@@ -11,8 +11,7 @@ class ExpenseCategory {
   final bool requiresReceipt;
   final double? maxAmountPerClaim;
 
-  String get displayName =>
-      categoryName.isEmpty ? categoryCode : categoryName;
+  String get displayName => categoryName.isEmpty ? categoryCode : categoryName;
 
   factory ExpenseCategory.fromJson(Map<String, dynamic> json) =>
       ExpenseCategory(
@@ -34,6 +33,7 @@ class ExpenseItemDraft {
     this.categoryName,
     this.expenseDate,
     this.vendorName,
+    this.receiptUrl,
     this.notes,
   });
 
@@ -43,6 +43,7 @@ class ExpenseItemDraft {
   final double amount;
   final String? expenseDate;
   final String? vendorName;
+  final String? receiptUrl;
   final String? notes;
 
   Map<String, dynamic> toJson() => {
@@ -55,6 +56,8 @@ class ExpenseItemDraft {
       'expense_date': expenseDate!.trim(),
     if (vendorName != null && vendorName!.trim().isNotEmpty)
       'vendor_name': vendorName!.trim(),
+    if (receiptUrl != null && receiptUrl!.trim().isNotEmpty)
+      'receipt_url': receiptUrl!.trim(),
     if (notes != null && notes!.trim().isNotEmpty) 'notes': notes!.trim(),
   };
 }
@@ -84,8 +87,7 @@ class ExpenseRequestItem {
   final String? notes;
   final DateTime? createdAt;
 
-  String get categoryLabel =>
-      categoryName == null || categoryName!.isEmpty
+  String get categoryLabel => categoryName == null || categoryName!.isEmpty
       ? categoryCode
       : categoryName!;
 

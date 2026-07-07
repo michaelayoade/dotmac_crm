@@ -14,15 +14,40 @@ typedef DelayFn = Future<void> Function(Duration duration);
 
 /// Maps an outbox entry kind to its API call.
 class OutboxRouting {
-  static (String method, String path) route(String kind, Map<String, dynamic> payload) {
+  static (String method, String path) route(
+    String kind,
+    Map<String, dynamic> payload,
+  ) {
     return switch (kind) {
-      'transition' => ('POST', '/api/v1/field/jobs/${payload['work_order_id']}/transition'),
-      'note' => ('POST', '/api/v1/field/jobs/${payload['work_order_id']}/notes'),
-      'worklog' => ('POST', '/api/v1/field/jobs/${payload['work_order_id']}/worklogs'),
-      'material_consume' => ('POST', '/api/v1/field/jobs/${payload['work_order_id']}/materials/consume'),
-      'equipment' => ('POST', '/api/v1/field/jobs/${payload['work_order_id']}/equipment'),
-      'as_built' => ('POST', '/api/v1/field/projects/${payload['project_id']}/as-built'),
-      'quote_line_item' => ('POST', '/api/v1/field/quotes/${payload['quote_id']}/line-items'),
+      'transition' => (
+        'POST',
+        '/api/v1/field/jobs/${payload['work_order_id']}/transition',
+      ),
+      'note' => (
+        'POST',
+        '/api/v1/field/jobs/${payload['work_order_id']}/notes',
+      ),
+      'worklog' => (
+        'POST',
+        '/api/v1/field/jobs/${payload['work_order_id']}/worklogs',
+      ),
+      'material_consume' => (
+        'POST',
+        '/api/v1/field/jobs/${payload['work_order_id']}/materials/consume',
+      ),
+      'equipment' => (
+        'POST',
+        '/api/v1/field/jobs/${payload['work_order_id']}/equipment',
+      ),
+      'as_built' => (
+        'POST',
+        '/api/v1/field/projects/${payload['project_id']}/as-built',
+      ),
+      'quote_line_item' => (
+        'POST',
+        '/api/v1/field/quotes/${payload['quote_id']}/line-items',
+      ),
+      'expense_request' => ('POST', '/api/v1/field/expense-requests'),
       _ => throw ArgumentError('Unknown outbox kind: $kind'),
     };
   }
@@ -69,7 +94,10 @@ class SyncService {
   // ---- Down-sync ---------------------------------------------------------
 
   Future<int> downSyncJobs() async {
-    final response = await api.dio.get('/api/v1/field/jobs', queryParameters: {'limit': 200});
+    final response = await api.dio.get(
+      '/api/v1/field/jobs',
+      queryParameters: {'limit': 200},
+    );
     final items = (response.data['items'] as List).cast<Map>();
     await cacheJobs(items);
     return items.length;
@@ -89,7 +117,9 @@ class SyncService {
             workType: item['work_type'] as String,
             priority: item['priority'] as String,
             scheduledStart: Value(
-              item['scheduled_start'] != null ? DateTime.parse(item['scheduled_start'] as String) : null,
+              item['scheduled_start'] != null
+                  ? DateTime.parse(item['scheduled_start'] as String)
+                  : null,
             ),
             cachedAt: now,
           ),
@@ -116,14 +146,15 @@ class SyncService {
   }
 
   Future<void> cacheJobDetail(String jobId, Map<String, dynamic> detail) async {
-    await (db.update(db.cachedJobs)..where((row) => row.id.equals(jobId))).write(
-      CachedJobsCompanion(detailJson: Value(jsonEncode(detail))),
-    );
+    await (db.update(db.cachedJobs)..where((row) => row.id.equals(jobId)))
+        .write(CachedJobsCompanion(detailJson: Value(jsonEncode(detail))));
   }
 
   /// Cached job-detail JSON, or null if not cached.
   Future<Map<String, dynamic>?> readCachedDetail(String jobId) async {
-    final row = await (db.select(db.cachedJobs)..where((r) => r.id.equals(jobId))).getSingleOrNull();
+    final row = await (db.select(
+      db.cachedJobs,
+    )..where((r) => r.id.equals(jobId))).getSingleOrNull();
     if (row?.detailJson == null) return null;
     return (jsonDecode(row!.detailJson!) as Map).cast<String, dynamic>();
   }
@@ -149,7 +180,9 @@ class SyncService {
               type: item['type'] as String,
               startAt: DateTime.parse(item['start_at'] as String),
               endAt: Value(
-                item['end_at'] != null ? DateTime.parse(item['end_at'] as String) : null,
+                item['end_at'] != null
+                    ? DateTime.parse(item['end_at'] as String)
+                    : null,
               ),
               title: item['title'] as String? ?? '',
             ),
@@ -174,7 +207,9 @@ class SyncService {
     required String clientRef,
     required Map<String, dynamic> payload,
   }) async {
-    await db.into(db.outboxEntries).insert(
+    await db
+        .into(db.outboxEntries)
+        .insert(
           OutboxEntriesCompanion.insert(
             clientRef: clientRef,
             kind: kind,
@@ -185,10 +220,11 @@ class SyncService {
         );
   }
 
-  Future<List<OutboxEntry>> pending() => (db.select(db.outboxEntries)
-        ..where((row) => row.status.equals('pending'))
-        ..orderBy([(row) => OrderingTerm.asc(row.seq)]))
-      .get();
+  Future<List<OutboxEntry>> pending() =>
+      (db.select(db.outboxEntries)
+            ..where((row) => row.status.equals('pending'))
+            ..orderBy([(row) => OrderingTerm.asc(row.seq)]))
+          .get();
 
   /// Flush pending entries FIFO. One failure stops the flush (order matters:
   /// a note may reference a transition); conflicts are parked, not dropped.
@@ -199,7 +235,8 @@ class SyncService {
     var sent = 0;
     try {
       for (final entry in await pending()) {
-        final payload = (jsonDecode(entry.payloadJson) as Map).cast<String, dynamic>();
+        final payload = (jsonDecode(entry.payloadJson) as Map)
+            .cast<String, dynamic>();
         final (method, path) = OutboxRouting.route(entry.kind, payload);
         try {
           await api.dio.request(
@@ -212,7 +249,8 @@ class SyncService {
         } on DioException catch (error) {
           final status = error.response?.statusCode;
           if (status == 429) {
-            final retryAfter = int.tryParse(
+            final retryAfter =
+                int.tryParse(
                   error.response?.headers.value('Retry-After') ?? '',
                 ) ??
                 5;
@@ -236,7 +274,11 @@ class SyncService {
           // whole queue forever; park it for review and let the rest drain.
           final attempts = entry.attempts + 1;
           if (attempts >= _maxOutboxAttempts) {
-            await _mark(entry, 'conflict', error: 'Gave up after $attempts attempts: ${_detail(error)}');
+            await _mark(
+              entry,
+              'conflict',
+              error: 'Gave up after $attempts attempts: ${_detail(error)}',
+            );
             continue;
           }
           await _bumpAttempts(entry, _detail(error));
@@ -263,18 +305,27 @@ class SyncService {
     _flushingPhotos = true;
     var uploaded = 0;
     try {
-      final rows = await (db.select(db.pendingPhotos)
-            ..where((row) => row.uploaded.equals(false) & row.failed.equals(false)))
-          .get();
+      final rows =
+          await (db.select(db.pendingPhotos)..where(
+                (row) => row.uploaded.equals(false) & row.failed.equals(false),
+              ))
+              .get();
       for (final photo in rows) {
         final file = File(photo.localPath);
         if (!file.existsSync()) {
           // The file vanished (cleared cache): nothing left to upload.
-          await _markPhoto(photo.clientRef, uploaded: true, error: 'local file missing');
+          await _markPhoto(
+            photo.clientRef,
+            uploaded: true,
+            error: 'local file missing',
+          );
           continue;
         }
         final form = FormData.fromMap({
-          'file': MultipartFile.fromBytes(await file.readAsBytes(), filename: 'photo.jpg'),
+          'file': MultipartFile.fromBytes(
+            await file.readAsBytes(),
+            filename: 'photo.jpg',
+          ),
           'kind': photo.kind,
           'client_ref': photo.clientRef,
           'work_order_id': ?photo.workOrderId,
@@ -294,13 +345,25 @@ class SyncService {
           uploaded++;
         } on DioException catch (error) {
           final status = error.response?.statusCode;
-          if (status != null && status >= 400 && status < 500 && status != 429) {
+          if (status != null &&
+              status >= 400 &&
+              status < 500 &&
+              status != 429) {
             // Permanent rejection (bad MIME, too large, gone): terminal. Mark
             // failed so it's not retried forever; keep the file for review.
-            await _markPhoto(photo.clientRef, uploaded: false, failed: true, error: _detail(error));
+            await _markPhoto(
+              photo.clientRef,
+              uploaded: false,
+              failed: true,
+              error: _detail(error),
+            );
             continue;
           }
-          await _markPhoto(photo.clientRef, uploaded: false, error: _detail(error));
+          await _markPhoto(
+            photo.clientRef,
+            uploaded: false,
+            error: _detail(error),
+          );
           break; // network/server/rate trouble: retry on the next trigger
         }
         await _delay(throttle);
@@ -311,9 +374,20 @@ class SyncService {
     return uploaded;
   }
 
-  Future<void> _markPhoto(String clientRef, {required bool uploaded, bool failed = false, String? error}) async {
-    await (db.update(db.pendingPhotos)..where((row) => row.clientRef.equals(clientRef))).write(
-      PendingPhotosCompanion(uploaded: Value(uploaded), failed: Value(failed), lastError: Value(error)),
+  Future<void> _markPhoto(
+    String clientRef, {
+    required bool uploaded,
+    bool failed = false,
+    String? error,
+  }) async {
+    await (db.update(
+      db.pendingPhotos,
+    )..where((row) => row.clientRef.equals(clientRef))).write(
+      PendingPhotosCompanion(
+        uploaded: Value(uploaded),
+        failed: Value(failed),
+        lastError: Value(error),
+      ),
     );
   }
 
@@ -324,7 +398,9 @@ class SyncService {
   }
 
   Future<void> _mark(OutboxEntry entry, String status, {String? error}) async {
-    await (db.update(db.outboxEntries)..where((row) => row.seq.equals(entry.seq))).write(
+    await (db.update(
+      db.outboxEntries,
+    )..where((row) => row.seq.equals(entry.seq))).write(
       OutboxEntriesCompanion(
         status: Value(status),
         lastError: Value(error),
@@ -334,7 +410,9 @@ class SyncService {
   }
 
   Future<void> _bumpAttempts(OutboxEntry entry, String error) async {
-    await (db.update(db.outboxEntries)..where((row) => row.seq.equals(entry.seq))).write(
+    await (db.update(
+      db.outboxEntries,
+    )..where((row) => row.seq.equals(entry.seq))).write(
       OutboxEntriesCompanion(
         attempts: Value(entry.attempts + 1),
         lastError: Value(error),
