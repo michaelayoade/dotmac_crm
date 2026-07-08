@@ -47,6 +47,42 @@ def _agent_person_ids(
     return None
 
 
+def _message_activity_time():
+    return func.coalesce(Message.received_at, Message.sent_at, Message.created_at)
+
+
+def _resolve_channel_value(channel_type: str | None) -> ChannelType | None:
+    if not channel_type:
+        return None
+    try:
+        return ChannelType(channel_type)
+    except ValueError:
+        return None
+
+
+def _resolution_timestamp(conversation: Conversation) -> datetime | None:
+    return conversation.resolved_at or (
+        conversation.updated_at if conversation.status == ConversationStatus.resolved else None
+    )
+
+
+def _is_resolved_in_window(conversation: Conversation, start_at: datetime | None, end_at: datetime | None) -> bool:
+    if conversation.status != ConversationStatus.resolved:
+        return False
+    resolved_at = _resolution_timestamp(conversation)
+    if not resolved_at:
+        return False
+    if resolved_at.tzinfo is None:
+        resolved_at = resolved_at.replace(tzinfo=UTC)
+    if start_at and start_at.tzinfo is None:
+        start_at = start_at.replace(tzinfo=UTC)
+    if end_at and end_at.tzinfo is None:
+        end_at = end_at.replace(tzinfo=UTC)
+    if start_at and resolved_at < start_at:
+        return False
+    return not (end_at and resolved_at > end_at)
+
+
 def agent_presence_summary(
     db: Session,
     *,
@@ -203,22 +239,14 @@ def inbox_kpis(
     from app.models.integration import IntegrationTarget
 
     message_query = db.query(Message)
-    message_time = func.coalesce(
-        Message.received_at,
-        Message.sent_at,
-        Message.created_at,
-    )
+    message_time = _message_activity_time()
     if start_at:
         message_query = message_query.filter(message_time >= start_at)
     if end_at:
         message_query = message_query.filter(message_time <= end_at)
-    if channel_type:
-        try:
-            channel_value = ChannelType(channel_type)
-        except ValueError:
-            channel_value = None
-        if channel_value:
-            message_query = message_query.filter(Message.channel_type == channel_value)
+    channel_value = _resolve_channel_value(channel_type)
+    if channel_value:
+        message_query = message_query.filter(Message.channel_type == channel_value)
 
     conversation_ids = None
     if agent_id or team_id:
@@ -242,14 +270,12 @@ def inbox_kpis(
     inbound_messages = message_query.filter(Message.direction == MessageDirection.inbound).count()
     outbound_messages = message_query.filter(Message.direction == MessageDirection.outbound).count()
 
-    conversation_query = db.query(Conversation)
-    if start_at:
-        conversation_query = conversation_query.filter(Conversation.created_at >= start_at)
-    if end_at:
-        conversation_query = conversation_query.filter(Conversation.created_at <= end_at)
-    if conversation_ids is not None:
-        conversation_query = conversation_query.filter(Conversation.id.in_(conversation_ids))
-    conversations = conversation_query.all()
+    active_conversation_ids = [row[0] for row in message_query.with_entities(Message.conversation_id).distinct().all()]
+    conversations = (
+        db.query(Conversation).filter(Conversation.id.in_(active_conversation_ids)).all()
+        if active_conversation_ids
+        else []
+    )
 
     response_times = []
     resolution_times = []
@@ -262,18 +288,24 @@ def inbox_kpis(
         inbound_subq = (
             db.query(
                 Message.conversation_id,
-                func.coalesce(Message.received_at, Message.created_at).label("msg_time"),
+                message_time.label("msg_time"),
                 func.row_number()
                 .over(
                     partition_by=Message.conversation_id,
-                    order_by=func.coalesce(Message.received_at, Message.created_at).asc(),
+                    order_by=message_time.asc(),
                 )
                 .label("rn"),
             )
             .filter(Message.conversation_id.in_(convo_ids))
             .filter(Message.direction == MessageDirection.inbound)
-            .subquery()
         )
+        if start_at:
+            inbound_subq = inbound_subq.filter(message_time >= start_at)
+        if end_at:
+            inbound_subq = inbound_subq.filter(message_time <= end_at)
+        if channel_value:
+            inbound_subq = inbound_subq.filter(Message.channel_type == channel_value)
+        inbound_subq = inbound_subq.subquery()
         first_inbound = (
             db.query(inbound_subq.c.conversation_id, inbound_subq.c.msg_time).filter(inbound_subq.c.rn == 1).all()
         )
@@ -283,18 +315,24 @@ def inbox_kpis(
         outbound_subq = (
             db.query(
                 Message.conversation_id,
-                func.coalesce(Message.sent_at, Message.created_at).label("msg_time"),
+                message_time.label("msg_time"),
                 func.row_number()
                 .over(
                     partition_by=Message.conversation_id,
-                    order_by=func.coalesce(Message.sent_at, Message.created_at).asc(),
+                    order_by=message_time.asc(),
                 )
                 .label("rn"),
             )
             .filter(Message.conversation_id.in_(convo_ids))
             .filter(Message.direction == MessageDirection.outbound)
-            .subquery()
         )
+        if start_at:
+            outbound_subq = outbound_subq.filter(message_time >= start_at)
+        if end_at:
+            outbound_subq = outbound_subq.filter(message_time <= end_at)
+        if channel_value:
+            outbound_subq = outbound_subq.filter(Message.channel_type == channel_value)
+        outbound_subq = outbound_subq.subquery()
         first_outbound = (
             db.query(outbound_subq.c.conversation_id, outbound_subq.c.msg_time).filter(outbound_subq.c.rn == 1).all()
         )
@@ -304,15 +342,18 @@ def inbox_kpis(
         for convo in conversations:
             inbound_time = inbound_map.get(convo.id)
             outbound_time = outbound_map.get(convo.id)
-            if inbound_time and outbound_time:
+            if inbound_time and outbound_time and outbound_time > inbound_time:
                 response_times.append((outbound_time - inbound_time).total_seconds() / 60)
-            if convo.status == ConversationStatus.resolved and inbound_time and convo.updated_at:
-                resolution_times.append((convo.updated_at - inbound_time).total_seconds() / 60)
+            resolved_at = _resolution_timestamp(convo)
+            if _is_resolved_in_window(convo, start_at, end_at) and inbound_time and resolved_at:
+                resolution_times.append((resolved_at - inbound_time).total_seconds() / 60)
 
     avg_response_minutes = sum(response_times) / len(response_times) if response_times else None
     avg_resolution_minutes = sum(resolution_times) / len(resolution_times) if resolution_times else None
 
-    channel_volume = db.query(Message.channel_type, func.count(Message.id)).group_by(Message.channel_type).all()
+    channel_volume = (
+        message_query.with_entities(Message.channel_type, func.count(Message.id)).group_by(Message.channel_type).all()
+    )
     channel_volume_map = {str(channel): count for channel, count in channel_volume}
 
     email_inbox_rows = (
@@ -335,6 +376,10 @@ def inbox_kpis(
             "outbound": outbound_messages,
             "by_channel": channel_volume_map,
             "by_email_inbox": email_inbox_map,
+        },
+        "conversations": {
+            "active": len(conversations),
+            "resolved": sum(1 for convo in conversations if _is_resolved_in_window(convo, start_at, end_at)),
         },
         "avg_response_minutes": avg_response_minutes,
         "avg_resolution_minutes": avg_resolution_minutes,
@@ -513,28 +558,21 @@ def agent_performance_metrics(
         convo_ids_by_agent.setdefault(assigned_agent_id, set()).add(conversation_id)
         all_conversation_ids.add(conversation_id)
 
-    channel_value = None
-    if channel_type:
-        try:
-            channel_value = ChannelType(channel_type)
-        except ValueError:
-            channel_value = None
+    channel_value = _resolve_channel_value(channel_type)
 
-    # Load all relevant conversations once.
+    # Load conversations with message activity in the selected period once.
     conversations_by_id: dict[Any, Conversation] = {}
     if all_conversation_ids:
-        convo_query = db.query(Conversation).filter(Conversation.id.in_(list(all_conversation_ids)))
+        message_time = _message_activity_time()
+        activity_query = db.query(Message.conversation_id).filter(Message.conversation_id.in_(all_conversation_ids))
         if start_at:
-            convo_query = convo_query.filter(Conversation.created_at >= start_at)
+            activity_query = activity_query.filter(message_time >= start_at)
         if end_at:
-            convo_query = convo_query.filter(Conversation.created_at <= end_at)
+            activity_query = activity_query.filter(message_time <= end_at)
         if channel_value:
-            convo_query = convo_query.filter(
-                db.query(Message.id)
-                .filter(Message.conversation_id == Conversation.id)
-                .filter(Message.channel_type == channel_value)
-                .exists()
-            )
+            activity_query = activity_query.filter(Message.channel_type == channel_value)
+        active_conversation_ids = [row[0] for row in activity_query.distinct().all()]
+        convo_query = db.query(Conversation).filter(Conversation.id.in_(active_conversation_ids))
         filtered_conversations = convo_query.all()
         conversations_by_id = {convo.id: convo for convo in filtered_conversations}
 
@@ -543,36 +581,46 @@ def agent_performance_metrics(
     outbound_map: dict[Any, Any] = {}
     filtered_ids = list(conversations_by_id.keys())
     if filtered_ids:
+        message_time = _message_activity_time()
         inbound_subq = (
             db.query(
                 Message.conversation_id.label("conversation_id"),
-                func.coalesce(Message.received_at, Message.created_at).label("msg_time"),
+                message_time.label("msg_time"),
                 func.row_number()
                 .over(
                     partition_by=Message.conversation_id,
-                    order_by=func.coalesce(Message.received_at, Message.created_at).asc(),
+                    order_by=message_time.asc(),
                 )
                 .label("rn"),
             )
             .filter(Message.conversation_id.in_(filtered_ids))
             .filter(Message.direction == MessageDirection.inbound)
-            .subquery()
         )
         outbound_subq = (
             db.query(
                 Message.conversation_id.label("conversation_id"),
-                func.coalesce(Message.sent_at, Message.created_at).label("msg_time"),
+                message_time.label("msg_time"),
                 func.row_number()
                 .over(
                     partition_by=Message.conversation_id,
-                    order_by=func.coalesce(Message.sent_at, Message.created_at).asc(),
+                    order_by=message_time.asc(),
                 )
                 .label("rn"),
             )
             .filter(Message.conversation_id.in_(filtered_ids))
             .filter(Message.direction == MessageDirection.outbound)
-            .subquery()
         )
+        if start_at:
+            inbound_subq = inbound_subq.filter(message_time >= start_at)
+            outbound_subq = outbound_subq.filter(message_time >= start_at)
+        if end_at:
+            inbound_subq = inbound_subq.filter(message_time <= end_at)
+            outbound_subq = outbound_subq.filter(message_time <= end_at)
+        if channel_value:
+            inbound_subq = inbound_subq.filter(Message.channel_type == channel_value)
+            outbound_subq = outbound_subq.filter(Message.channel_type == channel_value)
+        inbound_subq = inbound_subq.subquery()
+        outbound_subq = outbound_subq.subquery()
 
         inbound_rows = (
             db.query(inbound_subq.c.conversation_id, inbound_subq.c.msg_time).filter(inbound_subq.c.rn == 1).all()
@@ -601,7 +649,7 @@ def agent_performance_metrics(
         conversations = [conversations_by_id[cid] for cid in conversation_ids if cid in conversations_by_id]
 
         total = len(conversations)
-        resolved = sum(1 for c in conversations if c.status == ConversationStatus.resolved)
+        resolved = sum(1 for c in conversations if _is_resolved_in_window(c, start_at, end_at))
 
         response_times = []
         resolution_times = []
@@ -610,8 +658,9 @@ def agent_performance_metrics(
             outbound_time = outbound_map.get(convo.id)
             if inbound_time and outbound_time and outbound_time > inbound_time:
                 response_times.append((outbound_time - inbound_time).total_seconds() / 60)
-            if convo.status == ConversationStatus.resolved and inbound_time and convo.updated_at:
-                resolution_times.append((convo.updated_at - inbound_time).total_seconds() / 60)
+            resolved_at = _resolution_timestamp(convo)
+            if _is_resolved_in_window(convo, start_at, end_at) and inbound_time and resolved_at:
+                resolution_times.append((resolved_at - inbound_time).total_seconds() / 60)
 
         avg_frt = sum(response_times) / len(response_times) if response_times else None
         avg_resolution = sum(resolution_times) / len(resolution_times) if resolution_times else None
@@ -669,6 +718,7 @@ def conversation_trend(
         if team_id:
             assignment_query = assignment_query.filter(ConversationAssignment.team_id == coerce_uuid(team_id))
         conversation_ids = [row[0] for row in assignment_query.all()]
+    channel_value = _resolve_channel_value(channel_type)
 
     trend_data = []
     current_date = start_at.date()
@@ -678,9 +728,10 @@ def conversation_trend(
         day_start = datetime.combine(current_date, datetime.min.time()).replace(tzinfo=start_at.tzinfo)
         day_end = day_start + timedelta(days=1)
 
-        query = db.query(Conversation).filter(
-            Conversation.created_at >= day_start,
-            Conversation.created_at < day_end,
+        message_time = _message_activity_time()
+        activity_query = db.query(Message.conversation_id).filter(
+            message_time >= day_start,
+            message_time < day_end,
         )
         if conversation_ids is not None:
             if not conversation_ids:
@@ -693,23 +744,18 @@ def conversation_trend(
                 )
                 current_date += timedelta(days=1)
                 continue
-            query = query.filter(Conversation.id.in_(conversation_ids))
-        if channel_type:
-            try:
-                channel_value = ChannelType(channel_type)
-            except ValueError:
-                channel_value = None
-            if channel_value:
-                query = query.filter(
-                    db.query(Message.id)
-                    .filter(Message.conversation_id == Conversation.id)
-                    .filter(Message.channel_type == channel_value)
-                    .exists()
-                )
+            activity_query = activity_query.filter(Message.conversation_id.in_(conversation_ids))
+        if channel_value:
+            activity_query = activity_query.filter(Message.channel_type == channel_value)
 
-        conversations = query.all()
+        active_conversation_ids = [row[0] for row in activity_query.distinct().all()]
+        conversations = (
+            db.query(Conversation).filter(Conversation.id.in_(active_conversation_ids)).all()
+            if active_conversation_ids
+            else []
+        )
         total = len(conversations)
-        resolved = sum(1 for c in conversations if c.status == ConversationStatus.resolved)
+        resolved = sum(1 for c in conversations if _is_resolved_in_window(c, day_start, day_end))
 
         trend_data.append(
             {

@@ -104,3 +104,69 @@ def test_agent_performance_metrics_computes_metrics_from_batched_message_queries
     assert row["resolved_conversations"] == 1
     assert row["avg_first_response_minutes"] == 15.0
     assert row["avg_resolution_minutes"] is not None
+
+
+def test_agent_performance_counts_message_activity_for_existing_conversations(db_session, monkeypatch):
+    now = datetime.now(UTC)
+    start_at = now - timedelta(days=1)
+
+    contact = Person(first_name="Contact", last_name="Two", email="contact2@example.com")
+    agent_person = Person(first_name="Bea", last_name="Agent", email="agent2@example.com")
+    db_session.add_all([contact, agent_person])
+    db_session.flush()
+
+    agent = CrmAgent(person_id=agent_person.id, is_active=True)
+    db_session.add(agent)
+    db_session.flush()
+
+    old_convo = Conversation(
+        person_id=contact.id,
+        status=ConversationStatus.resolved,
+        created_at=now - timedelta(days=10),
+        resolved_at=now - timedelta(hours=1),
+        updated_at=now - timedelta(hours=1),
+    )
+    db_session.add(old_convo)
+    db_session.flush()
+
+    db_session.add(ConversationAssignment(agent_id=agent.id, conversation_id=old_convo.id, is_active=True))
+    db_session.add_all(
+        [
+            Message(
+                conversation_id=old_convo.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.inbound,
+                body="new inbound on old conversation",
+                received_at=now - timedelta(hours=2),
+                created_at=now - timedelta(hours=2),
+            ),
+            Message(
+                conversation_id=old_convo.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.outbound,
+                body="period response",
+                sent_at=now - timedelta(hours=1, minutes=45),
+                created_at=now - timedelta(hours=1, minutes=45),
+                author_id=agent_person.id,
+            ),
+        ]
+    )
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.crm.presence.agent_presence.seconds_by_status_bulk",
+        lambda *args, **kwargs: {},
+    )
+
+    rows = agent_performance_metrics(
+        db=db_session,
+        start_at=start_at,
+        end_at=now,
+        agent_id=str(agent.id),
+        team_id=None,
+        channel_type="whatsapp",
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["total_conversations"] == 1
+    assert rows[0]["resolved_conversations"] == 1
+    assert rows[0]["avg_first_response_minutes"] == 15.0

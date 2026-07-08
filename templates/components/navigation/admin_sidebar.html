@@ -1,22 +1,19 @@
 <!-- Admin Sidebar Navigation -->
 {# Determine which section should be open based on active_page/active_menu #}
 {% set section_for_page = {
-    'inbox': 'customers', 'contacts': 'customers', 'leads': 'customers', 'subscribers': 'customers', 'quotes': 'customers', 'sales': 'customers', 'campaigns': 'customers', 'surveys': 'customers',
+    'inbox': 'customers', 'contacts': 'customers', 'leads': 'customers', 'subscribers': 'customers', 'quotes': 'customers', 'sales': 'customers', 'sales-orders': 'customers', 'campaigns': 'customers', 'surveys': 'customers',
     'inventory': 'operations',
-    'crm-live-map': 'operations', 'field-tech-live-map': 'operations',
     'network-map': 'operations', 'network-devices': 'operations', 'core-devices': 'operations', 'olts': 'operations', 'onts': 'operations', 'devices': 'operations',
     'automations': 'system', 'pop-sites': 'system', 'configuration': 'system', 'workflow': 'system',
     'sync': 'system', 'dotmac-erp': 'system', 'selfcare-sync': 'system',
     'fiber-plant': 'operations', 'fiber-map': 'operations', 'fiber-change-requests': 'operations', 'fdh-cabinets': 'operations', 'splitters': 'operations', 'fiber-strands': 'operations', 'splice-closures': 'operations', 'fiber-reports': 'operations',
-    'sales-orders': 'operations', 'installations': 'operations', 'technicians': 'operations',
+    'installations': 'operations', 'technicians': 'operations',
     'work-orders': 'operations', 'dispatch': 'operations', 'tickets': 'operations', 'projects': 'operations', 'vendor-quotes': 'operations', 'vendor-as-built': 'operations', 'vendor-purchase-invoices': 'operations',
-    'material-requests': 'operations',
     'subscriber-overview': 'reports', 'subscriber-online-last-24h': 'reports', 'subscriber-lifecycle': 'reports', 'subscriber-churned': 'reports', 'subscriber-service-quality': 'reports', 'subscriber-revenue': 'reports', 'postpaid-customers-dashboard': 'reports', 'revenue-service-report': 'reports', 'network-report': 'reports', 'quarterly-report': 'reports', 'ncc-reports': 'reports',
-    'my-performance': 'reports',
     'team-performance': 'reports',
     'ai-insights': 'reports',
     'data-quality': 'system',
-    'service-teams': 'system', 'user-guide': 'system'
+    'service-teams': 'system'
 } %}
 {% set field_service_pages = ['installations', 'technicians', 'dispatch', 'work-orders'] %}
 {% set project_pages = ['projects', 'vendor-quotes', 'vendor-as-built', 'vendor-purchase-invoices'] %}
@@ -47,7 +44,15 @@
 {% set can_quotes = is_admin or 'crm:lead:read' in user_permissions or 'crm:lead:write' in user_permissions or 'crm:lead' in user_permissions or 'crm' in user_permissions %}
 {% set can_campaigns = is_admin or 'crm:campaign:read' in user_permissions or 'crm:campaign:write' in user_permissions or 'crm:campaign' in user_permissions or 'crm' in user_permissions %}
 {% set can_surveys = is_admin or 'crm:survey:read' in user_permissions or 'crm:survey:write' in user_permissions or 'crm:survey' in user_permissions or 'crm' in user_permissions %}
-{% set can_sales = can_quotes %}
+{% set can_sales_orders = is_admin
+    or 'operations:service_order:read' in user_permissions
+    or 'operations:service_order:create' in user_permissions
+    or 'operations:service_order:update' in user_permissions
+    or 'operations:sales_order:delete' in user_permissions
+    or 'operations:service_order' in user_permissions
+    or 'operations' in user_permissions
+%}
+{% set can_sales = can_quotes or can_sales_orders %}
 {% set customers_section_visible = can_workqueue or can_inbox or can_contacts or can_subscribers or can_resellers or can_quotes or can_sales or can_campaigns or can_surveys %}
 
 {% set can_fiber_map = is_admin
@@ -62,14 +67,6 @@
     or 'network' in user_permissions
 %}
 
-{% set can_sales_orders = is_admin
-    or 'operations:service_order:read' in user_permissions
-    or 'operations:service_order:create' in user_permissions
-    or 'operations:service_order:update' in user_permissions
-    or 'operations:sales_order:delete' in user_permissions
-    or 'operations:service_order' in user_permissions
-    or 'operations' in user_permissions
-%}
 {% set can_work_orders = is_admin
     or 'operations:work_order:read' in user_permissions
     or 'operations:work_order:create' in user_permissions
@@ -118,31 +115,16 @@
     or 'inventory:write' in user_permissions
     or 'inventory' in user_permissions
 %}
-{% set can_material_requests = is_admin
-    or 'operations:material_request:read' in user_permissions
-    or 'operations:material_request:write' in user_permissions
-    or 'operations:material_request' in user_permissions
-    or 'operations' in user_permissions
-%}
-{% set can_expense_requests = is_admin
-    or 'operations:expense_request:read' in user_permissions
-    or 'operations:expense_request:write' in user_permissions
-    or 'operations:expense_request' in user_permissions
-    or 'operations' in user_permissions
-%}
-{% set operations_section_visible = can_fiber_map or can_sales_orders or can_work_orders or can_technicians or can_tickets or can_projects or can_inventory or can_material_requests or can_expense_requests %}
+{% set operations_section_visible = can_fiber_map or can_work_orders or can_technicians or can_tickets or can_projects or can_inventory %}
 {% set network_section_visible = can_fiber_map %}
 
 {% set can_reports_network = is_admin or 'reports:network' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_subscribers = is_admin or 'reports:subscribers' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_billing = is_admin or 'reports:billing' in user_permissions or 'reports' in user_permissions %}
-{% set can_reports_postpaid_customers = can_reports_billing or 'reports:postpaid-customers:read' in user_permissions %}
 {% set can_reports_technician = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
 {% set can_reports_crm = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
-{% set can_reports_ai_insights = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
-{% set can_reports_my_performance = can_inbox %}
 {% set can_reports_team_performance = is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
-{% set reports_section_visible = can_reports_network or can_reports_subscribers or can_reports_billing or can_reports_postpaid_customers or can_reports_technician or can_reports_crm or can_reports_ai_insights or can_reports_my_performance or can_reports_team_performance %}
+{% set reports_section_visible = can_reports_network or can_reports_subscribers or can_reports_billing or can_reports_technician or can_reports_crm or can_reports_team_performance %}
 
 {% set can_admin_hub = is_admin
     or 'rbac:roles:read' in user_permissions
@@ -159,17 +141,8 @@
     or 'system:settings' in user_permissions
     or 'system' in user_permissions
 %}
-{% set can_system_settings = can_system_configuration %}
 {% set can_system_health = can_system_configuration %}
-{% set can_system_legal = can_system_configuration %}
-{% set can_automations = is_admin or 'system:automation:read' in user_permissions or 'system:automation:write' in user_permissions or 'system' in user_permissions %}
-{% set can_service_teams = is_admin
-    or 'system:team:read' in user_permissions
-    or 'system:team:write' in user_permissions
-    or 'system:team' in user_permissions
-    or 'system' in user_permissions
-%}
-{% set system_section_visible = can_admin_hub or can_system_configuration or can_system_settings or can_system_health or can_system_legal or can_automations or can_service_teams %}
+{% set system_section_visible = can_admin_hub or can_system_configuration or can_system_health %}
 {% set user_guide_section_visible = true %}
 {% set has_any_nav = customers_section_visible or network_section_visible or operations_section_visible or reports_section_visible or system_section_visible or user_guide_section_visible %}
 
@@ -327,6 +300,17 @@
         </a>
         {% endif %}
 
+        {% if can_sales_orders %}
+        <a href="/admin/crm/sales/orders"
+           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'sales-orders' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
+            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 7h6m-6 4h6"/>
+            </svg>
+            <span>Sales Orders</span>
+        </a>
+        {% endif %}
+
         <!-- Referrals -->
         {% if can_sales %}
         <a href="/admin/crm/referrals"
@@ -380,18 +364,6 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
             </svg>
             <span>Network Operations Map</span>
-        </a>
-        {% endif %}
-
-        <!-- Sales Orders -->
-        {% if can_sales_orders %}
-        <a href="/admin/operations/sales-orders"
-           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
-                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'sales-orders' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
-            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 7h6m-6 4h6"/>
-            </svg>
-            <span>Sales Orders</span>
         </a>
         {% endif %}
 
@@ -483,29 +455,6 @@
         </a>
         {% endif %}
 
-        <!-- Material Requests -->
-        {% if can_material_requests %}
-        <a href="/admin/operations/material-requests"
-           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
-                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'material-requests' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
-            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
-            </svg>
-            <span>Material Requests</span>
-        </a>
-        {% endif %}
-
-        <!-- Expense Requests -->
-        {% if can_expense_requests %}
-        <a href="/admin/operations/expense-requests"
-           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
-                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'expense-requests' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
-            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3-1.5L11 21l3-1.5L17 21l2-1z"/>
-            </svg>
-            <span>Expense Requests</span>
-        </a>
-        {% endif %}
     </div>
     {% endif %}
 
@@ -537,43 +486,21 @@
         <div x-show="openMenu === 'reports' && !sidebarCollapsed" x-collapse x-cloak class="mt-1 space-y-1 pl-11">
             {% if can_reports_subscribers %}
             <a href="/admin/reports/subscribers/overview" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-overview' else '' }}">Subscriber Overview</a>
-            <a href="/admin/reports/subscribers/online-last-24h" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-online-last-24h' else '' }}">Inactive Last 24h</a>
-            <a href="/admin/reports/subscribers/lifecycle" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-lifecycle' else '' }}">Subscriber Lifecycle</a>
-            <a href="/admin/reports/subscribers/churned" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-churned' else '' }}">Churned Subscribers</a>
-            <a href="/admin/reports/subscribers/service-quality" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-service-quality' else '' }}">Service Quality</a>
-            <a href="/admin/reports/subscribers/revenue" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-revenue' else '' }}">Revenue & Pipeline</a>
             {% endif %}
             {% if can_reports_billing %}
-            <a href="/admin/reports/subscribers/billing-risk" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'subscriber-billing-risk' else '' }}">Billing Risk</a>
             <a href="/admin/reports/revenue-service" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'revenue-service-report' else '' }}">Revenue & Service</a>
-            {% endif %}
-            {% if can_reports_postpaid_customers %}
-            <a href="/admin/reports/subscribers/postpaid-customers" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'postpaid-customers-dashboard' else '' }}">Postpaid Customers</a>
             {% endif %}
             {% if can_reports_network %}
             <a href="/admin/reports/network" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'network-report' else '' }}">Network Infrastructure</a>
             {% endif %}
             {% if can_reports_technician %}
-            <a href="/admin/reports/technician" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">Technician Performance</a>
-            <a href="/admin/reports/project-task-performance" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'project-task-performance' else '' }}">Project Task Performance</a>
+            <a href="/admin/reports/operations-sla-violations" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'operations-sla-violations' else '' }}">Operations SLA</a>
             {% endif %}
             {% if can_reports_crm %}
             <a href="/admin/reports/crm-performance" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">CRM Performance</a>
             {% endif %}
-            {% if can_reports_technician %}
-            <a href="/admin/reports/quarterly" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'quarterly-report' else '' }}">Quarterly Report</a>
-            <a href="/admin/reports/ncc" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'ncc-reports' else '' }}">NCC Reports</a>
-            {% endif %}
-            <a href="/admin/reports/operations-sla-violations" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'operations-sla-violations' else '' }}">Operations SLA Violations</a>
-            {% if can_reports_my_performance %}
-            <a href="/agent/my-performance" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'my-performance' else '' }}">My Performance</a>
-            {% endif %}
             {% if can_reports_team_performance %}
             <a href="/admin/performance/team" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'team-performance' else '' }}">Team Performance</a>
-            {% endif %}
-            {% if can_reports_ai_insights %}
-            <a href="/admin/intelligence/insights" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'ai-insights' else '' }}">AI Insights</a>
-            <a href="/admin/intelligence/readiness" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'ai-readiness' else '' }}">AI Readiness</a>
             {% endif %}
         </div>
     </div>
@@ -609,26 +536,8 @@
             {% if can_system_configuration %}
             <a href="/admin/system/configuration" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'configuration' else '' }}">Configuration</a>
             {% endif %}
-            {% if can_system_settings %}
-            <a href="/admin/system/settings" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'settings' else '' }}">Settings</a>
-            {% endif %}
-            {% if can_system_configuration %}
-            <a href="/admin/system/workflow" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'workflow' else '' }}">Work Queue</a>
-            {% endif %}
-            {% if can_automations %}
-            <a href="/admin/system/automations" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'automations' else '' }}">Automations</a>
-            {% endif %}
-            {% if can_service_teams %}
-            <a href="/admin/system/teams" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'service-teams' else '' }}">Service Teams</a>
-            {% endif %}
-            {% if is_admin or 'reports:operations' in user_permissions or 'reports' in user_permissions %}
-            <a href="/admin/data-quality" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'data-quality' else '' }}">Data Quality</a>
-            {% endif %}
             {% if can_system_health %}
             <a href="/admin/system/health" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'system-health' else '' }}">Server Health</a>
-            {% endif %}
-            {% if can_system_legal %}
-            <a href="/admin/system/legal" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'legal' else '' }}">Legal Documents</a>
             {% endif %}
             {% if can_system_configuration %}
             <a href="/admin/integrations/sync" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page in ['sync', 'dotmac-erp', 'selfcare-sync'] else '' }}">Sync</a>
@@ -640,37 +549,19 @@
     <!-- 9. USER GUIDE -->
     {% if user_guide_section_visible %}
     <div>
-        <button x-on:click="openMenu = openMenu === 'user-guide' ? '' : 'user-guide'"
-                data-sidebar-tooltip="User Guide"
-                x-on:mouseenter="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
-                x-on:focus="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
-                x-on:mouseleave="$dispatch('admin-sidebar-tooltip-hide')"
-                x-on:blur="$dispatch('admin-sidebar-tooltip-hide')"
-                class="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors
-                       dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white
-                       {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_menu == 'user-guide' else '' }}">
-            <span class="flex items-center gap-3">
+        <a href="/admin/user-guide?module=getting-started"
+           data-sidebar-tooltip="Help"
+           x-on:mouseenter="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
+           x-on:focus="$dispatch('admin-sidebar-tooltip-show', { label: $el.dataset.sidebarTooltip, rect: $el.getBoundingClientRect() })"
+           x-on:mouseleave="$dispatch('admin-sidebar-tooltip-hide')"
+           x-on:blur="$dispatch('admin-sidebar-tooltip-hide')"
+           class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+                  {{ 'bg-primary-100 text-primary-700 border-l-2 border-primary-600 dark:bg-primary-600/20 dark:text-primary-400 dark:border-primary-400' if active_page == 'user-guide' else 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white' }}">
                 <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.483 9.246 5 7.5 5S4.168 5.483 3 6.253v13C4.168 18.483 5.754 18 7.5 18s3.332.483 4.5 1.253m0-13C13.168 5.483 14.754 5 16.5 5s3.332.483 4.5 1.253v13C19.832 18.483 18.246 18 16.5 18s-3.332.483-4.5 1.253"/>
                 </svg>
-                <span x-show="!sidebarCollapsed">User Guide</span>
-            </span>
-            <svg x-show="!sidebarCollapsed" class="h-4 w-4 transition-transform" :class="{ 'rotate-180': openMenu === 'user-guide' }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-            </svg>
-        </button>
-        <div x-show="openMenu === 'user-guide' && !sidebarCollapsed" x-collapse x-cloak class="mt-1 space-y-1 pl-11">
-            <a href="/admin/user-guide?module=getting-started" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module', 'getting-started') == 'getting-started' and request.url.path == '/admin/user-guide' else '' }}">Getting Started</a>
-            <a href="/admin/user-guide?module=crm-inbox" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'crm-inbox' and request.url.path == '/admin/user-guide' else '' }}">CRM Inbox</a>
-            <a href="/admin/user-guide?module=contacts-leads" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'contacts-leads' and request.url.path == '/admin/user-guide' else '' }}">Contacts & Leads</a>
-            <a href="/admin/user-guide?module=support-tickets" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'support-tickets' and request.url.path == '/admin/user-guide' else '' }}">Support Tickets</a>
-            <a href="/admin/user-guide?module=dispatch-work-orders" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'dispatch-work-orders' and request.url.path == '/admin/user-guide' else '' }}">Dispatch & Work Orders</a>
-            <a href="/admin/user-guide?module=projects" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'projects' and request.url.path == '/admin/user-guide' else '' }}">Projects</a>
-            <a href="/admin/user-guide?module=fiber-map" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'fiber-map' and request.url.path == '/admin/user-guide' else '' }}">Network Operations Map</a>
-            <a href="/admin/user-guide?module=inventory" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'inventory' and request.url.path == '/admin/user-guide' else '' }}">Inventory</a>
-            <a href="/admin/user-guide?module=system-admin" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if active_page == 'user-guide' and request.query_params.get('module') == 'system-admin' and request.url.path == '/admin/user-guide' else '' }}">System & Permissions</a>
-            <a href="/admin/user-guide/full" class="block rounded-lg px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white {{ 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white' if request.url.path == '/admin/user-guide/full' else '' }}">Full Guide</a>
-        </div>
+                <span x-show="!sidebarCollapsed">Help</span>
+        </a>
     </div>
     {% endif %}
 

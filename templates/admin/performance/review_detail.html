@@ -9,7 +9,7 @@
 <a href="/admin/dashboard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Dashboard</a>
 <span class="text-slate-400">/</span>
 {% if is_self_view | default(false) %}
-<a href="/agent/my-performance" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">My Performance</a>
+<a href="/agent/my-scorecard" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">My Scorecard</a>
 {% else %}
 <a href="/admin/performance/team" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 truncate">Team Performance</a>
 <span class="text-slate-400">/</span>
@@ -207,7 +207,7 @@
                 <h3 class="text-sm font-semibold text-primary-900 dark:text-primary-300">Acknowledge this review</h3>
                 <p class="mt-0.5 text-xs text-primary-700 dark:text-primary-400">Confirm that you have read and understood this performance review.</p>
             </div>
-            <form method="post" action="/agent/my-performance/reviews/{{ review.id }}/ack">
+            <form method="post" action="/agent/my-scorecard/reviews/{{ review.id }}/ack">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token | default('') }}">
                 {{ loading_button(
                     label="Acknowledge Review",

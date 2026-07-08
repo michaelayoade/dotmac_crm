@@ -1,41 +1,176 @@
 {% extends "layouts/admin.html" %}
-{% from "components/ui/macros.html" import action_button, icon_plus, table_shell, table_row, empty_state %}
+{% from "components/ui/macros.html" import action_button, icon_plus, table_shell, table_row, empty_state, dashboard_filter_panel, submit_button, pagination %}
 
-{% block title %}Sales Orders - Operations{% endblock %}
+{% block title %}Sales Orders - Sales{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
     <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
             <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Sales Orders</h1>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Track quotes converted into revenue</p>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Track booked revenue, collections, sales ownership, and conversion sources.</p>
         </div>
         <div class="flex items-center gap-2">
-            {{ action_button("Create Sales Order", "/admin/operations/sales-orders/new", icon_plus(), "primary", "emerald", "green") }}
+            {{ action_button("Create Sales Order", "/admin/crm/sales/orders/new", icon_plus(), "primary", "emerald", "green") }}
         </div>
     </div>
 
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
         <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Total</p>
+            <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Orders</p>
             <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{{ stats.total|default(0) }}</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ stats.quote_backed|default(0) }} quote-backed</p>
         </div>
         <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Draft</p>
-            <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{{ stats.draft|default(0) }}</p>
+            <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Gross Sales</p>
+            <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">₦{{ "{:,.0f}".format(stats.gross_sales|default(0)) }}</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Avg ₦{{ "{:,.0f}".format(stats.avg_order|default(0)) }}</p>
         </div>
         <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Confirmed</p>
-            <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{{ stats.confirmed|default(0) }}</p>
+            <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Collected</p>
+            <p class="mt-2 text-2xl font-bold text-emerald-600 dark:text-emerald-400">₦{{ "{:,.0f}".format(stats.collected|default(0)) }}</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ stats.paid_rate|default(0) }}% fully paid</p>
         </div>
         <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Paid</p>
+            <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Outstanding</p>
+            <p class="mt-2 text-2xl font-bold text-amber-600 dark:text-amber-400">₦{{ "{:,.0f}".format(stats.outstanding|default(0)) }}</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ stats.partial|default(0) }} partial payments</p>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Paid Orders</p>
             <p class="mt-2 text-2xl font-bold text-green-600 dark:text-green-400">{{ stats.paid|default(0) }}</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ stats.pending_payment|default(0) }} pending</p>
         </div>
         <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Pending Payment</p>
-            <p class="mt-2 text-2xl font-bold text-amber-600 dark:text-amber-400">{{ stats.pending_payment|default(0) }}</p>
+            <p class="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Manual Orders</p>
+            <p class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{{ stats.manual|default(0) }}</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">No CRM quote source</p>
         </div>
+    </div>
+
+    {% call dashboard_filter_panel(color="emerald", delay_ms=50, title="Filters") %}
+        <form class="space-y-4" hx-get="/admin/operations/sales-orders" hx-target="body" hx-push-url="true">
+            <div>
+                <label for="search" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Search</label>
+                <input type="text" name="search" id="search" value="{{ search or '' }}" placeholder="Order number, customer name, or email" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+            </div>
+            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                    <label for="period_days" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Period</label>
+                    <select name="period_days" id="period_days" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                        {% for days in [7, 30, 90, 180, 365] %}
+                        <option value="{{ days }}" {% if period_days == days %}selected{% endif %}>Last {{ days }} days</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="start_date" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">From</label>
+                    <input type="date" name="start_date" id="start_date" value="{{ start_date or '' }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                </div>
+                <div>
+                    <label for="end_date" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">To</label>
+                    <input type="date" name="end_date" id="end_date" value="{{ end_date or '' }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                </div>
+                <div>
+                    <label for="source_type" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Order Source</label>
+                    <select name="source_type" id="source_type" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                        <option value="">All Sources</option>
+                        <option value="quote" {% if source_type == 'quote' %}selected{% endif %}>CRM Quote</option>
+                        <option value="manual" {% if source_type == 'manual' %}selected{% endif %}>Manual</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="status" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Order Status</label>
+                    <select name="status" id="status" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                        <option value="">All Statuses</option>
+                        {% for item in statuses or [] %}
+                        <option value="{{ item }}" {% if status == item %}selected{% endif %}>{{ item|replace('_', ' ')|title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="payment_status" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Payment Status</label>
+                    <select name="payment_status" id="payment_status" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                        <option value="">All Payments</option>
+                        {% for item in payment_statuses or [] %}
+                        <option value="{{ item }}" {% if payment_status == item %}selected{% endif %}>{{ item|replace('_', ' ')|title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="owner_agent_id" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Sales Agent</label>
+                    <select name="owner_agent_id" id="owner_agent_id" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                        <option value="">All Agents</option>
+                        {% for agent in agents or [] %}
+                        {% set label = agent_labels.get(agent.id|string, 'Agent ' ~ (agent.id|string|truncate(8, True, ''))) %}
+                        <option value="{{ agent.id }}" {% if owner_agent_id == agent.id|string %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="lead_source" class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Source</label>
+                    <select name="lead_source" id="lead_source" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
+                        <option value="">All Sources</option>
+                        {% for item in lead_sources or [] %}
+                        <option value="{{ item }}" {% if lead_source == item %}selected{% endif %}>{{ item }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <input type="hidden" name="per_page" value="{{ per_page|default(20) }}">
+            <div class="flex items-center justify-end gap-2">
+                {{ submit_button("Apply", color="emerald", loading_label="Applying...") }}
+                {% if status or payment_status or owner_agent_id or lead_source or source_type or search or start_date or end_date or period_days != 30 %}
+                <a href="/admin/operations/sales-orders" class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">Clear</a>
+                {% endif %}
+            </div>
+        </form>
+    {% endcall %}
+
+    <div class="grid gap-6 lg:grid-cols-3">
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div class="border-b border-slate-200 px-5 py-4 dark:border-slate-700"><h2 class="text-sm font-semibold text-slate-900 dark:text-white">Sales by Agent</h2></div>
+            <div class="divide-y divide-slate-100 dark:divide-slate-700">
+                {% if agent_performance %}
+                {% for agent in agent_performance %}
+                <div class="flex items-center justify-between gap-3 px-5 py-3">
+                    <div class="min-w-0">
+                        <p class="truncate text-sm font-medium text-slate-900 dark:text-white">{{ agent.label }}</p>
+                        <p class="text-xs text-slate-500 dark:text-slate-400">{{ agent.orders }} orders · {{ agent.paid_orders }} paid</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-sm font-semibold text-slate-900 dark:text-white">₦{{ "{:,.0f}".format(agent.gross_sales) }}</p>
+                        <p class="text-xs text-emerald-600 dark:text-emerald-400">₦{{ "{:,.0f}".format(agent.collected) }} collected</p>
+                    </div>
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="px-5 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No agent sales in this period.</div>
+                {% endif %}
+            </div>
+        </div>
+        {% for panel in [{"title": "Payment Mix", "items": payment_breakdown, "color": "emerald"}, {"title": "Source Mix", "items": source_breakdown, "color": "cyan"}] %}
+        <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div class="border-b border-slate-200 px-5 py-4 dark:border-slate-700"><h2 class="text-sm font-semibold text-slate-900 dark:text-white">{{ panel.title }}</h2></div>
+            <div class="space-y-3 p-5">
+                {% if panel["items"] %}
+                {% for item in panel["items"] %}
+                {% set pct = (item.count / stats.total * 100) if stats.total else 0 %}
+                {% set bar_class = 'bg-cyan-500' if panel.color == 'cyan' else 'bg-emerald-500' %}
+                <div>
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="truncate font-medium text-slate-700 dark:text-slate-200">{{ item.label|replace('_', ' ')|title }}</span>
+                        <span class="shrink-0 text-slate-500 dark:text-slate-400">{{ item.count }} · ₦{{ "{:,.0f}".format(item.value) }}</span>
+                    </div>
+                    <div class="mt-1.5 h-2 rounded-full bg-slate-100 dark:bg-slate-700"><div class="h-2 rounded-full {{ bar_class }}" style="width: {{ pct }}%"></div></div>
+                </div>
+                {% endfor %}
+                {% else %}
+                <p class="text-sm text-slate-500 dark:text-slate-400">No data in this period.</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
     </div>
 
     {% set pad = 'px-6 py-3' %}
@@ -46,76 +181,35 @@
                 <tr class="border-b border-slate-100 dark:border-slate-700/50">
                     <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Order</th>
                     <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Customer</th>
-                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Account</th>
+                    <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Owner / Source</th>
                     <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Status</th>
                     <th class="{{ pad }} text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Payment</th>
                     <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total</th>
+                    <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Collected</th>
+                    <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Balance</th>
                     <th class="{{ pad }} text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Actions</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
                 {% for order in orders %}
                 {% call table_row(color="emerald") %}
-                    <td class="whitespace-nowrap {{ pad }}">
-                        <a href="/admin/operations/sales-orders/{{ order.id }}" class="font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">
-                            {{ order.order_number|default(order.id|string|truncate(8, True, '')) }}
-                        </a>
-                        <div class="text-xs text-slate-500 dark:text-slate-400">
-                            {{ order.created_at.strftime('%b %d, %Y') if order.created_at else '-' }}
-                        </div>
-                    </td>
-                    <td class="{{ pad }}">
-                        {% if order.person %}
-                        <div class="text-sm font-medium text-slate-900 dark:text-white">
-                            {{ order.person.display_name|default(order.person.email|default('Unknown')) }}
-                        </div>
-                        <div class="text-xs text-slate-500 dark:text-slate-400">
-                            {{ order.person.email|default('-') }}
-                        </div>
-                        {% else %}
-                        <span class="text-sm text-slate-500 dark:text-slate-400">-</span>
-                        {% endif %}
-                    </td>
-                    <td class="{{ pad }}">
-                        {% if order.account_id %}
-                        <span class="text-sm text-slate-900 dark:text-white">
-                            {{ order.account.account_number|default(order.account_id|string|truncate(8, True, '')) }}
-                        </span>
-                        {% else %}
-                        <span class="text-sm text-slate-500 dark:text-slate-400">-</span>
-                        {% endif %}
-                    </td>
-                    <td class="whitespace-nowrap {{ pad }}">
-                        {% set status = order.status.value if order.status else 'unknown' %}
-                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">
-                            {{ status|capitalize }}
-                        </span>
-                    </td>
-                    <td class="whitespace-nowrap {{ pad }}">
-                        {% set pay_status = order.payment_status.value if order.payment_status else 'unknown' %}
-                        <span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">
-                            {{ pay_status|replace('_', ' ')|capitalize }}
-                        </span>
-                    </td>
-                    <td class="whitespace-nowrap {{ pad }} text-right text-sm text-slate-600 dark:text-slate-300">
-                        {{ order.total|default(0) }}
-                    </td>
-                    <td class="whitespace-nowrap {{ pad }} text-right">
-                        <a href="/admin/operations/sales-orders/{{ order.id }}" class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700">
-                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                        </a>
-                    </td>
+                    <td class="whitespace-nowrap {{ pad }}"><a href="/admin/operations/sales-orders/{{ order.id }}" class="font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">{{ order.order_number|default(order.id|string|truncate(8, True, '')) }}</a><div class="text-xs text-slate-500 dark:text-slate-400">{{ order.created_at.strftime('%b %d, %Y') if order.created_at else '-' }}</div></td>
+                    <td class="{{ pad }}">{% if order.person %}<div class="text-sm font-medium text-slate-900 dark:text-white">{{ order.person.display_name|default(order.person.email|default('Unknown')) }}</div><div class="text-xs text-slate-500 dark:text-slate-400">{{ order.person.email|default('-') }}</div>{% else %}<span class="text-sm text-slate-500 dark:text-slate-400">-</span>{% endif %}</td>
+                    <td class="{{ pad }}">{% if order.owner_agent_id %}<div class="text-sm font-medium text-slate-900 dark:text-white">{{ agent_labels.get(order.owner_agent_id|string, 'Agent ' ~ (order.owner_agent_id|string|truncate(8, True, ''))) }}</div>{% else %}<div class="text-sm font-medium text-slate-500 dark:text-slate-400">Unassigned / Manual</div>{% endif %}<div class="text-xs text-slate-500 dark:text-slate-400">{% if order.quote_id %}CRM Quote{% else %}Manual{% endif %}{% if order.source %} · {{ order.source }}{% endif %}</div></td>
+                    <td class="whitespace-nowrap {{ pad }}">{% set order_status = order.status.value if order.status else 'unknown' %}<span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">{{ order_status|replace('_', ' ')|title }}</span></td>
+                    <td class="whitespace-nowrap {{ pad }}">{% set pay_status = order.payment_status.value if order.payment_status else 'unknown' %}<span class="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-300">{{ pay_status|replace('_', ' ')|title }}</span></td>
+                    <td class="whitespace-nowrap {{ pad }} text-right text-sm text-slate-600 dark:text-slate-300">₦{{ "{:,.2f}".format(order.total|default(0)) }}</td>
+                    <td class="whitespace-nowrap {{ pad }} text-right text-sm text-emerald-600 dark:text-emerald-400">₦{{ "{:,.2f}".format(order.amount_paid|default(0)) }}</td>
+                    <td class="whitespace-nowrap {{ pad }} text-right text-sm text-amber-600 dark:text-amber-400">₦{{ "{:,.2f}".format(order.balance_due|default(0)) }}</td>
+                    <td class="whitespace-nowrap {{ pad }} text-right"><a href="/admin/operations/sales-orders/{{ order.id }}" class="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700">View</a></td>
                 {% endcall %}
                 {% endfor %}
             </tbody>
         </table>
-        <div class="border-t border-slate-200 px-4 py-3 dark:border-slate-700">
-            <p class="text-sm text-slate-500 dark:text-slate-400">Showing {{ orders|length }} order(s)</p>
-        </div>
+        {% set pagination_base = "/admin/operations/sales-orders?status=" ~ (status or "") ~ "&payment_status=" ~ (payment_status or "") ~ "&owner_agent_id=" ~ (owner_agent_id or "") ~ "&lead_source=" ~ (lead_source|urlencode) ~ "&source_type=" ~ (source_type or "") ~ "&search=" ~ (search|urlencode) ~ "&period_days=" ~ (period_days|default(30)) ~ "&start_date=" ~ (start_date or "") ~ "&end_date=" ~ (end_date or "") ~ "&per_page=" ~ (per_page|default(20)) %}
+        {{ pagination(page|default(1), total_pages|default(1), total|default(0), per_page|default(20), pagination_base, "body", "emerald") }}
         {% else %}
-        <div class="px-6 py-12">
-            {{ empty_state("No sales orders", "Sales orders appear after quotes are accepted.") }}
-        </div>
+        <div class="px-6 py-12">{{ empty_state("No sales orders", "Try adjusting the filters or create a new sales order.") }}</div>
         {% endif %}
     {% endcall %}
 </div>

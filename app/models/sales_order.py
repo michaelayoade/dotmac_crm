@@ -35,6 +35,8 @@ class SalesOrder(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     quote_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_quotes.id"))
     person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"), nullable=False)
+    owner_agent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_agents.id"))
+    source: Mapped[str | None] = mapped_column(String(80))
     # account_id removed - SubscriberAccount model deleted
     # invoice_id removed - Invoice model deleted
     order_number: Mapped[str | None] = mapped_column(String(80))
@@ -67,6 +69,7 @@ class SalesOrder(Base):
 
     person = relationship("Person", back_populates="sales_orders")
     quote = relationship("Quote", back_populates="sales_order")
+    owner_agent = relationship("CrmAgent", foreign_keys=[owner_agent_id])
     lines = relationship("SalesOrderLine", back_populates="sales_order")
 
 

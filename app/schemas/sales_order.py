@@ -14,6 +14,8 @@ class SalesOrderBase(BaseModel):
     account_id: UUID | None = None
     quote_id: UUID | None = None
     invoice_id: UUID | None = None
+    owner_agent_id: UUID | None = None
+    source: str | None = Field(default=None, max_length=80)
     order_number: str | None = Field(default=None, max_length=80)
     status: SalesOrderStatus = SalesOrderStatus.draft
     payment_status: SalesOrderPaymentStatus = SalesOrderPaymentStatus.pending
@@ -43,6 +45,8 @@ class SalesOrderUpdate(BaseModel):
     account_id: UUID | None = None
     quote_id: UUID | None = None
     invoice_id: UUID | None = None
+    owner_agent_id: UUID | None = None
+    source: str | None = Field(default=None, max_length=80)
     order_number: str | None = Field(default=None, max_length=80)
     status: SalesOrderStatus | None = None
     payment_status: SalesOrderPaymentStatus | None = None
