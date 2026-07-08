@@ -780,6 +780,7 @@ def projects_list(
         "admin/projects/index.html",
         {
             "request": request,
+            "active_page": "projects",
             "projects": projects,
             "status": status,
             "search": search,
@@ -1184,6 +1185,7 @@ def project_tasks_list(
         "admin/projects/tasks.html",
         {
             "request": request,
+            "active_page": "project-tasks",
             "tasks": tasks,
             "projects": projects,
             "project_map": project_map,
@@ -2846,6 +2848,7 @@ def project_task_detail(request: Request, task_ref: str, db: Session = Depends(g
         "admin/projects/project_task_detail.html",
         {
             "request": request,
+            "active_page": "project-tasks",
             "task": task,
             "project": project,
             "comments": comments,
