@@ -15,6 +15,8 @@ abstract final class AppColors {
   static const groundLight = Color(0xFFE9EEF4);
   static const surfaceLight = Color(0xFFFFFFFF);
   static const lineLight = Color(0xFFE3E9F0);
+  static const muted = inkSoft;
+  static const panel = surfaceLight;
 
   static const inkDark = Color(0xFFEEF4FB);
   static const inkSoftDark = Color(0xFFA7B4C6);
@@ -22,6 +24,10 @@ abstract final class AppColors {
   static const groundDark = Color(0xFF080D16);
   static const surfaceDark = Color(0xFF101A2B);
   static const lineDark = Color(0xFF1E2B40);
+  static const green = Color(0xFF10B981);
+  static const greenSoft = Color(0xFFD1FAE5);
+  static const tealSoft = Color(0xFFCFFAFE);
+  static const danger = Color(0xFFEF4444);
 
   // Work-type colours (left card bars, chips) — same mapping as dispatch web.
   static const workTypeColors = <String, Color>{
@@ -64,10 +70,22 @@ abstract final class AppColors {
       statusColors[status] ?? statusColors['scheduled']!;
   static String statusLabel(String status) =>
       _statusLabels[status] ??
-      status.replaceAll('_', ' ').replaceFirstMapped(
-            RegExp(r'^\w'),
-            (m) => m[0]!.toUpperCase(),
-          );
+      status
+          .replaceAll('_', ' ')
+          .replaceFirstMapped(RegExp(r'^\w'), (m) => m[0]!.toUpperCase());
+  static bool dark(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark;
+  static Color surface(BuildContext context) =>
+      dark(context) ? surfaceDark : surfaceLight;
+  static Color text(BuildContext context) => dark(context) ? inkDark : ink;
+  static Color subdued(BuildContext context) =>
+      dark(context) ? inkSoftDark : inkSoft;
+  static Color border(BuildContext context) =>
+      dark(context) ? lineDark : lineLight;
+  static Color softGreen(BuildContext context) =>
+      dark(context) ? const Color(0xFF0F2E25) : greenSoft;
+  static Color softTeal(BuildContext context) =>
+      dark(context) ? const Color(0xFF10333D) : tealSoft;
 }
 
 /// 4-based spacing scale. Use these instead of magic numbers.
@@ -86,6 +104,7 @@ abstract final class AppRadii {
   static const tile = 16.0; // stat tiles, small cards
   static const card = 16.0; // legacy (existing screens)
   static const bigCard = 20.0; // job cards, feature cards
+  static const feature = 24.0;
   static const pill = 999.0;
 }
 
@@ -201,8 +220,9 @@ ThemeData _base(Brightness brightness) {
     colorScheme: scheme,
     fontFamily: 'PlusJakartaSans',
     textTheme: _textTheme(ink, inkSoft),
-    scaffoldBackgroundColor:
-        isDark ? AppColors.groundDark : AppColors.groundLight,
+    scaffoldBackgroundColor: isDark
+        ? AppColors.groundDark
+        : AppColors.groundLight,
     dividerColor: line,
     cardTheme: CardThemeData(
       elevation: 0,

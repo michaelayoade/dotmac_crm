@@ -222,5 +222,32 @@ class ExpenseRequests(ListResponseMixin):
         db.refresh(er)
         return er
 
+    @staticmethod
+    def approve(db: Session, er_id: str) -> ExpenseRequest:
+        er = get_or_404(db, ExpenseRequest, er_id, options=[selectinload(ExpenseRequest.items)])
+        if er.status != ExpenseRequestStatus.submitted:
+            raise HTTPException(status_code=400, detail="Only submitted expense requests can be approved")
+        er.status = ExpenseRequestStatus.approved
+        er.approved_at = datetime.now(UTC)
+        er.rejection_reason = None
+        db.commit()
+        db.refresh(er)
+        return er
+
+    @staticmethod
+    def reject(db: Session, er_id: str, reason: str) -> ExpenseRequest:
+        er = get_or_404(db, ExpenseRequest, er_id, options=[selectinload(ExpenseRequest.items)])
+        if er.status != ExpenseRequestStatus.submitted:
+            raise HTTPException(status_code=400, detail="Only submitted expense requests can be rejected")
+        reason = reason.strip()
+        if not reason:
+            raise HTTPException(status_code=400, detail="Rejection reason is required")
+        er.status = ExpenseRequestStatus.rejected
+        er.rejected_at = datetime.now(UTC)
+        er.rejection_reason = reason[:500]
+        db.commit()
+        db.refresh(er)
+        return er
+
 
 expense_requests = ExpenseRequests()

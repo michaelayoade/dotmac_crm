@@ -655,6 +655,10 @@ def receive_widget_message(
         db.add(person_channel)
         db.flush()
 
+    session_metadata = session.metadata_ or {}
+    field_work_order_id = session_metadata.get("field_work_order_id") or session_metadata.get("work_order_id")
+    is_field_chat = session_metadata.get("surface") == "field_service" and bool(field_work_order_id)
+
     # Get or create conversation
     conversation = None
     is_new_conversation = False
@@ -662,14 +666,27 @@ def receive_widget_message(
         conversation = db.get(Conversation, session.conversation_id)
 
     if not conversation:
-        conversation = conversation_service.Conversations.create(
-            db,
-            ConversationCreate(
-                person_id=person.id,
-                subject=f"Chat from {config.name}",
-                is_active=True,
-            ),
-        )
+        if is_field_chat:
+            from app.models.workforce import WorkOrder
+            from app.services.field import chat as field_chat
+
+            work_order = db.get(WorkOrder, coerce_uuid(str(field_work_order_id)))
+            if work_order is None or not work_order.is_active:
+                raise ValueError("Field job not found")
+            if work_order.subscriber is None or work_order.subscriber.person_id != person.id:
+                raise ValueError("Field chat customer mismatch")
+            conversation = field_chat.resolve_field_conversation(db, work_order, create=True)
+        else:
+            conversation = conversation_service.Conversations.create(
+                db,
+                ConversationCreate(
+                    person_id=person.id,
+                    subject=f"Chat from {config.name}",
+                    is_active=True,
+                ),
+            )
+        if conversation is None:
+            raise ValueError("Conversation could not be created")
         session.conversation_id = conversation.id
         is_new_conversation = True
         db.commit()
@@ -683,11 +700,23 @@ def receive_widget_message(
         conversation.is_active = True
         conversation.status = ConversationStatus.open
         db.commit()
+    elif is_field_chat:
+        conversation.metadata_ = {
+            **(conversation.metadata_ or {}),
+            **{
+                "surface": "field_service",
+                "field_work_order_id": str(field_work_order_id),
+            },
+        }
+        db.commit()
 
     # Create message
     message_metadata = metadata or {}
     message_metadata["widget_config_id"] = str(config.id)
     message_metadata["session_id"] = str(session.id)
+    if is_field_chat:
+        message_metadata["surface"] = "field_service"
+        message_metadata["field_work_order_id"] = str(field_work_order_id)
     if session.page_url:
         message_metadata["page_url"] = session.page_url
 
@@ -717,18 +746,22 @@ def receive_widget_message(
     if is_new_conversation:
         subscribe_widget_to_conversation(str(session.id), str(conversation.id))
 
-    intake_result = process_pending_intake(
-        db,
-        conversation=conversation,
-        message=message,
-        scope_key=make_scope_key(channel_type=ChannelType.chat_widget, widget_config_id=str(config.id)),
-        is_new_conversation=is_new_conversation,
-    )
+    intake_result = None
+    if not is_field_chat:
+        intake_result = process_pending_intake(
+            db,
+            conversation=conversation,
+            message=message,
+            scope_key=make_scope_key(channel_type=ChannelType.chat_widget, widget_config_id=str(config.id)),
+            is_new_conversation=is_new_conversation,
+        )
 
     # Apply routing: AI pending intake takes precedence when enabled, then dialog flow, then generic rules.
     dialog_routed = False
     if (
-        not intake_result.handled
+        not is_field_chat
+        and intake_result is not None
+        and not intake_result.handled
         and is_new_conversation
         and dialog_step_id
         and config.dialog_flow_enabled
@@ -745,13 +778,25 @@ def receive_widget_message(
                 dialog_step_id,
             )
 
-    if not intake_result.handled and not dialog_routed:
+    if not is_field_chat and intake_result is not None and not intake_result.handled and not dialog_routed:
         apply_routing_rules(db, conversation=conversation, message=message)
     broadcast_new_message(message, conversation)
-    from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
 
-    if not (intake_result.handled and conversation.status == ConversationStatus.pending):
-        notify_assigned_agent_new_reply(db, conversation, message)
+    if is_field_chat:
+        try:
+            from app.models.workforce import WorkOrder
+            from app.services.push import queue_work_order_comment_push
+
+            work_order = db.get(WorkOrder, coerce_uuid(str(field_work_order_id)))
+            if work_order is not None:
+                queue_work_order_comment_push(db, work_order, note_preview=sanitized_body)
+        except Exception:
+            logger.warning("field_chat_technician_push_failed work_order_id=%s", field_work_order_id)
+    else:
+        from app.services.crm.inbox.notifications import notify_assigned_agent_new_reply
+
+        if intake_result is None or not (intake_result.handled and conversation.status == ConversationStatus.pending):
+            notify_assigned_agent_new_reply(db, conversation, message)
 
     # Build conversation summary
     summary = {

@@ -9,11 +9,15 @@ import '../features/auth/mfa_screen.dart';
 import '../features/customers/customer_models.dart';
 import '../features/customers/customer_lookup_screen.dart';
 import '../features/expenses/expenses_screen.dart';
+import '../features/jobs/job_chat_screen.dart';
 import '../features/jobs/job_detail_screen.dart';
 import '../features/location/location_tracking_controller.dart';
+import '../features/manager/manager_providers.dart';
+import '../features/manager/manager_screen.dart';
 import '../features/materials/materials_screen.dart';
 import '../features/profile/profile_screen.dart';
 import '../features/schedule/schedule_screen.dart';
+import '../features/sales/sales_screen.dart';
 import '../features/today/map_screen.dart';
 import '../features/today/today_screen.dart';
 import '../features/vendor/vendor_map_screen.dart';
@@ -56,6 +60,11 @@ GoRouter buildRouter(Ref ref) {
             JobDetailScreen(jobId: state.pathParameters['id']!),
       ),
       GoRoute(
+        path: '/jobs/:id/chat',
+        builder: (_, state) =>
+            JobChatScreen(jobId: state.pathParameters['id']!),
+      ),
+      GoRoute(
         path: '/materials/new',
         builder: (_, state) => NewMaterialRequestScreen(
           initialWorkOrderId: state.uri.queryParameters['workOrderId'],
@@ -78,6 +87,15 @@ GoRouter buildRouter(Ref ref) {
         path: '/expenses/:id',
         builder: (_, state) =>
             ExpenseRequestDetailScreen(id: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/sales/new',
+        builder: (_, _) => const NewSalesOrderScreen(),
+      ),
+      GoRoute(
+        path: '/sales/:id',
+        builder: (_, state) =>
+            SalesOrderDetailScreen(id: state.pathParameters['id']!),
       ),
       GoRoute(
         path: '/customers/:id',
@@ -104,7 +122,7 @@ GoRouter buildRouter(Ref ref) {
             routes: [
               GoRoute(
                 path: '/schedule',
-                builder: (_, _) => const ScheduleScreen(),
+                builder: (_, _) => const _ScheduleSwitch(),
               ),
             ],
           ),
@@ -120,7 +138,7 @@ GoRouter buildRouter(Ref ref) {
             routes: [
               GoRoute(
                 path: '/expenses',
-                builder: (_, _) => const ExpensesScreen(),
+                builder: (_, _) => const _ExpensesSwitch(),
               ),
             ],
           ),
@@ -130,6 +148,11 @@ GoRouter buildRouter(Ref ref) {
                 path: '/customers',
                 builder: (_, _) => const CustomerLookupScreen(),
               ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(path: '/sales', builder: (_, _) => const SalesScreen()),
             ],
           ),
           StatefulShellBranch(
@@ -167,6 +190,9 @@ class _HomeSwitch extends ConsumerWidget {
     if (auth is Authenticated && auth.mode == LoginMode.vendor) {
       return const VendorProjectsScreen();
     }
+    if (isManagerProfile(ref.watch(managerProfileProvider))) {
+      return const ManagerDashboardScreen();
+    }
     return const TodayScreen();
   }
 }
@@ -182,7 +208,34 @@ class _MapSwitch extends ConsumerWidget {
     if (auth is Authenticated && auth.mode == LoginMode.vendor) {
       return const VendorMapScreen();
     }
+    if (isManagerProfile(ref.watch(managerProfileProvider))) {
+      return const ManagerTeamMapScreen();
+    }
     return const MapScreen();
+  }
+}
+
+class _ScheduleSwitch extends ConsumerWidget {
+  const _ScheduleSwitch();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (isManagerProfile(ref.watch(managerProfileProvider))) {
+      return const ManagerDispatchScreen();
+    }
+    return const ScheduleScreen();
+  }
+}
+
+class _ExpensesSwitch extends ConsumerWidget {
+  const _ExpensesSwitch();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (isManagerProfile(ref.watch(managerProfileProvider))) {
+      return const ManagerExpenseReviewScreen();
+    }
+    return const ExpensesScreen();
   }
 }
 
@@ -198,25 +251,32 @@ class _NavItem {
 
 // Branch order (see StatefulShellRoute above):
 // 0 Today/Projects · 1 Map · 2 Schedule · 3 Materials · 4 Expenses ·
-// 5 Customers · 6 Profile
+// 5 Customers · 6 Sales · 7 Profile
 const _staffNav = [
   _NavItem(0, Icons.assignment_outlined, 'Today'),
   _NavItem(1, Icons.map_outlined, 'Map'),
   _NavItem(2, Icons.calendar_today_outlined, 'Schedule'),
   _NavItem(3, Icons.inventory_2_outlined, 'Materials'),
   _NavItem(4, Icons.receipt_long_outlined, 'Expenses'),
-  _NavItem(5, Icons.people_alt_outlined, 'Customers'),
-  _NavItem(6, Icons.person_outline, 'Profile'),
+  _NavItem(7, Icons.person_outline, 'Profile'),
 ];
 
 // Vendors get the tabs backed by vendor-aware endpoints: Projects, the
 // vendor-scoped Map (nearby plant), and Profile. Schedule / Materials /
-// Expenses / Customers are require_technician and would 403, so they stay
+// Expenses / Customers / Sales are require_technician and would 403, so they stay
 // hidden.
 const _vendorNav = [
   _NavItem(0, Icons.assignment_outlined, 'Projects'),
   _NavItem(1, Icons.map_outlined, 'Map'),
-  _NavItem(6, Icons.person_outline, 'Profile'),
+  _NavItem(7, Icons.person_outline, 'Profile'),
+];
+
+const _managerNav = [
+  _NavItem(0, Icons.dashboard_outlined, 'Dashboard'),
+  _NavItem(1, Icons.map_outlined, 'Team'),
+  _NavItem(2, Icons.assignment_ind_outlined, 'Dispatch'),
+  _NavItem(4, Icons.fact_check_outlined, 'Approvals'),
+  _NavItem(7, Icons.person_outline, 'Profile'),
 ];
 
 class _AppShell extends ConsumerWidget {
@@ -228,7 +288,13 @@ class _AppShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authControllerProvider);
     final isVendor = auth is Authenticated && auth.mode == LoginMode.vendor;
-    final items = isVendor ? _vendorNav : _staffNav;
+    final isManager =
+        !isVendor && isManagerProfile(ref.watch(managerProfileProvider));
+    final items = isVendor
+        ? _vendorNav
+        : isManager
+        ? _managerNav
+        : _staffNav;
     // Map the active branch to its position in the visible set (0 if the
     // current branch is hidden for this mode).
     final selected = items.indexWhere(

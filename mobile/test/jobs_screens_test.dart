@@ -1,4 +1,5 @@
 import 'package:dotmac_field/app/theme.dart';
+import 'package:dotmac_field/features/jobs/job_chat_screen.dart';
 import 'package:dotmac_field/features/jobs/job_detail_screen.dart';
 import 'package:dotmac_field/features/jobs/job_models.dart';
 import 'package:dotmac_field/features/jobs/jobs_providers.dart';
@@ -23,44 +24,60 @@ JobDetail _detail({
   JobLocation? location,
   List<Map<String, dynamic>> materialRequests = const [],
   List<Map<String, dynamic>> history = const [],
-}) =>
-    JobDetail(
-      job: _job(status: status),
-      location: location ??
-          const JobLocation(
-            latitude: 6.43,
-            longitude: 3.42,
-            addressText: '12 Admiralty Way',
-            source: 'geocoded',
-          ),
-      customer: const JobCustomer(
-        name: 'Adaeze Okafor',
-        phone: '+2348012345678',
-        servicePlan: '100 Mbps',
+  String? projectId,
+  String? accessNotes,
+  List<JobSiteContact> additionalContacts = const [],
+  List<JobVisitHistoryItem> recentVisits = const [],
+  List<JobOpenTicketItem> openTickets = const [],
+}) => JobDetail(
+  job: _job(status: status),
+  location:
+      location ??
+      const JobLocation(
+        latitude: 6.43,
+        longitude: 3.42,
+        addressText: '12 Admiralty Way',
+        source: 'geocoded',
       ),
-      ticketRef: 'TCK-1001',
-      materialRequests: materialRequests,
-      history: history,
-    );
+  customer: const JobCustomer(
+    name: 'Adaeze Okafor',
+    phone: '+2348012345678',
+    email: 'adaeze@example.com',
+    servicePlan: '100 Mbps',
+    accountNumber: 'ACCT-1001',
+    status: 'active',
+  ),
+  ticketRef: 'TCK-1001',
+  projectId: projectId,
+  accessNotes: accessNotes,
+  additionalContacts: additionalContacts,
+  recentVisits: recentVisits,
+  openTickets: openTickets,
+  materialRequests: materialRequests,
+  history: history,
+);
 
-Widget _wrap(Widget child, {List<Override> overrides = const []}) =>
-    ProviderScope(
-      overrides: overrides,
-      child: MaterialApp(theme: lightTheme, home: child),
-    );
+Widget _wrap(
+  Widget child, {
+  List<Override> overrides = const [],
+  List<JobDestination> destinations = const [],
+}) => ProviderScope(
+  overrides: [
+    jobDestinationsProvider('wo-1').overrideWith((ref) async => destinations),
+    ...overrides,
+  ],
+  child: MaterialApp(theme: lightTheme, home: child),
+);
 
 void main() {
-  testWidgets('job card shows status stripe, pill, and meta', (
-    tester,
-  ) async {
+  testWidgets('job card shows status stripe, pill, and meta', (tester) async {
     await tester.pumpWidget(_wrap(JobCard(job: _job())));
 
-    expect(find.text('Install'), findsOneWidget); // work type in meta footer
+    expect(find.text('Install'), findsOneWidget);
     expect(find.text('Install fiber — Adaeze Okafor'), findsOneWidget);
-    expect(find.text('ASSIGNED'), findsOneWidget); // status pill (dispatched)
+    expect(find.text('ASSIGNED'), findsOneWidget);
     expect(find.text('~90 min'), findsOneWidget);
 
-    // Stripe is the STATUS colour now (state reads three ways).
     final stripe = tester
         .widgetList<Container>(find.byType(Container))
         .firstWhere(
@@ -207,6 +224,87 @@ void main() {
     expect(detail.history.single['title'], 'History note');
   });
 
+  test('job detail parses field-service lifecycle context', () {
+    final detail = JobDetail.fromJson({
+      'job': {
+        'id': 'wo-1',
+        'title': 'Repair outage',
+        'status': 'dispatched',
+        'work_type': 'repair',
+        'priority': 'high',
+      },
+      'location': {'source': 'none'},
+      'customer': {
+        'subscriber_id': 'sub-1',
+        'name': 'Adaeze Okafor',
+        'phone': '+2348012345678',
+        'email': 'adaeze@example.com',
+        'address_text': '12 Admiralty Way',
+        'service_plan': '100 Mbps',
+        'account_number': 'ACCT-1001',
+        'status': 'active',
+      },
+      'ticket_ref': 'TCK-1001',
+      'project_id': 'project-1',
+      'access_notes': 'Ask estate security for rack room key.',
+      'additional_contacts': [
+        {
+          'name': 'Facilities Desk',
+          'phone': '+2348099999999',
+          'email': 'facilities@example.com',
+          'relationship': 'active',
+        },
+      ],
+      'open_tickets': [
+        {
+          'id': 'ticket-2',
+          'ref': 'TCK-1002',
+          'subject': 'Slow speeds',
+          'status': 'open',
+        },
+      ],
+      'recent_visits': [
+        {
+          'work_order_id': 'wo-old',
+          'title': 'Signal check',
+          'work_type': 'maintenance',
+          'status': 'completed',
+          'completed_at': '2026-06-09T10:00:00Z',
+        },
+      ],
+    });
+
+    expect(detail.customer?.email, 'adaeze@example.com');
+    expect(detail.projectId, 'project-1');
+    expect(detail.accessNotes, contains('rack room key'));
+    expect(detail.additionalContacts.single.name, 'Facilities Desk');
+    expect(detail.openTickets.single.ref, 'TCK-1002');
+    expect(detail.recentVisits.single.workType, 'maintenance');
+  });
+
+  test('job chat thread parses field-service messages', () {
+    final thread = JobChatThread.fromJson({
+      'available': true,
+      'can_send': true,
+      'conversation_id': 'conv-1',
+      'customer_name': 'Adaeze Okafor',
+      'messages': [
+        {
+          'id': 'msg-1',
+          'body': 'I am at home',
+          'direction': 'customer',
+          'created_at': '2026-06-10T09:00:00Z',
+        },
+      ],
+    });
+
+    expect(thread.available, isTrue);
+    expect(thread.canSend, isTrue);
+    expect(thread.conversationId, 'conv-1');
+    expect(thread.messages.single.isCustomer, isTrue);
+    expect(thread.messages.single.body, 'I am at home');
+  });
+
   testWidgets('job detail renders notes returned with alternate body key', (
     tester,
   ) async {
@@ -254,6 +352,151 @@ void main() {
     expect(launched.single.scheme, 'tel');
   });
 
+  testWidgets('job chat screen renders field-service thread', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        const JobChatScreen(jobId: 'wo-1'),
+        overrides: [
+          jobChatProvider('wo-1').overrideWith(
+            (ref) async => JobChatThread(
+              available: true,
+              canSend: true,
+              conversationId: 'conv-1',
+              customerName: 'Adaeze Okafor',
+              messages: [
+                JobChatMessage(
+                  id: 'msg-1',
+                  body: 'I am at home',
+                  direction: 'customer',
+                  createdAt: DateTime.utc(2026, 6, 10, 9),
+                ),
+                JobChatMessage(
+                  id: 'msg-2',
+                  body: 'I am on my way',
+                  direction: 'staff',
+                  authorName: 'Technician',
+                  createdAt: DateTime.utc(2026, 6, 10, 9, 5),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Technician chat'), findsOneWidget);
+    expect(find.text('I am at home'), findsOneWidget);
+    expect(find.text('I am on my way'), findsOneWidget);
+    expect(find.byKey(const Key('job-chat-input')), findsOneWidget);
+    expect(find.byKey(const Key('job-chat-send')), findsOneWidget);
+  });
+
+  testWidgets('job chat screen explains when technician chat is unavailable', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        const JobChatScreen(jobId: 'wo-1'),
+        overrides: [
+          jobChatProvider(
+            'wo-1',
+          ).overrideWith((ref) async => const JobChatThread(available: false)),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Technician chat unavailable'), findsOneWidget);
+  });
+
+  testWidgets(
+    'job detail renders lifecycle context and destination directions',
+    (tester) async {
+      final launched = <Uri>[];
+      final detail = _detail(
+        projectId: '12345678-90ab-cdef-1234-567890abcdef',
+        accessNotes: 'Ask estate security for rack room key.',
+        additionalContacts: const [
+          JobSiteContact(
+            name: 'Facilities Desk',
+            phone: '+2348099999999',
+            email: 'facilities@example.com',
+            relationship: 'active',
+          ),
+        ],
+        openTickets: const [
+          JobOpenTicketItem(
+            id: 'ticket-2',
+            ref: 'TCK-1002',
+            subject: 'Slow speeds',
+            status: 'open',
+          ),
+        ],
+        recentVisits: [
+          JobVisitHistoryItem(
+            workOrderId: 'wo-old',
+            title: 'Signal check',
+            workType: 'maintenance',
+            status: 'completed',
+            completedAt: DateTime.utc(2026, 6, 9, 10),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        _wrap(
+          const JobDetailScreen(jobId: 'wo-1'),
+          destinations: const [
+            JobDestination(
+              destinationType: 'customer',
+              label: 'Customer site',
+              latitude: 6.43,
+              longitude: 3.42,
+              addressText: '12 Admiralty Way',
+            ),
+            JobDestination(
+              destinationType: 'pop',
+              label: 'POP Lekki-01',
+              latitude: 6.44,
+              longitude: 3.43,
+            ),
+          ],
+          overrides: [
+            jobDetailProvider('wo-1').overrideWith((ref) async => detail),
+            uriLauncherProvider.overrideWithValue((uri) async {
+              launched.add(uri);
+              return true;
+            }),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Ticket TCK-1001'), findsOneWidget);
+      expect(find.text('Project 12345678'), findsOneWidget);
+      expect(find.text('Navigation targets'), findsOneWidget);
+      expect(find.text('Customer site'), findsOneWidget);
+      expect(find.text('POP Lekki-01'), findsOneWidget);
+      expect(find.text('Job context'), findsOneWidget);
+      expect(
+        find.text('Ask estate security for rack room key.'),
+        findsOneWidget,
+      );
+      expect(find.text('Facilities Desk'), findsOneWidget);
+      expect(find.text('Slow speeds'), findsOneWidget);
+      expect(find.text('Signal check'), findsOneWidget);
+
+      await tester.drag(
+        find.byType(SingleChildScrollView),
+        const Offset(0, -160),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('navigate-destination-pop')));
+      expect(launched.single.toString(), 'geo:6.44,3.43?q=6.44,3.43');
+    },
+  );
+
   testWidgets('job detail app bar offers material and expense requests', (
     tester,
   ) async {
@@ -295,7 +538,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('MATERIAL REQUESTS'), findsOneWidget);
+    expect(find.text('Material requests'), findsOneWidget);
     expect(find.text('MR-1001'), findsOneWidget);
     expect(find.text('submitted · 1 item'), findsOneWidget);
   });
@@ -340,7 +583,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('HISTORY'), findsOneWidget);
+    expect(find.text('History'), findsOneWidget);
     expect(find.text('Material request MR-1001'), findsOneWidget);
     expect(find.text('submitted · 1 item'), findsOneWidget);
     expect(find.text('Checked signal at cabinet'), findsOneWidget);

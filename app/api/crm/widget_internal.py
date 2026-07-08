@@ -24,10 +24,12 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.logging import get_logger
 from app.models.person import Person
+from app.models.workforce import WorkOrder
 from app.schemas.crm.chat_widget import WidgetSessionCreate, WidgetSessionRead
 from app.services.auth_dependencies import require_user_auth
 from app.services.common import coerce_uuid
 from app.services.crm.chat_widget import widget_visitors
+from app.services.field import chat as field_chat
 
 logger = get_logger(__name__)
 
@@ -67,6 +69,7 @@ class WidgetInternalSessionCreate(BaseModel):
     # Optional cross-system identifiers carried into session metadata for agent
     # context and downstream routing/notification (not used to authenticate).
     crm_subscriber_id: UUID | None = None
+    field_work_order_id: UUID | None = None
     metadata: dict | None = None
 
 
@@ -108,6 +111,23 @@ def mint_internal_session(
         metadata.update(payload.metadata)
     if payload.crm_subscriber_id:
         metadata["crm_subscriber_id"] = str(payload.crm_subscriber_id)
+        metadata.setdefault("subscriber_id", str(payload.crm_subscriber_id))
+    if payload.field_work_order_id:
+        metadata["field_work_order_id"] = str(payload.field_work_order_id)
+        metadata.setdefault("surface", field_chat.FIELD_CHAT_SURFACE)
+
+        work_order = db.get(WorkOrder, payload.field_work_order_id)
+        if (
+            work_order is None
+            or not work_order.is_active
+            or (payload.crm_subscriber_id and work_order.subscriber_id != payload.crm_subscriber_id)
+        ):
+            raise HTTPException(status_code=404, detail="Field job not found")
+        conversation = field_chat.resolve_field_conversation(db, work_order, create=True)
+        if conversation is None:
+            raise HTTPException(status_code=409, detail="Field chat is not available")
+        session.conversation_id = conversation.id
+
     session.metadata_ = metadata
     db.commit()
     db.refresh(session)

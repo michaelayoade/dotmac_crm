@@ -8,6 +8,7 @@ from app.api.field.fiber import router as fiber_router
 from app.api.field.inventory import router as inventory_router
 from app.api.field.jobs import router as jobs_router
 from app.api.field.locations import router as locations_router
+from app.api.field.manager import router as manager_router
 from app.api.field.map_assets import router as map_assets_router
 from app.api.field.material_requests import router as material_requests_router
 from app.api.field.materials import router as materials_router
@@ -41,6 +42,7 @@ router.include_router(fiber_router, dependencies=_technician)
 router.include_router(inventory_router, dependencies=_technician)
 router.include_router(jobs_router, dependencies=_technician)
 router.include_router(locations_router, dependencies=_technician)
+router.include_router(manager_router)
 router.include_router(map_assets_router, dependencies=_technician)
 router.include_router(material_requests_router, dependencies=_technician)
 router.include_router(materials_router, dependencies=_technician)

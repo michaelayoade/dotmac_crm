@@ -523,6 +523,27 @@ class FieldJobDetail(BaseModel):
     history: list[FieldJobHistoryItem] = []
 
 
+class FieldJobChatMessage(BaseModel):
+    id: UUID
+    body: str
+    direction: Literal["customer", "staff"]
+    author_name: str | None = None
+    created_at: datetime
+    read_at: datetime | None = None
+
+
+class FieldJobChatResponse(BaseModel):
+    available: bool
+    can_send: bool = False
+    conversation_id: UUID | None = None
+    customer_name: str | None = None
+    messages: list[FieldJobChatMessage] = []
+
+
+class FieldJobChatMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=5000)
+
+
 class FieldTransitionRequest(BaseModel):
     event: str = Field(min_length=1, max_length=20)
     client_event_id: UUID

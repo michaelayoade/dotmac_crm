@@ -34,6 +34,7 @@ DEFAULT_PROJECT_WEBHOOK_PATH = "/api/v1/webhooks/crm/projects"
 DEFAULT_WORK_ORDER_WEBHOOK_PATH = "/api/v1/webhooks/crm/work-orders"
 DEFAULT_QUOTE_WEBHOOK_PATH = "/api/v1/webhooks/crm/quotes"
 DEFAULT_CHAT_WEBHOOK_PATH = "/api/v1/webhooks/crm/chat"
+DEFAULT_FIELD_CHAT_WEBHOOK_PATH = "/api/v1/webhooks/crm/field-chat"
 _CUSTOMER_LAST_SYNC_KEY = "selfcare_sync:customer:last"
 _CUSTOMER_HISTORY_KEY = "selfcare_sync:customer:history"
 _CUSTOMER_DAILY_STATS_PREFIX = "selfcare_sync:customer:stats:"
@@ -1468,6 +1469,11 @@ def _chat_url(config: dict[str, Any]) -> str:
     return f"{base}{DEFAULT_CHAT_WEBHOOK_PATH}"
 
 
+def _field_chat_url(config: dict[str, Any]) -> str:
+    base = str(config["base_url"]).rstrip("/")
+    return f"{base}{DEFAULT_FIELD_CHAT_WEBHOOK_PATH}"
+
+
 def notify_chat_message(
     db: Session,
     *,
@@ -1520,6 +1526,56 @@ def notify_chat_message(
         logger.warning(
             "selfcare_chat_notify_failed conversation_id=%s error=%s",
             conversation_id,
+            str(exc),
+        )
+        return False
+
+
+def notify_field_chat_message(
+    db: Session,
+    *,
+    subscriber_id: str,
+    work_order_id: str,
+    conversation_id: str,
+    preview: str,
+) -> bool:
+    """Wake dotmac_sub for work-order scoped customer-technician chat.
+
+    This is intentionally separate from ``notify_chat_message``. The latter is
+    CRM inbox/support chat; this one opens the field-service visit chat.
+    """
+    config = _get_config(db)
+    if not config or not subscriber_id or not work_order_id:
+        return False
+
+    payload: dict[str, Any] = {
+        "subscriber_id": str(subscriber_id),
+        "work_order_id": str(work_order_id),
+        "conversation_id": str(conversation_id or ""),
+        "preview": str(preview or "")[:140],
+    }
+    raw_body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "X-Webhook-Event": "field_chat.message.outbound",
+        "X-Webhook-Signature-256": _sign_payload(config["webhook_secret"], raw_body),
+    }
+
+    import requests
+
+    try:
+        response = requests.post(  # nosec B113 - timeout is config-driven.
+            _field_chat_url(config),
+            data=raw_body,
+            headers=headers,
+            timeout=config["timeout_seconds"],
+        )
+        response.raise_for_status()
+        return True
+    except Exception as exc:  # - best-effort; foreground/polling is the primary path
+        logger.warning(
+            "selfcare_field_chat_notify_failed work_order_id=%s error=%s",
+            work_order_id,
             str(exc),
         )
         return False
