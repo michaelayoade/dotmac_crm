@@ -20,7 +20,7 @@
         color2="violet"
     ) }}
     <div class="flex justify-end">
-        <a href="/agent/my-performance/goals" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">My Goals</a>
+        <a href="/agent/my-scorecard/goals" class="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">My Goals</a>
     </div>
 
     {# Composite Score Summary #}
@@ -53,7 +53,7 @@
 
     {# Score Cards (HTMX loaded) #}
     <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800"
-         hx-get="/agent/my-performance/_scores" hx-trigger="load">
+         hx-get="/agent/my-scorecard/_scores" hx-trigger="load">
         <div class="flex items-center gap-2 px-3 py-6 text-sm text-slate-500 dark:text-slate-400">
             <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
             Loading domain scores...
@@ -74,7 +74,7 @@
 
         <div class="divide-y divide-slate-100 dark:divide-slate-700/50">
             {% for review in reviews %}
-            <a href="/agent/my-performance/reviews/{{ review.id }}"
+            <a href="/agent/my-scorecard/reviews/{{ review.id }}"
                class="group flex items-center gap-4 px-6 py-4 transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-700/30">
                 <div class="flex-shrink-0">
                     {% set rscore = review.composite_score | float %}

@@ -281,12 +281,15 @@ class SalesOrders(ListResponseMixin):
 
         _ensure_person(db, data.get("person_id"))
         if data.get("quote_id"):
-            quote = get_by_id(db, Quote, data["quote_id"])
+            quote = db.get(Quote, coerce_uuid(data["quote_id"]), options=[selectinload(Quote.lead)])
             if not quote:
                 raise HTTPException(status_code=404, detail="Quote not found")
             existing = db.query(SalesOrder).filter(SalesOrder.quote_id == quote.id).first()
             if existing:
                 raise HTTPException(status_code=400, detail="Sales order already exists for this quote")
+            if quote.lead:
+                data["owner_agent_id"] = data.get("owner_agent_id") or quote.lead.owner_agent_id
+                data["source"] = data.get("source") or quote.lead.lead_source
 
         if not data.get("order_number"):
             data["order_number"] = _generate_order_number(db)
@@ -313,7 +316,7 @@ class SalesOrders(ListResponseMixin):
         quote = db.get(
             Quote,
             coerce_uuid(quote_id),
-            options=[selectinload(Quote.line_items)],
+            options=[selectinload(Quote.line_items), selectinload(Quote.lead)],
         )
         if not quote:
             raise HTTPException(status_code=404, detail="Quote not found")
@@ -325,6 +328,8 @@ class SalesOrders(ListResponseMixin):
         sales_order = SalesOrder(
             quote_id=quote.id,
             person_id=quote.person_id,
+            owner_agent_id=quote.lead.owner_agent_id if quote.lead else None,
+            source=quote.lead.lead_source if quote.lead else None,
             order_number=order_number,
             status=SalesOrderStatus.confirmed,
             payment_status=SalesOrderPaymentStatus.pending,
@@ -417,7 +422,7 @@ class SalesOrders(ListResponseMixin):
         if data.get("person_id"):
             _ensure_person(db, data["person_id"])
         if data.get("quote_id"):
-            quote = get_by_id(db, Quote, data["quote_id"])
+            quote = db.get(Quote, coerce_uuid(data["quote_id"]), options=[selectinload(Quote.lead)])
             if not quote:
                 raise HTTPException(status_code=404, detail="Quote not found")
             existing = (
@@ -425,6 +430,11 @@ class SalesOrders(ListResponseMixin):
             )
             if existing:
                 raise HTTPException(status_code=400, detail="Sales order already exists for this quote")
+            if quote.lead:
+                data["owner_agent_id"] = (
+                    data.get("owner_agent_id") or sales_order.owner_agent_id or quote.lead.owner_agent_id
+                )
+                data["source"] = data.get("source") or sales_order.source or quote.lead.lead_source
 
         if data.get("payment_status") == SalesOrderPaymentStatus.paid:
             resolved_total = Decimal(data.get("total") or sales_order.total or 0)
@@ -464,6 +474,8 @@ class SalesOrders(ListResponseMixin):
         amount_paid: str | None = None,
         paid_at: str | None = None,
         notes: str | None = None,
+        owner_agent_id: str | None = None,
+        source: str | None = None,
     ):
         """Update sales order using raw string inputs (e.g., from web forms)."""
         update_data: dict[str, Any] = {}
@@ -486,6 +498,10 @@ class SalesOrders(ListResponseMixin):
 
         if notes is not None:
             update_data["notes"] = notes.strip() or None
+        if owner_agent_id is not None:
+            update_data["owner_agent_id"] = coerce_uuid(owner_agent_id) if owner_agent_id.strip() else None
+        if source is not None:
+            update_data["source"] = source.strip() or None
 
         # If payment status is paid and paid_at is missing, set it now to satisfy validation.
         if update_data.get("payment_status") == SalesOrderPaymentStatus.paid and update_data.get("paid_at") is None:

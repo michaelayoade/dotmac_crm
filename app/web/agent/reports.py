@@ -1,6 +1,7 @@
 """Agent performance report routes."""
 
 from datetime import UTC, datetime, timedelta
+from typing import TypedDict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
@@ -23,6 +24,91 @@ router = APIRouter(
 templates = Jinja2Templates(directory="templates")
 
 
+class _AgentPerformanceDateRange(TypedDict):
+    start_at: datetime
+    end_at: datetime
+    start_date: str
+    end_date: str
+    error: str | None
+    custom_range: bool
+
+
+def _resolve_date_range(
+    *,
+    days: int | None,
+    start_date: str | None,
+    end_date: str | None,
+    now: datetime | None = None,
+) -> _AgentPerformanceDateRange:
+    current = now or datetime.now(UTC)
+    resolved_days = days or 30
+    start_value = (start_date or "").strip()
+    end_value = (end_date or "").strip()
+
+    if start_value and end_value:
+        try:
+            parsed_start = datetime.fromisoformat(start_value).replace(tzinfo=UTC)
+            parsed_end = datetime.fromisoformat(end_value).replace(tzinfo=UTC)
+        except ValueError:
+            return {
+                "start_at": current - timedelta(days=resolved_days),
+                "end_at": current,
+                "start_date": start_value,
+                "end_date": end_value,
+                "error": "Enter valid start and end dates.",
+                "custom_range": True,
+            }
+        if parsed_start.date() > parsed_end.date():
+            return {
+                "start_at": current - timedelta(days=resolved_days),
+                "end_at": current,
+                "start_date": start_value,
+                "end_date": end_value,
+                "error": "Start date must be on or before end date.",
+                "custom_range": True,
+            }
+        if parsed_end.date() > current.date():
+            return {
+                "start_at": current - timedelta(days=resolved_days),
+                "end_at": current,
+                "start_date": start_value,
+                "end_date": end_value,
+                "error": "End date cannot be in the future.",
+                "custom_range": True,
+            }
+        start_at = parsed_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_at = parsed_end.replace(hour=23, minute=59, second=59, microsecond=999999)
+        preset_start = current.date() - timedelta(days=resolved_days)
+        return {
+            "start_at": start_at,
+            "end_at": end_at,
+            "start_date": parsed_start.date().isoformat(),
+            "end_date": parsed_end.date().isoformat(),
+            "error": None,
+            "custom_range": not (parsed_start.date() == preset_start and parsed_end.date() == current.date()),
+        }
+
+    if start_value or end_value:
+        return {
+            "start_at": current - timedelta(days=resolved_days),
+            "end_at": current,
+            "start_date": start_value,
+            "end_date": end_value,
+            "error": "Select both a start date and an end date.",
+            "custom_range": True,
+        }
+
+    start_at = current - timedelta(days=resolved_days)
+    return {
+        "start_at": start_at,
+        "end_at": current,
+        "start_date": start_at.date().isoformat(),
+        "end_date": current.date().isoformat(),
+        "error": None,
+        "custom_range": False,
+    }
+
+
 def _get_db():
     db = SessionLocal()
     try:
@@ -37,6 +123,7 @@ def _load_my_performance_metrics(
     person_id: str | None,
     start_at: datetime,
     end_at: datetime,
+    channel_type: str | None,
 ) -> dict:
     """Load performance metrics for the current agent only."""
     agent_id = get_current_agent_id(db, person_id)
@@ -50,7 +137,7 @@ def _load_my_performance_metrics(
             db=db,
             start_at=start_at,
             end_at=end_at,
-            channel_type=None,
+            channel_type=channel_type,
             agent_id=agent_id,
             team_id=None,
         )
@@ -66,7 +153,7 @@ def _load_my_performance_metrics(
             end_at=end_at,
             agent_id=agent_id,
             team_id=None,
-            channel_type=None,
+            channel_type=channel_type,
         )
         trend_data = crm_reports_service.conversation_trend(
             db=db,
@@ -74,7 +161,7 @@ def _load_my_performance_metrics(
             end_at=end_at,
             agent_id=agent_id,
             team_id=None,
-            channel_type=None,
+            channel_type=channel_type,
         )
     else:
         presence_hours = {}
@@ -164,6 +251,9 @@ def my_performance(
     request: Request,
     db: Session = Depends(_get_db),
     days: int = Query(30, ge=7, le=90),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    channel_type: str | None = Query(None),
 ):
     current_user = get_current_user(request)
     roles = current_user.get("roles") or []
@@ -172,19 +262,39 @@ def my_performance(
         raise HTTPException(status_code=403, detail="Forbidden")
 
     now = datetime.now(UTC)
-    start_date = now - timedelta(days=days)
+    date_range = _resolve_date_range(days=days, start_date=start_date, end_date=end_date, now=now)
+    report_ready = date_range["error"] is None
 
-    metrics = _load_my_performance_metrics(
-        db=db,
-        person_id=current_user.get("person_id"),
-        start_at=start_date,
-        end_at=now,
-    )
-    leaderboard = _load_leaderboard_metrics(
-        db=db,
-        start_at=start_date,
-        end_at=now,
-    )
+    channel_value = None
+    if channel_type:
+        try:
+            channel_value = ChannelType(channel_type).value
+        except ValueError:
+            channel_value = None
+
+    if report_ready:
+        metrics = _load_my_performance_metrics(
+            db=db,
+            person_id=current_user.get("person_id"),
+            start_at=date_range["start_at"],
+            end_at=date_range["end_at"],
+            channel_type=channel_value,
+        )
+        leaderboard = _load_leaderboard_metrics(
+            db=db,
+            start_at=date_range["start_at"],
+            end_at=date_range["end_at"],
+        )
+    else:
+        metrics = {
+            "agent_id": None,
+            "inbox_stats": {"messages": {"total": 0, "inbound": 0, "outbound": 0, "by_channel": {}}},
+            "presence_hours": {},
+            "agent_stats": [],
+            "trend_data": [],
+            "sales_stats": {"total_deals": 0, "deals_won": 0, "deals_lost": 0, "won_value": 0, "win_rate": None},
+        }
+        leaderboard = []
 
     agent_stats = metrics["agent_stats"]
     inbox_stats = metrics["inbox_stats"]
@@ -238,6 +348,14 @@ def my_performance(
             "active_page": "my-performance",
             "active_menu": "reports",
             "days": days,
+            "custom_range": date_range["custom_range"],
+            "start_date": date_range["start_date"],
+            "end_date": date_range["end_date"],
+            "max_date": now.date().isoformat(),
+            "date_range_error": date_range["error"],
+            "report_ready": report_ready,
+            "selected_channel_type": channel_value,
+            "channel_types": [t.value for t in ChannelType],
             "total_conversations": total_conversations,
             "resolved_conversations": resolved_conversations,
             "resolution_rate": resolution_rate,
@@ -249,6 +367,7 @@ def my_performance(
             "agent_stats": agent_stats,
             "current_agent_stats": current_agent_stats,
             "current_agent_id": metrics["agent_id"],
+            "presence_hours": metrics.get("presence_hours", {}),
             "trend_data": metrics["trend_data"],
             "channel_breakdown": channel_breakdown,
             "channel_labels": channel_labels,

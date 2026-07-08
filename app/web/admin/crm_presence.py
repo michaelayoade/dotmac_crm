@@ -6,7 +6,7 @@ from time import monotonic
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -238,18 +238,7 @@ async def crm_live_map(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Live location map for CRM agents that opted into browser sharing."""
-    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
-
+    """Redirect legacy CRM live map page to the consolidated network map."""
     if not _can_view_live_location_map(request):
         raise HTTPException(status_code=403, detail="Not authorized to view live locations")
-    return templates.TemplateResponse(
-        "admin/crm/live-map.html",
-        {
-            "request": request,
-            "active_page": "crm-live-map",
-            "active_menu": "crm",
-            "current_user": get_current_user(request),
-            "sidebar_stats": get_sidebar_stats(db),
-        },
-    )
+    return RedirectResponse(url="/admin/network/map", status_code=303)

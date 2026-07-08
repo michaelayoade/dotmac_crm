@@ -11,12 +11,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import func
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.csrf import get_csrf_token
 from app.db import get_db
 from app.models.auth import UserCredential
+from app.models.crm.team import CrmAgent
 from app.models.dispatch import TechnicianProfile
 from app.models.inventory import InventoryItem
 from app.models.person import Person
@@ -37,6 +38,7 @@ from app.services import vendor as vendor_service
 from app.services import workforce as workforce_service
 from app.services.auth_dependencies import require_any_permission, require_permission
 from app.services.common import coerce_uuid
+from app.services.crm.teams.service import get_agent_labels
 from app.services.field.location import cached_job_location
 from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 from app.web.templates import Jinja2Templates
@@ -122,56 +124,162 @@ def sales_orders_list(
     db: Session = Depends(get_db),
     status: str | None = None,
     payment_status: str | None = None,
+    owner_agent_id: str | None = None,
+    lead_source: str | None = None,
+    source_type: str | None = None,
+    search: str | None = None,
+    period_days: int | None = Query(30, ge=1, le=366),
+    start_date: str | None = None,
+    end_date: str | None = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
 ):
-    """List sales orders."""
+    """Sales dashboard with order-level filters and attribution summaries."""
     user = get_current_user(request)
-
+    start_dt, end_dt = _parse_date_range(period_days, start_date, end_date)
     offset = (page - 1) * per_page
 
-    orders = sales_orders_service.sales_orders.list(
-        db,
-        person_id=None,
-        quote_id=None,
-        status=status,
-        payment_status=payment_status,
-        is_active=True,
-        order_by="created_at",
-        order_dir="desc",
-        limit=per_page,
-        offset=offset,
+    def apply_filters(query):
+        query = query.filter(SalesOrder.is_active.is_(True))
+        query = query.filter(SalesOrder.created_at >= start_dt, SalesOrder.created_at <= end_dt)
+        if status:
+            with contextlib.suppress(ValueError):
+                query = query.filter(SalesOrder.status == SalesOrderStatus(status))
+        if payment_status:
+            with contextlib.suppress(ValueError):
+                query = query.filter(SalesOrder.payment_status == SalesOrderPaymentStatus(payment_status))
+        if owner_agent_id:
+            with contextlib.suppress(ValueError):
+                query = query.filter(SalesOrder.owner_agent_id == coerce_uuid(owner_agent_id))
+        if lead_source:
+            query = query.filter(func.lower(SalesOrder.source) == lead_source.strip().lower())
+        if source_type == "quote":
+            query = query.filter(SalesOrder.quote_id.isnot(None))
+        elif source_type == "manual":
+            query = query.filter(SalesOrder.quote_id.is_(None))
+        if search:
+            term = f"%{search.strip()}%"
+            query = query.outerjoin(Person, Person.id == SalesOrder.person_id)
+            query = query.filter(
+                or_(
+                    SalesOrder.order_number.ilike(term),
+                    Person.first_name.ilike(term),
+                    Person.last_name.ilike(term),
+                    Person.email.ilike(term),
+                    Person.phone.ilike(term),
+                )
+            )
+        return query
+
+    filtered_orders = apply_filters(db.query(SalesOrder))
+    orders = filtered_orders.order_by(SalesOrder.created_at.desc()).limit(per_page).offset(offset).all()
+
+    totals = (
+        apply_filters(db.query(SalesOrder))
+        .with_entities(
+            func.count(SalesOrder.id).label("total"),
+            func.coalesce(func.sum(SalesOrder.total), 0).label("gross_sales"),
+            func.coalesce(func.sum(SalesOrder.amount_paid), 0).label("collected"),
+            func.coalesce(func.sum(SalesOrder.balance_due), 0).label("outstanding"),
+            func.coalesce(func.avg(SalesOrder.total), 0).label("avg_order"),
+            func.sum(case((SalesOrder.payment_status == SalesOrderPaymentStatus.paid, 1), else_=0)).label("paid"),
+            func.sum(case((SalesOrder.payment_status == SalesOrderPaymentStatus.partial, 1), else_=0)).label("partial"),
+            func.sum(case((SalesOrder.payment_status == SalesOrderPaymentStatus.pending, 1), else_=0)).label(
+                "pending_payment"
+            ),
+            func.sum(case((SalesOrder.quote_id.isnot(None), 1), else_=0)).label("quote_backed"),
+            func.sum(case((SalesOrder.quote_id.is_(None), 1), else_=0)).label("manual"),
+        )
+        .one()
     )
-
-    # Get stats using direct queries
+    total_orders = int(totals.total or 0)
+    paid_orders = int(totals.paid or 0)
     stats = {
-        "total": db.query(func.count(SalesOrder.id)).filter(SalesOrder.is_active.is_(True)).scalar() or 0,
-        "draft": db.query(func.count(SalesOrder.id))
-        .filter(SalesOrder.status == SalesOrderStatus.draft, SalesOrder.is_active.is_(True))
-        .scalar()
-        or 0,
-        "confirmed": db.query(func.count(SalesOrder.id))
-        .filter(SalesOrder.status == SalesOrderStatus.confirmed, SalesOrder.is_active.is_(True))
-        .scalar()
-        or 0,
-        "paid": db.query(func.count(SalesOrder.id))
-        .filter(SalesOrder.payment_status == SalesOrderPaymentStatus.paid, SalesOrder.is_active.is_(True))
-        .scalar()
-        or 0,
-        "pending_payment": db.query(func.count(SalesOrder.id))
-        .filter(SalesOrder.payment_status == SalesOrderPaymentStatus.pending, SalesOrder.is_active.is_(True))
-        .scalar()
-        or 0,
+        "total": total_orders,
+        "gross_sales": Decimal(totals.gross_sales or 0),
+        "collected": Decimal(totals.collected or 0),
+        "outstanding": Decimal(totals.outstanding or 0),
+        "avg_order": Decimal(totals.avg_order or 0),
+        "paid": paid_orders,
+        "partial": int(totals.partial or 0),
+        "pending_payment": int(totals.pending_payment or 0),
+        "quote_backed": int(totals.quote_backed or 0),
+        "manual": int(totals.manual or 0),
     }
+    stats["paid_rate"] = round((paid_orders / total_orders) * 100, 1) if total_orders else 0
 
-    # Count for pagination
-    count_query = db.query(func.count(SalesOrder.id)).filter(SalesOrder.is_active.is_(True))
-    if status:
-        with contextlib.suppress(ValueError):
-            count_query = count_query.filter(SalesOrder.status == SalesOrderStatus(status))
-    if payment_status:
-        with contextlib.suppress(ValueError):
-            count_query = count_query.filter(SalesOrder.payment_status == SalesOrderPaymentStatus(payment_status))
+    payment_breakdown = [
+        {
+            "label": row.payment_status.value if row.payment_status else "unknown",
+            "count": int(row.count or 0),
+            "total": Decimal(row.total or 0),
+        }
+        for row in apply_filters(db.query(SalesOrder))
+        .with_entities(
+            SalesOrder.payment_status.label("payment_status"),
+            func.count(SalesOrder.id).label("count"),
+            func.coalesce(func.sum(SalesOrder.total), 0).label("total"),
+        )
+        .group_by(SalesOrder.payment_status)
+        .order_by(func.count(SalesOrder.id).desc())
+        .all()
+    ]
+
+    agents = db.query(CrmAgent).filter(CrmAgent.is_active.is_(True)).order_by(CrmAgent.created_at.desc()).all()
+    agent_labels = get_agent_labels(db, agents)
+    agent_performance = [
+        {
+            "agent_id": str(row.owner_agent_id) if row.owner_agent_id else "",
+            "label": agent_labels.get(str(row.owner_agent_id), "Unassigned / Manual")
+            if row.owner_agent_id
+            else "Unassigned / Manual",
+            "orders": int(row.orders or 0),
+            "gross_sales": Decimal(row.gross_sales or 0),
+            "collected": Decimal(row.collected or 0),
+            "outstanding": Decimal(row.outstanding or 0),
+        }
+        for row in apply_filters(db.query(SalesOrder))
+        .with_entities(
+            SalesOrder.owner_agent_id.label("owner_agent_id"),
+            func.count(SalesOrder.id).label("orders"),
+            func.coalesce(func.sum(SalesOrder.total), 0).label("gross_sales"),
+            func.coalesce(func.sum(SalesOrder.amount_paid), 0).label("collected"),
+            func.coalesce(func.sum(SalesOrder.balance_due), 0).label("outstanding"),
+        )
+        .group_by(SalesOrder.owner_agent_id)
+        .order_by(func.coalesce(func.sum(SalesOrder.total), 0).desc())
+        .limit(8)
+        .all()
+    ]
+
+    source_breakdown = [
+        {
+            "label": row.source or "Unspecified",
+            "count": int(row.count or 0),
+            "total": Decimal(row.total or 0),
+        }
+        for row in apply_filters(db.query(SalesOrder))
+        .with_entities(
+            SalesOrder.source.label("source"),
+            func.count(SalesOrder.id).label("count"),
+            func.coalesce(func.sum(SalesOrder.total), 0).label("total"),
+        )
+        .group_by(SalesOrder.source)
+        .order_by(func.count(SalesOrder.id).desc())
+        .limit(8)
+        .all()
+    ]
+
+    lead_sources = [
+        row[0]
+        for row in db.query(SalesOrder.source)
+        .filter(SalesOrder.source.isnot(None), SalesOrder.source != "")
+        .distinct()
+        .order_by(SalesOrder.source.asc())
+        .all()
+    ]
+
+    count_query = apply_filters(db.query(func.count(SalesOrder.id)).select_from(SalesOrder))
     total = count_query.scalar() or 0
     total_pages = math.ceil(total / per_page) if total > 0 else 1
 
@@ -184,12 +292,28 @@ def sales_orders_list(
             "sidebar_stats": get_sidebar_stats(db),
             "orders": orders,
             "stats": stats,
+            "payment_breakdown": payment_breakdown,
+            "agent_performance": agent_performance,
+            "source_breakdown": source_breakdown,
+            "agents": agents,
+            "agent_labels": agent_labels,
+            "lead_sources": lead_sources,
             "status": status,
             "payment_status": payment_status,
+            "owner_agent_id": owner_agent_id,
+            "lead_source": lead_source,
+            "source_type": source_type,
+            "search": search or "",
+            "period_days": period_days,
+            "start_date": start_date,
+            "end_date": end_date,
             "page": page,
             "per_page": per_page,
             "total": total,
             "total_pages": total_pages,
+            "statuses": [s.value for s in SalesOrderStatus],
+            "payment_statuses": [s.value for s in SalesOrderPaymentStatus],
+            "active_page": "sales-orders",
         },
     )
 
@@ -208,6 +332,8 @@ def sales_order_new(
         .limit(500)
         .all()
     )
+    agents = db.query(CrmAgent).filter(CrmAgent.is_active.is_(True)).order_by(CrmAgent.created_at.desc()).all()
+    agent_labels = get_agent_labels(db, agents)
     return templates.TemplateResponse(
         "admin/operations/sales_order_form.html",
         {
@@ -220,6 +346,8 @@ def sales_order_new(
                 "order_number": "",
                 "person_id": "",
                 "account_id": "",
+                "owner_agent_id": "",
+                "source": "",
                 "status": SalesOrderStatus.draft.value,
                 "payment_status": SalesOrderPaymentStatus.pending.value,
                 "total": "",
@@ -232,12 +360,15 @@ def sales_order_new(
             "offers": _offers_for_form(db),
             "person_label": "",
             "account_label": "",
+            "agents": agents,
+            "agent_labels": agent_labels,
             "statuses": [s.value for s in SalesOrderStatus],
             "payment_statuses": [s.value for s in SalesOrderPaymentStatus],
             "project_types": [item.value for item in ProjectType],
             "action_url": "/admin/operations/sales-orders/new",
             "is_create": True,
             "csrf_token": get_csrf_token(request),
+            "active_page": "sales-orders",
         },
     )
 
@@ -255,6 +386,8 @@ async def sales_order_create(
     status = _form_text(form, "status") or SalesOrderStatus.draft.value
     payment_status = _form_text(form, "payment_status") or SalesOrderPaymentStatus.pending.value
     project_type = _form_text(form, "project_type")
+    owner_agent_id = _form_text(form, "owner_agent_id")
+    source = _form_text(form, "source")
     allowed_project_types = {item.value for item in ProjectType}
     if project_type and project_type not in allowed_project_types:
         project_type = ""
@@ -337,6 +470,8 @@ async def sales_order_create(
         .limit(500)
         .all()
     )
+    agents = db.query(CrmAgent).filter(CrmAgent.is_active.is_(True)).order_by(CrmAgent.created_at.desc()).all()
+    agent_labels = get_agent_labels(db, agents)
     try:
         project_metadata = {"project_type": project_type} if project_type else None
         resolved_status = (
@@ -351,6 +486,8 @@ async def sales_order_create(
             person_id=coerce_uuid(person_id),
             status=resolved_status,
             payment_status=resolved_payment_status,
+            owner_agent_id=coerce_uuid(owner_agent_id) if owner_agent_id else None,
+            source=source or None,
             subtotal=subtotal,
             tax_total=tax_total,
             total=total,
@@ -386,6 +523,8 @@ async def sales_order_create(
                     "order_number": "",
                     "person_id": person_id or "",
                     "account_id": "",
+                    "owner_agent_id": owner_agent_id or "",
+                    "source": source or "",
                     "status": status,
                     "payment_status": payment_status,
                     "project_type": project_type,
@@ -401,12 +540,15 @@ async def sales_order_create(
                 "offers": _offers_for_form(db),
                 "person_label": person_label,
                 "account_label": "",
+                "agents": agents,
+                "agent_labels": agent_labels,
                 "statuses": [s.value for s in SalesOrderStatus],
                 "payment_statuses": [s.value for s in SalesOrderPaymentStatus],
                 "project_types": [item.value for item in ProjectType],
                 "action_url": "/admin/operations/sales-orders/new",
                 "is_create": True,
                 "csrf_token": get_csrf_token(request),
+                "active_page": "sales-orders",
                 "error": str(getattr(exc, "detail", None) or exc),
             },
             status_code=400,
@@ -438,6 +580,7 @@ def sales_order_detail(
     scopes = set(auth.get("scopes") or [])
     roles = set(auth.get("roles") or [])
     can_delete = "operations:sales_order:delete" in scopes or "admin" in roles
+    agents = db.query(CrmAgent).filter(CrmAgent.is_active.is_(True)).order_by(CrmAgent.created_at.desc()).all()
 
     return templates.TemplateResponse(
         "admin/operations/sales_order_detail.html",
@@ -448,8 +591,10 @@ def sales_order_detail(
             "sidebar_stats": get_sidebar_stats(db),
             "order": order,
             "lines": lines,
+            "agent_labels": get_agent_labels(db, agents),
             "can_delete": can_delete,
             "csrf_token": get_csrf_token(request),
+            "active_page": "sales-orders",
         },
     )
 
@@ -511,6 +656,8 @@ def sales_order_edit(
         .limit(500)
         .all()
     )
+    agents = db.query(CrmAgent).filter(CrmAgent.is_active.is_(True)).order_by(CrmAgent.created_at.desc()).all()
+    agent_labels = get_agent_labels(db, agents)
 
     return templates.TemplateResponse(
         "admin/operations/sales_order_form.html",
@@ -524,11 +671,14 @@ def sales_order_edit(
             "inventory_items": inventory_items,
             "offers": _offers_for_form(db),
             "account_label": "",
+            "agents": agents,
+            "agent_labels": agent_labels,
             "statuses": [s.value for s in SalesOrderStatus],
             "payment_statuses": [s.value for s in SalesOrderPaymentStatus],
             "action_url": f"/admin/operations/sales-orders/{order.id}/edit",
             "is_create": False,
             "csrf_token": get_csrf_token(request),
+            "active_page": "sales-orders",
         },
     )
 
@@ -543,6 +693,8 @@ def sales_order_update(
     amount_paid: str | None = Form(None),
     paid_at: str | None = Form(None),
     notes: str | None = Form(None),
+    owner_agent_id: str | None = Form(None),
+    source: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     """Update sales order."""
@@ -566,6 +718,8 @@ def sales_order_update(
         .limit(500)
         .all()
     )
+    agents = db.query(CrmAgent).filter(CrmAgent.is_active.is_(True)).order_by(CrmAgent.created_at.desc()).all()
+    agent_labels = get_agent_labels(db, agents)
 
     try:
         sales_orders_service.sales_orders.update_from_input(
@@ -577,6 +731,8 @@ def sales_order_update(
             amount_paid=amount_paid,
             paid_at=paid_at,
             notes=notes,
+            owner_agent_id=owner_agent_id,
+            source=source,
         )
         return RedirectResponse(url=f"/admin/operations/sales-orders/{order.id}", status_code=303)
     except Exception as exc:
@@ -591,11 +747,14 @@ def sales_order_update(
                 "order_lines": lines,
                 "inventory_items": inventory_items,
                 "account_label": "",
+                "agents": agents,
+                "agent_labels": agent_labels,
                 "statuses": [s.value for s in SalesOrderStatus],
                 "payment_statuses": [s.value for s in SalesOrderPaymentStatus],
                 "action_url": f"/admin/operations/sales-orders/{order.id}/edit",
                 "is_create": False,
                 "csrf_token": get_csrf_token(request),
+                "active_page": "sales-orders",
                 "error": str(exc),
             },
             status_code=400,
@@ -1461,18 +1620,8 @@ def field_techs_map(
     db: Session = Depends(get_db),
     _auth=Depends(require_permission("operations:work_order:read")),
 ):
-    """Live map of field technicians who opted into location sharing (task #44)."""
-    user = get_current_user(request)
-    return templates.TemplateResponse(
-        "admin/operations/field-live-map.html",
-        {
-            "request": request,
-            "user": user,
-            "current_user": user,
-            "sidebar_stats": get_sidebar_stats(db),
-            "active_page": "field-tech-live-map",
-        },
-    )
+    """Redirect legacy field tech live map page to the consolidated network map."""
+    return RedirectResponse(url="/admin/network/map", status_code=303)
 
 
 _FIELD_MAP_DEFAULT_WORK_ORDER_STATUSES = (
@@ -1680,7 +1829,7 @@ def field_tech_movement_page(
             "user": user,
             "current_user": user,
             "sidebar_stats": get_sidebar_stats(db),
-            "active_page": "field-tech-live-map",
+            "active_page": "technicians",
             "person_id": person_id,
             "person_label": _person_label(person),
         },

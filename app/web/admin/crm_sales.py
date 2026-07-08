@@ -49,6 +49,29 @@ def crm_sales_dashboard(
     return templates.TemplateResponse("admin/crm/sales_dashboard.html", context)
 
 
+@router.get("/sales/orders", response_class=HTMLResponse)
+def crm_sales_orders(request: Request):
+    target = "/admin/operations/sales-orders"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    return RedirectResponse(url=target, status_code=303)
+
+
+@router.get("/sales/orders/new", response_class=HTMLResponse)
+def crm_sales_order_new():
+    return RedirectResponse(url="/admin/operations/sales-orders/new", status_code=303)
+
+
+@router.get("/sales/orders/{order_id}", response_class=HTMLResponse)
+def crm_sales_order_detail(order_id: str):
+    return RedirectResponse(url=f"/admin/operations/sales-orders/{order_id}", status_code=303)
+
+
+@router.get("/sales/orders/{order_id}/edit", response_class=HTMLResponse)
+def crm_sales_order_edit(order_id: str):
+    return RedirectResponse(url=f"/admin/operations/sales-orders/{order_id}/edit", status_code=303)
+
+
 @router.get("/sales/pipeline", response_class=HTMLResponse)
 def crm_sales_pipeline(
     request: Request,

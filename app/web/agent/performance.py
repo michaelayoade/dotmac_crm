@@ -25,7 +25,7 @@ def _get_db():
         db.close()
 
 
-@router.get("/my-performance", response_class=HTMLResponse)
+@router.get("/my-scorecard", response_class=HTMLResponse)
 def my_scorecard(request: Request, db: Session = Depends(_get_db)):
     user = get_current_user(request)
     if not can_view_inbox(user.get("roles", []), user.get("permissions", [])):
@@ -49,7 +49,7 @@ def my_scorecard(request: Request, db: Session = Depends(_get_db)):
     )
 
 
-@router.get("/my-performance/_scores", response_class=HTMLResponse)
+@router.get("/my-scorecard/_scores", response_class=HTMLResponse)
 def my_scores_partial(request: Request, db: Session = Depends(_get_db)):
     user = get_current_user(request)
     if not can_view_inbox(user.get("roles", []), user.get("permissions", [])):
@@ -68,7 +68,7 @@ def my_scores_partial(request: Request, db: Session = Depends(_get_db)):
     )
 
 
-@router.get("/my-performance/reviews/{review_id}", response_class=HTMLResponse)
+@router.get("/my-scorecard/reviews/{review_id}", response_class=HTMLResponse)
 def my_review_detail(request: Request, review_id: str, db: Session = Depends(_get_db)):
     user = get_current_user(request)
     if not can_view_inbox(user.get("roles", []), user.get("permissions", [])):
@@ -102,7 +102,7 @@ def my_review_detail(request: Request, review_id: str, db: Session = Depends(_ge
     )
 
 
-@router.post("/my-performance/reviews/{review_id}/ack")
+@router.post("/my-scorecard/reviews/{review_id}/ack")
 def ack_review(request: Request, review_id: str, db: Session = Depends(_get_db)):
     user = get_current_user(request)
     if not can_view_inbox(user.get("roles", []), user.get("permissions", [])):
@@ -116,10 +116,10 @@ def ack_review(request: Request, review_id: str, db: Session = Depends(_get_db))
         if detail == "Forbidden":
             raise HTTPException(status_code=403, detail=detail) from exc
         raise HTTPException(status_code=400, detail=detail) from exc
-    return RedirectResponse(url=f"/agent/my-performance/reviews/{review_id}", status_code=303)
+    return RedirectResponse(url=f"/agent/my-scorecard/reviews/{review_id}", status_code=303)
 
 
-@router.get("/my-performance/goals", response_class=HTMLResponse)
+@router.get("/my-scorecard/goals", response_class=HTMLResponse)
 def my_goals(request: Request, db: Session = Depends(_get_db)):
     user = get_current_user(request)
     if not can_view_inbox(user.get("roles", []), user.get("permissions", [])):

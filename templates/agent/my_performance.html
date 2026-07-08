@@ -14,19 +14,48 @@
             <h1 class="text-2xl font-bold text-slate-900 dark:text-white">My Performance</h1>
             <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Your conversation and sales metrics</p>
         </div>
-        <form method="GET" action="/agent/my-performance" class="flex flex-wrap items-center gap-2">
-            <select name="days" class="rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
-                <option value="7" {% if days == 7 %}selected{% endif %}>Last 7 Days</option>
-                <option value="30" {% if days == 30 %}selected{% endif %}>Last 30 Days</option>
-                <option value="60" {% if days == 60 %}selected{% endif %}>Last 60 Days</option>
-                <option value="90" {% if days == 90 %}selected{% endif %}>Last 90 Days</option>
-            </select>
+        <form method="GET" action="/agent/my-performance" class="flex flex-wrap items-end gap-2">
+            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">
+                Period
+                <select name="days" class="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="7" {% if days == 7 and not custom_range %}selected{% endif %}>Last 7 Days</option>
+                    <option value="30" {% if days == 30 and not custom_range %}selected{% endif %}>Last 30 Days</option>
+                    <option value="60" {% if days == 60 and not custom_range %}selected{% endif %}>Last 60 Days</option>
+                    <option value="90" {% if days == 90 and not custom_range %}selected{% endif %}>Last 90 Days</option>
+                </select>
+            </label>
+            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">
+                Start
+                <input type="date" name="start_date" value="{{ start_date }}" max="{{ max_date }}" class="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </label>
+            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">
+                End
+                <input type="date" name="end_date" value="{{ end_date }}" max="{{ max_date }}" class="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </label>
+            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">
+                Channel
+                <select name="channel_type" class="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    <option value="">All Channels</option>
+                    {% for ct in channel_types %}
+                    <option value="{{ ct }}" {% if selected_channel_type == ct %}selected{% endif %}>{{ ct | replace('_', ' ') | title }}</option>
+                    {% endfor %}
+                </select>
+            </label>
             <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
                 Filter
             </button>
+            <a href="/agent/my-scorecard" class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                Scorecard
+            </a>
         </form>
     </div>
+
+    {% if not report_ready %}
+    <div class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-200">
+        {{ date_range_error }}
+    </div>
+    {% endif %}
 
     <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
