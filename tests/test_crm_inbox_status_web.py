@@ -46,6 +46,47 @@ def test_resolve_gate_shows_ticket_handoff_option_when_ticket_exists():
     assert "TCK-1001" in body
 
 
+def test_resolve_gate_offers_handoff_for_unlinked_open_customer_ticket():
+    db = Mock()
+
+    with (
+        patch("app.web.admin.crm_inbox_status.get_csrf_token", return_value="csrf"),
+        patch("app.web.admin._auth_helpers.get_current_user", return_value={"person_id": "person-1"}),
+        patch("app.services.crm.inbox.resolve_gate.check_resolve_gate", return_value=GateCheckResult(kind="no_gate")),
+        patch("app.web.admin.crm_inbox_status._get_conversation_ticket_context", return_value=None),
+        patch(
+            "app.web.admin.crm_inbox_status._get_open_customer_ticket_context",
+            return_value={
+                "id": "ticket-uuid-1",
+                "reference": "22013",
+                "href": "/admin/support/tickets/22013",
+            },
+        ),
+    ):
+        request = type(
+            "Req",
+            (),
+            {
+                "headers": {"HX-Target": "message-thread"},
+                "query_params": {"skip_tag_check": "1"},
+            },
+        )()
+        response = _run_to_completion(
+            update_conversation_status(
+                request,
+                conversation_id="conv-1",
+                new_status="resolved",
+                db=db,
+            )
+        )
+
+    body = response.body.decode()
+    assert "Sent to ticket" in body
+    assert "22013" in body
+    assert "Open ticket for this customer" in body
+    assert "ticket_id=ticket-uuid-1" in body
+
+
 def test_resolve_gate_hides_ticket_handoff_option_without_linked_ticket():
     db = Mock()
 

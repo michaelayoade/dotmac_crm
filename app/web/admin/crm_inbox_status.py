@@ -141,6 +141,32 @@ def _get_conversation_ticket_context(db: Session, conversation_id: str) -> dict 
     return format_conversation_ticket(conversation, db)
 
 
+def _get_open_customer_ticket_context(db: Session, conversation_id: str) -> dict | None:
+    """Open ticket for the conversation's contact that is not linked to the conversation yet."""
+    from app.models.crm.conversation import Conversation
+    from app.services.common import coerce_uuid
+    from app.services.crm.inbox.resolve_gate import find_open_ticket_for_person
+
+    try:
+        conversation = db.get(Conversation, coerce_uuid(conversation_id))
+    except Exception:
+        return None
+    if not conversation or not conversation.person_id:
+        return None
+    try:
+        ticket = find_open_ticket_for_person(db, person_id=conversation.person_id, conversation_id=conversation_id)
+    except Exception:
+        return None
+    if not ticket:
+        return None
+    ticket_ref = ticket.number or str(ticket.id)
+    return {
+        "id": str(ticket.id),
+        "reference": ticket_ref,
+        "href": f"/admin/support/tickets/{ticket_ref}",
+    }
+
+
 @router.post("/inbox/conversation/{conversation_id}/status", response_class=HTMLResponse)
 async def update_conversation_status(
     request: Request,
@@ -163,6 +189,7 @@ async def update_conversation_status(
     if new_status == "resolved" and request.headers.get("HX-Target") == "message-thread":
         skip_tag_check = request.query_params.get("skip_tag_check") == "1"
         ticket_context = _get_conversation_ticket_context(db, conversation_id)
+        open_ticket_context = None if ticket_context else _get_open_customer_ticket_context(db, conversation_id)
 
         # Tag nudge: soft warning if no tags
         if not skip_tag_check:
@@ -187,7 +214,7 @@ async def update_conversation_status(
         from app.services.crm.inbox.resolve_gate import check_resolve_gate
 
         gate = check_resolve_gate(db, conversation_id)
-        if gate.kind == "needs_gate" or ticket_context is not None:
+        if gate.kind == "needs_gate" or ticket_context is not None or open_ticket_context is not None:
             return templates.TemplateResponse(
                 "admin/crm/_resolve_gate.html",
                 {
@@ -195,8 +222,9 @@ async def update_conversation_status(
                     "conversation_id": conversation_id,
                     "csrf_token": get_csrf_token(request),
                     "show_lead_actions": gate.kind == "needs_gate",
-                    "ticket_handoff_available": ticket_context is not None,
-                    "ticket": ticket_context,
+                    "ticket_handoff_available": ticket_context is not None or open_ticket_context is not None,
+                    "ticket": ticket_context or open_ticket_context,
+                    "ticket_is_unlinked": ticket_context is None and open_ticket_context is not None,
                 },
             )
 
@@ -483,6 +511,7 @@ async def inbox_resolve_without_lead(
 async def inbox_resolve_with_ticket_handoff(
     request: Request,
     conversation_id: str,
+    ticket_id: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     """Resolve the conversation and mark it as a ticket handoff."""
@@ -497,6 +526,7 @@ async def inbox_resolve_with_ticket_handoff(
         actor_id=actor_id,
         roles=_get_current_roles(request),
         scopes=_get_current_scopes(request),
+        ticket_id=ticket_id,
     )
     if outcome == "forbidden":
         return HTMLResponse("<div class='p-6 text-center text-slate-500'>Forbidden</div>", status_code=403)

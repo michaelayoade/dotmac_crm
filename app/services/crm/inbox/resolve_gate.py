@@ -4,6 +4,11 @@ When an agent resolves a conversation, this module checks whether the
 conversation's person already has an active Lead.  If not, an interstitial
 ("gate") is shown so the agent can deliberately create a lead, link to an
 existing contact, or skip lead creation entirely.
+
+It also surfaces open support tickets for the conversation's contact so the
+agent is nudged toward "resolved to ticket" (which tells the customer their
+issue is still being worked on) instead of a plain resolve (which sends a
+"successfully resolved" closing message).
 """
 
 from __future__ import annotations
@@ -53,6 +58,70 @@ def check_resolve_gate(
     if has_active_lead:
         return GateCheckResult(kind="no_gate")
     return GateCheckResult(kind="needs_gate")
+
+
+def find_open_ticket_for_person(
+    db: Session,
+    *,
+    person_id,
+    conversation_id: str | None = None,
+) -> Ticket | None:
+    """Return the most recently updated non-terminal ticket for a contact.
+
+    Matches tickets held directly (``customer_person_id``) or through any of
+    the contact's subscriber accounts.
+    """
+    from sqlalchemy import or_
+
+    from app.models.person import Person
+    from app.services.crm.inbox.page_context import (
+        _ACTIVE_TICKET_TERMINAL_STATUSES,
+        _resolve_contact_subscriber_ids,
+    )
+
+    try:
+        person_uuid = coerce_uuid(person_id)
+    except Exception:
+        return None
+    contact = db.get(Person, person_uuid)
+    if not contact:
+        return None
+
+    subscriber_ids = _resolve_contact_subscriber_ids(db, contact=contact, conversation_id=conversation_id)
+    ticket_filters = [Ticket.customer_person_id == contact.id]
+    if subscriber_ids:
+        ticket_filters.append(Ticket.subscriber_id.in_(subscriber_ids))
+    return (
+        db.query(Ticket)
+        .filter(Ticket.is_active.is_(True))
+        .filter(Ticket.status.notin_(list(_ACTIVE_TICKET_TERMINAL_STATUSES)))
+        .filter(or_(*ticket_filters))
+        .order_by(Ticket.updated_at.desc())
+        .first()
+    )
+
+
+def _ticket_belongs_to_conversation_contact(
+    db: Session,
+    *,
+    conversation: Conversation,
+    ticket: Ticket,
+) -> bool:
+    if not conversation.person_id:
+        return False
+    if ticket.customer_person_id == conversation.person_id:
+        return True
+    if not ticket.subscriber_id:
+        return False
+
+    from app.models.person import Person
+    from app.services.crm.inbox.page_context import _resolve_contact_subscriber_ids
+
+    contact = db.get(Person, conversation.person_id)
+    if not contact:
+        return False
+    subscriber_ids = _resolve_contact_subscriber_ids(db, contact=contact, conversation_id=str(conversation.id))
+    return ticket.subscriber_id in set(subscriber_ids)
 
 
 def resolve_with_lead(
@@ -128,8 +197,13 @@ def resolve_with_ticket_handoff(
     actor_id: str | None = None,
     roles: list[str] | None = None,
     scopes: list[str] | None = None,
+    ticket_id: str | None = None,
 ) -> Literal["updated", "forbidden", "not_found", "error"]:
-    """Resolve the conversation with ticket-handoff metadata."""
+    """Resolve the conversation with ticket-handoff metadata.
+
+    ``ticket_id`` links an open ticket that belongs to the conversation's
+    contact when the conversation has no linked ticket yet.
+    """
     from app.services.crm.inbox.conversation_status import ResolutionContext, update_conversation_status
 
     try:
@@ -138,7 +212,22 @@ def resolve_with_ticket_handoff(
         return "not_found"
 
     conversation = db.get(Conversation, conv_uuid)
-    if not conversation or not conversation.ticket_id:
+    if not conversation:
+        return "not_found"
+
+    if not conversation.ticket_id and ticket_id:
+        try:
+            candidate = db.get(Ticket, coerce_uuid(ticket_id))
+        except Exception:
+            return "not_found"
+        if not candidate or not candidate.is_active:
+            return "not_found"
+        if not _ticket_belongs_to_conversation_contact(db, conversation=conversation, ticket=candidate):
+            return "not_found"
+        conversation.ticket_id = candidate.id
+        db.commit()
+
+    if not conversation.ticket_id:
         return "not_found"
 
     ticket = db.get(Ticket, conversation.ticket_id)
