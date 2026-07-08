@@ -24,6 +24,7 @@ REPO_DIR="${REPO_DIR:-/root/dotmac/dotmac_omni}"
 IMAGE_REPO="ghcr.io/michaelayoade/dotmac_crm"
 APP_SERVICES=(app celery-worker celery-beat)
 HEALTH_TIMEOUT_SECONDS=180
+IMAGE_RETENTION_COUNT="${APP_IMAGE_RETENTION_COUNT:-3}"
 
 log() { printf '\n==> %s\n' "$*"; }
 
@@ -31,9 +32,69 @@ cd "${DEPLOY_DIR}"
 
 pinned_tag() { grep -E '^APP_IMAGE_TAG=' .env | cut -d= -f2; }
 
+prune_old_app_images() {
+  # Retention must keep at least 2 tags so the documented rollback path
+  # (re-pin previous tag + up -d) never needs a live GHCR pull mid-incident.
+  if ! [[ "${IMAGE_RETENTION_COUNT}" =~ ^[0-9]+$ ]] || [[ "${IMAGE_RETENTION_COUNT}" -lt 2 ]]; then
+    echo "APP_IMAGE_RETENTION_COUNT must be an integer >= 2" >&2
+    return 1
+  fi
+
+  log "Pruning ${IMAGE_REPO} images (retaining last ${IMAGE_RETENTION_COUNT} tags)"
+
+  # Includes stopped containers: their images cannot be removed anyway, and
+  # attempting to would only produce rm failures.
+  declare -A active_image_ids=()
+  while IFS= read -r image_id; do
+    [[ -n "${image_id}" ]] && active_image_ids["${image_id}"]=1
+  done < <(docker ps -aq | xargs -r docker inspect --format '{{.Image}}' 2>/dev/null || true)
+
+  pinned_ref="${IMAGE_REPO}:$(pinned_tag)"
+  prev_ref="${IMAGE_REPO}:${PREV_TAG:-}"
+
+  kept=0
+  removed=0
+  while IFS= read -r ref; do
+    tag="${ref##*:}"
+    [[ "${tag}" != "<none>" ]] || continue
+
+    image_id="$(docker image inspect "${ref}" --format '{{.Id}}' 2>/dev/null || true)"
+    [[ -n "${image_id}" ]] || continue
+
+    if [[ "${ref}" == "${pinned_ref}" || "${ref}" == "${prev_ref}" ]]; then
+      kept=$((kept + 1))
+      continue
+    fi
+
+    if [[ "${kept}" -lt "${IMAGE_RETENTION_COUNT}" ]]; then
+      kept=$((kept + 1))
+      continue
+    fi
+
+    if [[ -n "${active_image_ids[${image_id}]:-}" ]]; then
+      echo "Keeping active image tag: ${ref}"
+      continue
+    fi
+
+    echo "Removing old image tag: ${ref}"
+    docker image rm "${ref}" >/dev/null || {
+      echo "WARN: failed to remove ${ref}, skipping" >&2
+      continue
+    }
+    removed=$((removed + 1))
+  done < <(docker image ls "${IMAGE_REPO}" --format '{{.Repository}}:{{.Tag}}')
+
+  echo "Image retention complete: kept ${kept} recent tag(s), removed ${removed} old tag(s)."
+}
+
 if [[ "${1:-}" == "--status" ]]; then
   echo "pinned:  ${IMAGE_REPO}:$(pinned_tag)"
   echo "running: $(docker inspect dotmac_omni_app --format '{{.Config.Image}}' 2>/dev/null || echo 'not running')"
+  exit 0
+fi
+
+if [[ "${1:-}" == "--prune-images" ]]; then
+  prune_old_app_images
   exit 0
 fi
 
@@ -95,4 +156,6 @@ fi
 
 trap - ERR
 curl -fsS -o /dev/null http://localhost:8000/health
+# Best-effort: a prune hiccup must never mark a healthy deploy as failed.
+prune_old_app_images || log "WARN: image prune failed; deploy unaffected"
 log "Deployed ${TAG} successfully (was ${PREV_TAG})"
