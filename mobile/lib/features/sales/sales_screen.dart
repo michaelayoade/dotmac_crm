@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -317,6 +318,7 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
   InventoryItem? _selectedItem;
   final _lines = <SalesOrderLineDraft>[];
   bool _saving = false;
+  String _submitError = '';
 
   @override
   void initState() {
@@ -420,7 +422,10 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
   Future<void> _submit() async {
     final customer = _selectedCustomer;
     if (customer == null || _lines.isEmpty || _saving) return;
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _submitError = '';
+    });
     try {
       final order = await ref
           .read(salesRepositoryProvider)
@@ -430,6 +435,20 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
       if (mounted) {
         context.go('/sales/${order.id}');
       }
+    } on DioException catch (error) {
+      if (!mounted) return;
+      final message = _salesSubmitError(error);
+      setState(() => _submitError = message);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      if (!mounted) return;
+      const message = 'Could not submit sales order';
+      setState(() => _submitError = message);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text(message)));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -585,6 +604,13 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
             ),
+          if (_submitError.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              _submitError,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
           const SizedBox(height: 96),
         ],
       ),
@@ -614,6 +640,14 @@ class _NewSalesOrderScreenState extends ConsumerState<NewSalesOrderScreen> {
       ),
     );
   }
+}
+
+String _salesSubmitError(DioException error) {
+  final data = error.response?.data;
+  if (data is Map && data['detail'] != null) return data['detail'].toString();
+  if (error.response?.statusCode == 403) return 'Access denied';
+  if (error.response?.statusCode == 422) return 'Check the sales order details';
+  return 'Could not submit sales order';
 }
 
 String _formatQuantity(double value) => value == value.roundToDouble()

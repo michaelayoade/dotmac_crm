@@ -8,6 +8,9 @@ from app.schemas.common import ListResponse
 from app.schemas.field import (
     FieldAttachmentRead,
     FieldCustomer,
+    FieldJobChatMessage,
+    FieldJobChatMessageCreate,
+    FieldJobChatResponse,
     FieldJobDestination,
     FieldJobDestinationsResponse,
     FieldJobDetail,
@@ -25,6 +28,7 @@ from app.schemas.field import (
 )
 from app.schemas.material_request import MaterialRequestRead
 from app.services.auth_dependencies import require_user_auth
+from app.services.field import chat as field_chat
 from app.services.field.jobs import field_jobs
 
 router = APIRouter(tags=["field-jobs"])
@@ -87,6 +91,34 @@ def list_field_job_destinations(work_order_id: str, auth=Depends(require_user_au
         items=[FieldJobDestination(**item) for item in items],
         count=len(items),
     )
+
+
+@router.get("/jobs/{work_order_id}/chat", response_model=FieldJobChatResponse)
+def get_field_job_chat(work_order_id: str, auth=Depends(require_user_auth), db: Session = Depends(get_db)):
+    payload = field_chat.get_job_chat(db, auth["person_id"], work_order_id)
+    return FieldJobChatResponse(
+        available=payload["available"],
+        can_send=payload["can_send"],
+        conversation_id=payload["conversation_id"],
+        customer_name=payload["customer_name"],
+        messages=[FieldJobChatMessage(**message) for message in payload["messages"]],
+    )
+
+
+@router.post("/jobs/{work_order_id}/chat/messages", response_model=FieldJobChatMessage)
+def send_field_job_chat_message(
+    work_order_id: str,
+    payload: FieldJobChatMessageCreate,
+    auth=Depends(require_user_auth),
+    db: Session = Depends(get_db),
+):
+    message = field_chat.send_job_chat_message(
+        db,
+        auth["person_id"],
+        work_order_id,
+        body=payload.body,
+    )
+    return FieldJobChatMessage(**message)
 
 
 @router.patch("/jobs/{work_order_id}/location", response_model=FieldJobLocation)

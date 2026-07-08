@@ -301,6 +301,60 @@ void main() {
     expect(find.text('Router'), findsNothing);
   });
 
+  testWidgets('new sales order shows API submit errors', (tester) async {
+    adapter.on('POST', '/api/v1/field/sales-orders', (_) {
+      return (422, {'detail': 'Price is required'});
+    });
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          apiClientProvider.overrideWithValue(
+            container.read(apiClientProvider),
+          ),
+          customerSearchProvider.overrideWith((ref) async => const []),
+          inventorySearchProvider.overrideWith((ref) async => const []),
+        ],
+        child: const MaterialApp(
+          home: NewSalesOrderScreen(
+            initialCustomerId: 'customer-1',
+            initialCustomerLabel: 'Ada Customer',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final orderForm = find.byType(Scrollable).first;
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Description'),
+      'Router',
+    );
+    await tester.scrollUntilVisible(
+      find.widgetWithText(TextField, 'Quantity'),
+      120,
+      scrollable: orderForm,
+    );
+    await tester.enterText(find.widgetWithText(TextField, 'Quantity'), '1');
+    await tester.scrollUntilVisible(
+      find.widgetWithText(TextField, 'Unit price'),
+      120,
+      scrollable: orderForm,
+    );
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Unit price'),
+      '15000',
+    );
+    final addLine = find.byKey(const Key('add-sales-line-action'));
+    await tester.scrollUntilVisible(addLine, 120, scrollable: orderForm);
+    await tester.tap(addLine);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Submit sales order'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Price is required'), findsWidgets);
+  });
+
   test('DraftStore saves, loads and deletes a sales order draft', () async {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);

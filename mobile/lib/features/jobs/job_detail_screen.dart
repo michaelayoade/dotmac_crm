@@ -6,9 +6,6 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/theme.dart';
-import '../../app/widgets/primary_action_button.dart';
-import '../../app/widgets/section_header.dart';
-import '../../app/widgets/status_pill.dart';
 import '../execution/completion_wizard.dart';
 import '../execution/execution_controller.dart';
 import 'job_models.dart';
@@ -19,15 +16,6 @@ import 'location_pin_screen.dart';
 typedef UriLauncher = Future<bool> Function(Uri uri);
 
 final uriLauncherProvider = Provider<UriLauncher>((ref) => launchUrl);
-
-/// Icon for a primary work action (start / pause / resume / complete / …).
-IconData _workActionIcon(String action) => switch (action) {
-      'start' => Icons.play_arrow_rounded,
-      'resume' => Icons.play_arrow_rounded,
-      'pause' => Icons.pause_rounded,
-      'complete' => Icons.check_rounded,
-      _ => Icons.bolt_rounded,
-    };
 
 class JobDetailScreen extends ConsumerWidget {
   const JobDetailScreen({super.key, required this.jobId});
@@ -102,6 +90,7 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
     final executionActions = actions
         .where((action) => action != 'en_route' && action != 'arrived')
         .toList();
+    final statusColor = AppColors.status(job.status);
 
     return Scaffold(
       appBar: AppBar(
@@ -124,8 +113,16 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
             icon: const Icon(Icons.receipt_long_outlined),
           ),
           Padding(
-            padding: const EdgeInsets.only(right: AppSpace.md),
-            child: Center(child: StatusPill(job.status, compact: true)),
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(
+              child: Row(
+                children: [
+                  Icon(Icons.circle, size: 10, color: statusColor),
+                  const SizedBox(width: 6),
+                  Text(statusLabel(job.status)),
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -141,28 +138,25 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              [
-                if (detail.ticketRef != null) '#${detail.ticketRef}',
-                job.workType.toUpperCase(),
-              ].join('  ·  '),
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.2,
-                  ),
-            ),
-            const SizedBox(height: 4),
-            Text(
               job.title,
               style: Theme.of(
                 context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
             ),
-            const SizedBox(height: AppSpace.lg),
+            if (detail.ticketRef != null || detail.projectId != null) ...[
+              const SizedBox(height: 8),
+              _ReferenceChips(detail: detail),
+            ],
+            const SizedBox(height: 16),
             _LocationCard(jobId: job.id, location: detail.location),
+            _DestinationsCard(jobId: job.id),
             if (detail.customer != null) ...[
-              const SizedBox(height: AppSpace.sm),
-              _CustomerCard(customer: detail.customer!),
+              const SizedBox(height: 12),
+              _CustomerCard(jobId: job.id, customer: detail.customer!),
+            ],
+            if (_hasJobContext(detail)) ...[
+              const SizedBox(height: 12),
+              _JobContextCard(detail: detail),
             ],
             if (travelActions.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -190,24 +184,37 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ],
             if (job.description != null && job.description!.isNotEmpty) ...[
-              const SizedBox(height: AppSpace.lg),
-              const SectionHeader('Scope of work'),
+              const SizedBox(height: 12),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(AppSpace.md),
-                  child: Text(job.description!),
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Scope of work',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(job.description!),
+                    ],
+                  ),
                 ),
               ),
             ],
             if (detail.materialRequests.isNotEmpty) ...[
-              const SizedBox(height: AppSpace.lg),
-              const SectionHeader('Material requests'),
+              const SizedBox(height: 12),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(AppSpace.md),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Text(
+                        'Material requests',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
                       for (final request in detail.materialRequests)
                         _MaterialRequestListTile(request: request),
                     ],
@@ -216,14 +223,18 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ],
             if (detail.history.isNotEmpty) ...[
-              const SizedBox(height: AppSpace.lg),
-              const SectionHeader('History'),
+              const SizedBox(height: 12),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(AppSpace.md),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Text(
+                        'History',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
                       for (final item in detail.history)
                         _HistoryTile(item: item),
                     ],
@@ -271,8 +282,8 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                         onChanged: _isSavingNote
                             ? null
                             : (value) => setState(
-                                  () => _isInternalNote = value ?? true,
-                                ),
+                                () => _isInternalNote = value ?? true,
+                              ),
                       ),
                       const SizedBox(height: 12),
                       OverflowBar(
@@ -283,12 +294,12 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                             onPressed: _isSavingNote
                                 ? null
                                 : () => setState(() {
-                                      _isAddingNote = false;
-                                      _isInternalNote = true;
-                                      _noteError = '';
-                                      _noteFocusNode.unfocus();
-                                      _noteController.clear();
-                                    }),
+                                    _isAddingNote = false;
+                                    _isInternalNote = true;
+                                    _noteError = '';
+                                    _noteFocusNode.unfocus();
+                                    _noteController.clear();
+                                  }),
                             child: const Text('Cancel'),
                           ),
                           FilledButton(
@@ -314,14 +325,18 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ],
             if (detail.materials.isNotEmpty) ...[
-              const SizedBox(height: AppSpace.lg),
-              const SectionHeader('Materials'),
+              const SizedBox(height: 12),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(AppSpace.md),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Text(
+                        'Materials',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
                       for (final material in detail.materials)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),
@@ -342,14 +357,18 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
               ),
             ],
             if (_notes.isNotEmpty) ...[
-              const SizedBox(height: AppSpace.lg),
-              const SectionHeader('Notes'),
+              const SizedBox(height: 12),
               Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(AppSpace.md),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Text(
+                        'Notes',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
                       for (final note in _notes)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),
@@ -373,14 +392,13 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     for (final action in executionActions) ...[
-                      PrimaryActionButton(
+                      FilledButton(
                         key: Key('work-action-$action'),
                         onPressed: () => _runWorkAction(job.id, action),
-                        icon: _workActionIcon(action),
-                        label: actionLabel(action),
+                        child: Text(actionLabel(action)),
                       ),
                       if (action != executionActions.last)
-                        const SizedBox(height: AppSpace.sm),
+                        const SizedBox(height: 8),
                     ],
                     TextButton(
                       key: const Key('unable-action'),
@@ -425,7 +443,9 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
       final destination = await _pickDestination(jobId);
       if (destination == null) return;
       _activeDestination = destination;
-      await ref.read(executionControllerProvider.notifier).transition(
+      await ref
+          .read(executionControllerProvider.notifier)
+          .transition(
             jobId,
             action,
             payload: destination.toTransitionPayload(),
@@ -434,7 +454,9 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
       final destination = _activeDestination ?? await _pickDestination(jobId);
       if (destination == null) return;
       _activeDestination = destination;
-      await ref.read(executionControllerProvider.notifier).transition(
+      await ref
+          .read(executionControllerProvider.notifier)
+          .transition(
             jobId,
             action,
             payload: destination.toTransitionPayload(),
@@ -451,8 +473,9 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
   Future<JobDestination?> _pickDestination(String jobId) async {
     List<JobDestination> destinations;
     try {
-      destinations =
-          await ref.read(jobsRepositoryProvider).fetchDestinations(jobId);
+      destinations = await ref
+          .read(jobsRepositoryProvider)
+          .fetchDestinations(jobId);
     } catch (_) {
       destinations = const [
         JobDestination(destinationType: 'customer', label: 'Customer site'),
@@ -480,7 +503,8 @@ class _JobDetailViewState extends ConsumerState<_JobDetailView> {
                 ),
                 leading: Icon(_destinationIcon(destination.destinationType)),
                 title: Text(destination.label),
-                subtitle: destination.addressText == null ||
+                subtitle:
+                    destination.addressText == null ||
                         destination.addressText!.isEmpty
                     ? Text(destination.destinationType.replaceAll('_', ' '))
                     : Text(destination.addressText!),
@@ -571,6 +595,162 @@ IconData _destinationIcon(String type) {
   };
 }
 
+bool _hasJobContext(JobDetail detail) {
+  return _hasText(detail.accessNotes) ||
+      detail.additionalContacts.isNotEmpty ||
+      detail.openTickets.isNotEmpty ||
+      detail.recentVisits.isNotEmpty;
+}
+
+bool _hasText(String? value) => value != null && value.trim().isNotEmpty;
+
+String _shortId(String value) {
+  if (value.length <= 8) return value;
+  return value.substring(0, 8);
+}
+
+String _formatDate(DateTime? value) {
+  if (value == null) return '';
+  final local = value.toLocal();
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  return '${local.year}-$month-$day';
+}
+
+String? _phoneDigits(String? value) {
+  if (!_hasText(value)) return null;
+  final digits = value!.replaceAll(RegExp(r'\D'), '');
+  return digits.isEmpty ? null : digits;
+}
+
+Uri? _phoneUri(String? value) =>
+    _hasText(value) ? Uri.parse('tel:$value') : null;
+
+Uri? _whatsAppUri(String? value) {
+  final digits = _phoneDigits(value);
+  return digits == null ? null : Uri.parse('https://wa.me/$digits');
+}
+
+Uri? _emailUri(String? value) {
+  if (!_hasText(value)) return null;
+  return Uri.parse('mailto:${Uri.encodeComponent(value!.trim())}');
+}
+
+class _ReferenceChips extends StatelessWidget {
+  const _ReferenceChips({required this.detail});
+
+  final JobDetail detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (_hasText(detail.ticketRef))
+          Chip(
+            avatar: const Icon(Icons.confirmation_number_outlined, size: 18),
+            label: Text('Ticket ${detail.ticketRef}'),
+          ),
+        if (_hasText(detail.projectId))
+          Chip(
+            avatar: const Icon(Icons.account_tree_outlined, size: 18),
+            label: Text('Project ${_shortId(detail.projectId!)}'),
+          ),
+      ],
+    );
+  }
+}
+
+class _DestinationsCard extends ConsumerWidget {
+  const _DestinationsCard({required this.jobId});
+
+  final String jobId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final destinations = ref.watch(jobDestinationsProvider(jobId));
+    return destinations.maybeWhen(
+      data: (items) {
+        final navigable = items
+            .where((item) => item.destinationType != 'other')
+            .toList();
+        if (navigable.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Navigation targets',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  for (final destination in navigable)
+                    _DestinationTile(destination: destination),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+      orElse: () => const SizedBox.shrink(),
+    );
+  }
+}
+
+class _DestinationTile extends ConsumerWidget {
+  const _DestinationTile({required this.destination});
+
+  final JobDestination destination;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final uri = destination.mapsUri;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(_destinationIcon(destination.destinationType)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(destination.label),
+                Text(
+                  _hasText(destination.addressText)
+                      ? destination.addressText!
+                      : destination.destinationType.replaceAll('_', ' '),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                if (uri != null) ...[
+                  const SizedBox(height: 6),
+                  OutlinedButton.icon(
+                    key: Key(
+                      'navigate-destination-${destination.destinationType}',
+                    ),
+                    onPressed: () => ref.read(uriLauncherProvider)(uri),
+                    icon: const Icon(Icons.navigation_outlined),
+                    label: const Text('Navigate'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 String _noteBody(Map<String, dynamic> note) {
   for (final key in ['body', 'text', 'comment', 'note']) {
     final value = note[key];
@@ -603,8 +783,8 @@ class _NoteTile extends StatelessWidget {
           Text(
             meta,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         Text(_noteBody(note)),
       ],
@@ -686,8 +866,8 @@ class _HistoryTile extends StatelessWidget {
             Text(
               meta,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
         ],
       ),
@@ -787,36 +967,22 @@ class _LocationCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final uri = location.mapsUri;
-    final text = Theme.of(context).textTheme;
-    final soft = Theme.of(context).colorScheme.onSurfaceVariant;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(AppSpace.md),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                const _LeadingIcon(Icons.place_outlined, accent: true),
-                const SizedBox(width: AppSpace.md),
+                const Icon(Icons.place_outlined, size: 20),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Site',
-                          style: text.labelSmall?.copyWith(color: soft)),
-                      const SizedBox(height: 1),
-                      Text(
-                        location.addressText ?? 'No address on file',
-                        style: text.titleSmall
-                            ?.copyWith(fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
+                  child: Text(location.addressText ?? 'No address on file'),
                 ),
               ],
             ),
-            const SizedBox(height: AppSpace.md),
+            const SizedBox(height: 12),
             Wrap(
               spacing: 10,
               runSpacing: 10,
@@ -857,73 +1023,296 @@ class _LocationCard extends ConsumerWidget {
   }
 }
 
-/// Leading icon in a soft tinted square — the mockup's info-card motif.
-class _LeadingIcon extends StatelessWidget {
-  const _LeadingIcon(this.icon, {this.accent = false});
+class _JobContextCard extends ConsumerWidget {
+  const _JobContextCard({required this.detail});
+
+  final JobDetail detail;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Job context', style: Theme.of(context).textTheme.titleSmall),
+            if (_hasText(detail.accessNotes)) ...[
+              const SizedBox(height: 12),
+              _ContextBlock(
+                icon: Icons.vpn_key_outlined,
+                title: 'Access notes',
+                body: detail.accessNotes!.trim(),
+              ),
+            ],
+            if (detail.additionalContacts.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Site contacts',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              const SizedBox(height: 4),
+              for (final contact in detail.additionalContacts)
+                _SiteContactTile(contact: contact),
+            ],
+            if (detail.openTickets.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Open tickets',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              const SizedBox(height: 4),
+              for (final ticket in detail.openTickets)
+                _OpenTicketTile(ticket: ticket),
+            ],
+            if (detail.recentVisits.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Recent visits',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              const SizedBox(height: 4),
+              for (final visit in detail.recentVisits)
+                _RecentVisitTile(visit: visit),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ContextBlock extends StatelessWidget {
+  const _ContextBlock({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
 
   final IconData icon;
-  final bool accent;
+  final String title;
+  final String body;
 
   @override
   Widget build(BuildContext context) {
-    final base = accent ? AppColors.accent : AppColors.primary;
-    return Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: base.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(AppRadii.tile),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 2),
+              Text(body),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SiteContactTile extends ConsumerWidget {
+  const _SiteContactTile({required this.contact});
+
+  final JobSiteContact contact;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final phoneUri = _phoneUri(contact.phone);
+    final whatsAppUri = _whatsAppUri(contact.phone);
+    final emailUri = _emailUri(contact.email);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.person_outline),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_hasText(contact.name) ? contact.name! : 'Site contact'),
+                Text(
+                  [
+                    if (_hasText(contact.relationship)) contact.relationship,
+                    if (_hasText(contact.phone)) contact.phone,
+                    if (_hasText(contact.email)) contact.email,
+                  ].join(' · '),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (phoneUri != null)
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            ref.read(uriLauncherProvider)(phoneUri),
+                        icon: const Icon(Icons.call_outlined),
+                        label: const Text('Call'),
+                      ),
+                    if (whatsAppUri != null)
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            ref.read(uriLauncherProvider)(whatsAppUri),
+                        icon: const Icon(Icons.chat_outlined),
+                        label: const Text('Chat'),
+                      ),
+                    if (emailUri != null)
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            ref.read(uriLauncherProvider)(emailUri),
+                        icon: const Icon(Icons.mail_outline),
+                        label: const Text('Email'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
-      child: Icon(icon, size: 20, color: base),
+    );
+  }
+}
+
+class _OpenTicketTile extends StatelessWidget {
+  const _OpenTicketTile({required this.ticket});
+
+  final JobOpenTicketItem ticket;
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = [
+      if (_hasText(ticket.ref)) ticket.ref,
+      if (_hasText(ticket.status)) ticket.status!.replaceAll('_', ' '),
+    ].join(' · ');
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.report_problem_outlined),
+      title: Text(_hasText(ticket.subject) ? ticket.subject! : 'Open ticket'),
+      subtitle: meta.isEmpty ? null : Text(meta),
+    );
+  }
+}
+
+class _RecentVisitTile extends StatelessWidget {
+  const _RecentVisitTile({required this.visit});
+
+  final JobVisitHistoryItem visit;
+
+  @override
+  Widget build(BuildContext context) {
+    final completedAt = _formatDate(visit.completedAt);
+    final meta = [
+      if (_hasText(visit.workType)) visit.workType!.replaceAll('_', ' '),
+      if (_hasText(visit.status)) visit.status!.replaceAll('_', ' '),
+      if (completedAt.isNotEmpty) completedAt,
+    ].join(' · ');
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.history_outlined),
+      title: Text(visit.title),
+      subtitle: meta.isEmpty ? null : Text(meta),
     );
   }
 }
 
 class _CustomerCard extends ConsumerWidget {
-  const _CustomerCard({required this.customer});
+  const _CustomerCard({required this.jobId, required this.customer});
 
+  final String jobId;
   final JobCustomer customer;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final text = Theme.of(context).textTheme;
-    final soft = Theme.of(context).colorScheme.onSurfaceVariant;
+    final phoneUri = _phoneUri(customer.phone);
+    final emailUri = _emailUri(customer.email);
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(AppSpace.md),
-        child: Row(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _LeadingIcon(Icons.person_outline),
-            const SizedBox(width: AppSpace.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Customer',
-                      style: text.labelSmall?.copyWith(color: soft)),
-                  const SizedBox(height: 1),
-                  Text(
-                    [
-                      customer.name ?? 'Customer',
-                      if (customer.phone != null) customer.phone!,
-                    ].join(' · '),
-                    style:
-                        text.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+            Row(
+              children: [
+                CircleAvatar(
+                  child: Text(
+                    (customer.name ?? '?').substring(0, 1).toUpperCase(),
                   ),
-                  if (customer.servicePlan != null)
-                    Text(customer.servicePlan!, style: text.bodySmall),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        customer.name ?? 'Customer',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (customer.servicePlan != null)
+                        Text(
+                          customer.servicePlan!,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      if (_hasText(customer.accountNumber) ||
+                          _hasText(customer.status))
+                        Text(
+                          [
+                            if (_hasText(customer.accountNumber))
+                              customer.accountNumber,
+                            if (_hasText(customer.status))
+                              customer.status!.replaceAll('_', ' '),
+                          ].join(' · '),
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      if (_hasText(customer.addressText))
+                        Text(
+                          customer.addressText!,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (phoneUri != null || emailUri != null || jobId.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (phoneUri != null)
+                    OutlinedButton.icon(
+                      key: const Key('call-button'),
+                      onPressed: () => ref.read(uriLauncherProvider)(phoneUri),
+                      icon: const Icon(Icons.call_outlined),
+                      label: const Text('Call'),
+                    ),
+                  OutlinedButton.icon(
+                    key: const Key('field-chat-button'),
+                    onPressed: () => context.push('/jobs/$jobId/chat'),
+                    icon: const Icon(Icons.forum_outlined),
+                    label: const Text('Chat'),
+                  ),
+                  if (emailUri != null)
+                    OutlinedButton.icon(
+                      key: const Key('email-customer-button'),
+                      onPressed: () => ref.read(uriLauncherProvider)(emailUri),
+                      icon: const Icon(Icons.mail_outline),
+                      label: const Text('Email'),
+                    ),
                 ],
               ),
-            ),
-            if (customer.phone != null)
-              IconButton.filledTonal(
-                key: const Key('call-button'),
-                onPressed: () => ref.read(uriLauncherProvider)(
-                  Uri.parse('tel:${customer.phone}'),
-                ),
-                icon: const Icon(Icons.call_outlined),
-                tooltip: 'Call customer',
-              ),
+            ],
           ],
         ),
       ),

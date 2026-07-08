@@ -67,10 +67,10 @@ class JobCard extends StatelessWidget {
                               color: done
                                   ? faint
                                   : (isDark
-                                      ? AppColors.inkDark
-                                      : AppColors.ink),
+                                        ? AppColors.inkDark
+                                        : AppColors.ink),
                               fontFeatures: const [
-                                FontFeature.tabularFigures()
+                                FontFeature.tabularFigures(),
                               ],
                             ),
                           ),
@@ -134,9 +134,9 @@ class JobCard extends StatelessWidget {
 String _titleCase(String s) => s.isEmpty
     ? s
     : s
-        .split('_')
-        .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
-        .join(' ');
+          .split('_')
+          .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+          .join(' ');
 
 class _Meta extends StatelessWidget {
   const _Meta({required this.icon, required this.label, required this.color});
