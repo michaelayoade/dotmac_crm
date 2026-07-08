@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../theme.dart';
 
-/// Small uppercase section label with an optional trailing action link.
 class SectionHeader extends StatelessWidget {
   const SectionHeader(this.title, {super.key, this.actionLabel, this.onAction});
 
@@ -12,22 +11,19 @@ class SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
-      padding:
-          const EdgeInsets.fromLTRB(AppSpace.xs, 2, AppSpace.xs, AppSpace.sm),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpace.xs,
+        2,
+        AppSpace.xs,
+        AppSpace.sm,
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
-            title.toUpperCase(),
-            style: TextStyle(
-              fontFamily: 'PlusJakartaSans',
-              fontSize: 11.5,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1,
-              color: isDark ? AppColors.inkFaintDark : AppColors.inkFaint,
-            ),
+            title,
+            style: Theme.of(context).textTheme.titleLarge,
           ),
           if (actionLabel != null)
             InkWell(
@@ -37,12 +33,9 @@ class SectionHeader extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 child: Text(
                   actionLabel!,
-                  style: const TextStyle(
-                    fontFamily: 'PlusJakartaSans',
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primaryDeep,
-                  ),
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: AppColors.primary,
+                      ),
                 ),
               ),
             ),

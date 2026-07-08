@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'theme.dart';
 import '../core/api/token_store.dart' show LoginMode;
 import '../features/auth/auth_state.dart';
 import '../features/auth/login_screen.dart';
@@ -205,8 +206,6 @@ const _staffNav = [
   _NavItem(2, Icons.calendar_today_outlined, 'Schedule'),
   _NavItem(3, Icons.inventory_2_outlined, 'Materials'),
   _NavItem(4, Icons.receipt_long_outlined, 'Expenses'),
-  _NavItem(5, Icons.people_alt_outlined, 'Customers'),
-  _NavItem(6, Icons.person_outline, 'Profile'),
 ];
 
 // Vendors get the tabs backed by vendor-aware endpoints: Projects, the
@@ -216,7 +215,6 @@ const _staffNav = [
 const _vendorNav = [
   _NavItem(0, Icons.assignment_outlined, 'Projects'),
   _NavItem(1, Icons.map_outlined, 'Map'),
-  _NavItem(6, Icons.person_outline, 'Profile'),
 ];
 
 class _AppShell extends ConsumerWidget {
@@ -229,20 +227,89 @@ class _AppShell extends ConsumerWidget {
     final auth = ref.watch(authControllerProvider);
     final isVendor = auth is Authenticated && auth.mode == LoginMode.vendor;
     final items = isVendor ? _vendorNav : _staffNav;
-    // Map the active branch to its position in the visible set (0 if the
-    // current branch is hidden for this mode).
     final selected = items.indexWhere(
       (i) => i.branchIndex == shell.currentIndex,
     );
+    final theme = Theme.of(context);
+    final current = selected < 0 ? 0 : selected;
     return Scaffold(
       body: LocationTrackingHost(child: shell),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: selected < 0 ? 0 : selected,
-        onDestinationSelected: (pos) => shell.goBranch(items[pos].branchIndex),
-        destinations: [
-          for (final item in items)
-            NavigationDestination(icon: Icon(item.icon), label: item.label),
-        ],
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: appSurface(context),
+          border: Border(top: BorderSide(color: appOutline(context))),
+          boxShadow: appSoftShadow(theme.brightness == Brightness.dark),
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppRadii.lg),
+          ),
+        ),
+        padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
+        child: SafeArea(
+          top: false,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              for (var index = 0; index < items.length; index++)
+                Expanded(
+                  child: _ShellNavButton(
+                    item: items[index],
+                    selected: index == current,
+                    onTap: () => shell.goBranch(items[index].branchIndex),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShellNavButton extends StatelessWidget {
+  const _ShellNavButton({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _NavItem item;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final muted = appMutedText(context);
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primarySoft : Colors.transparent,
+          borderRadius: BorderRadius.circular(AppRadii.full),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              item.icon,
+              color: selected ? AppColors.primary : muted,
+              size: 24,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              item.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: selected ? AppColors.primary : muted,
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }

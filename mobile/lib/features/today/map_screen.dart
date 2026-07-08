@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../app/theme.dart';
+import '../../app/widgets/page_header.dart';
 import '../../core/location/map_coordinates.dart';
 import '../execution/execution_controller.dart';
 import '../jobs/job_models.dart';
@@ -50,144 +51,171 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final onlineSearch = ref.watch(mapPlaceSearchProvider(_searchQuery));
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Job map'),
-        actions: [
-          pins.maybeWhen(
-            data: (items) => TextButton.icon(
-              key: const Key('edit-pins-button'),
-              onPressed: () => _showPinListSheet(
-                context,
-                ref,
-                items.where((pin) => pin.hasValidCoordinates).toList(),
-                (assets.valueOrNull ?? const <MapAsset>[])
-                    .where((asset) => asset.hasValidCoordinates)
-                    .toList(),
-              ),
-              icon: const Icon(Icons.push_pin_outlined),
-              label: const Text('Edit'),
-            ),
-            orElse: () => TextButton.icon(
-              key: const Key('edit-pins-button'),
-              onPressed: null,
-              icon: const Icon(Icons.push_pin_outlined),
-              label: const Text('Edit'),
-            ),
-          ),
-        ],
-      ),
       body: pins.when(
         data: (items) {
-          final validPins = items
-              .where((pin) => pin.hasValidCoordinates)
-              .toList();
-          final assetItems =
-              (assets.valueOrNull ?? const <MapAsset>[])
-                  .where((asset) => asset.hasValidCoordinates)
-                  .toList()
-                ..sort(
-                  (a, b) => _assetPaintRank(
-                    a.type,
-                  ).compareTo(_assetPaintRank(b.type)),
-                );
+          final validPins = items.where((pin) => pin.hasValidCoordinates).toList();
+          final assetItems = (assets.valueOrNull ?? const <MapAsset>[])
+              .where((asset) => asset.hasValidCoordinates)
+              .toList()
+            ..sort(
+              (a, b) =>
+                  _assetPaintRank(a.type).compareTo(_assetPaintRank(b.type)),
+            );
           final center = validPins.isNotEmpty
               ? safeLatLng(validPins.first.latitude, validPins.first.longitude)!
               : assetItems.isNotEmpty
-              ? safeLatLng(
-                  assetItems.first.latitude,
-                  assetItems.first.longitude,
-                )!
-              : defaultMapCenter;
-          return Stack(
-            children: [
-              FlutterMap(
-                mapController: _mapController,
-                options: MapOptions(
-                  initialCenter: center,
-                  initialZoom: 12,
-                  cameraConstraint: finiteMapCameraConstraint,
-                ),
-                children: [
-                  if (widget.showTiles)
-                    TileLayer(
-                      urlTemplate:
-                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'io.dotmac.dotmac_field',
+                  ? safeLatLng(
+                      assetItems.first.latitude,
+                      assetItems.first.longitude,
+                    )!
+                  : defaultMapCenter;
+
+          return SafeArea(
+            bottom: false,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpace.page,
+                      108,
+                      AppSpace.page,
+                      AppSpace.page,
                     ),
-                  MarkerLayer(
-                    markers: [
-                      for (final asset in assetItems)
-                        Marker(
-                          point: safeLatLng(asset.latitude, asset.longitude)!,
-                          width: 38,
-                          height: 38,
-                          child: GestureDetector(
-                            key: Key('asset-${asset.type}-${asset.id}'),
-                            onTap: () => _showAssetSheet(context, ref, asset),
-                            child: Icon(
-                              _assetIcon(asset.type),
-                              size: 30,
-                              color: _assetColor(asset.type),
-                            ),
-                          ),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(AppRadii.xl),
+                        boxShadow: appSoftShadow(
+                          Theme.of(context).brightness == Brightness.dark,
                         ),
-                      for (final pin in validPins)
-                        Marker(
-                          point: safeLatLng(pin.latitude, pin.longitude)!,
-                          width: 44,
-                          height: 44,
-                          child: GestureDetector(
-                            key: Key('pin-${pin.id}'),
-                            onTap: () => _showJobSheet(context, ref, pin),
-                            child: Icon(
-                              Icons.location_pin,
-                              size: 40,
-                              color: AppColors.status(pin.status),
-                            ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(AppRadii.xl),
+                        child: FlutterMap(
+                          mapController: _mapController,
+                          options: MapOptions(
+                            initialCenter: center,
+                            initialZoom: 12,
+                            cameraConstraint: finiteMapCameraConstraint,
                           ),
-                        ),
-                    ],
-                  ),
-                  if (widget.showTiles)
-                    const Align(
-                      alignment: Alignment.bottomLeft,
-                      child: Padding(
-                        padding: EdgeInsets.all(4),
-                        child: Text(
-                          '© OpenStreetMap contributors',
-                          style: TextStyle(fontSize: 10),
+                          children: [
+                            if (widget.showTiles)
+                              TileLayer(
+                                urlTemplate:
+                                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                userAgentPackageName: 'io.dotmac.dotmac_field',
+                              ),
+                            MarkerLayer(
+                              markers: [
+                                for (final asset in assetItems)
+                                  Marker(
+                                    point:
+                                        safeLatLng(asset.latitude, asset.longitude)!,
+                                    width: 38,
+                                    height: 38,
+                                    child: GestureDetector(
+                                      key: Key('asset-${asset.type}-${asset.id}'),
+                                      onTap: () =>
+                                          _showAssetSheet(context, ref, asset),
+                                      child: Icon(
+                                        _assetIcon(asset.type),
+                                        size: 30,
+                                        color: _assetColor(asset.type),
+                                      ),
+                                    ),
+                                  ),
+                                for (final pin in validPins)
+                                  Marker(
+                                    point:
+                                        safeLatLng(pin.latitude, pin.longitude)!,
+                                    width: 44,
+                                    height: 44,
+                                    child: GestureDetector(
+                                      key: Key('pin-${pin.id}'),
+                                      onTap: () => _showJobSheet(context, ref, pin),
+                                      child: Icon(
+                                        Icons.location_pin,
+                                        size: 40,
+                                        color: AppColors.status(pin.status),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            if (widget.showTiles)
+                              const Align(
+                                alignment: Alignment.bottomLeft,
+                                child: Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: Text(
+                                    '© OpenStreetMap contributors',
+                                    style: TextStyle(fontSize: 10),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     ),
-                ],
-              ),
-              _MapSearchOverlay(
-                query: _searchQuery,
-                results: _searchResults(
-                  validPins,
-                  assetItems,
-                  onlineSearch.valueOrNull ?? const [],
+                  ),
                 ),
-                loadingOnline:
-                    _searchQuery.trim().length >= 2 && onlineSearch.isLoading,
-                onQueryChanged: (value) => setState(() => _searchQuery = value),
-                onSelected: _selectSearchResult,
-              ),
-              _LayerSelector(
-                selectedTypes: selectedTypes,
-                loadingAssets: assets.isLoading,
-                top: _searchQuery.trim().isEmpty ? 76 : 180,
-                onChanged: (type, selected) {
-                  final next = {...selectedTypes};
-                  if (selected) {
-                    next.add(type);
-                  } else {
-                    next.remove(type);
-                  }
-                  ref.read(selectedMapAssetTypesProvider.notifier).state = next;
-                },
-              ),
-            ],
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpace.page,
+                    ),
+                    child: _MapTopChrome(
+                      validPins: validPins,
+                      assets: assetItems,
+                      onViewPins: () => _showPinListSheet(
+                        context,
+                        ref,
+                        validPins,
+                        assetItems,
+                      ),
+                      onEdit: validPins.isEmpty && assetItems.isEmpty
+                          ? null
+                          : () => _showPinListSheet(
+                                context,
+                                ref,
+                                validPins,
+                                assetItems,
+                              ),
+                    ),
+                  ),
+                ),
+                _MapSearchOverlay(
+                  query: _searchQuery,
+                  top: 116,
+                  results: _searchResults(
+                    validPins,
+                    assetItems,
+                    onlineSearch.valueOrNull ?? const [],
+                  ),
+                  loadingOnline:
+                      _searchQuery.trim().length >= 2 && onlineSearch.isLoading,
+                  onQueryChanged: (value) => setState(() => _searchQuery = value),
+                  onSelected: _selectSearchResult,
+                ),
+                _LayerSelector(
+                  selectedTypes: selectedTypes,
+                  loadingAssets: assets.isLoading,
+                  top: _searchQuery.trim().isEmpty ? 184 : 288,
+                  onChanged: (type, selected) {
+                    final next = {...selectedTypes};
+                    if (selected) {
+                      next.add(type);
+                    } else {
+                      next.remove(type);
+                    }
+                    ref.read(selectedMapAssetTypesProvider.notifier).state = next;
+                  },
+                ),
+              ],
+            ),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -304,9 +332,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               title: Text(pin.title),
               subtitle: Text(pin.status.replaceAll('_', ' ')),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.pop(sheetContext, _MapSheetAction.open);
-              },
+              onTap: () => Navigator.pop(sheetContext, _MapSheetAction.open),
             ),
             ListTile(
               leading: const Icon(Icons.push_pin_outlined),
@@ -334,7 +360,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
           ),
         );
-        if (context.mounted && changed == true) ref.invalidate(mapPinsProvider);
+        if (context.mounted && changed == true) {
+          ref.invalidate(mapPinsProvider);
+        }
       case null:
         break;
     }
@@ -363,7 +391,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   label,
                   if (asset.subtitle != null) asset.subtitle!,
                   if (asset.status != null) asset.status!,
-                ].join(' · '),
+                ].join(' • '),
               ),
             ),
             ListTile(
@@ -447,7 +475,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
           ),
         );
-        if (context.mounted && changed == true) ref.invalidate(mapPinsProvider);
+        if (context.mounted && changed == true) {
+          ref.invalidate(mapPinsProvider);
+        }
       case _AssetEditSelection(:final asset):
         final changed = await Navigator.of(context).push<bool>(
           MaterialPageRoute(builder: (_) => AssetPinScreen(asset: asset)),
@@ -456,6 +486,122 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ref.invalidate(mapAssetsProvider);
         }
     }
+  }
+}
+
+class _MapTopChrome extends StatelessWidget {
+  const _MapTopChrome({
+    required this.validPins,
+    required this.assets,
+    required this.onViewPins,
+    required this.onEdit,
+  });
+
+  final List<JobPin> validPins;
+  final List<MapAsset> assets;
+  final VoidCallback onViewPins;
+  final VoidCallback? onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final subtitle = [
+      '${validPins.length} ${validPins.length == 1 ? 'job' : 'jobs'}',
+      '${assets.length} ${assets.length == 1 ? 'asset' : 'assets'}',
+    ].join(' • ');
+
+    final actions = Wrap(
+      spacing: AppSpace.sm,
+      runSpacing: AppSpace.sm,
+      children: [
+        _MapActionButton(
+          icon: Icons.list_alt_rounded,
+          label: 'View Pins',
+          enabled: true,
+          onTap: onViewPins,
+        ),
+        _MapActionButton(
+          icon: Icons.push_pin_outlined,
+          label: 'Edit',
+          enabled: onEdit != null,
+          onTap: onEdit,
+        ),
+      ],
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: PageHeader(
+            eyebrow: 'FIELD COVERAGE',
+            title: 'Job Map',
+            subtitle: subtitle,
+            compact: true,
+          ),
+        ),
+        const SizedBox(width: AppSpace.sm),
+        Padding(
+          padding: const EdgeInsets.only(top: AppSpace.md),
+          child: actions,
+        ),
+      ],
+    );
+  }
+}
+
+class _MapActionButton extends StatelessWidget {
+  const _MapActionButton({
+    required this.icon,
+    required this.label,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: enabled
+            ? appSurface(context)
+            : appSurface(context).withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        boxShadow: appSoftShadow(isDark),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadii.lg),
+          onTap: enabled ? onTap : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  color: enabled ? AppColors.primary : appMutedText(context),
+                  size: 20,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color:
+                            enabled ? AppColors.inkDark : appMutedText(context),
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -506,7 +652,7 @@ class _JobSearchResult extends _MapSearchResult {
   String get subtitle => [
     if (pin.addressText != null) pin.addressText!,
     pin.status.replaceAll('_', ' '),
-  ].join(' · ');
+  ].join(' • ');
 
   @override
   IconData get icon => Icons.location_pin;
@@ -534,7 +680,7 @@ class _AssetSearchResult extends _MapSearchResult {
     mapAssetTypeLabels[asset.type] ?? asset.type,
     if (asset.subtitle != null) asset.subtitle!,
     if (asset.status != null) asset.status!,
-  ].join(' · ');
+  ].join(' • ');
 
   @override
   IconData get icon => _assetIcon(asset.type);
@@ -549,6 +695,7 @@ class _AssetSearchResult extends _MapSearchResult {
 class _MapSearchOverlay extends StatelessWidget {
   const _MapSearchOverlay({
     required this.query,
+    required this.top,
     required this.results,
     required this.loadingOnline,
     required this.onQueryChanged,
@@ -556,6 +703,7 @@ class _MapSearchOverlay extends StatelessWidget {
   });
 
   final String query;
+  final double top;
   final List<_MapSearchResult> results;
   final bool loadingOnline;
   final ValueChanged<String> onQueryChanged;
@@ -564,14 +712,17 @@ class _MapSearchOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasQuery = query.trim().isNotEmpty;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Positioned(
-      top: 12,
-      left: 12,
-      right: 12,
-      child: Material(
-        color: Theme.of(context).colorScheme.surface,
-        elevation: 3,
-        borderRadius: BorderRadius.circular(8),
+      top: top,
+      left: AppSpace.page,
+      right: AppSpace.page,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: appSurface(context).withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(AppRadii.xl),
+          boxShadow: appSoftShadow(isDark),
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -580,7 +731,7 @@ class _MapSearchOverlay extends StatelessWidget {
               onChanged: onQueryChanged,
               textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                hintText: 'Search places',
+                hintText: 'Search places, assets, or jobs',
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: hasQuery
                     ? IconButton(
@@ -590,13 +741,13 @@ class _MapSearchOverlay extends StatelessWidget {
                       )
                     : null,
                 border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                contentPadding: const EdgeInsets.symmetric(vertical: 16),
               ),
             ),
-            if (hasQuery) const Divider(height: 1),
+            if (hasQuery) Divider(height: 1, color: appOutline(context)),
             if (hasQuery)
               ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 148),
+                constraints: const BoxConstraints(maxHeight: 176),
                 child: loadingOnline && results.isEmpty
                     ? const ListTile(
                         dense: true,
@@ -607,27 +758,27 @@ class _MapSearchOverlay extends StatelessWidget {
                         title: Text('Searching places'),
                       )
                     : results.isEmpty
-                    ? const ListTile(
-                        dense: true,
-                        leading: Icon(Icons.search_off_outlined),
-                        title: Text('No matching places'),
-                      )
-                    : ListView.builder(
-                        shrinkWrap: true,
-                        padding: EdgeInsets.zero,
-                        itemCount: results.length,
-                        itemBuilder: (context, index) {
-                          final result = results[index];
-                          return ListTile(
-                            key: Key('map-search-result-${result.id}'),
+                        ? const ListTile(
                             dense: true,
-                            leading: Icon(result.icon, color: result.color),
-                            title: Text(result.title),
-                            subtitle: Text(result.subtitle),
-                            onTap: () => onSelected(result),
-                          );
-                        },
-                      ),
+                            leading: Icon(Icons.search_off_outlined),
+                            title: Text('No matching places'),
+                          )
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            padding: EdgeInsets.zero,
+                            itemCount: results.length,
+                            itemBuilder: (context, index) {
+                              final result = results[index];
+                              return ListTile(
+                                key: Key('map-search-result-${result.id}'),
+                                dense: true,
+                                leading: Icon(result.icon, color: result.color),
+                                title: Text(result.title),
+                                subtitle: Text(result.subtitle),
+                                onTap: () => onSelected(result),
+                              );
+                            },
+                          ),
               ),
           ],
         ),
@@ -651,17 +802,20 @@ class _LayerSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Positioned(
       top: top,
-      left: 12,
-      right: 12,
-      child: Material(
-        color: Theme.of(context).colorScheme.surface,
-        elevation: 2,
-        borderRadius: BorderRadius.circular(8),
+      left: AppSpace.page,
+      right: AppSpace.page,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: appSurface(context).withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(AppRadii.xl),
+          boxShadow: appSoftShadow(isDark),
+        ),
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: Row(
             children: [
               if (loadingAssets)
@@ -690,31 +844,31 @@ class _LayerSelector extends StatelessWidget {
 }
 
 IconData _assetIcon(String type) => switch (type) {
-  'olt' => Icons.router_outlined,
-  'fdh' => Icons.hub_outlined,
-  'fiber_access_point' => Icons.device_hub_outlined,
-  'splice_closure' => Icons.join_inner_outlined,
-  'wireless_mast' => Icons.cell_tower_outlined,
-  'service_building' => Icons.apartment_outlined,
-  _ => Icons.place_outlined,
-};
+      'olt' => Icons.router_outlined,
+      'fdh' => Icons.hub_outlined,
+      'fiber_access_point' => Icons.device_hub_outlined,
+      'splice_closure' => Icons.join_inner_outlined,
+      'wireless_mast' => Icons.cell_tower_outlined,
+      'service_building' => Icons.apartment_outlined,
+      _ => Icons.place_outlined,
+    };
 
 Color _assetColor(String type) => switch (type) {
-  'olt' => Colors.deepPurple,
-  'fdh' => Colors.teal,
-  'fiber_access_point' => Colors.indigo,
-  'splice_closure' => Colors.orange,
-  'wireless_mast' => Colors.redAccent,
-  'service_building' => Colors.brown,
-  _ => Colors.blueGrey,
-};
+      'olt' => Colors.deepPurple,
+      'fdh' => Colors.teal,
+      'fiber_access_point' => Colors.indigo,
+      'splice_closure' => Colors.orange,
+      'wireless_mast' => Colors.redAccent,
+      'service_building' => Colors.brown,
+      _ => Colors.blueGrey,
+    };
 
 int _assetPaintRank(String type) => switch (type) {
-  'service_building' => 0,
-  'fiber_access_point' => 1,
-  'wireless_mast' => 2,
-  'splice_closure' => 3,
-  'fdh' => 4,
-  'olt' => 5,
-  _ => 0,
-};
+      'service_building' => 0,
+      'fiber_access_point' => 1,
+      'wireless_mast' => 2,
+      'splice_closure' => 3,
+      'fdh' => 4,
+      'olt' => 5,
+      _ => 0,
+    };

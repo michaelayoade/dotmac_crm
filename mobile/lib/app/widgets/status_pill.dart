@@ -16,12 +16,12 @@ class StatusPill extends StatelessWidget {
     final label = AppColors.statusLabel(status);
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 8 : 9,
-        vertical: 4,
+        horizontal: compact ? 10 : 14,
+        vertical: compact ? 6 : 8,
       ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(AppRadii.pill),
+        color: color.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(AppRadii.full),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -36,9 +36,9 @@ class StatusPill extends StatelessWidget {
             label.toUpperCase(),
             style: const TextStyle(
               fontFamily: 'PlusJakartaSans',
-              fontSize: 10.5,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.4,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1,
             ).copyWith(color: color),
           ),
         ],

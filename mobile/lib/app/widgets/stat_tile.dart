@@ -1,9 +1,9 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import '../theme.dart';
 
-/// One number from the day's summary. The [highlighted] tile is the teal-filled
-/// hero (e.g. "Assigned"); the rest are quiet surface tiles.
 class StatTile extends StatelessWidget {
   const StatTile({
     super.key,
@@ -21,37 +21,27 @@ class StatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final valueColor = highlighted
-        ? Colors.white
-        : (isDark ? AppColors.inkDark : AppColors.ink);
-    final labelColor = highlighted
-        ? Colors.white.withValues(alpha: 0.85)
-        : (isDark ? AppColors.inkSoftDark : AppColors.inkSoft);
+    final valueColor = highlighted ? AppColors.primary : AppColors.secondary;
+    final labelColor = appMutedText(context);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(13, 12, 12, 11),
+      height: 126,
+      padding: const EdgeInsets.all(AppSpace.md),
       decoration: BoxDecoration(
-        gradient: highlighted
-            ? const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [AppColors.primary, AppColors.primaryDeep],
-              )
-            : null,
-        color: highlighted
-            ? null
-            : (isDark ? AppColors.surfaceDark : AppColors.surfaceLight),
-        borderRadius: BorderRadius.circular(AppRadii.tile),
-        border: highlighted
-            ? null
-            : Border.all(
-                color: isDark ? AppColors.lineDark : AppColors.lineLight,
-              ),
+        color: appSurface(context),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: appOutline(context).withValues(alpha: 0.3)),
+        boxShadow: appSoftShadow(isDark),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          Icon(
+            highlighted ? Icons.assignment_outlined : Icons.check_circle_outline,
+            color: valueColor,
+            size: 22,
+          ),
           Text.rich(
             TextSpan(
               text: value,
@@ -64,22 +54,22 @@ class StatTile extends StatelessWidget {
               ],
             ),
             style: TextStyle(
-              fontFamily: 'Outfit',
-              fontSize: 26,
+              fontFamily: 'PlusJakartaSans',
+              fontSize: 40,
               height: 1,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               color: valueColor,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
-          const SizedBox(height: 5),
           Text(
             label,
             style: TextStyle(
               fontFamily: 'PlusJakartaSans',
-              fontSize: 11,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
               color: labelColor,
+              letterSpacing: 0.3,
             ),
           ),
         ],

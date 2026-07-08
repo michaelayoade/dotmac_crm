@@ -7,9 +7,11 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../app/theme.dart';
+import '../../app/widgets/page_header.dart';
 import '../../app/widgets/primary_action_button.dart';
 import '../../core/offline/draft_store.dart';
 import '../execution/execution_controller.dart';
+import '../jobs/jobs_providers.dart';
 import 'expense_models.dart';
 import 'expenses_providers.dart';
 
@@ -21,64 +23,108 @@ class ExpensesScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final requests = ref.watch(expenseRequestsProvider);
+    final me = ref.watch(meProvider);
+    final items = requests.valueOrNull ?? const <ExpenseRequest>[];
+    final approvedTotal = items
+        .where((item) => item.status == 'approved' || item.status == 'paid')
+        .fold<double>(0, (sum, item) => sum + item.totalAmount);
+    final pendingTotal = items
+        .where((item) => item.status == 'submitted')
+        .fold<double>(0, (sum, item) => sum + item.totalAmount);
+    final monthLabel = DateFormat('MMMM').format(DateTime.now());
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Expenses'),
-        actions: [
-          IconButton(
-            tooltip: 'New expense request',
-            onPressed: () => context.push('/expenses/new'),
-            icon: const Icon(Icons.add),
-          ),
-        ],
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => context.push('/expenses/new'),
+        child: const Icon(Icons.add),
       ),
       body: RefreshIndicator(
         onRefresh: () async => ref.invalidate(expenseRequestsProvider),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.only(bottom: 96),
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Expense requests',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                ),
-                FilledButton.icon(
-                  onPressed: () => context.push('/expenses/new'),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Request'),
-                ),
-              ],
+            PageHeader(
+              title: 'Expenses',
+              trailing: HeaderActions(name: me.value?.name),
+              compact: true,
             ),
-            const SizedBox(height: 8),
-            requests.when(
-              data: (items) {
-                if (items.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 48),
-                    child: Center(child: Text('No expense requests yet')),
-                  );
-                }
-                return Column(
-                  children: [
-                    for (final request in items)
-                      _ExpenseRequestTile(request: request),
-                  ],
-                );
-              },
-              loading: () => const Padding(
-                padding: EdgeInsets.only(top: 48),
-                child: Center(child: CircularProgressIndicator()),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpace.page),
+              child: _ExpenseSummaryCard(
+                monthLabel: monthLabel,
+                total: approvedTotal + pendingTotal,
+                approved: approvedTotal,
+                pending: pendingTotal,
               ),
-              error: (_, _) => const Padding(
-                padding: EdgeInsets.only(top: 48),
-                child: Center(child: Text('Could not load expense requests')),
+            ),
+            const SizedBox(height: AppSpace.md),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpace.page),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Search requests...',
+                        prefixIcon: Icon(Icons.search),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpace.sm),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: appSurface(context),
+                      borderRadius: BorderRadius.circular(AppRadii.md),
+                      border: Border.all(color: appOutline(context)),
+                    ),
+                    child: IconButton(
+                      onPressed: () {},
+                      icon: const Icon(Icons.filter_alt_outlined),
+                      tooltip: 'Filter requests',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpace.md),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpace.page),
+              child: Text(
+                'Recent Requests',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: appMutedText(context),
+                    ),
+              ),
+            ),
+            const SizedBox(height: AppSpace.md),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpace.page),
+              child: requests.when(
+                data: (items) {
+                  if (items.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 48),
+                      child: Center(child: Text('No expense requests yet')),
+                    );
+                  }
+                  return Column(
+                    children: [
+                      for (final request in items) ...[
+                        _ExpenseRequestTile(request: request),
+                        const SizedBox(height: AppSpace.md),
+                      ],
+                    ],
+                  );
+                },
+                loading: () => const Padding(
+                  padding: EdgeInsets.only(top: 48),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+                error: (_, _) => const Padding(
+                  padding: EdgeInsets.only(top: 48),
+                  child: Center(child: Text('Could not load expense requests')),
+                ),
               ),
             ),
           ],
@@ -98,19 +144,33 @@ class _ExpenseRequestTile extends StatelessWidget {
     final date = request.createdAt == null
         ? null
         : DateFormat('d MMM, HH:mm').format(request.createdAt!.toLocal());
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+    final color = _expenseStatusColor(context, request.status);
+    return Container(
+      decoration: BoxDecoration(
+        color: appSurface(context),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border(
+          left: BorderSide(color: color, width: 4),
+        ),
+      ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadii.md),
         onTap: () => context.push('/expenses/${request.id}'),
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(16),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                Icons.receipt_long_outlined,
-                color: _expenseStatusColor(context, request.status),
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? AppColors.darkContainer
+                      : AppColors.surfaceContainer,
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                ),
+                child: Icon(Icons.receipt_long_outlined, color: color),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -121,36 +181,154 @@ class _ExpenseRequestTile extends StatelessWidget {
                       request.purpose ?? request.displayNumber,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall,
+                      style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        _ExpenseStatusChip(status: request.status),
-                        Text(request.displayNumber),
-                        if (date != null) Text(date),
-                      ],
+                    const SizedBox(height: 4),
+                    Text(
+                      [
+                        if (date != null) date,
+                        request.items.isEmpty
+                            ? request.displayNumber
+                            : (request.items.first.categoryLabel),
+                      ].join(' • '),
+                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 112),
-                child: Text(
-                  _money(request.currency, request.totalAmount),
-                  textAlign: TextAlign.right,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    _money(request.currency, request.totalAmount),
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          color: request.status == 'approved' || request.status == 'paid'
+                              ? AppColors.primary
+                              : Theme.of(context).colorScheme.onSurface,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  _ExpenseStatusChip(status: request.status),
+                ],
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ExpenseSummaryCard extends StatelessWidget {
+  const _ExpenseSummaryCard({
+    required this.monthLabel,
+    required this.total,
+    required this.approved,
+    required this.pending,
+  });
+
+  final String monthLabel;
+  final double total;
+  final double approved;
+  final double pending;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpace.lg),
+      decoration: BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            right: -20,
+            top: -20,
+            child: Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          Positioned(
+            right: 24,
+            bottom: 8,
+            child: Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Total Logged ($monthLabel)',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.85),
+                    ),
+              ),
+              const SizedBox(height: AppSpace.sm),
+              Text(
+                _money('NGN', total),
+                style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                      color: Colors.white,
+                    ),
+              ),
+              const SizedBox(height: AppSpace.md),
+              Row(
+                children: [
+                  _ExpenseSummaryMetric(label: 'Approved', value: approved),
+                  Container(
+                    width: 1,
+                    height: 32,
+                    color: Colors.white.withValues(alpha: 0.2),
+                    margin: const EdgeInsets.symmetric(horizontal: AppSpace.md),
+                  ),
+                  _ExpenseSummaryMetric(label: 'Pending', value: pending),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExpenseSummaryMetric extends StatelessWidget {
+  const _ExpenseSummaryMetric({required this.label, required this.value});
+
+  final String label;
+  final double value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.white.withValues(alpha: 0.75),
+              ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          _money('NGN', value),
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: Colors.white,
+              ),
+        ),
+      ],
     );
   }
 }

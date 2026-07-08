@@ -1,147 +1,246 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:dio/dio.dart';
 
+import '../../app/theme.dart';
+import '../../app/widgets/page_header.dart';
+import '../../app/widgets/primary_action_button.dart';
 import '../../core/offline/draft_store.dart';
+import '../jobs/jobs_providers.dart';
 import 'material_models.dart';
 import 'materials_providers.dart';
 
 const _priorities = ['low', 'medium', 'high', 'urgent'];
 const _statusOrder = ['draft', 'submitted', 'approved', 'issued', 'fulfilled'];
 
-class MaterialsScreen extends ConsumerWidget {
+class MaterialsScreen extends ConsumerStatefulWidget {
   const MaterialsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MaterialsScreen> createState() => _MaterialsScreenState();
+}
+
+class _MaterialsScreenState extends ConsumerState<MaterialsScreen> {
+  String _searchQuery = '';
+
+  @override
+  Widget build(BuildContext context) {
     final requests = ref.watch(materialRequestsProvider);
-    final inventory = ref.watch(inventorySearchProvider);
+    final me = ref.watch(meProvider);
+    final requestItems = requests.valueOrNull ?? const <MaterialRequest>[];
+    final filteredRequests = _filterRequests(requestItems, _searchQuery);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Materials'),
-        actions: [
-          IconButton(
-            tooltip: 'New request',
-            onPressed: () => context.push('/materials/new'),
-            icon: const Icon(Icons.add),
-          ),
-        ],
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => context.push('/materials/new'),
+        child: const Icon(Icons.add),
       ),
       body: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(materialRequestsProvider);
-          ref.invalidate(inventorySearchProvider);
         },
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.only(bottom: 96),
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Requests',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                FilledButton.icon(
-                  onPressed: () => context.push('/materials/new'),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Request'),
-                ),
-              ],
+            PageHeader(
+              title: 'Materials',
+              trailing: HeaderActions(name: me.value?.name),
+              compact: true,
             ),
-            const SizedBox(height: 8),
-            requests.when(
-              data: (items) {
-                if (items.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 48),
-                    child: Center(child: Text('No material requests yet')),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpace.page),
+              child: TextField(
+                key: const Key('material-request-search'),
+                decoration: const InputDecoration(
+                  hintText: 'Search material requests...',
+                  prefixIcon: Icon(Icons.search),
+                ),
+                onChanged: (value) => setState(() => _searchQuery = value),
+              ),
+            ),
+            const SizedBox(height: AppSpace.lg),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpace.page),
+              child: Text(
+                'Material Requests',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+            ),
+            const SizedBox(height: AppSpace.md),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpace.page),
+              child: requests.when(
+                data: (items) {
+                  if (filteredRequests.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 32),
+                      child: Center(
+                        child: Text('No material requests found'),
+                      ),
+                    );
+                  }
+                  return Column(
+                    children: [
+                      for (final request in filteredRequests) ...[
+                        _MaterialRequestTile(request: request),
+                        const SizedBox(height: AppSpace.sm),
+                      ],
+                    ],
                   );
-                }
-                return Column(
-                  children: [
-                    for (final request in items)
-                      _MaterialRequestTile(request: request),
-                  ],
-                );
-              },
-              loading: () => const Padding(
-                padding: EdgeInsets.only(top: 48),
-                child: Center(child: CircularProgressIndicator()),
+                },
+                loading: () => const Padding(
+                  padding: EdgeInsets.only(top: 24),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+                error: (_, _) => const Center(
+                  child: Text('Could not load material requests'),
+                ),
               ),
-              error: (_, _) => const Padding(
-                padding: EdgeInsets.only(top: 48),
-                child: Center(child: Text('Could not load material requests')),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Inventory',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              key: const Key('inventory-search'),
-              decoration: const InputDecoration(
-                labelText: 'Search inventory',
-                prefixIcon: Icon(Icons.search),
-              ),
-              onChanged: (value) =>
-                  ref.read(inventorySearchQueryProvider.notifier).state = value,
-            ),
-            const SizedBox(height: 12),
-            inventory.when(
-              data: (items) => _InventoryPreview(items: items),
-              loading: () => const LinearProgressIndicator(),
-              error: (_, _) =>
-                  const Text('Inventory is not available right now'),
             ),
           ],
         ),
       ),
     );
   }
+
+  List<MaterialRequest> _filterRequests(
+    List<MaterialRequest> items,
+    String query,
+  ) {
+    final needle = query.trim().toLowerCase();
+    if (needle.isEmpty) return items;
+    return items.where((request) {
+      final haystack = <String>[
+        request.displayNumber,
+        request.status,
+        if (request.priority != null) request.priority!,
+        if (request.workOrderId != null) request.workOrderId!,
+        if (request.projectId != null) request.projectId!,
+        if (request.ticketId != null) request.ticketId!,
+        if (request.sourceLocationLabel != null) request.sourceLocationLabel!,
+        if (request.destinationLocationLabel != null)
+          request.destinationLocationLabel!,
+        if (request.notes != null) request.notes!,
+        ...request.items.map((item) => item.itemName ?? item.itemId),
+      ].join(' ').toLowerCase();
+      return haystack.contains(needle);
+    }).toList();
+  }
 }
 
-class _InventoryPreview extends StatelessWidget {
-  const _InventoryPreview({required this.items});
+class _InventoryCard extends StatelessWidget {
+  const _InventoryCard({required this.item, required this.requests});
 
-  final List<InventoryItem> items;
+  final InventoryItem item;
+  final List<MaterialRequest> requests;
 
   @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        child: Text('No inventory items found'),
-      );
-    }
-    return Column(
-      children: [
-        for (final item in items.take(5))
-          ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.inventory_2_outlined),
-            title: Text(item.name),
-            subtitle: _InventoryAvailabilityText(
-              item: item,
-              fallback: [item.sku, item.unit].whereType<String>().join(' · '),
+    final linked = requests.where(
+      (request) => request.items.any((entry) => entry.itemId == item.id),
+    );
+    final request = linked.isEmpty ? null : linked.first;
+    final lowStock = (item.availableQuantity ?? 0) <= 3;
+    final badgeLabel = request != null
+        ? (request.number == null ? 'Assigned' : 'Job ${request.number}')
+        : (lowStock ? 'Low Stock' : 'In Van');
+    final badgeColor = request != null
+        ? AppColors.primarySoft
+        : lowStock
+            ? AppColors.errorSoft
+            : AppColors.surfaceHighest;
+    final badgeTextColor = request != null
+        ? AppColors.secondary
+        : lowStock
+            ? AppColors.error
+            : appMutedText(context);
+    final icon = request != null
+        ? Icons.inventory_2_outlined
+        : ((item.unit?.toLowerCase().contains('meter') ?? false)
+            ? Icons.bolt_outlined
+            : Icons.handyman_outlined);
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpace.md),
+      decoration: BoxDecoration(
+        color: appSurface(context),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: appOutline(context).withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? AppColors.darkContainer
+                  : AppColors.surfaceContainer,
+              borderRadius: BorderRadius.circular(AppRadii.sm),
             ),
-            trailing: item.availableQuantity == null
-                ? null
-                : Text('${item.availableQuantity} available'),
+            child: Icon(icon, color: AppColors.secondary, size: 30),
           ),
-      ],
+          const SizedBox(width: AppSpace.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item.name,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: badgeColor,
+                        borderRadius: BorderRadius.circular(AppRadii.sm),
+                      ),
+                      child: Text(
+                        badgeLabel,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: badgeTextColor,
+                            ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  item.unit ?? item.name,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'ID: ${item.sku ?? item.id}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                    Text(
+                      'QTY: ${item.availableQuantity ?? 0}',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: lowStock ? AppColors.error : AppColors.primary,
+                          ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -156,12 +255,24 @@ class _MaterialRequestTile extends StatelessWidget {
     final date = request.createdAt == null
         ? null
         : DateFormat('d MMM, HH:mm').format(request.createdAt!.toLocal());
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+    final color = _materialStatusColor(context, request.status);
+    return Container(
+      decoration: BoxDecoration(
+        color: appSurface(context),
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: appOutline(context).withValues(alpha: 0.3)),
+      ),
       child: ListTile(
-        leading: Icon(
-          Icons.assignment_outlined,
-          color: _materialStatusColor(context, request.status),
+        leading: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: Theme.of(context).brightness == Brightness.dark
+                ? AppColors.darkContainer
+                : AppColors.surfaceContainer,
+            borderRadius: BorderRadius.circular(AppRadii.sm),
+          ),
+          child: Icon(Icons.inventory_2_outlined, color: color),
         ),
         title: Text(request.number ?? 'Request ${request.id}'),
         subtitle: Wrap(
@@ -197,9 +308,10 @@ class MaterialRequestDetailScreen extends ConsumerWidget {
           children: [
             Text(
               data.displayNumber,
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             Wrap(
@@ -233,8 +345,7 @@ class MaterialRequestDetailScreen extends ConsumerWidget {
             if (data.items.isEmpty)
               const Text('No items on this request')
             else
-              for (final item in data.items)
-                _MaterialRequestItemTile(item: item),
+              for (final item in data.items) _MaterialRequestItemTile(item: item),
           ],
         ),
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -415,9 +526,9 @@ class _MaterialRequestItemTile extends StatelessWidget {
         [
           if (item.approvedQuantity != null)
             '${item.approvedQuantity}/${item.quantity} approved',
-          ?progress,
+          if (progress != null) progress,
           if (item.notes != null && item.notes!.isNotEmpty) item.notes!,
-        ].join(' · '),
+        ].join(' • '),
       ),
       trailing: Text('x${item.quantity}'),
     );
@@ -497,9 +608,7 @@ class _NewMaterialRequestScreenState
   }
 
   Future<void> _loadDraft() async {
-    final draft = await ref
-        .read(draftStoreProvider)
-        .load(materialRequestDraftId);
+    final draft = await ref.read(draftStoreProvider).load(materialRequestDraftId);
     if (!mounted || draft == null) return;
     setState(() {
       _priority = draft['priority'] as String? ?? _priority;
@@ -514,31 +623,27 @@ class _NewMaterialRequestScreenState
         ..clear()
         ..addAll(_materialDraftItems(draft['items']));
     });
-    ref.read(inventorySourceLocationProvider.notifier).state =
-        _sourceLocationId;
+    ref.read(inventorySourceLocationProvider.notifier).state = _sourceLocationId;
   }
 
   Future<void> _saveDraft() async {
-    await ref
-        .read(draftStoreProvider)
-        .save(
-          id: materialRequestDraftId,
-          type: 'material_request',
-          payload: {
-            'priority': _priority,
-            'source_location_id': _sourceLocationId,
-            'destination_location_id': _destinationLocationId,
-            'work_order_id': _workOrderId.text,
-            'project_id': _projectId.text,
-            'ticket_id': _ticketId.text,
-            'notes': _notes.text,
-            'items': _items.map(_materialDraftItemJson).toList(),
-          },
-        );
+    await ref.read(draftStoreProvider).save(
+      id: materialRequestDraftId,
+      type: 'material_request',
+      payload: {
+        'priority': _priority,
+        'source_location_id': _sourceLocationId,
+        'destination_location_id': _destinationLocationId,
+        'work_order_id': _workOrderId.text,
+        'project_id': _projectId.text,
+        'ticket_id': _ticketId.text,
+        'notes': _notes.text,
+        'items': _items.map(_materialDraftItemJson).toList(),
+      },
+    );
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Draft saved')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Draft saved')));
   }
 
   Future<void> _submit() async {
@@ -554,24 +659,20 @@ class _NewMaterialRequestScreenState
     }
     setState(() => _saving = true);
     try {
-      final request = await ref
-          .read(materialsRepositoryProvider)
-          .createRequest(
-            priority: _priority,
-            notes: _notes.text,
-            workOrderId: _workOrderId.text,
-            projectId: _projectId.text,
-            ticketId: _ticketId.text,
-            sourceLocationId: _sourceLocationId,
-            destinationLocationId: _destinationLocationId,
-            items: _items,
-          );
+      final request = await ref.read(materialsRepositoryProvider).createRequest(
+        priority: _priority,
+        notes: _notes.text,
+        workOrderId: _workOrderId.text,
+        projectId: _projectId.text,
+        ticketId: _ticketId.text,
+        sourceLocationId: _sourceLocationId,
+        destinationLocationId: _destinationLocationId,
+        items: _items,
+      );
       ref.invalidate(materialRequestsProvider);
       try {
         await ref.read(materialRequestsProvider.future);
-      } catch (_) {
-        // The request was created; the list can still be refreshed manually.
-      }
+      } catch (_) {}
       await ref.read(draftStoreProvider).delete(materialRequestDraftId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -583,16 +684,14 @@ class _NewMaterialRequestScreenState
       if (!mounted) return;
       final message = _materialSubmitError(error);
       setState(() => _submitError = message);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     } catch (_) {
       if (!mounted) return;
       const message = 'Could not submit material request';
       setState(() => _submitError = message);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text(message)));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -618,8 +717,7 @@ class _NewMaterialRequestScreenState
               for (final priority in _priorities)
                 DropdownMenuItem(value: priority, child: Text(priority)),
             ],
-            onChanged: (value) =>
-                setState(() => _priority = value ?? _priority),
+            onChanged: (value) => setState(() => _priority = value ?? _priority),
           ),
           const SizedBox(height: 12),
           locations.when(
@@ -633,15 +731,13 @@ class _NewMaterialRequestScreenState
                   _selectedItem = null;
                   _itemSearch.clear();
                 });
-                ref.read(inventorySourceLocationProvider.notifier).state =
-                    value;
+                ref.read(inventorySourceLocationProvider.notifier).state = value;
               },
               onDestinationChanged: (value) =>
                   setState(() => _destinationLocationId = value),
             ),
             loading: () => const LinearProgressIndicator(),
-            error: (_, _) =>
-                const Text('Inventory locations are not available'),
+            error: (_, _) => const Text('Inventory locations are not available'),
           ),
           const SizedBox(height: 12),
           if (widget.initialWorkOrderId != null &&
@@ -736,7 +832,7 @@ class _NewMaterialRequestScreenState
                   if (item.item.availableQuantity != null)
                     '${item.item.availableQuantity} available at source',
                   if (item.notes != null && item.notes!.isNotEmpty) item.notes!,
-                ].join(' · '),
+                ].join(' • '),
               ),
               trailing: Text('x${item.quantity}'),
             ),
@@ -757,9 +853,10 @@ class _NewMaterialRequestScreenState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              FilledButton(
+              PrimaryActionButton(
                 onPressed: _items.isEmpty || _saving ? null : _submit,
-                child: Text(_saving ? 'Submitting...' : 'Submit request'),
+                icon: Icons.check_rounded,
+                label: _saving ? 'Submitting...' : 'Submit request',
               ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
@@ -820,14 +917,13 @@ class _LocationSelectors extends StatelessWidget {
     if (locations.isEmpty) {
       return const Text('No inventory locations available');
     }
-    final sourceValue =
-        locations.any((location) => location.id == sourceLocationId)
+    final sourceValue = locations.any((location) => location.id == sourceLocationId)
         ? sourceLocationId
         : null;
     final destinationValue =
         locations.any((location) => location.id == destinationLocationId)
-        ? destinationLocationId
-        : null;
+            ? destinationLocationId
+            : null;
     return Column(
       children: [
         DropdownButtonFormField<String?>(
@@ -887,10 +983,8 @@ class _InventoryAvailabilityText extends StatelessWidget {
       return Text(
         item.stockByLocation
             .take(3)
-            .map(
-              (stock) => '${stock.displayLocation}: ${stock.availableQuantity}',
-            )
-            .join(' · '),
+            .map((stock) => '${stock.displayLocation}: ${stock.availableQuantity}')
+            .join(' • '),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       );
@@ -912,10 +1006,10 @@ String _locationLabel(InventoryLocation location) {
 }
 
 Map<String, dynamic> _materialDraftItemJson(MaterialRequestItemDraft draft) => {
-  'item': _inventoryItemJson(draft.item),
-  'quantity': draft.quantity,
-  'notes': draft.notes,
-};
+      'item': _inventoryItemJson(draft.item),
+      'quantity': draft.quantity,
+      'notes': draft.notes,
+    };
 
 List<MaterialRequestItemDraft> _materialDraftItems(Object? raw) {
   if (raw is! List) return const [];
@@ -923,9 +1017,7 @@ List<MaterialRequestItemDraft> _materialDraftItems(Object? raw) {
     final data = item.cast<String, dynamic>();
     final inventory = (data['item'] as Map?)?.cast<String, dynamic>();
     return MaterialRequestItemDraft(
-      item: InventoryItem.fromJson(
-        inventory ?? const {'id': '', 'name': 'Item'},
-      ),
+      item: InventoryItem.fromJson(inventory ?? const {'id': '', 'name': 'Item'}),
       quantity: data['quantity'] is int
           ? data['quantity'] as int
           : int.tryParse('${data['quantity']}') ?? 1,
@@ -935,14 +1027,14 @@ List<MaterialRequestItemDraft> _materialDraftItems(Object? raw) {
 }
 
 Map<String, dynamic> _inventoryItemJson(InventoryItem item) => {
-  'id': item.id,
-  'name': item.name,
-  'sku': item.sku,
-  'unit': item.unit,
-  'unit_price': item.unitPrice,
-  'currency': item.currency,
-  'available_quantity': item.availableQuantity,
-};
+      'id': item.id,
+      'name': item.name,
+      'sku': item.sku,
+      'unit': item.unit,
+      'unit_price': item.unitPrice,
+      'currency': item.currency,
+      'available_quantity': item.availableQuantity,
+    };
 
 String _statusLabel(String status) => status.replaceAll('_', ' ');
 

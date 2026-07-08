@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../app/theme.dart';
+import '../../app/widgets/page_header.dart';
 import '../jobs/job_models.dart';
 import '../jobs/jobs_providers.dart';
 import '../jobs/widgets/job_card.dart';
@@ -13,64 +15,121 @@ class ScheduleScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final jobs = ref.watch(allAssignedJobsProvider);
+    final me = ref.watch(meProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Schedule')),
-      body: RefreshIndicator(
-        onRefresh: () async => ref.invalidate(allAssignedJobsProvider),
-        child: jobs.when(
-          data: (list) {
-            final items = list.jobs;
-            if (items.isEmpty) {
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: [
-                  if (list.fromCache)
-                    const Padding(
-                      padding: EdgeInsets.all(16),
-                      child: _OfflineBanner(),
-                    ),
-                  const SizedBox(height: 160),
-                  const Center(child: Text('No assigned work yet')),
-                ],
-              );
-            }
-            final groups = _groupJobsByDay(items);
-            return ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              children: [
-                if (list.fromCache) const _OfflineBanner(),
-                for (final group in groups) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8, bottom: 8),
-                    child: Text(
-                      _dayLabel(group.day),
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ),
-                  for (final job in group.jobs)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: JobCard(
-                        job: job,
-                        onTap: () => context.push('/jobs/${job.id}'),
-                      ),
-                    ),
-                ],
-              ],
-            );
-          },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (_, _) => ListView(
+      body: SafeArea(
+        bottom: false,
+        child: RefreshIndicator(
+          onRefresh: () async => ref.invalidate(allAssignedJobsProvider),
+          child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            children: const [
-              SizedBox(height: 160),
-              Center(
-                child: Text('Could not load your schedule — pull to retry'),
+            slivers: [
+              SliverToBoxAdapter(
+                child: PageHeader(
+                  title: 'Schedule',
+                  trailing: HeaderActions(name: me.value?.name),
+                  compact: true,
+                ),
+              ),
+              jobs.when(
+                data: (list) {
+                  final items = list.jobs;
+                  if (items.isEmpty) {
+                    return SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpace.page,
+                        ),
+                        children: [
+                          if (list.fromCache) const _OfflineBanner(),
+                          const SizedBox(height: 160),
+                          Text(
+                            'No assigned work yet',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  final groups = _groupJobsByDay(items);
+                  return SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpace.page,
+                      8,
+                      AppSpace.page,
+                      AppSpace.xl,
+                    ),
+                    sliver: SliverList(
+                      delegate: SliverChildListDelegate([
+                        if (list.fromCache) const _OfflineBanner(),
+                        for (final group in groups) ...[
+                          Padding(
+                            padding: const EdgeInsets.only(
+                              top: AppSpace.lg,
+                              bottom: AppSpace.md,
+                            ),
+                            child: Text(
+                              _dayLabel(group.day),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .headlineSmall
+                                  ?.copyWith(color: appMutedText(context)),
+                            ),
+                          ),
+                          for (final job in group.jobs) ...[
+                            JobCard(
+                              job: job,
+                              onTap: () => context.push('/jobs/${job.id}'),
+                            ),
+                            const SizedBox(height: AppSpace.md),
+                          ],
+                        ],
+                        const SizedBox(height: 32),
+                        Center(
+                          child: Container(
+                            width: 112,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: appOutline(context).withValues(alpha: 0.4),
+                              borderRadius: BorderRadius.circular(AppRadii.full),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Center(
+                          child: Text(
+                            'End of schedule',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                      ]),
+                    ),
+                  );
+                },
+                loading: () => const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+                error: (_, _) => SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      const SizedBox(height: 160),
+                      Center(
+                        child: Text(
+                          'Could not load your schedule - pull to retry',
+                          style: Theme.of(context).textTheme.bodyLarge,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
@@ -90,10 +149,10 @@ class _OfflineBanner extends StatelessWidget {
       child: Row(
         key: const Key('schedule-offline-banner'),
         children: [
-          const Icon(Icons.cloud_off_outlined, size: 16),
+          Icon(Icons.cloud_off_outlined, size: 16, color: appMutedText(context)),
           const SizedBox(width: 8),
           Text(
-            'Offline — showing saved schedule',
+            'Offline - showing saved schedule',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],

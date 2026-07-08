@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app/theme.dart';
 import '../jobs/jobs_providers.dart';
 import 'location_cadence.dart';
 import 'location_ping_service.dart';
@@ -142,39 +143,48 @@ class _LocationSharingControlsState
   Widget build(BuildContext context) {
     final shift = ref.watch(fieldShiftProvider);
     final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Location sharing', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 8),
-            SegmentedButton<ShiftState>(
-              segments: const [
-                ButtonSegment(
-                  value: ShiftState.onShift,
-                  icon: Icon(Icons.location_on_outlined),
-                  label: Text('Shift'),
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? AppColors.darkContainer
+            : AppColors.surfaceHigh,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+      ),
+      padding: const EdgeInsets.all(4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              for (final item in const [
+                (ShiftState.onShift, 'Shift'),
+                (ShiftState.onBreak, 'Break'),
+                (ShiftState.offShift, 'Off'),
+              ])
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: FilledButton(
+                      onPressed: _updating ? null : () => _setShift(item.$1),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: shift == item.$1
+                            ? appSurface(context)
+                            : Colors.transparent,
+                        foregroundColor: shift == item.$1
+                            ? theme.colorScheme.onSurface
+                            : appMutedText(context),
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: Text(item.$2),
+                    ),
+                  ),
                 ),
-                ButtonSegment(
-                  value: ShiftState.onBreak,
-                  icon: Icon(Icons.pause_circle_outline),
-                  label: Text('Break'),
-                ),
-                ButtonSegment(
-                  value: ShiftState.offShift,
-                  icon: Icon(Icons.location_off_outlined),
-                  label: Text('Off'),
-                ),
-              ],
-              selected: {shift},
-              onSelectionChanged: _updating
-                  ? null
-                  : (values) => _setShift(values.first),
-            ),
-            const SizedBox(height: 8),
-            Text(
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+            child: Text(
               shift == ShiftState.onShift
                   ? 'Sharing while the app is open.'
                   : shift == ShiftState.onBreak
@@ -182,8 +192,8 @@ class _LocationSharingControlsState
                   : 'Not sharing.',
               style: theme.textTheme.bodySmall,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

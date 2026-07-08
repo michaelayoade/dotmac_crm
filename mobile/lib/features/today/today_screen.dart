@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../app/theme.dart';
+import '../../app/widgets/page_header.dart';
 import '../../app/widgets/section_header.dart';
 import '../../app/widgets/stat_tile.dart';
 import '../jobs/job_models.dart';
@@ -28,6 +29,8 @@ class TodayScreen extends ConsumerWidget {
     final jobs = ref.watch(todayJobsProvider);
     final filter = ref.watch(jobsFilterProvider);
     final jobList = jobs.value?.jobs ?? const <JobSummary>[];
+    final firstName = _firstName(me.value?.name);
+    final todayLabel = DateFormat('EEEE · d MMM').format(DateTime.now());
 
     return Scaffold(
       body: SafeArea(
@@ -40,26 +43,50 @@ class TodayScreen extends ConsumerWidget {
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpace.lg,
-                  AppSpace.md,
-                  AppSpace.lg,
-                  AppSpace.sm,
+              SliverToBoxAdapter(
+                child: PageHeader(
+                  eyebrow: todayLabel.toUpperCase(),
+                  title: firstName == null ? 'Hi there' : 'Hi, $firstName',
+                  subtitle: jobList.isEmpty
+                      ? 'Nothing scheduled yet'
+                      : '${jobList.length} ${jobList.length == 1 ? 'job' : 'jobs'} on your route today',
+                  trailing: HeaderActions(name: me.value?.name),
                 ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpace.page),
                 sliver: SliverToBoxAdapter(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _Greeting(me: me, jobCount: jobList.length),
-                      const SizedBox(height: AppSpace.lg),
-                      _Summary(me: me, jobs: jobList),
-                      const SizedBox(height: AppSpace.md),
                       const SyncStatusBar(),
-                      const LocationSharingControls(),
-                      if (jobs.value?.fromCache ?? false)
-                        const _OfflineBanner(),
                       const SizedBox(height: AppSpace.md),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: StatTile(
+                              value: '${me.value?.openJobs ?? 0}'.padLeft(2, '0'),
+                              label: 'Assigned',
+                              highlighted: true,
+                            ),
+                          ),
+                          const SizedBox(width: AppSpace.md),
+                          Expanded(
+                            child: StatTile(
+                              value: '${me.value?.completedToday ?? 0}'.padLeft(2, '0'),
+                              label: 'Done today',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpace.lg),
+                      const _ShiftSection(),
+                      if (jobs.value?.fromCache ?? false) ...[
+                        const SizedBox(height: AppSpace.sm),
+                        const _OfflineBanner(),
+                      ],
+                      const SizedBox(height: AppSpace.md),
+                      _NextUpHeader(jobList: jobList),
+                      const SizedBox(height: AppSpace.sm),
                       _FilterRow(selected: filter),
                     ],
                   ),
@@ -67,36 +94,21 @@ class TodayScreen extends ConsumerWidget {
               ),
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(
-                  AppSpace.lg,
-                  AppSpace.sm,
-                  AppSpace.lg,
+                  AppSpace.page,
+                  AppSpace.md,
+                  AppSpace.page,
                   0,
                 ),
-                sliver: SliverToBoxAdapter(
-                  child: SectionHeader(
-                    filter == null
-                        ? 'Next up'
-                        : _filters.firstWhere((f) => f.$1 == filter).$2,
-                  ),
-                ),
-              ),
-              jobs.when(
-                data: (list) => list.jobs.isEmpty
-                    ? const SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: _EmptyJobs(),
-                      )
-                    : SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpace.lg,
-                          0,
-                          AppSpace.lg,
-                          AppSpace.xxl + 8,
-                        ),
-                        sliver: SliverList.separated(
+                sliver: jobs.when(
+                  data: (list) => list.jobs.isEmpty
+                      ? const SliverFillRemaining(
+                          hasScrollBody: false,
+                          child: _EmptyJobs(),
+                        )
+                      : SliverList.separated(
                           itemCount: list.jobs.length,
                           separatorBuilder: (_, _) =>
-                              const SizedBox(height: AppSpace.md - 1),
+                              const SizedBox(height: AppSpace.md),
                           itemBuilder: (context, index) {
                             final job = list.jobs[index];
                             return JobCard(
@@ -105,14 +117,31 @@ class TodayScreen extends ConsumerWidget {
                             );
                           },
                         ),
-                      ),
-                loading: () => const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(child: CircularProgressIndicator()),
+                  loading: () => const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                  error: (_, _) => const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: _JobsError(),
+                  ),
                 ),
-                error: (error, _) => const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: _JobsError(),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpace.page,
+                  AppSpace.lg,
+                  AppSpace.page,
+                  AppSpace.xl,
+                ),
+                sliver: SliverToBoxAdapter(
+                  child: Column(
+                    children: const [
+                      _QuickActions(),
+                      SizedBox(height: AppSpace.lg),
+                      _MapSnippet(),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -123,135 +152,54 @@ class TodayScreen extends ConsumerWidget {
   }
 }
 
-class _Greeting extends StatelessWidget {
-  const _Greeting({required this.me, required this.jobCount});
+String? _firstName(String? name) {
+  final value = name?.trim();
+  if (value == null || value.isEmpty) return null;
+  return value.split(RegExp(r'\s+')).first;
+}
 
-  final AsyncValue<MeSummary> me;
-  final int jobCount;
+class _NextUpHeader extends StatelessWidget {
+  const _NextUpHeader({required this.jobList});
+
+  final List<JobSummary> jobList;
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final date = DateFormat('EEEE · d MMM').format(now);
-    final name = me.value?.name.trim();
-    final first = (name == null || name.isEmpty)
-        ? null
-        : name.split(RegExp(r'\s+')).first;
-
+    final next = jobList.where((j) => j.status == 'in_progress').isNotEmpty;
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                date.toUpperCase(),
-                style: const TextStyle(
-                  fontFamily: 'PlusJakartaSans',
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.6,
-                  color: AppColors.primaryDeep,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                first == null ? 'Hi there' : 'Hi, $first',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                jobCount == 0
-                    ? 'Nothing scheduled yet'
-                    : '$jobCount ${jobCount == 1 ? 'job' : 'jobs'} on your route today',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ],
-          ),
+          child: SectionHeader(next ? 'Next Up' : 'Today\'s Route'),
         ),
-        const SizedBox(width: AppSpace.md),
-        _Avatar(name: name),
+        Text(
+          next ? 'Sharing' : 'Not sharing',
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: appMutedText(context),
+              ),
+        ),
       ],
     );
   }
 }
 
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.name});
-  final String? name;
-
-  String get _initials {
-    final n = name?.trim();
-    if (n == null || n.isEmpty) return '?';
-    final parts = n.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.length == 1) return parts.first.characters.first.toUpperCase();
-    return (parts.first.characters.first + parts.last.characters.first)
-        .toUpperCase();
-  }
+class _ShiftSection extends StatelessWidget {
+  const _ShiftSection();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppColors.primary, AppColors.primaryDeep],
-        ),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        _initials,
-        style: const TextStyle(
-          fontFamily: 'Outfit',
-          fontSize: 16,
-          fontWeight: FontWeight.w800,
-          color: Colors.white,
-        ),
-      ),
-    );
-  }
-}
-
-class _Summary extends StatelessWidget {
-  const _Summary({required this.me, required this.jobs});
-
-  final AsyncValue<MeSummary> me;
-  final List<JobSummary> jobs;
-
-  String? get _nextTime {
-    final upcoming = jobs
-        .where((j) => j.status != 'completed' && j.scheduledStart != null)
-        .toList()
-      ..sort((a, b) => a.scheduledStart!.compareTo(b.scheduledStart!));
-    if (upcoming.isEmpty) return null;
-    return DateFormat.Hm().format(upcoming.first.scheduledStart!.toLocal());
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final assigned = me.value?.openJobs;
-    final done = me.value?.completedToday;
-    final next = _nextTime;
-    return Row(
-      children: [
-        Expanded(
-          child: StatTile(
-            value: assigned?.toString() ?? '—',
-            label: 'Assigned',
-            highlighted: true,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: const [
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: 4),
+          child: Row(
+            children: [
+              Expanded(child: SectionHeader('Next Up')),
+            ],
           ),
         ),
-        const SizedBox(width: AppSpace.sm + 1),
-        Expanded(
-          child: StatTile(value: done?.toString() ?? '—', label: 'Done today'),
-        ),
-        const SizedBox(width: AppSpace.sm + 1),
-        Expanded(child: StatTile(value: next ?? '—', label: 'Next job')),
+        SizedBox(height: AppSpace.xs),
+        LocationSharingControls(),
       ],
     );
   }
@@ -259,6 +207,7 @@ class _Summary extends StatelessWidget {
 
 class _FilterRow extends ConsumerWidget {
   const _FilterRow({required this.selected});
+
   final String? selected;
 
   @override
@@ -268,26 +217,22 @@ class _FilterRow extends ConsumerWidget {
       child: Row(
         children: [
           for (final (value, label) in _filters) ...[
-            FilterChip(
+            ChoiceChip(
               label: Text(label),
               selected: selected == value,
               showCheckmark: false,
               onSelected: (_) =>
                   ref.read(jobsFilterProvider.notifier).state = value,
-              labelStyle: TextStyle(
-                fontFamily: 'PlusJakartaSans',
-                fontWeight: FontWeight.w600,
-                fontSize: 12.5,
-                color: selected == value
-                    ? AppColors.primaryDeep
-                    : Theme.of(context).textTheme.bodyMedium?.color,
-              ),
-              selectedColor: AppColors.primary.withValues(alpha: 0.14),
-              side: BorderSide(
-                color: selected == value
-                    ? AppColors.primary
-                    : Theme.of(context).dividerColor,
-              ),
+              selectedColor: AppColors.surfaceLowest,
+              backgroundColor: Theme.of(context).brightness == Brightness.dark
+                  ? AppColors.darkContainer
+                  : AppColors.surfaceHigh,
+              side: BorderSide.none,
+              labelStyle: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: selected == value
+                        ? Theme.of(context).colorScheme.onSurface
+                        : appMutedText(context),
+                  ),
             ),
             const SizedBox(width: AppSpace.sm),
           ],
@@ -297,42 +242,192 @@ class _FilterRow extends ConsumerWidget {
   }
 }
 
+class _QuickActions extends StatelessWidget {
+  const _QuickActions();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader('Quick Actions'),
+        const SizedBox(height: AppSpace.sm),
+        Row(
+          children: [
+            Expanded(
+              child: _ActionCard(
+                icon: Icons.inventory_2_outlined,
+                label: 'Request Materials',
+                onTap: () => context.push('/materials'),
+              ),
+            ),
+            const SizedBox(width: AppSpace.sm),
+            Expanded(
+              child: _ActionCard(
+                icon: Icons.receipt_long_outlined,
+                label: 'Log Expense',
+                onTap: () => context.push('/expenses'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _ActionCard extends StatelessWidget {
+  const _ActionCard({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? AppColors.darkContainer
+            : AppColors.surfaceHigh,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: appOutline(context).withValues(alpha: 0.3)),
+        boxShadow: appSoftShadow(isDark),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppRadii.md),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+            child: Column(
+              children: [
+                Icon(icon, color: AppColors.inkSoft, size: 28),
+                const SizedBox(height: AppSpace.sm),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MapSnippet extends StatelessWidget {
+  const _MapSnippet();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader('Map'),
+        const SizedBox(height: AppSpace.sm),
+        Container(
+          height: 160,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            gradient: LinearGradient(
+              colors: [
+                AppColors.primarySoft.withValues(alpha: isDark ? 0.25 : 0.8),
+                Colors.lightBlue.shade100.withValues(alpha: isDark ? 0.15 : 0.65),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: appSoftShadow(isDark),
+          ),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Opacity(
+                  opacity: 0.16,
+                  child: CustomPaint(painter: _MapGridPainter()),
+                ),
+              ),
+              Positioned(
+                left: 14,
+                bottom: 14,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: appSurface(context).withValues(alpha: 0.95),
+                    borderRadius: BorderRadius.circular(AppRadii.sm),
+                    border: Border.all(
+                      color: appOutline(context).withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Text(
+                    'Current: North Plaza (4.2 mi away)',
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MapGridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = AppColors.secondary.withValues(alpha: 0.2)
+      ..strokeWidth = 1;
+    const gap = 24.0;
+    for (double x = 0; x < size.width; x += gap) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (double y = 0; y < size.height; y += gap) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 class _EmptyJobs extends StatelessWidget {
   const _EmptyJobs();
 
   @override
   Widget build(BuildContext context) {
-    final faint = Theme.of(context).brightness == Brightness.dark
-        ? AppColors.inkFaintDark
-        : AppColors.inkFaint;
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(AppSpace.xxl),
+        padding: const EdgeInsets.all(AppSpace.xl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.check_circle_outline_rounded,
-                size: 30,
-                color: AppColors.primary,
-              ),
+            Icon(
+              Icons.check_circle_outline_rounded,
+              size: 40,
+              color: AppColors.primary.withValues(alpha: 0.7),
             ),
-            const SizedBox(height: AppSpace.lg),
-            Text('All clear', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: AppSpace.md),
+            Text('All clear', style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: AppSpace.xs),
             Text(
-              'No jobs on your route in this view.\nPull down to refresh.',
+              'No jobs on your route in this view. Pull down to refresh.',
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: faint),
+              style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
         ),
@@ -348,18 +443,18 @@ class _JobsError extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(AppSpace.xxl),
+        padding: const EdgeInsets.all(AppSpace.xl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
+            Icon(
               Icons.cloud_off_rounded,
               size: 30,
-              color: AppColors.inkFaint,
+              color: appMutedText(context),
             ),
             const SizedBox(height: AppSpace.md),
             Text(
-              "Couldn't load your jobs.\nPull down to try again.",
+              'Could not load your jobs. Pull down to try again.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
@@ -370,8 +465,6 @@ class _JobsError extends StatelessWidget {
   }
 }
 
-/// Compact sync state: queued work + items needing review, tap → Profile.
-/// Calm by design — amber for attention, never red.
 class SyncStatusBar extends ConsumerWidget {
   const SyncStatusBar({super.key});
 
@@ -383,41 +476,30 @@ class SyncStatusBar extends ConsumerWidget {
     final queued = pending + photos;
     if (queued == 0 && conflicts == 0) return const SizedBox.shrink();
 
-    const amber = Color(0xFFF59E0B);
-    final parts = <String>[
-      if (queued > 0) '$queued queued',
-      if (conflicts > 0) '$conflicts need review',
-    ];
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpace.md),
-      child: InkWell(
-        key: const Key('sync-status-bar'),
-        onTap: () => context.go('/profile'),
-        borderRadius: BorderRadius.circular(AppRadii.control),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpace.md,
-            vertical: 10,
-          ),
-          decoration: BoxDecoration(
-            color: amber.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(AppRadii.control),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.sync_rounded, size: 17, color: amber),
-              const SizedBox(width: AppSpace.sm),
-              Expanded(
-                child: Text(
-                  parts.join(' · '),
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
-                ),
+    return InkWell(
+      key: const Key('sync-status-bar'),
+      onTap: () => context.go('/profile'),
+      borderRadius: BorderRadius.circular(AppRadii.md),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: AppColors.errorSoft,
+          borderRadius: BorderRadius.circular(AppRadii.md),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline, color: AppColors.error),
+            const SizedBox(width: AppSpace.sm),
+            Expanded(
+              child: Text(
+                conflicts > 0 ? '$conflicts need review' : '$queued queued',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: AppColors.error,
+                    ),
               ),
-              const Icon(Icons.chevron_right_rounded, size: 18, color: amber),
-            ],
-          ),
+            ),
+            const Icon(Icons.chevron_right, color: AppColors.error),
+          ],
         ),
       ),
     );
@@ -429,24 +511,16 @@ class _OfflineBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final faint = Theme.of(context).brightness == Brightness.dark
-        ? AppColors.inkFaintDark
-        : AppColors.inkFaint;
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpace.sm),
-      child: Row(
-        key: const Key('offline-banner'),
-        children: [
-          Icon(Icons.cloud_off_outlined, size: 15, color: faint),
-          const SizedBox(width: AppSpace.sm),
-          Text(
-            'Offline — showing saved jobs',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: faint),
-          ),
-        ],
-      ),
+    return Row(
+      key: const Key('offline-banner'),
+      children: [
+        Icon(Icons.cloud_off_outlined, size: 16, color: appMutedText(context)),
+        const SizedBox(width: AppSpace.sm),
+        Text(
+          'Offline - showing saved jobs',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ],
     );
   }
 }

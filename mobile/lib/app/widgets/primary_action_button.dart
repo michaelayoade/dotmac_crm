@@ -19,29 +19,20 @@ class PrimaryActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onPressed != null;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Opacity(
       opacity: enabled ? 1 : 0.5,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onPressed,
-          borderRadius: BorderRadius.circular(AppRadii.control),
+          borderRadius: BorderRadius.circular(AppRadii.md),
           child: Ink(
-            height: AppSizes.primaryTouchTarget,
+            height: AppSizes.fabSize,
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [AppColors.primary, Color(0xFF0891B2)],
-              ),
-              borderRadius: BorderRadius.circular(AppRadii.control),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primaryDeep.withValues(alpha: 0.35),
-                  blurRadius: 16,
-                  offset: const Offset(0, 8),
-                ),
-              ],
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(AppRadii.md),
+              boxShadow: appSoftShadow(isDark),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -52,8 +43,8 @@ class PrimaryActionButton extends StatelessWidget {
                   label,
                   style: const TextStyle(
                     fontFamily: 'PlusJakartaSans',
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
                     color: Colors.white,
                   ),
                 ),
