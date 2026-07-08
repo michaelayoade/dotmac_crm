@@ -26,12 +26,20 @@
 
         {% if ticket_handoff_available and ticket %}
         <div class="rounded-2xl border border-sky-500/20 bg-sky-500/5 px-4 py-3 dark:border-sky-400/20 dark:bg-sky-500/10">
-            <div class="text-[11px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">Linked ticket</div>
+            <div class="text-[11px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">
+                {% if ticket_is_unlinked %}Open ticket for this customer{% else %}Linked ticket{% endif %}
+            </div>
             <a href="{{ ticket.href }}"
                class="mt-1 inline-flex items-center gap-1 text-sm font-semibold text-sky-700 hover:text-sky-600 dark:text-sky-300 dark:hover:text-sky-200">
                 {{ ticket.reference }}
             </a>
-            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Use ticket handoff when Support is done in inbox and Engineer or NOC will continue through the ticket.</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                {% if ticket_is_unlinked %}
+                This customer still has an open support ticket. "Sent to ticket" links it and tells them their issue is being worked on — a plain resolve would tell them their request was resolved.
+                {% else %}
+                Use ticket handoff when Support is done in inbox and Engineer or NOC will continue through the ticket.
+                {% endif %}
+            </p>
         </div>
         {% endif %}
 
@@ -110,7 +118,7 @@
 
         {% if ticket_handoff_available %}
         <button
-            hx-post="/admin/crm/inbox/conversation/{{ conversation_id }}/resolve-with-ticket-handoff"
+            hx-post="/admin/crm/inbox/conversation/{{ conversation_id }}/resolve-with-ticket-handoff{% if ticket_is_unlinked and ticket %}?ticket_id={{ ticket.id }}{% endif %}"
             hx-target="#message-thread"
             hx-swap="innerHTML"
             hx-on::after-request="htmx.ajax('GET', '/admin/crm/inbox/conversations', {target:'#conversation-list', swap:'innerHTML'})"

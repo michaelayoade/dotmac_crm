@@ -323,6 +323,57 @@ def _persist_resolved_closing_message_metadata(
     db.commit()
 
 
+def _find_open_ticket_blocking_closing_message(
+    db: Session,
+    *,
+    conversation: Conversation,
+    status_enum: ConversationStatus,
+    conversation_id: str,
+):
+    """Return an open ticket that makes the celebratory closing copy wrong.
+
+    A plain resolve sends "your request has been successfully resolved" —
+    tone-deaf while the contact still has an open support ticket. Ticket
+    handoffs are exempt: their closing message correctly says the issue is
+    still being worked on.
+    """
+    if status_enum != ConversationStatus.resolved:
+        return None
+    resolution = _extract_resolution(conversation)
+    if isinstance(resolution, dict) and resolution.get("mode") == HANDOFF_RESOLUTION_MODE:
+        return None
+    person_id = getattr(conversation, "person_id", None)
+    if not person_id:
+        return None
+
+    from app.services.crm.inbox.resolve_gate import find_open_ticket_for_person
+
+    try:
+        return find_open_ticket_for_person(db, person_id=person_id, conversation_id=conversation_id)
+    except Exception:
+        logger.exception("open_ticket_lookup_failed conversation_id=%s", conversation_id)
+        return None
+
+
+def _record_resolved_closing_suppressed(db: Session, *, conversation: Conversation, ticket) -> None:
+    ticket_reference = ticket.number or str(ticket.id)
+    metadata = _metadata_dict(conversation)
+    existing = metadata.get(RESOLVED_CLOSING_METADATA_KEY)
+    closing = dict(existing) if isinstance(existing, dict) else {}
+    closing["suppressed_at"] = datetime.now(UTC).isoformat()
+    closing["suppressed_reason"] = "open_ticket"
+    closing["suppressed_ticket_id"] = str(ticket.id)
+    closing["suppressed_ticket_reference"] = ticket_reference
+    metadata[RESOLVED_CLOSING_METADATA_KEY] = closing
+    conversation.metadata_ = metadata
+    db.commit()
+    logger.info(
+        "RESOLVED_CLOSING_SUPPRESSED conversation_id=%s ticket=%s",
+        conversation.id,
+        ticket_reference,
+    )
+
+
 def _select_resolved_closing_variant(*, random_value: float | None = None) -> Literal["social", "feedback"]:
     sample = random.random() if random_value is None else random_value  # nosec B311 - copy variant sampling
     return "social" if sample < 0.70 else "feedback"
@@ -606,6 +657,21 @@ def update_conversation_status(
                     previous_status=previous_status,
                 )
             ):
+                blocking_ticket = _find_open_ticket_blocking_closing_message(
+                    db,
+                    conversation=conversation,
+                    status_enum=status_enum,
+                    conversation_id=conversation_id,
+                )
+                if blocking_ticket is not None:
+                    try:
+                        _record_resolved_closing_suppressed(db, conversation=conversation, ticket=blocking_ticket)
+                    except Exception:  # nosec B110 - metadata persistence should not block resolve flow
+                        logger.exception(
+                            "failed_to_persist_resolved_closing_suppression conversation_id=%s",
+                            conversation_id,
+                        )
+                    return UpdateStatusResult(kind="updated")
                 variant = _select_resolved_closing_variant()
                 claimed = _claim_resolved_closing_message_send(
                     db,
