@@ -1873,6 +1873,77 @@ def sync_dotmac_erp_contacts():
 
 
 @celery_app.task(
+    name="app.tasks.integrations.detect_dotmac_erp_identity_drift",
+    time_limit=600,
+    soft_time_limit=540,
+)
+def detect_dotmac_erp_identity_drift():
+    """Detect CRM <-> ERP customer/contact identity drift.
+
+    Read-only toward CRM business rows and ERP. Findings are emitted through the
+    existing infrastructure-alert lifecycle.
+    """
+    from app.services.dotmac_erp.identity_drift import run_identity_drift_detection
+    from app.services.infrastructure_health import upsert_alerts_from_results
+
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger = get_logger(__name__)
+    logger.info("DOTMAC_ERP_IDENTITY_DRIFT_START")
+
+    try:
+        run = run_identity_drift_detection(session)
+        alert_stats = upsert_alerts_from_results(session, run.results)
+        material = sum(
+            count
+            for check_key, count in run.counts_by_check.items()
+            if check_key
+            in {
+                "dotmac_erp_identity_erp_duplicate_company_id",
+                "dotmac_erp_identity_erp_duplicate_contact_id",
+                "dotmac_erp_identity_crm_duplicate_org_erp_id",
+                "dotmac_erp_identity_crm_duplicate_person_erp_person_id",
+                "dotmac_erp_identity_crm_duplicate_person_erp_customer_id",
+                "dotmac_erp_identity_crm_person_erp_company_mismatch",
+            }
+        )
+        if run.unhealthy:
+            status = "partial"
+            logger.warning(
+                "DOTMAC_ERP_IDENTITY_DRIFT findings=%s material=%s counts=%s alerts=%s duration=%.2fs",
+                run.unhealthy,
+                material,
+                run.counts_by_check,
+                alert_stats,
+                run.duration_seconds,
+            )
+        else:
+            logger.info(
+                "DOTMAC_ERP_IDENTITY_DRIFT_CLEAN counts=%s alerts=%s duration=%.2fs",
+                run.counts_by_check,
+                alert_stats,
+                run.duration_seconds,
+            )
+        return {
+            "checked": len(run.results),
+            "unhealthy": run.unhealthy,
+            "counts_by_check": run.counts_by_check,
+            "alerts": alert_stats,
+            "duration_seconds": run.duration_seconds,
+        }
+    except Exception as e:
+        status = "error"
+        logger.exception("DOTMAC_ERP_IDENTITY_DRIFT_FAILED error=%s", str(e))
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("dotmac_erp_identity_drift", status, duration)
+
+
+@celery_app.task(
     name="app.tasks.integrations.sync_dotmac_erp_teams",
     time_limit=300,
     soft_time_limit=240,
