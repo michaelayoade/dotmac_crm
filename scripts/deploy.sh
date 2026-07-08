@@ -24,7 +24,7 @@ REPO_DIR="${REPO_DIR:-/root/dotmac/dotmac_omni}"
 IMAGE_REPO="ghcr.io/michaelayoade/dotmac_crm"
 APP_SERVICES=(app celery-worker celery-beat)
 HEALTH_TIMEOUT_SECONDS=180
-IMAGE_RETENTION_COUNT="${APP_IMAGE_RETENTION_COUNT:-3}"
+IMAGE_RETENTION_COUNT="${APP_IMAGE_RETENTION_COUNT:-5}"
 
 log() { printf '\n==> %s\n' "$*"; }
 
