@@ -45,11 +45,13 @@
 {% set can_campaigns = is_admin or 'crm:campaign:read' in user_permissions or 'crm:campaign:write' in user_permissions or 'crm:campaign' in user_permissions or 'crm' in user_permissions %}
 {% set can_surveys = is_admin or 'crm:survey:read' in user_permissions or 'crm:survey:write' in user_permissions or 'crm:survey' in user_permissions or 'crm' in user_permissions %}
 {% set can_sales_orders = is_admin
+    or 'operations:sales-order:read' in user_permissions
     or 'operations:service_order:read' in user_permissions
     or 'operations:service_order:create' in user_permissions
     or 'operations:service_order:update' in user_permissions
     or 'operations:sales_order:delete' in user_permissions
     or 'operations:service_order' in user_permissions
+    or 'crm:sales:read' in user_permissions
     or 'operations' in user_permissions
 %}
 {% set can_sales = can_quotes or can_sales_orders %}
