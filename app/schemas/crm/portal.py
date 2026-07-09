@@ -111,9 +111,14 @@ class PortalProjectsResponse(BaseModel):
 class PortalWorkOrderItem(BaseModel):
     id: str
     title: str
+    description: str | None = None
     status: str
     work_type: str | None = None
     priority: str | None = None
+    ticket_id: str | None = None
+    project_id: str | None = None
+    assigned_to_person_id: str | None = None
+    assigned_to_name: str | None = None
     technician_name: str | None = None
     technician_phone: str | None = None
     address: str | None = None
@@ -121,7 +126,16 @@ class PortalWorkOrderItem(BaseModel):
     scheduled_end: str | None = None
     estimated_arrival_at: str | None = None
     estimated_duration_minutes: int | None = None
+    started_at: str | None = None
+    paused_at: str | None = None
+    resumed_at: str | None = None
     completed_at: str | None = None
+    total_active_seconds: int | None = None
+    required_skills: list | None = None
+    tags: list | None = None
+    access_notes: str | None = None
+    is_active: bool = True
+    metadata: dict | None = None
     created_at: str | None = None
 
 

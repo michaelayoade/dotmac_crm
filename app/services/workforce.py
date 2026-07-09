@@ -488,9 +488,14 @@ def build_work_order_portal_payload(db: Session, work_order: WorkOrder) -> dict:
     return {
         "id": str(work_order.id),
         "title": work_order.title,
+        "description": work_order.description,
         "status": work_order.status.value if work_order.status else "scheduled",
         "work_type": work_order.work_type.value if work_order.work_type else None,
         "priority": work_order.priority.value if work_order.priority else None,
+        "ticket_id": str(work_order.ticket_id) if work_order.ticket_id else None,
+        "project_id": str(work_order.project_id) if work_order.project_id else None,
+        "assigned_to_person_id": str(work_order.assigned_to_person_id) if work_order.assigned_to_person_id else None,
+        "assigned_to_name": technician_name,
         "technician_name": technician_name,
         "technician_phone": technician_phone,
         "address": _resolve_site_address(work_order),
@@ -505,6 +510,11 @@ def build_work_order_portal_payload(db: Session, work_order: WorkOrder) -> dict:
         "resumed_at": _iso_datetime(getattr(work_order, "resumed_at", None)),
         "completed_at": _iso_datetime(getattr(work_order, "completed_at", None)),
         "total_active_seconds": getattr(work_order, "total_active_seconds", None),
+        "required_skills": getattr(work_order, "required_skills", None),
+        "tags": getattr(work_order, "tags", None),
+        "access_notes": getattr(work_order, "access_notes", None),
+        "is_active": getattr(work_order, "is_active", True),
+        "metadata": getattr(work_order, "metadata_", None),
         "created_at": work_order.created_at.isoformat() if work_order.created_at else None,
     }
 

@@ -25,17 +25,29 @@ def _work_order(**kw):
     return SimpleNamespace(
         id="wo1",
         title=kw.get("title", "Fault repair"),
+        description=kw.get("description", "Customer has no signal"),
         status=kw.get("status", WorkOrderStatus.dispatched),
         work_type=kw.get("work_type", WorkOrderType.repair),
         priority=kw.get("priority", WorkOrderPriority.high),
         assigned_to_person_id=kw.get("assigned_to_person_id", "person-1"),
+        ticket_id=kw.get("ticket_id", "ticket-1"),
+        project_id=kw.get("project_id", "project-1"),
         subscriber=None,
         subscriber_id=None,
         scheduled_start=kw.get("scheduled_start", datetime(2026, 6, 30, 9, tzinfo=UTC)),
         scheduled_end=None,
         estimated_arrival_at=kw.get("estimated_arrival_at", datetime(2026, 6, 30, 9, 30, tzinfo=UTC)),
         estimated_duration_minutes=60,
+        started_at=datetime(2026, 6, 30, 9, 32, tzinfo=UTC),
+        paused_at=None,
+        resumed_at=None,
         completed_at=None,
+        total_active_seconds=120,
+        required_skills=["fiber"],
+        tags=["customer-facing"],
+        access_notes="Call on arrival",
+        is_active=True,
+        metadata_={"source": "test"},
         created_at=datetime(2026, 6, 29, tzinfo=UTC),
     )
 
@@ -50,11 +62,23 @@ def test_payload_resolves_technician_and_schedule():
     assert out["status"] == "dispatched"
     assert out["work_type"] == "repair"
     assert out["priority"] == "high"
+    assert out["description"] == "Customer has no signal"
+    assert out["ticket_id"] == "ticket-1"
+    assert out["project_id"] == "project-1"
+    assert out["assigned_to_person_id"] == "person-1"
+    assert out["assigned_to_name"] == "Ade Tech"
     assert out["technician_name"] == "Ade Tech"
     assert out["technician_phone"] == "+2348000000000"
     assert out["estimated_duration_minutes"] == 60
     assert out["scheduled_start"].startswith("2026-06-30T09:00")
     assert out["estimated_arrival_at"].startswith("2026-06-30T09:30")
+    assert out["started_at"].startswith("2026-06-30T09:32")
+    assert out["total_active_seconds"] == 120
+    assert out["required_skills"] == ["fiber"]
+    assert out["tags"] == ["customer-facing"]
+    assert out["access_notes"] == "Call on arrival"
+    assert out["is_active"] is True
+    assert out["metadata"] == {"source": "test"}
 
 
 def test_payload_handles_no_technician():
