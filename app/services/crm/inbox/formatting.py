@@ -16,7 +16,7 @@ from app.config import settings
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.integration import IntegrationTarget
-import app.models.person as person_model
+from app.models import person as person_model
 from app.models.subscriber import Organization
 from app.models.tickets import Ticket
 from app.services.common import coerce_uuid
