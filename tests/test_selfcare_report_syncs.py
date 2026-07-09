@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from app.models.person import Gender, Person
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.services import selfcare
 
@@ -229,6 +230,77 @@ def test_sync_subscribers_from_selfcare_skips_bad_record(db_session, monkeypatch
 
     assert result["created"] == 1
     assert len(result["errors"]) == 1
+
+
+def test_sync_subscribers_from_selfcare_updates_linked_person_profile(db_session, monkeypatch):
+    person = Person(
+        first_name="Jane",
+        last_name="Doe",
+        email="jane@example.com",
+        gender=Gender.unknown,
+        metadata_={"selfcare_id": "sc-100"},
+    )
+    db_session.add(person)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.selfcare.ping", lambda session: True)
+    monkeypatch.setattr(
+        "app.services.selfcare.fetch_customers",
+        lambda session, include="services,billing": [
+            {
+                "id": "sc-100",
+                "subscriber_number": "SUB-100",
+                "status": "active",
+                "email": "jane@example.com",
+                "date_of_birth": "1990-01-05",
+                "gender": "female",
+                "nin": "12345678901",
+            }
+        ],
+    )
+
+    result = selfcare.sync_subscribers_from_selfcare_data(db_session)
+
+    db_session.refresh(person)
+    assert result["person_profile_updated"] == 1
+    assert person.date_of_birth.isoformat() == "1990-01-05"
+    assert person.gender == Gender.female
+    assert person.nin == "12345678901"
+
+
+def test_backfill_person_profiles_reports_conflict_without_force(db_session, monkeypatch):
+    person = Person(
+        first_name="John",
+        last_name="Smith",
+        email="john@example.com",
+        date_of_birth=datetime(1991, 2, 2, tzinfo=UTC).date(),
+        gender=Gender.male,
+        nin="11111111111",
+        metadata_={"selfcare_id": "sc-200"},
+    )
+    db_session.add(person)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.selfcare.fetch_customers",
+        lambda session, include=None: [
+            {
+                "id": "sc-200",
+                "email": "john@example.com",
+                "date_of_birth": "1992-03-03",
+                "gender": "female",
+                "nin": "22222222222",
+            }
+        ],
+    )
+
+    result = selfcare.backfill_person_profiles_from_selfcare(db_session, force_from_selfcare=False)
+
+    db_session.refresh(person)
+    assert result["matched_and_updated"] == 1
+    assert person.date_of_birth.isoformat() == "1992-03-03"
+    assert person.gender == Gender.female
+    assert person.nin == "22222222222"
 
 
 def test_online_last_24h_returns_empty_on_selfcare_failure(db_session, monkeypatch):

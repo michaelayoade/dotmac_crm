@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.db import get_db
+from app.models.person import Gender, Person
 
 # ── HMAC-signed inbound subscriber-sync webhook (#29) ─────────────────────────
 
@@ -108,6 +109,38 @@ def test_subscriber_sync_webhook_no_secret_503(db_session, monkeypatch):
     client = _webhook_client(db_session)
     res = client.post("/webhooks/crm/subscribers/sync", content=b"{}", headers={"X-Selfcare-Signature": "sha256=x"})
     assert res.status_code == 503
+
+
+def test_selfcare_webhook_updates_person_profile(db_session, monkeypatch):
+    import app.api.subscribers as subs
+
+    person = Person(
+        first_name="Webhook",
+        last_name="Customer",
+        email="webhook@example.com",
+        gender=Gender.unknown,
+        metadata_={"selfcare_id": "sc-webhook"},
+    )
+    db_session.add(person)
+    db_session.commit()
+
+    payload = {
+        "id": "sc-webhook",
+        "subscriber_number": "SUB-WEBHOOK",
+        "status": "active",
+        "email": "webhook@example.com",
+        "date_of_birth": "1988-11-09",
+        "gender": "female",
+        "nin": "55555555555",
+    }
+
+    result = subs._handle_selfcare_webhook(db_session, payload)
+
+    db_session.refresh(person)
+    assert result["status"] == "ok"
+    assert person.date_of_birth.isoformat() == "1988-11-09"
+    assert person.gender == Gender.female
+    assert person.nin == "55555555555"
 
 
 # ── subscriber RBAC gating (#28) ──────────────────────────────────────────────

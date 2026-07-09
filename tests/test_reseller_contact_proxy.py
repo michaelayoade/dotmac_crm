@@ -5,7 +5,8 @@ import pytest
 from app.models.person import ChannelType, Person
 from app.models.rbac import PersonRole, Role
 from app.models.subscriber import AccountType, Organization
-from app.schemas.crm.contact import ContactCreate
+from app.schemas.crm.contact import ContactCreate, ContactUpdate
+from app.schemas.person import PersonUpdate
 from app.services.crm.contacts.service import Contacts
 from app.services.crm.web_contacts import (
     ContactUpsertInput,
@@ -152,6 +153,36 @@ def test_non_reseller_create_keeps_duplicate_email_validation(db_session):
                 is_active="true",
             ),
         )
+
+
+def test_selfcare_managed_person_blocks_profile_field_edits(db_session):
+    person = _make_person(db_session, email="selfcare@example.com", org_id=None)
+    person.metadata_ = {"selfcare_id": "sc-1"}
+    db_session.commit()
+
+    from app.services.person import people as person_service
+
+    with pytest.raises(Exception) as exc_info:
+        person_service.update(
+            db_session,
+            str(person.id),
+            PersonUpdate(nin="12345678901"),
+        )
+
+    assert "managed in selfcare" in str(exc_info.value).lower()
+
+
+def test_contacts_service_blocks_profile_field_edits_for_selfcare_person(db_session):
+    person = _make_person(db_session, email="selfcare-contact@example.com", org_id=None)
+    person.metadata_ = {"selfcare_id": "sc-2"}
+    db_session.commit()
+
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        Contacts.update(db_session, str(person.id), ContactUpdate(nin="12345678901"))
+
+    assert exc_info.value.status_code == 409
 
 
 def test_reseller_portal_create_contact_uses_placeholder_and_metadata(db_session):

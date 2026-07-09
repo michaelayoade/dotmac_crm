@@ -20,6 +20,7 @@ from app.schemas.subscriber import (
 from app.services.auth_dependencies import require_permission
 from app.services.selfcare import map_customer_to_subscriber_data as map_selfcare_customer_to_subscriber_data
 from app.services.selfcare import map_customer_to_subscriber_data as map_splynx_customer_to_subscriber_data
+from app.services.selfcare import sync_person_profile_from_selfcare_customer
 from app.services.subscriber import subscriber as subscriber_service
 
 router = APIRouter(prefix="/subscribers", tags=["subscribers"])
@@ -342,6 +343,8 @@ def _handle_selfcare_webhook(db: Session, payload: dict) -> dict:
     )
 
     sub = subscriber_service.sync_from_external(db, "selfcare", external_id, data)
+    sync_person_profile_from_selfcare_customer(db, payload, existing_subscriber=sub)
+    db.commit()
     logger.info(
         "subscriber_sync_webhook_completed external_system=selfcare external_id=%s subscriber_id=%s",
         external_id,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -12,7 +13,8 @@ from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.enums import ChannelType as CrmChannelType
 from app.models.crm.sales import Lead
 from app.models.person import ChannelType as PersonChannelType
-from app.models.person import PartyStatus, Person, PersonChannel
+from app.models.person import Gender, PartyStatus, Person, PersonChannel
+from app.models.subscriber import Organization, Subscriber, SubscriberStatus
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.reseller_contact_policy import (
     resolve_reseller_owner_org_id,
@@ -54,6 +56,59 @@ def _normalize_phone(address: str | None) -> str | None:
     if not digits:
         return None
     return f"+{digits}"
+
+
+def _normalize_nin(value: str | None) -> str | None:
+    if value is None:
+        return None
+    digits = re.sub(r"\D+", "", value)
+    if not digits:
+        return None
+    if len(digits) != 11:
+        raise HTTPException(status_code=422, detail="NIN must contain exactly 11 digits")
+    return digits
+
+
+def _normalize_gender(value: str | Gender | None) -> Gender | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, Gender):
+        return value
+    normalized = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    try:
+        return Gender(normalized)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Gender is invalid") from exc
+
+
+def _is_selfcare_managed_person(db: Session, person: Person | None) -> bool:
+    if person is None:
+        return False
+    metadata = person.metadata_ if isinstance(person.metadata_, dict) else {}
+    if str(metadata.get("selfcare_id") or "").strip():
+        return True
+    return (
+        db.query(Subscriber)
+        .filter(Subscriber.person_id == person.id)
+        .filter(Subscriber.external_system == "selfcare")
+        .first()
+        is not None
+    )
+
+
+def _enforce_selfcare_profile_read_only(db: Session, person: Person, data: dict[str, Any]) -> None:
+    if not _is_selfcare_managed_person(db, person):
+        return
+    for field_name in ("date_of_birth", "gender", "nin"):
+        if field_name not in data:
+            continue
+        incoming = data.get(field_name)
+        current = getattr(person, field_name, None)
+        if isinstance(current, Gender):
+            current = current.value
+        if incoming is None or str(incoming) == str(current):
+            continue
+        raise HTTPException(status_code=409, detail="Profile details are managed in selfcare")
 
 
 def _normalize_whatsapp_address(address: str | None) -> str | None:
@@ -366,6 +421,10 @@ class Contacts(ListResponseMixin):
     @staticmethod
     def create(db: Session, payload):
         data = payload.model_dump()
+        if "nin" in data:
+            data["nin"] = _normalize_nin(data.get("nin"))
+        if "gender" in data:
+            data["gender"] = _normalize_gender(data.get("gender")) or Gender.unknown
         raw_splynx_id = data.get("splynx_id")
         splynx_id: str | None = str(raw_splynx_id).strip() if raw_splynx_id is not None else ""
         splynx_id = splynx_id or None
@@ -420,6 +479,10 @@ class Contacts(ListResponseMixin):
                         status_code=409,
                         detail="Phone already belongs to another contact",
                     )
+        if data.get("nin"):
+            existing_nin_owner = db.query(Person).filter(Person.nin == data["nin"]).first()
+            if existing_nin_owner:
+                raise HTTPException(status_code=409, detail="NIN already belongs to another contact")
         person = Person(**data)
         if splynx_id:
             person.metadata_ = dict(person.metadata_ or {})
@@ -570,6 +633,15 @@ class Contacts(ListResponseMixin):
         if not person:
             raise HTTPException(status_code=404, detail="Contact not found")
         data = payload.model_dump(exclude_unset=True)
+        _enforce_selfcare_profile_read_only(db, person, data)
+        if "nin" in data:
+            data["nin"] = _normalize_nin(data.get("nin"))
+            if data["nin"]:
+                existing_nin_owner = db.query(Person).filter(Person.nin == data["nin"], Person.id != person.id).first()
+                if existing_nin_owner:
+                    raise HTTPException(status_code=409, detail="NIN already belongs to another contact")
+        if "gender" in data:
+            data["gender"] = _normalize_gender(data.get("gender"))
         if "splynx_id" in data:
             splynx_id = str(data["splynx_id"]).strip() if data["splynx_id"] else ""
             if splynx_id:
