@@ -19,7 +19,6 @@ from app.models.integration import IntegrationTarget
 from app.models.person import Person, ChannelType as PersonChannelType
 from app.models.subscriber import Organization
 from app.models.tickets import Ticket
-from app.services import time_preferences
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
@@ -75,6 +74,8 @@ def _is_selfcare_managed_profile(contact: Person) -> bool:
 
 def _localize_inbox_datetime(value: datetime | None, db: Session) -> tuple[datetime | None, str, str]:
     """Convert timestamps to the configured company timezone for inbox rendering."""
+    from app.services import time_preferences
+
     timezone, date_format, time_format, _ = time_preferences.resolve_company_time_prefs(db)
     if value is None:
         return None, date_format, time_format
