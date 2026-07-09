@@ -16,8 +16,7 @@ from app.config import settings
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.integration import IntegrationTarget
-from app.models.person import ChannelType as PersonChannelType
-from app.models.person import Person
+import app.models.person as person_model
 from app.models.subscriber import Organization
 from app.models.tickets import Ticket
 from app.services.common import coerce_uuid
@@ -33,11 +32,11 @@ logger = logging.getLogger(__name__)
 _URL_RE = re.compile(r"(https?://[^\s<]+)", flags=re.IGNORECASE)
 
 
-def _resolve_contact_email_for_display(contact: Person) -> str:
+def _resolve_contact_email_for_display(contact: person_model.Person) -> str:
     email_channels = [
         channel
         for channel in (contact.channels or [])
-        if channel.channel_type == PersonChannelType.email
+        if channel.channel_type == person_model.ChannelType.email
         and isinstance(channel.address, str)
         and channel.address.strip()
         and not is_placeholder_email(channel.address)
@@ -68,7 +67,7 @@ def _derive_age(date_of_birth: date | None) -> int | None:
     )
 
 
-def _is_selfcare_managed_profile(contact: Person) -> bool:
+def _is_selfcare_managed_profile(contact: person_model.Person) -> bool:
     metadata = contact.metadata_ if isinstance(contact.metadata_, dict) else {}
     return bool(str(metadata.get("selfcare_id") or "").strip())
 
@@ -478,7 +477,7 @@ def format_conversation_for_template(
                     if agent_people_by_id:
                         person = agent_people_by_id.get(str(agent.person_id))
                     if person is None:
-                        person = db.get(Person, agent.person_id)
+                        person = db.get(person_model.Person, agent.person_id)
                     if person:
                         full_name = (
                             person.display_name
@@ -761,7 +760,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
 
     if msg.direction == MessageDirection.internal:
         if msg.author_id:
-            person = db.get(Person, msg.author_id)
+            person = db.get(person_model.Person, msg.author_id)
             if person:
                 full_name = (
                     person.display_name
@@ -781,7 +780,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
             sender_initials = "AI"
             sender_is_ai = True
         elif msg.author_id:
-            person = db.get(Person, msg.author_id)
+            person = db.get(person_model.Person, msg.author_id)
             if person:
                 full_name = (
                     person.display_name
@@ -1073,7 +1072,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
                 if reply_metadata.get("ai_intake_generated"):
                     reply_author = "AI"
                 elif reply_msg.author_id:
-                    reply_person = db.get(Person, reply_msg.author_id)
+                    reply_person = db.get(person_model.Person, reply_msg.author_id)
                     if reply_person:
                         reply_author = (
                             reply_person.display_name
@@ -1146,7 +1145,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
     }
 
 
-def format_contact_for_template(contact: Person, db: Session) -> dict:
+def format_contact_for_template(contact: person_model.Person, db: Session) -> dict:
     """Transform a Contact model into detailed template-friendly dict."""
     channels = []
     for ch in contact.channels or []:
