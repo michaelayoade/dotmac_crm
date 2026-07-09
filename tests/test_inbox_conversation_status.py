@@ -277,6 +277,46 @@ def test_build_ticket_handoff_message_includes_ticket_reference():
     assert "How was your experience" not in body
 
 
+def test_feedback_variant_uses_configured_outro_for_email():
+    fake_conversation = _FakeConversation(ConversationStatus.resolved)
+    db = Mock()
+
+    with patch(
+        "app.services.crm.inbox.conversation_status.resolve_value",
+        return_value="Thank you for chatting with Dotmac today.",
+    ):
+        subject, body = _build_resolved_closing_message(
+            db,
+            conversation=fake_conversation,
+            channel_type=ChannelType.email,
+            variant="feedback",
+        )
+
+    assert subject == "Support Request Resolved"
+    assert body == "Thank you for chatting with Dotmac today."
+    assert "We would appreciate your feedback" not in body
+
+
+def test_feedback_variant_uses_configured_outro_for_whatsapp():
+    fake_conversation = _FakeConversation(ConversationStatus.resolved)
+    db = Mock()
+
+    with patch(
+        "app.services.crm.inbox.conversation_status.resolve_value",
+        return_value="Thank you for chatting with Dotmac today.",
+    ):
+        subject, body = _build_resolved_closing_message(
+            db,
+            conversation=fake_conversation,
+            channel_type=ChannelType.whatsapp,
+            variant="feedback",
+        )
+
+    assert subject is None
+    assert body == "Thank you for chatting with Dotmac today."
+    assert "We'd really appreciate your feedback" not in body
+
+
 def test_ticket_handoff_does_not_resend_for_same_ticket():
     fake_conversation = _FakeConversation(ConversationStatus.open)
     fake_conversation.metadata_ = {

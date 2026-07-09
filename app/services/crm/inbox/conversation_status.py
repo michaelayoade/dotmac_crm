@@ -429,11 +429,10 @@ def _build_resolved_closing_message(
             "If you need to follow up about this same issue, please reference this ticket ID "
             "so we can track it faster.",
         )
-    if variant == "social":
-        configured = resolve_value(db, SettingDomain.notification, "crm_inbox_resolved_social_outro_message")
-        configured_text = str(configured).strip() if configured is not None else ""
-        if configured_text:
-            return RESOLVED_CLOSING_EMAIL_SUBJECT if channel_type == ChannelType.email else None, configured_text
+    configured = resolve_value(db, SettingDomain.notification, "crm_inbox_resolved_social_outro_message")
+    configured_text = str(configured).strip() if configured is not None else ""
+    if configured_text:
+        return RESOLVED_CLOSING_EMAIL_SUBJECT if channel_type == ChannelType.email else None, configured_text
     if channel_type == ChannelType.email:
         if variant == "social":
             return RESOLVED_CLOSING_EMAIL_SUBJECT, EMAIL_SOCIAL_TEMPLATE
