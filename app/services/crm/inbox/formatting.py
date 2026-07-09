@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -51,6 +51,27 @@ def _resolve_contact_email_for_display(contact: Person) -> str:
     if isinstance(contact.email, str) and contact.email.strip() and not is_placeholder_email(contact.email):
         return contact.email.strip()
     return ""
+
+
+def _mask_nin(value: str | None) -> str:
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    if len(digits) != 11:
+        return ""
+    return f"{digits[:6]}{'*' * 5}"
+
+
+def _derive_age(date_of_birth: date | None) -> int | None:
+    if date_of_birth is None:
+        return None
+    today = date.today()
+    return today.year - date_of_birth.year - (
+        (today.month, today.day) < (date_of_birth.month, date_of_birth.day)
+    )
+
+
+def _is_selfcare_managed_profile(contact: Person) -> bool:
+    metadata = contact.metadata_ if isinstance(contact.metadata_, dict) else {}
+    return bool(str(metadata.get("selfcare_id") or "").strip())
 
 
 def _localize_inbox_datetime(value: datetime | None, db: Session) -> tuple[datetime | None, str, str]:
@@ -1230,6 +1251,20 @@ def format_contact_for_template(contact: Person, db: Session) -> dict:
         "tags": list(tags)[:5],
         "subscriber": None,
         "splynx_id": splynx_id,
+        "date_of_birth": contact.date_of_birth.isoformat() if contact.date_of_birth else "",
+        "age": _derive_age(contact.date_of_birth),
+        "gender": contact.gender.value.replace("_", " ").title() if contact.gender else "",
+        "nin_masked": _mask_nin(contact.nin),
+        "profile_completeness_missing": [
+            label
+            for label, value in (
+                ("date of birth", contact.date_of_birth),
+                ("gender", None if not contact.gender or contact.gender.value == "unknown" else contact.gender),
+                ("NIN", contact.nin),
+            )
+            if not value
+        ],
+        "selfcare_managed_profile": _is_selfcare_managed_profile(contact),
         "recent_tickets": recent_tickets,
         "recent_projects": recent_projects,
         "recent_tasks": recent_tasks,

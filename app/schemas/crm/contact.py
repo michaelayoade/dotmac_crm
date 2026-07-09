@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -15,6 +15,9 @@ class ContactBase(BaseModel):
     splynx_id: str | None = Field(default=None, max_length=100)
     email: EmailStr
     phone: str | None = Field(default=None, max_length=40)
+    date_of_birth: date | None = None
+    gender: str = "unknown"
+    nin: str | None = Field(default=None, max_length=11)
     address_line1: str | None = Field(default=None, max_length=120)
     address_line2: str | None = Field(default=None, max_length=120)
     city: str | None = Field(default=None, max_length=80)
@@ -39,6 +42,9 @@ class ContactUpdate(BaseModel):
     splynx_id: str | None = Field(default=None, max_length=100)
     email: EmailStr | None = None
     phone: str | None = Field(default=None, max_length=40)
+    date_of_birth: date | None = None
+    gender: str | None = None
+    nin: str | None = Field(default=None, max_length=11)
     address_line1: str | None = Field(default=None, max_length=120)
     address_line2: str | None = Field(default=None, max_length=120)
     city: str | None = Field(default=None, max_length=80)
