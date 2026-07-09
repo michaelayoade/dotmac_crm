@@ -14,7 +14,7 @@ from app.models.crm.enums import ChannelType as CrmChannelType
 from app.models.crm.sales import Lead
 from app.models.person import ChannelType as PersonChannelType
 from app.models.person import Gender, PartyStatus, Person, PersonChannel
-from app.models.subscriber import Organization, Subscriber, SubscriberStatus
+from app.models.subscriber import Subscriber
 from app.services.common import apply_ordering, apply_pagination, coerce_uuid, validate_enum
 from app.services.reseller_contact_policy import (
     resolve_reseller_owner_org_id,
