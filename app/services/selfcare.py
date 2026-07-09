@@ -1286,7 +1286,13 @@ def map_customer_to_subscriber_data(
         "blocked_date": _coalesce_str(customer.get("blocked_date"), (billing or {}).get("blocked_date")),
         "source": "selfcare",
     }
-    metadata.update({key: value for key, value in selfcare_metadata.items() if value is not None and value != ""})
+    metadata.update(
+        {
+            key: value
+            for key, value in selfcare_metadata.items()
+            if value is not None and value != ""
+        }
+    )
 
     data: dict[str, Any] = {
         "subscriber_number": _coalesce_str(customer.get("subscriber_number"), customer.get("login")),
@@ -1321,7 +1327,11 @@ def map_customer_to_subscriber_data(
         "last_synced_at": datetime.now(UTC),
         "sync_metadata": metadata,
     }
-    return {key: value for key, value in data.items() if value is not None and value != ""}
+    return {
+        key: value
+        for key, value in data.items()
+        if value is not None and value != ""
+    }
 
 
 def sync_subscribers_from_selfcare_data(

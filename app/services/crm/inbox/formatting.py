@@ -16,8 +16,7 @@ from app.config import settings
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.integration import IntegrationTarget
-from app.models.person import ChannelType as PersonChannelType
-from app.models.person import Person
+from app.models.person import ChannelType as PersonChannelType, Person
 from app.models.subscriber import Organization
 from app.models.tickets import Ticket
 from app.services import time_preferences
@@ -57,7 +56,7 @@ def _mask_nin(value: str | None) -> str:
     digits = "".join(ch for ch in str(value or "") if ch.isdigit())
     if len(digits) != 11:
         return ""
-    return f"{digits[:6]}{'*' * 5}"
+    return f"{digits[:3]}{'*' * 5}{digits[-3:]}"
 
 
 def _derive_age(date_of_birth: date | None) -> int | None:
@@ -1239,6 +1238,19 @@ def format_contact_for_template(contact: Person, db: Session) -> dict:
     display_email = _resolve_contact_email_for_display(contact)
     display_name = contact.display_name or phone_display or display_email or contact.email or "Unknown"
 
+    profile_completeness_missing = [
+        label
+        for label, value in (
+            ("date of birth", contact.date_of_birth),
+            (
+                "gender",
+                None if not contact.gender or contact.gender.value == "unknown" else contact.gender,
+            ),
+            ("NIN", contact.nin),
+        )
+        if not value
+    ]
+
     return {
         "id": str(contact.id),
         "name": display_name,
@@ -1255,15 +1267,7 @@ def format_contact_for_template(contact: Person, db: Session) -> dict:
         "age": _derive_age(contact.date_of_birth),
         "gender": contact.gender.value.replace("_", " ").title() if contact.gender else "",
         "nin_masked": _mask_nin(contact.nin),
-        "profile_completeness_missing": [
-            label
-            for label, value in (
-                ("date of birth", contact.date_of_birth),
-                ("gender", None if not contact.gender or contact.gender.value == "unknown" else contact.gender),
-                ("NIN", contact.nin),
-            )
-            if not value
-        ],
+        "profile_completeness_missing": profile_completeness_missing,
         "selfcare_managed_profile": _is_selfcare_managed_profile(contact),
         "recent_tickets": recent_tickets,
         "recent_projects": recent_projects,
