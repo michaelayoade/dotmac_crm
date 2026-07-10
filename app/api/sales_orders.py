@@ -29,7 +29,6 @@ def get_sales_order(sales_order_id: str, db: Session = Depends(get_db)):
 @router.get("", response_model=ListResponse[SalesOrderRead])
 def list_sales_orders(
     person_id: str | None = None,
-    account_id: str | None = None,
     quote_id: str | None = None,
     status: str | None = None,
     payment_status: str | None = None,
@@ -43,7 +42,6 @@ def list_sales_orders(
     return sales_order_service.sales_orders.list_response(
         db,
         person_id,
-        account_id,
         quote_id,
         status,
         payment_status,

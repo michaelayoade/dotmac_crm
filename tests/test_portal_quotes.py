@@ -190,3 +190,53 @@ def test_derived_mode_falls_back_to_settings_when_no_catalog_item(db_session, mo
     assert est["pricing_mode"] == "derived"
     assert est["base_fee"] == Decimal("50000.00")  # settings fallback
     assert est["line_items"][0]["inventory_item_id"] is None
+
+
+def test_request_creates_lead_with_portal_source(db_session, monkeypatch, person):
+    """Regression: the self-serve quote request creates its lead with
+    lead_source="portal", which _normalize_lead_source_or_400 used to 400
+    ("Invalid lead_source") because "Portal" was missing from the vocabulary —
+    breaking the portal quote-request path end-to-end."""
+    from types import SimpleNamespace as _NS
+    from uuid import uuid4
+
+    from app.models.crm.sales import Lead
+    from app.services.crm import portal_scope
+    from app.services.portal_auth import PortalPrincipal
+
+    monkeypatch.setattr(portal_quotes, "_settings", lambda db: dict(_CFG))
+    fap = _NS(id="fap-1", name="FAP Wuse")
+    monkeypatch.setattr(portal_quotes, "_nearest_fiber_access_point", lambda db, lat, lng: (fap, 200.0))
+    monkeypatch.setattr(portal_quotes, "_emit_quote_to_sub", lambda db, quote, event_type: None)
+    subscriber = _NS(id=uuid4(), external_id="EXT-1", person_id=person.id)
+    monkeypatch.setattr(portal_scope, "resolve_target_subscriber", lambda db, principal, sid: subscriber)
+
+    principal = PortalPrincipal(subject_id=str(subscriber.id), actor="subscriber", scopes=["quotes:write"])
+    quote = portal_quotes.PortalQuotes.request(
+        db_session,
+        principal,
+        latitude=9.07,
+        longitude=7.49,
+        address="1 Test Street",
+        region="Abuja",
+        note="self-serve",
+    )
+
+    assert quote.person_id == person.id
+    lead = db_session.get(Lead, quote.lead_id)
+    assert lead is not None
+    assert lead.lead_source == "Portal"  # normalized canonical value
+    assert lead.metadata_["source"] == "portal_self_serve"
+
+
+def test_lead_source_portal_is_normalized_and_unknowns_still_400():
+    import pytest
+    from fastapi import HTTPException
+
+    from app.services.crm.sales.service import _normalize_lead_source_or_400
+
+    assert _normalize_lead_source_or_400("portal") == "Portal"
+    assert _normalize_lead_source_or_400("Portal") == "Portal"
+    with pytest.raises(HTTPException) as exc:
+        _normalize_lead_source_or_400("carrier-pigeon")
+    assert exc.value.status_code == 400
