@@ -27,6 +27,11 @@ RUN_COMPOSE_RESTART="${RUN_COMPOSE_RESTART:-1}"
 SYNC_TMP_DIR="${SYNC_TMP_DIR:-/tmp/dotmac-staging-sync}"
 SYNC_LOCK_FILE="${SYNC_LOCK_FILE:-/tmp/dotmac-staging-sync.lock}"
 SYNC_LABEL="${SYNC_LABEL:-dotmac_staging_refresh}"
+RESTORE_NICE_LEVEL="${RESTORE_NICE_LEVEL:-10}"
+RESTORE_IONICE_CLASS="${RESTORE_IONICE_CLASS:-2}"
+RESTORE_IONICE_LEVEL="${RESTORE_IONICE_LEVEL:-7}"
+RESTORE_MAINTENANCE_WORK_MEM="${RESTORE_MAINTENANCE_WORK_MEM:-256MB}"
+RESTORE_MAX_PARALLEL_MAINTENANCE_WORKERS="${RESTORE_MAX_PARALLEL_MAINTENANCE_WORKERS:-1}"
 DRY_RUN="${1:-}"
 
 log() {
@@ -201,11 +206,17 @@ docker exec \
   -c 'CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'
 
 log "Restoring dump into fresh database ${TARGET_TEMP_DB_NAME}"
+log "Restore throttle: nice=${RESTORE_NICE_LEVEL}, ionice=${RESTORE_IONICE_CLASS}/${RESTORE_IONICE_LEVEL}, maintenance_work_mem=${RESTORE_MAINTENANCE_WORK_MEM}, max_parallel_maintenance_workers=${RESTORE_MAX_PARALLEL_MAINTENANCE_WORKERS}"
 cat "${DUMP_FILE}" | docker exec \
   -i \
   -e PGPASSWORD="${TARGET_DB_PASSWORD}" \
+  -e PGOPTIONS="-c maintenance_work_mem=${RESTORE_MAINTENANCE_WORK_MEM} -c max_parallel_maintenance_workers=${RESTORE_MAX_PARALLEL_MAINTENANCE_WORKERS}" \
+  -e RESTORE_NICE_LEVEL="${RESTORE_NICE_LEVEL}" \
+  -e RESTORE_IONICE_CLASS="${RESTORE_IONICE_CLASS}" \
+  -e RESTORE_IONICE_LEVEL="${RESTORE_IONICE_LEVEL}" \
   "${TARGET_DB_CONTAINER}" \
-  pg_restore \
+  sh -c 'if command -v ionice >/dev/null 2>&1; then exec ionice -c "${RESTORE_IONICE_CLASS}" -n "${RESTORE_IONICE_LEVEL}" nice -n "${RESTORE_NICE_LEVEL}" pg_restore "$@"; fi; exec nice -n "${RESTORE_NICE_LEVEL}" pg_restore "$@"' \
+  sh \
   --no-owner \
   --no-privileges \
   --exit-on-error \
