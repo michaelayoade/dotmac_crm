@@ -997,7 +997,8 @@ def _map_profile_gender(value: object | None) -> Gender | None:
 
 
 def _extract_customer_profile(customer: dict[str, Any]) -> dict[str, Any]:
-    metadata = customer.get("metadata") if isinstance(customer.get("metadata"), dict) else {}
+    metadata_value = customer.get("metadata")
+    metadata = cast("dict[str, Any]", metadata_value) if isinstance(metadata_value, dict) else {}
     return {
         "date_of_birth": _parse_profile_date(
             customer.get("date_of_birth")
@@ -1022,12 +1023,9 @@ def _resolve_person_for_selfcare_customer(
         if person is not None:
             return person
 
-    metadata = customer.get("metadata") if isinstance(customer.get("metadata"), dict) else {}
-    crm_person_id = str(
-        customer.get("crm_person_id")
-        or metadata.get("crm_person_id")
-        or ""
-    ).strip()
+    metadata_value = customer.get("metadata")
+    metadata = cast("dict[str, Any]", metadata_value) if isinstance(metadata_value, dict) else {}
+    crm_person_id = str(customer.get("crm_person_id") or metadata.get("crm_person_id") or "").strip()
     if crm_person_id:
         person = db.get(Person, coerce_uuid(crm_person_id))
         if person is not None:
@@ -1286,13 +1284,7 @@ def map_customer_to_subscriber_data(
         "blocked_date": _coalesce_str(customer.get("blocked_date"), (billing or {}).get("blocked_date")),
         "source": "selfcare",
     }
-    metadata.update(
-        {
-            key: value
-            for key, value in selfcare_metadata.items()
-            if value is not None and value != ""
-        }
-    )
+    metadata.update({key: value for key, value in selfcare_metadata.items() if value is not None and value != ""})
 
     data: dict[str, Any] = {
         "subscriber_number": _coalesce_str(customer.get("subscriber_number"), customer.get("login")),
@@ -1327,11 +1319,7 @@ def map_customer_to_subscriber_data(
         "last_synced_at": datetime.now(UTC),
         "sync_metadata": metadata,
     }
-    return {
-        key: value
-        for key, value in data.items()
-        if value is not None and value != ""
-    }
+    return {key: value for key, value in data.items() if value is not None and value != ""}
 
 
 def sync_subscribers_from_selfcare_data(
