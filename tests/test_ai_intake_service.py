@@ -1709,7 +1709,9 @@ def test_send_handoff_message_reconciles_existing_message_without_resend(db_sess
     assert state["handoff_message"] == outbound.body
 
 
-def test_send_profile_update_prompt_reconciles_existing_message_without_resend(db_session, monkeypatch):
+def test_send_profile_update_prompt_reconciles_existing_message_without_resend(
+    db_session, monkeypatch
+):
     person = _make_person(db_session)
     conversation = _make_conversation(db_session, person)
     inbound = _make_message(db_session, conversation, body="Need help")
@@ -1730,7 +1732,9 @@ def test_send_profile_update_prompt_reconciles_existing_message_without_resend(d
 
     monkeypatch.setattr(
         "app.services.crm.ai_intake.send_message",
-        lambda db, payload, author_id=None, trace_id=None: pytest.fail("existing profile update prompt should be reconciled"),
+        lambda db, payload, author_id=None, trace_id=None: pytest.fail(
+            "existing profile update prompt should be reconciled"
+        ),
     )
 
     result = _send_profile_update_prompt(
@@ -1742,7 +1746,9 @@ def test_send_profile_update_prompt_reconciles_existing_message_without_resend(d
     assert result is False
 
 
-def test_process_pending_intake_does_not_send_profile_update_prompt_when_handoff_is_suppressed(db_session, monkeypatch):
+def test_process_pending_intake_does_not_send_profile_update_prompt_when_handoff_is_suppressed(
+    db_session, monkeypatch
+):
     person = _make_person(db_session)
     conversation = _make_conversation(db_session, person)
     widget_id = str(uuid.uuid4())
@@ -1773,8 +1779,14 @@ def test_process_pending_intake_does_not_send_profile_update_prompt_when_handoff
         sent.append("profile")
         return True
 
-    monkeypatch.setattr("app.services.crm.ai_intake._send_handoff_message", _fake_send_handoff_message)
-    monkeypatch.setattr("app.services.crm.ai_intake._send_profile_update_prompt", _fake_send_profile_update_prompt)
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake._send_handoff_message",
+        _fake_send_handoff_message,
+    )
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake._send_profile_update_prompt",
+        _fake_send_profile_update_prompt,
+    )
 
     result = process_pending_intake(
         db_session,
@@ -1789,7 +1801,9 @@ def test_process_pending_intake_does_not_send_profile_update_prompt_when_handoff
     assert sent == []
 
 
-def test_process_pending_intake_sends_profile_update_prompt_after_handoff(db_session, monkeypatch):
+def test_process_pending_intake_sends_profile_update_prompt_after_handoff(
+    db_session, monkeypatch
+):
     person = _make_person(db_session)
     conversation = _make_conversation(db_session, person)
     widget_id = str(uuid.uuid4())
