@@ -22,14 +22,49 @@ from app.models.crm.enums import (
     MessageStatus,
 )
 from app.models.crm.outbox import OutboxMessage
-from app.models.crm.team import CrmAgent
+from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
 from app.models.integration import IntegrationTarget
 from app.models.person import Person, PersonChannel
+from app.models.service_team import ServiceTeamMember
 from app.services.common import coerce_uuid
 from app.services.crm.inbox import outbox as outbox_service
 
 UNASSIGNED_ACTIVITY_START_UTC = datetime(2026, 1, 1, tzinfo=UTC)
 RESOLVED_LIST_STATUSES = {ConversationStatus.resolved, ConversationStatus.resolved_to_ticket}
+
+
+AI_INTAKE_ACTIVE_STATUSES = ("pending", "awaiting_customer", "awaiting_timeout")
+
+
+def _crm_team_ids_for_person_subquery(db: Session, person_id: str | None):
+    """CRM teams visible to a person via either service-team or inbox-agent membership."""
+    if not person_id:
+        return None
+
+    person_uuid = coerce_uuid(person_id)
+    service_team_ids_subq = (
+        db.query(ServiceTeamMember.team_id)
+        .filter(ServiceTeamMember.person_id == person_uuid)
+        .filter(ServiceTeamMember.is_active.is_(True))
+    )
+    service_linked_team_ids = (
+        db.query(CrmTeam.id.label("id"))
+        .filter(CrmTeam.service_team_id.in_(service_team_ids_subq))
+        .filter(CrmTeam.is_active.is_(True))
+    )
+
+    agent_ids_subq = (
+        db.query(CrmAgent.id).filter(CrmAgent.person_id == person_uuid).filter(CrmAgent.is_active.is_(True))
+    )
+    direct_agent_team_ids = (
+        db.query(CrmAgentTeam.team_id.label("id"))
+        .join(CrmTeam, CrmTeam.id == CrmAgentTeam.team_id)
+        .filter(CrmAgentTeam.agent_id.in_(agent_ids_subq))
+        .filter(CrmAgentTeam.is_active.is_(True))
+        .filter(CrmTeam.is_active.is_(True))
+    )
+
+    return service_linked_team_ids.union(direct_agent_team_ids).subquery()
 
 
 def _ensure_summary_rows(db: Session) -> None:
@@ -188,30 +223,28 @@ def list_inbox_conversations(
     elif assignment_filter == "needs_attention":
         query = query.filter(ConversationSummary.needs_attention.is_(True))
     elif assignment_filter == "my_team":
-        if not assigned_person_id:
+        crm_team_ids_subq = _crm_team_ids_for_person_subquery(db, assigned_person_id)
+        if crm_team_ids_subq is None:
             return []
-        from app.models.crm.team import CrmTeam
-        from app.models.service_team import ServiceTeamMember
-
-        person_uuid = coerce_uuid(assigned_person_id)
-        # Find ServiceTeams the person belongs to
-        team_ids_subq = (
-            db.query(ServiceTeamMember.team_id)
-            .filter(ServiceTeamMember.person_id == person_uuid)
-            .filter(ServiceTeamMember.is_active.is_(True))
-        )
-        # Find CrmTeams linked to those ServiceTeams
-        crm_team_ids_subq = (
-            db.query(CrmTeam.id).filter(CrmTeam.service_team_id.in_(team_ids_subq)).filter(CrmTeam.is_active.is_(True))
-        )
-        # Find conversations assigned to those CRM teams
         team_conv_subq = (
             db.query(ConversationAssignment.conversation_id)
             .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.team_id.in_(crm_team_ids_subq))
+            .filter(ConversationAssignment.team_id.in_(select(crm_team_ids_subq.c.id)))
             .distinct()
         )
         query = query.filter(Conversation.id.in_(team_conv_subq))
+    elif assignment_filter == "ai_handling":
+        active_agent_assignment_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.agent_id.isnot(None))
+            .distinct()
+        )
+        query = (
+            query.filter(Conversation.status == ConversationStatus.pending)
+            .filter(Conversation.metadata_["ai_intake"]["status"].as_string().in_(AI_INTAKE_ACTIVE_STATUSES))
+            .filter(~Conversation.id.in_(active_agent_assignment_subq))
+        )
     elif assignment_filter == "agent":
         if not filter_agent_id:
             return []
@@ -690,27 +723,34 @@ def _count_active_conversations_for_filter(
     elif filter_key == "needs_attention":
         query = query.filter(ConversationSummary.needs_attention.is_(True))
     elif filter_key == "my_team":
-        if not assigned_person_id:
+        crm_team_ids_subq = _crm_team_ids_for_person_subquery(db, assigned_person_id)
+        if crm_team_ids_subq is None:
             return 0
-        from app.models.crm.team import CrmTeam
-        from app.models.service_team import ServiceTeamMember
-
-        person_uuid = coerce_uuid(assigned_person_id)
-        team_ids_subq = (
-            db.query(ServiceTeamMember.team_id)
-            .filter(ServiceTeamMember.person_id == person_uuid)
-            .filter(ServiceTeamMember.is_active.is_(True))
-        )
-        crm_team_ids_subq = (
-            db.query(CrmTeam.id).filter(CrmTeam.service_team_id.in_(team_ids_subq)).filter(CrmTeam.is_active.is_(True))
-        )
         team_conv_subq = (
             db.query(ConversationAssignment.conversation_id)
             .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.team_id.in_(crm_team_ids_subq))
+            .filter(ConversationAssignment.team_id.in_(select(crm_team_ids_subq.c.id)))
             .distinct()
         )
         query = query.filter(ConversationSummary.conversation_id.in_(team_conv_subq))
+    elif filter_key == "ai_handling":
+        active_agent_assignment_subq = (
+            db.query(ConversationAssignment.conversation_id)
+            .filter(ConversationAssignment.is_active.is_(True))
+            .filter(ConversationAssignment.agent_id.isnot(None))
+            .distinct()
+        )
+        query = (
+            query.filter(ConversationSummary.status == ConversationStatus.pending)
+            .filter(
+                ConversationSummary.conversation_id.in_(
+                    db.query(Conversation.id)
+                    .filter(Conversation.metadata_["ai_intake"]["status"].as_string().in_(AI_INTAKE_ACTIVE_STATUSES))
+                    .distinct()
+                )
+            )
+            .filter(~ConversationSummary.conversation_id.in_(active_agent_assignment_subq))
+        )
 
     return int(query.count() or 0)
 
@@ -761,6 +801,9 @@ def get_assignment_counts(
         ),
         "my_team": _count_active_conversations_for_filter(
             db, assignment_filter="my_team", assigned_person_id=assigned_person_id
+        ),
+        "ai_handling": _count_active_conversations_for_filter(
+            db, assignment_filter="ai_handling", assigned_person_id=assigned_person_id
         ),
         "agent": 0,
     }

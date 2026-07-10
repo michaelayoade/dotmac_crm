@@ -47,7 +47,7 @@ AI_INTAKE_HANDOFF_REASSURANCE_KIND = "handoff_reassurance"
 AI_INTAKE_FOLLOWUP_QUESTION_KIND = "followup_question"
 AI_INTAKE_SEND_CLAIM_TTL_SECONDS = 300
 AI_INTAKE_PENDING_STATES = {"pending", "awaiting_customer", "awaiting_timeout"}
-AI_INTAKE_TERMINAL_STATES = {"resolved", "escalated", "excluded"}
+AI_INTAKE_TERMINAL_STATES = {"resolved", "escalated", "excluded", "human_assigned"}
 AI_INTAKE_RECOVERABLE_FAILURE_TYPES = {
     "auth",
     "provider_billing",
@@ -1096,6 +1096,40 @@ def mark_handoff_in_progress_for_human_reply(
         message.id,
         state["handoff_state"],
         state["first_human_reply_at"],
+    )
+    return True
+
+
+def mark_handoff_assigned_for_manual_assignment(
+    db: Session,
+    *,
+    conversation: Conversation,
+    assigned_agent_id: str | None,
+    assigned_by_id: str | None,
+) -> bool:
+    """Move an AI-owned conversation out of AI control when a human is assigned."""
+    state = _state(conversation)
+    if not state:
+        return False
+    if (
+        state.get("status") not in AI_INTAKE_PENDING_STATES
+        and state.get("handoff_state") != AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT
+    ):
+        return False
+
+    now = _now()
+    state["status"] = "human_assigned"
+    state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_ASSIGNED
+    state["human_assigned_at"] = _serialize_timestamp(now)
+    state["human_assigned_by_id"] = assigned_by_id
+    state["human_assigned_agent_id"] = assigned_agent_id
+    state["routing_assigned_agent_id"] = assigned_agent_id
+    _set_state(conversation, state)
+    logger.info(
+        "ai_intake_handoff_assigned conversation_id=%s assigned_agent_id=%s assigned_by_id=%s",
+        conversation.id,
+        assigned_agent_id,
+        assigned_by_id,
     )
     return True
 

@@ -181,3 +181,40 @@ def test_load_inbox_list_cache_hit_rehydrates_conversation_models(db_session, mo
         assert sa_inspect(hydrated_conversation).detached is False
 
     _run_in_thread(_run())
+
+
+def test_load_inbox_list_assignment_filters_do_not_include_comments(db_session, monkeypatch):
+    async def _run() -> None:
+        _clear_inbox_cache()
+
+        async def _unexpected_comments_context(*_args, **_kwargs):
+            raise AssertionError("assignment-filtered inbox lists must not load comments")
+
+        monkeypatch.setattr(inbox_listing, "reopen_due_snoozed_conversations", lambda _db: None)
+        monkeypatch.setattr(inbox_listing, "load_comments_context", _unexpected_comments_context)
+        monkeypatch.setattr(inbox_listing, "list_inbox_conversations", lambda *_args, **_kwargs: [])
+
+        result = await inbox_listing.load_inbox_list(
+            db_session,
+            channel=None,
+            status=None,
+            outbox_status=None,
+            search=None,
+            assignment="my_team",
+            assigned_person_id=None,
+            target_id=None,
+            filter_agent_id=None,
+            assigned_from=None,
+            assigned_to=None,
+            sort_by=None,
+            missing=None,
+            offset=0,
+            limit=25,
+            include_thread=False,
+            fetch_comments=False,
+        )
+
+        assert result.comment_items == []
+        assert result.include_comments is False
+
+    _run_in_thread(_run())
