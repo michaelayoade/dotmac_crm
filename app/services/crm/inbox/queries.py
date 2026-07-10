@@ -234,16 +234,8 @@ def list_inbox_conversations(
         )
         query = query.filter(Conversation.id.in_(team_conv_subq))
     elif assignment_filter == "ai_handling":
-        active_agent_assignment_subq = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.agent_id.isnot(None))
-            .distinct()
-        )
-        query = (
-            query.filter(Conversation.status == ConversationStatus.pending)
-            .filter(Conversation.metadata_["ai_intake"]["status"].as_string().in_(AI_INTAKE_ACTIVE_STATUSES))
-            .filter(~Conversation.id.in_(active_agent_assignment_subq))
+        query = query.filter(Conversation.status == ConversationStatus.pending).filter(
+            Conversation.metadata_["ai_intake"]["status"].as_string().in_(AI_INTAKE_ACTIVE_STATUSES)
         )
     elif assignment_filter == "agent":
         if not filter_agent_id:
@@ -734,22 +726,12 @@ def _count_active_conversations_for_filter(
         )
         query = query.filter(ConversationSummary.conversation_id.in_(team_conv_subq))
     elif filter_key == "ai_handling":
-        active_agent_assignment_subq = (
-            db.query(ConversationAssignment.conversation_id)
-            .filter(ConversationAssignment.is_active.is_(True))
-            .filter(ConversationAssignment.agent_id.isnot(None))
-            .distinct()
-        )
-        query = (
-            query.filter(ConversationSummary.status == ConversationStatus.pending)
-            .filter(
-                ConversationSummary.conversation_id.in_(
-                    db.query(Conversation.id)
-                    .filter(Conversation.metadata_["ai_intake"]["status"].as_string().in_(AI_INTAKE_ACTIVE_STATUSES))
-                    .distinct()
-                )
+        query = query.filter(ConversationSummary.status == ConversationStatus.pending).filter(
+            ConversationSummary.conversation_id.in_(
+                db.query(Conversation.id)
+                .filter(Conversation.metadata_["ai_intake"]["status"].as_string().in_(AI_INTAKE_ACTIVE_STATUSES))
+                .distinct()
             )
-            .filter(~ConversationSummary.conversation_id.in_(active_agent_assignment_subq))
         )
 
     return int(query.count() or 0)
