@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import uuid
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 from uuid import UUID
 
@@ -13,8 +14,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.person import ChannelType as PersonChannelType
-from app.models.person import PartyStatus, Person
-from app.models.subscriber import Organization, SubscriberStatus
+from app.models.person import Gender, PartyStatus, Person
+from app.models.subscriber import Organization, Subscriber, SubscriberStatus
 from app.schemas.crm.contact import ContactCreate, ContactUpdate
 from app.schemas.person import PartyStatusEnum
 from app.services import crm as crm_service
@@ -40,6 +41,9 @@ class ContactUpsertInput:
     whatsapp_phones: list[str] | None = None
     primary_email: str | None = None
     primary_phone: str | None = None
+    date_of_birth: str | None = None
+    gender: str | None = None
+    nin: str | None = None
     address_line1: str | None = None
     address_line2: str | None = None
     city: str | None = None
@@ -70,6 +74,50 @@ def _coerce_uuid_optional(value: str | None) -> UUID | None:
     if not candidate:
         return None
     return coerce_uuid(candidate)
+
+
+def _parse_optional_date(value: str | None) -> date | None:
+    if value is None:
+        return None
+    candidate = value.strip()
+    if not candidate:
+        return None
+    return date.fromisoformat(candidate)
+
+
+def _normalize_nin(value: str | None) -> str | None:
+    if value is None:
+        return None
+    digits = "".join(ch for ch in value if ch.isdigit())
+    if not digits:
+        return None
+    if len(digits) != 11:
+        raise ValueError("NIN must contain exactly 11 digits.")
+    return digits
+
+
+def _mask_nin(value: str | None) -> str:
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    if len(digits) != 11:
+        return ""
+    return f"{digits[:6]}{'*' * 5}"
+
+
+def _is_selfcare_managed_person(db: Session, person: Person | None) -> bool:
+    if person is None:
+        return False
+    metadata = person.metadata_ if isinstance(person.metadata_, dict) else {}
+    if str(metadata.get("selfcare_id") or "").strip():
+        return True
+    return (
+        db.query(Subscriber)
+        .filter(
+            Subscriber.person_id == person.id,
+            Subscriber.external_system == "selfcare",
+        )
+        .first()
+        is not None
+    )
 
 
 def party_status_values() -> list[str]:
@@ -274,6 +322,10 @@ def new_contact_form_context() -> dict[str, Any]:
             "splynx_id": "",
             "email": "",
             "phone": "",
+            "date_of_birth": "",
+            "gender": Gender.unknown.value,
+            "nin": "",
+            "nin_masked": "",
             "address_line1": "",
             "address_line2": "",
             "city": "",
@@ -297,6 +349,7 @@ def new_contact_form_context() -> dict[str, Any]:
         "primary_email_index": 0,
         "primary_phone_index": 0,
         "reseller_contact_hint": False,
+        "selfcare_managed_profile": False,
     }
 
 
@@ -306,6 +359,9 @@ def _normalize_upsert_form(form: ContactUpsertInput, *, contact_id: str | None =
         "splynx_id": (form.splynx_id or "").strip(),
         "email": "",
         "phone": "",
+        "date_of_birth": (form.date_of_birth or "").strip(),
+        "gender": (form.gender or Gender.unknown.value).strip() or Gender.unknown.value,
+        "nin": (form.nin or "").strip(),
         "address_line1": (form.address_line1 or "").strip(),
         "address_line2": (form.address_line2 or "").strip(),
         "city": (form.city or "").strip(),
@@ -345,6 +401,9 @@ def create_contact(db: Session, form: ContactUpsertInput) -> None:
     country_code_value = contact["country_code"] if isinstance(contact["country_code"], str) else ""
     organization_id_value = contact["organization_id"] if isinstance(contact["organization_id"], str) else ""
     notes_value = contact["notes"] if isinstance(contact["notes"], str) else ""
+    date_of_birth_value = contact["date_of_birth"] if isinstance(contact["date_of_birth"], str) else ""
+    gender_value = contact["gender"] if isinstance(contact["gender"], str) else Gender.unknown.value
+    nin_value = contact["nin"] if isinstance(contact["nin"], str) else ""
 
     name_parts = display_name_value.split() if display_name_value else []
     first_name = name_parts[0] if name_parts else "Unknown"
@@ -408,6 +467,9 @@ def create_contact(db: Session, form: ContactUpsertInput) -> None:
         splynx_id=splynx_id_value or None,
         email=email_value,
         phone=phone_value,
+        date_of_birth=_parse_optional_date(date_of_birth_value),
+        gender=gender_value or Gender.unknown.value,
+        nin=_normalize_nin(nin_value),
         address_line1=address_line1_value or None,
         address_line2=address_line2_value or None,
         city=city_value or None,
@@ -445,6 +507,9 @@ def update_contact(db: Session, contact_id: str, form: ContactUpsertInput) -> No
     country_code_value = contact["country_code"] if isinstance(contact["country_code"], str) else ""
     organization_id_value = contact["organization_id"] if isinstance(contact["organization_id"], str) else ""
     notes_value = contact["notes"] if isinstance(contact["notes"], str) else ""
+    date_of_birth_value = contact["date_of_birth"] if isinstance(contact["date_of_birth"], str) else ""
+    gender_value = contact["gender"] if isinstance(contact["gender"], str) else Gender.unknown.value
+    nin_value = contact["nin"] if isinstance(contact["nin"], str) else ""
 
     party_status_value = None
     party_status_raw = contact.get("party_status")
@@ -457,6 +522,7 @@ def update_contact(db: Session, contact_id: str, form: ContactUpsertInput) -> No
     existing_person = db.get(Person, coerce_uuid(contact_id))
     if not existing_person:
         raise ValueError("Contact not found")
+    selfcare_managed_profile = _is_selfcare_managed_person(db, existing_person)
 
     organization_uuid = _coerce_uuid_optional(organization_id_value)
     effective_org_uuid = organization_uuid
@@ -498,6 +564,10 @@ def update_contact(db: Session, contact_id: str, form: ContactUpsertInput) -> No
         "is_active": bool(contact["is_active"]),
         "metadata_": metadata_value,
     }
+    if not selfcare_managed_profile:
+        payload_kwargs["date_of_birth"] = _parse_optional_date(date_of_birth_value)
+        payload_kwargs["gender"] = gender_value or Gender.unknown.value
+        payload_kwargs["nin"] = _normalize_nin(nin_value)
     if party_status_value is not None:
         payload_kwargs["party_status"] = party_status_value
     if is_reseller_linked:
@@ -530,12 +600,16 @@ def contact_form_error_context(
 
     organization_label = None
     reseller_contact_hint = False
+    selfcare_managed_profile = False
     organization_value = contact.get("organization_id")
     if isinstance(organization_value, str) and organization_value:
         org = db.get(Organization, coerce_uuid(organization_value))
         if org:
             organization_label = org.name
             reseller_contact_hint = resolve_reseller_owner_org_id(db, org.id) is not None
+    if contact_id:
+        existing_person = db.get(Person, coerce_uuid(contact_id))
+        selfcare_managed_profile = _is_selfcare_managed_person(db, existing_person)
 
     action_url = "/admin/crm/contacts" if mode == "create" else f"/admin/crm/contacts/{contact_id}/edit"
 
@@ -552,6 +626,7 @@ def contact_form_error_context(
         "primary_email_index": _parse_optional_int(form.primary_email) or 0,
         "primary_phone_index": _parse_optional_int(form.primary_phone) or 0,
         "reseller_contact_hint": reseller_contact_hint,
+        "selfcare_managed_profile": selfcare_managed_profile,
     }
 
 
@@ -579,6 +654,10 @@ def edit_contact_form_context(db: Session, contact_id: str) -> dict[str, Any] | 
         "splynx_id": contact_obj.metadata_.get("splynx_id") if contact_obj.metadata_ else "",
         "email": contact_obj.email or "",
         "phone": contact_obj.phone or "",
+        "date_of_birth": contact_obj.date_of_birth.isoformat() if contact_obj.date_of_birth else "",
+        "gender": contact_obj.gender.value if contact_obj.gender else Gender.unknown.value,
+        "nin": contact_obj.nin or "",
+        "nin_masked": _mask_nin(contact_obj.nin),
         "address_line1": contact_obj.address_line1 or "",
         "address_line2": contact_obj.address_line2 or "",
         "city": contact_obj.city or "",
@@ -591,6 +670,7 @@ def edit_contact_form_context(db: Session, contact_id: str) -> dict[str, Any] | 
         "party_status": contact_obj.party_status.value if contact_obj.party_status else PartyStatus.contact.value,
         "is_active": contact_obj.is_active,
     }
+    selfcare_managed_profile = _is_selfcare_managed_person(db, contact_obj)
 
     return {
         "contact": contact,
@@ -605,6 +685,7 @@ def edit_contact_form_context(db: Session, contact_id: str) -> dict[str, Any] | 
         "primary_email_index": primary_email_index if emails else 0,
         "primary_phone_index": primary_phone_index if phones else 0,
         "reseller_contact_hint": resolve_reseller_owner_org_id(db, contact_obj.organization_id) is not None,
+        "selfcare_managed_profile": selfcare_managed_profile,
     }
 
 

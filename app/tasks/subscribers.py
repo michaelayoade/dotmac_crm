@@ -148,6 +148,32 @@ def reconcile_selfcare_contacts(limit: int | None = None) -> dict[str, Any]:
     return results
 
 
+@celery_app.task(name="app.tasks.subscribers.backfill_selfcare_person_profiles")
+def backfill_selfcare_person_profiles(force_from_selfcare: bool = False) -> dict[str, Any]:
+    """Pull selfcare customers and backfill person profile fields in CRM."""
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    results: dict[str, Any] = {}
+    try:
+        from app.services.selfcare import backfill_person_profiles_from_selfcare
+
+        results = backfill_person_profiles_from_selfcare(
+            session,
+            force_from_selfcare=force_from_selfcare,
+            logger=logger,
+        )
+    except Exception:
+        status = "error"
+        session.rollback()
+        logger.exception("SELFCARE_PROFILE_BACKFILL_ERROR force_from_selfcare=%s", force_from_selfcare)
+        raise
+    finally:
+        session.close()
+        observe_job("backfill_selfcare_person_profiles", status, time.monotonic() - start)
+    return results
+
+
 @celery_app.task(name="app.tasks.subscribers.refresh_billing_risk_cache")
 def refresh_billing_risk_cache() -> dict[str, Any]:
     """Refresh cached subscriber billing-risk report rows from live provider data."""

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.person import (
     ChannelType,
+    Gender,
     PartyStatus,
     Person,
     PersonChannel,
@@ -16,6 +17,7 @@ from app.models.person import (
     PersonStatus,
     PersonStatusLog,
 )
+from app.models.subscriber import Subscriber
 from app.schemas.person import PersonChannelCreate, PersonCreate, PersonUpdate
 from app.services.common import apply_ordering, apply_pagination, validate_enum
 from app.services.response import ListResponseMixin
@@ -78,6 +80,38 @@ def _find_person_by_phone(db: Session, phone: str | None) -> Person | None:
     if not normalized and not raw:
         return None
     return db.query(Person).filter(or_(Person.phone == normalized, Person.phone == raw)).first()
+
+
+def _is_selfcare_managed_person(db: Session, person: Person | None) -> bool:
+    if person is None:
+        return False
+    metadata = person.metadata_ if isinstance(person.metadata_, dict) else {}
+    if str(metadata.get("selfcare_id") or "").strip():
+        return True
+    return (
+        db.query(Subscriber)
+        .filter(
+            Subscriber.person_id == person.id,
+            Subscriber.external_system == "selfcare",
+        )
+        .first()
+        is not None
+    )
+
+
+def _enforce_selfcare_profile_read_only(db: Session, person: Person, data: dict[str, object]) -> None:
+    if not _is_selfcare_managed_person(db, person):
+        return
+    for field_name in ("date_of_birth", "gender", "nin"):
+        if field_name not in data:
+            continue
+        incoming = data.get(field_name)
+        current = getattr(person, field_name, None)
+        if isinstance(current, Gender):
+            current = current.value
+        if incoming is None or str(incoming) == str(current):
+            continue
+        raise HTTPException(status_code=409, detail="Profile details are managed in selfcare")
 
 
 def _find_person_channel_owner(
@@ -236,6 +270,7 @@ class People(ListResponseMixin):
         if not person:
             raise HTTPException(status_code=404, detail="Person not found")
         data = payload.model_dump(exclude_unset=True)
+        _enforce_selfcare_profile_read_only(db, person, data)
         if "email" in data:
             normalized = _normalize_email(data["email"])
             existing = _find_person_by_email(db, normalized)

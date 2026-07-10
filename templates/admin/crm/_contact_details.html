@@ -98,7 +98,33 @@
                     <p class="text-[10px] uppercase tracking-wide text-slate-400">Status</p>
                     <p class="truncate">{{ 'Active' if contact.is_active else 'Inactive' }}</p>
                 </div>
+                <div>
+                    <p class="text-[10px] uppercase tracking-wide text-slate-400">Date of Birth</p>
+                    <p class="truncate">{{ contact.date_of_birth or '—' }}</p>
+                </div>
+                <div>
+                    <p class="text-[10px] uppercase tracking-wide text-slate-400">Age</p>
+                    <p class="truncate">{{ contact.age if contact.age is not none else '—' }}</p>
+                </div>
+                <div>
+                    <p class="text-[10px] uppercase tracking-wide text-slate-400">Gender</p>
+                    <p class="truncate">{{ contact.gender or '—' }}</p>
+                </div>
+                <div>
+                    <p class="text-[10px] uppercase tracking-wide text-slate-400">NIN</p>
+                    <p class="truncate">{{ contact.nin_masked or '—' }}</p>
+                </div>
             </div>
+            {% if contact.selfcare_managed_profile %}
+            <div class="mt-3 rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-[11px] text-blue-200">
+                Synced from selfcare. Date of birth, gender, and NIN are managed there.
+            </div>
+            {% endif %}
+            {% if contact.profile_completeness_missing %}
+            <div class="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                Profile incomplete: missing {{ contact.profile_completeness_missing | join(', ') }}.
+            </div>
+            {% endif %}
 
             <!-- Contact channels -->
             <div class="space-y-1.5">

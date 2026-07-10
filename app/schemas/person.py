@@ -70,6 +70,7 @@ class PersonBase(BaseModel):
     phone: str | None = Field(default=None, max_length=40)
     date_of_birth: date | None = None
     gender: str = "unknown"
+    nin: str | None = Field(default=None, max_length=11)
     preferred_contact_method: str | None = None
     locale: str | None = Field(default=None, max_length=16)
     timezone: str | None = Field(default=None, max_length=64)
@@ -110,6 +111,7 @@ class PersonUpdate(BaseModel):
     phone: str | None = Field(default=None, max_length=40)
     date_of_birth: date | None = None
     gender: str | None = None
+    nin: str | None = Field(default=None, max_length=11)
     preferred_contact_method: str | None = None
     locale: str | None = Field(default=None, max_length=16)
     timezone: str | None = Field(default=None, max_length=64)

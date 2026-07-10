@@ -13,15 +13,17 @@ import re
 import threading
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlparse
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.models.audit import AuditActorType, AuditEvent
 from app.models.domain_settings import SettingDomain
-from app.models.person import PartyStatus, Person
+from app.models.person import Gender, PartyStatus, Person
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.services import settings_spec
 from app.services.common import coerce_uuid
@@ -939,6 +941,293 @@ def customer_base_station(customer: dict[str, Any] | None) -> str:
     ).strip()
 
 
+def _normalize_nin(value: object | None) -> str | None:
+    if value is None:
+        return None
+    digits = "".join(ch for ch in str(value).strip() if ch.isdigit())
+    if not digits:
+        return None
+    if len(digits) != 11:
+        logger.warning("SELFCARE_INVALID_NIN value=%r", value)
+        return None
+    return digits
+
+
+def _parse_profile_date(value: object | None) -> date | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if "T" in text:
+        text = text.split("T", 1)[0]
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        logger.warning("SELFCARE_INVALID_PROFILE_DATE value=%r", value)
+        return None
+
+
+_SELFCARE_GENDER_MAP = {
+    "f": Gender.female,
+    "female": Gender.female,
+    "m": Gender.male,
+    "male": Gender.male,
+    "non_binary": Gender.non_binary,
+    "non-binary": Gender.non_binary,
+    "nonbinary": Gender.non_binary,
+    "other": Gender.other,
+    "unknown": Gender.unknown,
+    "prefer_not_to_say": Gender.unknown,
+    "prefer-not-to-say": Gender.unknown,
+    "unspecified": Gender.unknown,
+}
+
+
+def _map_profile_gender(value: object | None) -> Gender | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    mapped = _SELFCARE_GENDER_MAP.get(text)
+    if mapped is None:
+        logger.warning("SELFCARE_INVALID_GENDER value=%r", value)
+    return mapped
+
+
+def _extract_customer_profile(customer: dict[str, Any]) -> dict[str, Any]:
+    metadata_value = customer.get("metadata")
+    metadata = cast("dict[str, Any]", metadata_value) if isinstance(metadata_value, dict) else {}
+    return {
+        "date_of_birth": _parse_profile_date(
+            customer.get("date_of_birth")
+            or customer.get("dob")
+            or customer.get("birth_date")
+            or metadata.get("date_of_birth")
+            or metadata.get("dob")
+        ),
+        "gender": _map_profile_gender(customer.get("gender") or metadata.get("gender")),
+        "nin": _normalize_nin(customer.get("nin") or metadata.get("nin")),
+    }
+
+
+def _resolve_person_for_selfcare_customer(
+    db: Session,
+    customer: dict[str, Any],
+    *,
+    existing_subscriber: Subscriber | None = None,
+) -> Person | None:
+    if existing_subscriber and existing_subscriber.person_id:
+        person = db.get(Person, existing_subscriber.person_id)
+        if person is not None:
+            return person
+
+    metadata_value = customer.get("metadata")
+    metadata = cast("dict[str, Any]", metadata_value) if isinstance(metadata_value, dict) else {}
+    crm_person_id = str(customer.get("crm_person_id") or metadata.get("crm_person_id") or "").strip()
+    if crm_person_id:
+        person = db.get(Person, coerce_uuid(crm_person_id))
+        if person is not None:
+            return person
+
+    selfcare_id = str(customer.get("id") or customer.get("uuid") or customer.get("subscriber_id") or "").strip()
+    if selfcare_id:
+        person = (
+            db.query(Person)
+            .filter(Person.metadata_["selfcare_id"].as_string() == selfcare_id)
+            .order_by(Person.updated_at.desc(), Person.created_at.desc())
+            .first()
+        )
+        if person is not None:
+            return person
+
+    email = str(customer.get("email") or "").strip().lower()
+    if email:
+        return db.query(Person).filter(func.lower(Person.email) == email).first()
+    return None
+
+
+def _person_has_selfcare_identity(person: Person | None) -> bool:
+    if person is None or not isinstance(person.metadata_, dict):
+        return False
+    return bool(str(person.metadata_.get("selfcare_id") or "").strip())
+
+
+def _is_empty_person_profile_value(value: object | None) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, Gender):
+        return value == Gender.unknown
+    return False
+
+
+def _profile_audit_value(value: object | None) -> object | None:
+    if isinstance(value, Gender):
+        return value.value
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    return value
+
+
+def _log_profile_sync_audit(
+    db: Session,
+    *,
+    person: Person,
+    action: str,
+    is_success: bool,
+    metadata: dict[str, Any],
+) -> None:
+    db.add(
+        AuditEvent(
+            actor_type=AuditActorType.system,
+            actor_id="selfcare_sync",
+            action=action,
+            entity_type="person",
+            entity_id=str(person.id),
+            status_code=200 if is_success else 409,
+            is_success=is_success,
+            metadata_=metadata,
+        )
+    )
+
+
+def sync_person_profile_from_selfcare_customer(
+    db: Session,
+    customer: dict[str, Any],
+    *,
+    existing_subscriber: Subscriber | None = None,
+    force_from_selfcare: bool = False,
+) -> dict[str, Any]:
+    """Apply selfcare profile fields to a matched CRM person.
+
+    Conflict policy:
+    - empty CRM field + incoming value -> fill
+    - differing values -> overwrite for linked selfcare customers, or when forced
+    """
+    person = _resolve_person_for_selfcare_customer(db, customer, existing_subscriber=existing_subscriber)
+    if person is None:
+        return {"matched": False, "updated": False, "conflicts": [], "updated_fields": []}
+
+    profile = _extract_customer_profile(customer)
+    managed_by_selfcare = _person_has_selfcare_identity(person) or (
+        existing_subscriber is not None and str(existing_subscriber.external_system or "").lower() == "selfcare"
+    )
+    should_overwrite = managed_by_selfcare or force_from_selfcare
+    conflicts: list[dict[str, Any]] = []
+    updated_fields: list[str] = []
+
+    for field_name, incoming in profile.items():
+        if incoming is None:
+            continue
+        current = getattr(person, field_name, None)
+        if field_name == "gender" and isinstance(current, str):
+            current = _map_profile_gender(current)
+        if _is_empty_person_profile_value(current):
+            setattr(person, field_name, incoming)
+            updated_fields.append(field_name)
+            continue
+        if current != incoming:
+            conflicts.append(
+                {
+                    "field": field_name,
+                    "crm": _profile_audit_value(current),
+                    "selfcare": _profile_audit_value(incoming),
+                    "overwritten": should_overwrite,
+                }
+            )
+            if should_overwrite:
+                setattr(person, field_name, incoming)
+                updated_fields.append(field_name)
+
+    if updated_fields:
+        _log_profile_sync_audit(
+            db,
+            person=person,
+            action="selfcare_profile_sync",
+            is_success=True,
+            metadata={
+                "source": "selfcare",
+                "selfcare_id": str(customer.get("id") or customer.get("uuid") or customer.get("subscriber_id") or ""),
+                "updated_fields": updated_fields,
+                "conflicts": conflicts,
+            },
+        )
+    for conflict in conflicts:
+        if conflict["field"] == "nin":
+            _log_profile_sync_audit(
+                db,
+                person=person,
+                action="selfcare_profile_sync_nin_conflict",
+                is_success=bool(conflict["overwritten"]),
+                metadata={
+                    "source": "selfcare",
+                    "field": "nin",
+                    "crm": conflict["crm"],
+                    "selfcare": conflict["selfcare"],
+                    "overwritten": conflict["overwritten"],
+                },
+            )
+    return {
+        "matched": True,
+        "updated": bool(updated_fields),
+        "updated_fields": updated_fields,
+        "conflicts": conflicts,
+        "person_id": str(person.id),
+    }
+
+
+def backfill_person_profiles_from_selfcare(
+    db: Session,
+    *,
+    force_from_selfcare: bool = False,
+    include_remote_details: bool = False,
+    logger: logging.Logger | None = None,
+) -> dict[str, Any]:
+    sync_logger = logger or globals()["logger"]
+    customers = fetch_customers(db, include="services,billing" if include_remote_details else None)
+    report: dict[str, Any] = {
+        "processed": 0,
+        "matched_and_updated": 0,
+        "matched_but_conflicting": 0,
+        "unmatched": 0,
+        "errors": [],
+    }
+
+    for customer in customers:
+        report["processed"] += 1
+        external_id = str(customer.get("id") or customer.get("uuid") or customer.get("subscriber_id") or "").strip()
+        try:
+            existing_subscriber = (
+                db.query(Subscriber)
+                .filter(Subscriber.external_system == "selfcare", Subscriber.external_id == external_id)
+                .first()
+                if external_id
+                else None
+            )
+            sync_result = sync_person_profile_from_selfcare_customer(
+                db,
+                customer,
+                existing_subscriber=existing_subscriber,
+                force_from_selfcare=force_from_selfcare,
+            )
+            if not sync_result["matched"]:
+                report["unmatched"] += 1
+            elif sync_result["updated"]:
+                report["matched_and_updated"] += 1
+            elif sync_result["conflicts"]:
+                report["matched_but_conflicting"] += 1
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            sync_logger.warning("selfcare_profile_backfill_item_failed selfcare_id=%s error=%s", external_id, exc)
+            report["errors"].append({"selfcare_id": external_id, "error": str(exc)})
+
+    return report
+
+
 def map_customer_to_subscriber_data(
     db: Session,
     customer: dict[str, Any],
@@ -1061,7 +1350,15 @@ def sync_subscribers_from_selfcare_data(
         raise TypeError(f"Selfcare subscribers response must be a list, got {type(customers_data).__name__}")
     sync_logger.info("SELFCARE_SYNC_STEP_COMPLETE step=fetch_subscribers count=%d", len(customers_data))
 
-    results: dict[str, Any] = {"created": 0, "updated": 0, "orphaned": 0, "errors": []}
+    results: dict[str, Any] = {
+        "created": 0,
+        "updated": 0,
+        "orphaned": 0,
+        "errors": [],
+        "person_profile_updated": 0,
+        "person_profile_conflicted": 0,
+        "person_profile_unmatched": 0,
+    }
     # Orphan detection must key off what upstream RETURNED, not what synced
     # successfully — otherwise a per-row sync failure (mapping/DB error) would make
     # a still-live subscriber look deleted and eligible for termination.
@@ -1074,21 +1371,6 @@ def sync_subscribers_from_selfcare_data(
     if not customers_data:
         sync_logger.info("selfcare_sync_no_data")
         return results
-
-    person_by_email: dict[str, Person] = {}
-    all_emails = [
-        str(customer.get("email") or "").lower().strip()
-        for customer in customers_data
-        if isinstance(customer, dict) and customer.get("email")
-    ]
-    if all_emails:
-        persons = db.query(Person).filter(Person.email.in_(all_emails)).all()
-        person_by_email = {person.email.lower(): person for person in persons if person.email}
-    sync_logger.info(
-        "SELFCARE_SYNC_STEP_COMPLETE step=build_person_email_index emails=%d matched_people=%d",
-        len(all_emails),
-        len(person_by_email),
-    )
 
     for index, customer in enumerate(customers_data, start=1):
         external_id = ""
@@ -1158,14 +1440,13 @@ def sync_subscribers_from_selfcare_data(
                 existing_sync_metadata=dict(existing.sync_metadata or {}) if existing else None,
             )
 
-            email = str(customer.get("email") or "").lower().strip()
-            if email and email in person_by_email:
-                person = person_by_email[email]
-                data["person_id"] = person.id
-                data["organization_id"] = person.organization_id
+            matched_person = _resolve_person_for_selfcare_customer(db, customer, existing_subscriber=existing)
+            if matched_person is not None:
+                data["person_id"] = matched_person.id
+                data["organization_id"] = matched_person.organization_id
 
             if existing:
-                subscriber_service.update(
+                subscriber = subscriber_service.update(
                     db,
                     existing,
                     {
@@ -1180,15 +1461,28 @@ def sync_subscribers_from_selfcare_data(
                 )
                 results["updated"] += 1
             else:
-                subscriber_service.sync_from_external(db, "selfcare", external_id, data)
+                subscriber = subscriber_service.sync_from_external(db, "selfcare", external_id, data)
                 results["created"] += 1
+            profile_sync = sync_person_profile_from_selfcare_customer(
+                db,
+                customer,
+                existing_subscriber=subscriber,
+            )
+            if profile_sync["updated"]:
+                results["person_profile_updated"] += 1
+            elif profile_sync["conflicts"]:
+                results["person_profile_conflicted"] += 1
+            elif not profile_sync["matched"]:
+                results["person_profile_unmatched"] += 1
+            db.commit()
             sync_logger.info(
-                "SELFCARE_SYNC_ITEM_COMPLETE index=%d external_id=%s action=%s created=%d updated=%d errors=%d",
+                "SELFCARE_SYNC_ITEM_COMPLETE index=%d external_id=%s action=%s created=%d updated=%d profile_updated=%d errors=%d",
                 index,
                 external_id,
                 "updated" if existing else "created",
                 results["created"],
                 results["updated"],
+                results["person_profile_updated"],
                 len(results["errors"]),
             )
         except Exception as exc:
@@ -1388,6 +1682,9 @@ def build_customer_payload(
         "crm_project_id": project_id,
         "crm_quote_id": quote_id,
         "crm_sales_order_id": sales_order_id,
+        "date_of_birth": person.date_of_birth.isoformat() if person.date_of_birth else None,
+        "gender": person.gender.value if person.gender else None,
+        "nin": person.nin or None,
         "synced_at": datetime.now(UTC).isoformat(),
     }
     return {
@@ -1400,6 +1697,9 @@ def build_customer_payload(
         "display_name": person.display_name or f"{first_name} {last_name}".strip(),
         "email": person.email,
         "phone": person.phone or "",
+        "date_of_birth": person.date_of_birth.isoformat() if person.date_of_birth else None,
+        "gender": person.gender.value if person.gender else None,
+        "nin": person.nin or None,
         "address_line1": person.address_line1 or "",
         "address_line2": person.address_line2 or "",
         "city": person.city or "",

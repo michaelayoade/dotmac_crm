@@ -71,6 +71,7 @@ class Person(Base):
 
     date_of_birth: Mapped[date | None] = mapped_column(Date)
     gender: Mapped[Gender] = mapped_column(Enum(Gender), default=Gender.unknown)
+    nin: Mapped[str | None] = mapped_column(String(11))
 
     preferred_contact_method: Mapped[ContactMethod | None] = mapped_column(Enum(ContactMethod))
     locale: Mapped[str | None] = mapped_column(String(16))

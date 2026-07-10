@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -13,11 +13,10 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.models import person as person_model
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.integration import IntegrationTarget
-from app.models.person import ChannelType as PersonChannelType
-from app.models.person import Person
 from app.models.subscriber import Organization
 from app.models.tickets import Ticket
 from app.services import time_preferences
@@ -34,11 +33,11 @@ logger = logging.getLogger(__name__)
 _URL_RE = re.compile(r"(https?://[^\s<]+)", flags=re.IGNORECASE)
 
 
-def _resolve_contact_email_for_display(contact: Person) -> str:
+def _resolve_contact_email_for_display(contact: person_model.Person) -> str:
     email_channels = [
         channel
         for channel in (contact.channels or [])
-        if channel.channel_type == PersonChannelType.email
+        if channel.channel_type == person_model.ChannelType.email
         and isinstance(channel.address, str)
         and channel.address.strip()
         and not is_placeholder_email(channel.address)
@@ -51,6 +50,25 @@ def _resolve_contact_email_for_display(contact: Person) -> str:
     if isinstance(contact.email, str) and contact.email.strip() and not is_placeholder_email(contact.email):
         return contact.email.strip()
     return ""
+
+
+def _mask_nin(value: str | None) -> str:
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    if len(digits) != 11:
+        return ""
+    return f"{digits[:3]}{'*' * 5}{digits[-3:]}"
+
+
+def _derive_age(date_of_birth: date | None) -> int | None:
+    if date_of_birth is None:
+        return None
+    today = date.today()
+    return today.year - date_of_birth.year - ((today.month, today.day) < (date_of_birth.month, date_of_birth.day))
+
+
+def _is_selfcare_managed_profile(contact: person_model.Person) -> bool:
+    metadata = contact.metadata_ if isinstance(contact.metadata_, dict) else {}
+    return bool(str(metadata.get("selfcare_id") or "").strip())
 
 
 def _localize_inbox_datetime(value: datetime | None, db: Session) -> tuple[datetime | None, str, str]:
@@ -456,7 +474,7 @@ def format_conversation_for_template(
                     if agent_people_by_id:
                         person = agent_people_by_id.get(str(agent.person_id))
                     if person is None:
-                        person = db.get(Person, agent.person_id)
+                        person = db.get(person_model.Person, agent.person_id)
                     if person:
                         full_name = (
                             person.display_name
@@ -739,7 +757,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
 
     if msg.direction == MessageDirection.internal:
         if msg.author_id:
-            person = db.get(Person, msg.author_id)
+            person = db.get(person_model.Person, msg.author_id)
             if person:
                 full_name = (
                     person.display_name
@@ -759,7 +777,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
             sender_initials = "AI"
             sender_is_ai = True
         elif msg.author_id:
-            person = db.get(Person, msg.author_id)
+            person = db.get(person_model.Person, msg.author_id)
             if person:
                 full_name = (
                     person.display_name
@@ -1051,7 +1069,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
                 if reply_metadata.get("ai_intake_generated"):
                     reply_author = "AI"
                 elif reply_msg.author_id:
-                    reply_person = db.get(Person, reply_msg.author_id)
+                    reply_person = db.get(person_model.Person, reply_msg.author_id)
                     if reply_person:
                         reply_author = (
                             reply_person.display_name
@@ -1124,7 +1142,7 @@ def format_message_for_template(msg: Message, db: Session) -> dict:
     }
 
 
-def format_contact_for_template(contact: Person, db: Session) -> dict:
+def format_contact_for_template(contact: person_model.Person, db: Session) -> dict:
     """Transform a Contact model into detailed template-friendly dict."""
     channels = []
     for ch in contact.channels or []:
@@ -1218,6 +1236,19 @@ def format_contact_for_template(contact: Person, db: Session) -> dict:
     display_email = _resolve_contact_email_for_display(contact)
     display_name = contact.display_name or phone_display or display_email or contact.email or "Unknown"
 
+    profile_completeness_missing = [
+        label
+        for label, value in (
+            ("date of birth", contact.date_of_birth),
+            (
+                "gender",
+                None if not contact.gender or contact.gender.value == "unknown" else contact.gender,
+            ),
+            ("NIN", contact.nin),
+        )
+        if not value
+    ]
+
     return {
         "id": str(contact.id),
         "name": display_name,
@@ -1230,6 +1261,12 @@ def format_contact_for_template(contact: Person, db: Session) -> dict:
         "tags": list(tags)[:5],
         "subscriber": None,
         "splynx_id": splynx_id,
+        "date_of_birth": contact.date_of_birth.isoformat() if contact.date_of_birth else "",
+        "age": _derive_age(contact.date_of_birth),
+        "gender": contact.gender.value.replace("_", " ").title() if contact.gender else "",
+        "nin_masked": _mask_nin(contact.nin),
+        "profile_completeness_missing": profile_completeness_missing,
+        "selfcare_managed_profile": _is_selfcare_managed_profile(contact),
         "recent_tickets": recent_tickets,
         "recent_projects": recent_projects,
         "recent_tasks": recent_tasks,

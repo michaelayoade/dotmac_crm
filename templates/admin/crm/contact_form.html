@@ -161,6 +161,39 @@
 
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Date of Birth</label>
+                    <input type="date" name="date_of_birth" value="{{ contact.date_of_birth }}"
+                           {% if selfcare_managed_profile %}disabled{% endif %}
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:disabled:bg-slate-800">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Gender</label>
+                    <select name="gender"
+                            {% if selfcare_managed_profile %}disabled{% endif %}
+                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:disabled:bg-slate-800">
+                        {% for option in ['unknown', 'female', 'male', 'non_binary', 'other'] %}
+                        <option value="{{ option }}" {% if contact.gender == option %}selected{% endif %}>{{ option | replace('_', ' ') | title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">NIN</label>
+                    <input type="text" name="nin" value="{{ contact.nin_masked if selfcare_managed_profile and contact.nin_masked else contact.nin }}"
+                           maxlength="11"
+                           {% if selfcare_managed_profile %}disabled{% endif %}
+                           class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:disabled:bg-slate-800">
+                    {% if selfcare_managed_profile and contact.nin_masked %}
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Stored as {{ contact.nin_masked }} in CRM. Managed in selfcare.</p>
+                    {% endif %}
+                </div>
+                {% if selfcare_managed_profile %}
+                <div class="sm:col-span-3">
+                    <div class="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-200">
+                        Date of birth, gender, and NIN are synced from selfcare for this customer and cannot be edited here.
+                    </div>
+                </div>
+                {% endif %}
+                <div>
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">City</label>
                     <input type="text" name="city" value="{{ contact.city }}"
                            class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
