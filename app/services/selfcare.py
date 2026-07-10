@@ -1035,7 +1035,7 @@ def _resolve_person_for_selfcare_customer(
     if selfcare_id:
         person = (
             db.query(Person)
-            .filter(func.json_extract_path_text(Person.metadata_, "selfcare_id") == selfcare_id)
+            .filter(Person.metadata_["selfcare_id"].as_string() == selfcare_id)
             .order_by(Person.updated_at.desc(), Person.created_at.desc())
             .first()
         )
@@ -1062,6 +1062,14 @@ def _is_empty_person_profile_value(value: object | None) -> bool:
     if isinstance(value, Gender):
         return value == Gender.unknown
     return False
+
+
+def _profile_audit_value(value: object | None) -> object | None:
+    if isinstance(value, Gender):
+        return value.value
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    return value
 
 
 def _log_profile_sync_audit(
@@ -1125,8 +1133,8 @@ def sync_person_profile_from_selfcare_customer(
             conflicts.append(
                 {
                     "field": field_name,
-                    "crm": current.value if isinstance(current, Gender) else current,
-                    "selfcare": incoming.value if isinstance(incoming, Gender) else incoming,
+                    "crm": _profile_audit_value(current),
+                    "selfcare": _profile_audit_value(incoming),
                     "overwritten": should_overwrite,
                 }
             )

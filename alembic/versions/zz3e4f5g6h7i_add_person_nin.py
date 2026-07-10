@@ -1,7 +1,7 @@
 """add nin to people
 
 Revision ID: zz3e4f5g6h7i
-Revises: zy2d3e4f5g6h
+Revises: so2026070801
 Create Date: 2026-07-09 00:00:00.000000
 """
 
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "zz3e4f5g6h7i"
-down_revision = "zy2d3e4f5g6h"
+down_revision = "so2026070801"
 branch_labels = None
 depends_on = None
 
