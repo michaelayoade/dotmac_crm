@@ -247,7 +247,7 @@ def test_team_assigned_filter_returns_team_only_assignments(db_session):
 
 
 def test_ai_handling_filter_returns_active_ai_intake_conversations(db_session):
-    """AI handling should show conversations whose AI intake is not handed off yet."""
+    """AI handling should show conversations while AI intake is still active."""
     contact = _create_person(db_session, name="AIHandling")
 
     conv_ai_active = _create_conversation(db_session, contact)
@@ -289,10 +289,10 @@ def test_ai_handling_filter_returns_active_ai_intake_conversations(db_session):
     assert conv_ai_active.id in ids
     assert conv_ai_done.id not in ids
     assert conv_normal_pending.id not in ids
-    assert conv_ai_assigned.id not in ids
+    assert conv_ai_assigned.id in ids
 
     counts = get_assignment_counts(db_session, assigned_person_id=None)
-    assert counts["ai_handling"] == 1
+    assert counts["ai_handling"] == 2
 
 
 def test_manual_assignment_marks_ai_intake_human_assigned(db_session):
