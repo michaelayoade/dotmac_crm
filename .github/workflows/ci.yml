@@ -51,9 +51,6 @@ jobs:
       - name: Ruff Lint
         run: poetry run ruff check app/ tests/
 
-      - name: Ruff Format Diff
-        run: poetry run ruff format --diff tests/test_ai_intake_service.py || true
-
       - name: Ruff Format Check
         run: poetry run ruff format --check app/ tests/
 

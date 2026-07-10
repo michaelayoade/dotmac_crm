@@ -1744,9 +1744,7 @@ def test_send_profile_update_prompt_reconciles_existing_message_without_resend(d
     assert result is False
 
 
-def test_process_pending_intake_does_not_send_profile_update_prompt_when_handoff_is_suppressed(
-    db_session, monkeypatch
-):
+def test_process_pending_intake_does_not_send_profile_update_prompt_when_handoff_is_suppressed(db_session, monkeypatch):
     person = _make_person(db_session)
     conversation = _make_conversation(db_session, person)
     widget_id = str(uuid.uuid4())
