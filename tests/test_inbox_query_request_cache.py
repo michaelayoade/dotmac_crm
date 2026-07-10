@@ -29,7 +29,7 @@ def test_get_assignment_counts_uses_session_cache(monkeypatch):
     assert first["unassigned"] == 4
     assert first["unreplied"] == 2
     assert first["needs_attention"] == 1
-    assert calls == ["assigned", "my_team"]
+    assert calls == ["assigned", "my_team", "ai_handling"]
 
 
 def test_get_resolved_today_count_uses_session_cache(monkeypatch):

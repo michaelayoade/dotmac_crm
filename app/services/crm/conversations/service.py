@@ -846,6 +846,21 @@ def assign_conversation(
         )
         assignment = ConversationAssignments.create(db, payload)
 
+        if assigned_by_id is not None and agent_uuid is not None:
+            if conversation.status == ConversationStatus.pending:
+                conversation.status = ConversationStatus.open
+            try:
+                from app.services.crm.ai_intake import mark_handoff_assigned_for_manual_assignment
+
+                mark_handoff_assigned_for_manual_assignment(
+                    db,
+                    conversation=conversation,
+                    assigned_agent_id=str(agent_uuid),
+                    assigned_by_id=str(coerce_uuid(assigned_by_id)),
+                )
+            except Exception:
+                logger.exception("ai_intake_manual_assignment_handoff_mark_failed conversation_id=%s", conversation.id)
+
         # Stamp the first time an agent (not a team-only queue) takes the chat —
         # historical and idempotent.
         assigned_now = _now()
