@@ -619,6 +619,27 @@ def _get_inbound_message_bounds(db: Session, conversation_id):
     return last_inbound, first_inbound
 
 
+def _tickets_moved_banner(db: Session) -> dict[str, str] | None:
+    """Return context for the transition banner shown once tickets move to the sub admin.
+
+    Gated by the ``support_tickets_moved_banner_enabled`` integration setting so the
+    banner stays invisible until the Phase 1 flip. The link defaults to the sub
+    (selfcare) admin ticket queue derived from ``selfcare_base_url``.
+    """
+    enabled = settings_spec.resolve_value(db, SettingDomain.integration, "support_tickets_moved_banner_enabled")
+    if not enabled:
+        return None
+    url = str(
+        settings_spec.resolve_value(db, SettingDomain.integration, "support_tickets_moved_banner_url") or ""
+    ).strip()
+    if not url:
+        base_url = str(settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_base_url") or "").strip()
+        if not base_url:
+            return None
+        url = f"{base_url.rstrip('/')}/admin/support/tickets"
+    return {"url": url}
+
+
 def _load_ticket_types(db: Session) -> tuple[list[dict], dict[str, str]]:
     raw = settings_spec.resolve_value(db, SettingDomain.comms, "ticket_types")
     if not raw:
@@ -1481,6 +1502,7 @@ def tickets_list(
         "admin/tickets/index.html",
         {
             "request": request,
+            "tickets_moved_banner": _tickets_moved_banner(db),
             "tickets": tickets,
             "ticket_relationships": ticket_relationships,
             "stats": stats,
@@ -3084,6 +3106,7 @@ def ticket_detail(
         "admin/tickets/detail.html",
         {
             "request": request,
+            "tickets_moved_banner": _tickets_moved_banner(db),
             "ticket": ticket,
             "comments": comments,
             "activities": activities,
