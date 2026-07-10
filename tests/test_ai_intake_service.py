@@ -28,6 +28,7 @@ from app.services.crm.ai_intake import (
     escalate_expired_pending_intakes,
     make_scope_key,
     process_pending_intake,
+    reassign_stale_ai_handoffs,
     recover_ai_error_escalations,
     save_ai_intake_config,
     send_due_handoff_reassurance_followups,
@@ -2003,6 +2004,151 @@ def test_recover_ai_error_escalations_skips_active_assignments(db_session, monke
     assert result["retried"] == 0
     assert result["skipped"] >= 1
     assert state["status"] == "escalated"
+
+
+def test_reassign_stale_ai_handoff_moves_to_free_agent_after_first_response_timeout(db_session):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    _make_message(db_session, conversation)
+    team = CrmTeam(name="Missed Handoff Support", is_active=True)
+    db_session.add(team)
+    db_session.commit()
+    first_agent = _make_agent(db_session, team, label="MissedFirst", status=AgentPresenceStatus.online)
+    second_agent = _make_agent(db_session, team, label="MissedSecond", status=AgentPresenceStatus.online)
+
+    assigned_at = datetime.now(UTC) - timedelta(minutes=20)
+    conversation.status = ConversationStatus.open
+    conversation.first_response_at = None
+    conversation.metadata_ = {
+        AI_INTAKE_METADATA_KEY: {
+            "status": "escalated",
+            "escalated_at": (assigned_at - timedelta(minutes=1)).isoformat(),
+            "handoff_state": "none",
+            "routing_selected_team_id": str(team.id),
+            "routing_assigned_team_id": str(team.id),
+            "routing_assigned_agent_id": str(first_agent.id),
+        }
+    }
+    db_session.add(
+        ConversationAssignment(
+            conversation_id=conversation.id,
+            team_id=team.id,
+            agent_id=first_agent.id,
+            assigned_at=assigned_at,
+            is_active=True,
+        )
+    )
+    db_session.commit()
+
+    result = reassign_stale_ai_handoffs(db_session, limit=10)
+
+    active_assignment = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .one()
+    )
+    db_session.refresh(conversation)
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    assert result["processed"] == 1
+    assert result["reassigned"] == 1
+    assert active_assignment.agent_id == second_agent.id
+    assert active_assignment.team_id == team.id
+    assert state["missed_handoff_previous_agent_id"] == str(first_agent.id)
+    assert state["missed_handoff_reassigned_agent_id"] == str(second_agent.id)
+    assert state["missed_handoff_reassignment_result"] == "reassigned"
+
+
+def test_reassign_stale_ai_handoff_skips_active_ai_followup_state(db_session):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    team = CrmTeam(name="Active AI Followup", is_active=True)
+    db_session.add(team)
+    db_session.commit()
+    first_agent = _make_agent(db_session, team, label="ActiveFirst", status=AgentPresenceStatus.online)
+    _make_agent(db_session, team, label="ActiveSecond", status=AgentPresenceStatus.online)
+
+    conversation.status = ConversationStatus.pending
+    conversation.first_response_at = None
+    conversation.metadata_ = {
+        AI_INTAKE_METADATA_KEY: {
+            "status": "awaiting_customer",
+            "started_at": (datetime.now(UTC) - timedelta(minutes=20)).isoformat(),
+            "handoff_state": "none",
+            "routing_selected_team_id": str(team.id),
+        }
+    }
+    db_session.add(
+        ConversationAssignment(
+            conversation_id=conversation.id,
+            team_id=team.id,
+            agent_id=first_agent.id,
+            assigned_at=datetime.now(UTC) - timedelta(minutes=20),
+            is_active=True,
+        )
+    )
+    db_session.commit()
+
+    result = reassign_stale_ai_handoffs(db_session, limit=10)
+
+    active_assignment = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .one()
+    )
+    assert result["processed"] == 0
+    assert result["reassigned"] == 0
+    assert active_assignment.agent_id == first_agent.id
+
+
+def test_reassign_stale_ai_handoff_moves_to_team_queue_when_no_other_agent_free(db_session):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    team = CrmTeam(name="No Free Handoff Agent", is_active=True)
+    db_session.add(team)
+    db_session.commit()
+    first_agent = _make_agent(db_session, team, label="OnlyAssigned", status=AgentPresenceStatus.online)
+
+    assigned_at = datetime.now(UTC) - timedelta(minutes=20)
+    conversation.status = ConversationStatus.open
+    conversation.first_response_at = None
+    conversation.metadata_ = {
+        AI_INTAKE_METADATA_KEY: {
+            "status": "escalated",
+            "escalated_at": assigned_at.isoformat(),
+            "handoff_state": "none",
+            "routing_selected_team_id": str(team.id),
+            "routing_assigned_team_id": str(team.id),
+            "routing_assigned_agent_id": str(first_agent.id),
+        }
+    }
+    db_session.add(
+        ConversationAssignment(
+            conversation_id=conversation.id,
+            team_id=team.id,
+            agent_id=first_agent.id,
+            assigned_at=assigned_at,
+            is_active=True,
+        )
+    )
+    db_session.commit()
+
+    result = reassign_stale_ai_handoffs(db_session, limit=10)
+
+    active_assignment = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .one()
+    )
+    db_session.refresh(conversation)
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    assert result["processed"] == 1
+    assert result["queued"] == 1
+    assert active_assignment.team_id == team.id
+    assert active_assignment.agent_id is None
+    assert state["missed_handoff_reassignment_result"] == "team_queue"
 
 
 def test_history_and_prompt_include_chronological_transcript(db_session):
