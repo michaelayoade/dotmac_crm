@@ -2682,6 +2682,46 @@ SETTINGS_SPECS: list[SettingSpec] = [
     ),
     SettingSpec(
         domain=SettingDomain.integration,
+        key="work_orders_moved_banner_enabled",
+        env_var="WORK_ORDERS_MOVED_BANNER_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+        label="Show Work Orders Moved Banner",
+        section="Selfcare",
+        help_text=(
+            "Display a banner on the CRM work-order admin pages announcing that "
+            "work orders have moved to the sub admin and this system is read-only."
+        ),
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="work_orders_moved_banner_url",
+        env_var="WORK_ORDERS_MOVED_BANNER_URL",
+        value_type=SettingValueType.string,
+        default=None,
+        label="Work Orders Moved Banner URL",
+        section="Selfcare",
+        help_text=(
+            "Link target for the work-orders-moved banner. When empty, defaults to "
+            "the Selfcare Base URL plus /admin/dispatch/work-orders."
+        ),
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="work_order_events_to_selfcare_enabled",
+        env_var="WORK_ORDER_EVENTS_TO_SELFCARE_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=True,
+        label="Emit Work Order Events To Selfcare",
+        section="Selfcare",
+        help_text=(
+            "Push work-order lifecycle events to the sub (selfcare) field-service "
+            "mirror. Disable at the Phase 2 flip, once sub is the work-order "
+            "system-of-record, to stop CRM emission without a code change."
+        ),
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
         key="dotmac_erp_sync_enabled",
         env_var="DOTMAC_ERP_SYNC_ENABLED",
         value_type=SettingValueType.boolean,
