@@ -43,6 +43,7 @@ AI_INTAKE_METADATA_KEY = "ai_intake"
 AI_INTAKE_HANDOFF_SENT_KEY = "handoff_sent"
 AI_INTAKE_HANDOFF_FOLLOWUP_MINUTES = 15
 AI_INTAKE_HANDOFF_MESSAGE_KIND = "handoff"
+AI_INTAKE_PROFILE_UPDATE_PROMPT_KIND = "profile_update_prompt"
 AI_INTAKE_HANDOFF_REASSURANCE_KIND = "handoff_reassurance"
 AI_INTAKE_FOLLOWUP_QUESTION_KIND = "followup_question"
 AI_INTAKE_SEND_CLAIM_TTL_SECONDS = 300
@@ -571,6 +572,14 @@ def _handoff_reassurance_message_for_department(department: str) -> str | None:
     return f"Thanks for your patience - our {team_label} is still reviewing your request and will respond as soon as possible."
 
 
+def _profile_update_prompt_message() -> str:
+    return (
+        "Thanks for reaching out to us. In the meantime, please take a moment to update your profile details so we can serve you better.\n\n"
+        "You can update your information here: https://selfcare.dotmac.io/portal/profile\n\n"
+        "Please remember to save your changes when you're done."
+    )
+
+
 def _apply_mapping_metadata(db: Session, conversation: Conversation, mapping: AiIntakeDepartmentMapping) -> None:
     logger.info(
         "ai_intake_apply_mapping conversation_id=%s department=%s team_id=%s tags=%s priority=%s",
@@ -1030,6 +1039,35 @@ def _send_handoff_message(
                 _set_state(locked, latest_state)
             db.commit()
         raise
+
+
+def _send_profile_update_prompt(
+    db: Session,
+    *,
+    conversation: Conversation,
+    message: Message,
+) -> bool:
+    body = _profile_update_prompt_message()
+    conversation_id = coerce_uuid(str(conversation.id))
+    locked = db.query(Conversation).filter(Conversation.id == conversation_id).with_for_update(skip_locked=True).first()
+    if not locked:
+        return False
+    existing = _find_existing_ai_message(
+        db,
+        conversation_id=locked.id,
+        message_kind=AI_INTAKE_PROFILE_UPDATE_PROMPT_KIND,
+    )
+    if existing:
+        return False
+
+    _send_followup(
+        db,
+        conversation=locked,
+        message=message,
+        body=body,
+        message_kind=AI_INTAKE_PROFILE_UPDATE_PROMPT_KIND,
+    )
+    return True
 
 
 def _message_timestamp(message: Message) -> datetime | None:
@@ -1856,15 +1894,21 @@ def process_pending_intake(
         message_id_str = str(message.id)
         channel_value = message.channel_type.value if message.channel_type else "unknown"
         try:
-            _send_handoff_message(
+            handoff_sent = _send_handoff_message(
                 db,
                 conversation=conversation,
                 message=message,
                 department=department,
             )
+            if handoff_sent:
+                _send_profile_update_prompt(
+                    db,
+                    conversation=conversation,
+                    message=message,
+                )
         except Exception as exc:
             logger.warning(
-                "ai_intake_handoff_send_failed scope_key=%s conversation_id=%s department=%s error=%s",
+                "ai_intake_post_handoff_send_failed scope_key=%s conversation_id=%s department=%s error=%s",
                 config.scope_key,
                 conversation_id_str,
                 department,

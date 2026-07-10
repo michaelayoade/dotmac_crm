@@ -20,10 +20,12 @@ from app.services.crm.ai_intake import (
     _build_prompt,
     _coerce_ai_bool,
     _handoff_message_for_department,
+    _profile_update_prompt_message,
     _handoff_reassurance_message_for_department,
     _history,
     _normalize_department_key,
     _send_handoff_message,
+    _send_profile_update_prompt,
     backfill_missing_handoff_states,
     escalate_expired_pending_intakes,
     make_scope_key,
@@ -278,10 +280,10 @@ def test_process_pending_intake_resolves_and_assigns_team(db_session, monkeypatc
             {"endpoint": "primary", "fallback_used": False},
         ),
     )
-    sent = {}
+    sent: list[str] = []
 
     def _fake_send_message(db, payload, author_id=None, trace_id=None):
-        sent["body"] = payload.body
+        sent.append(payload.body)
         outbound = Message(
             conversation_id=payload.conversation_id,
             channel_type=payload.channel_type,
@@ -323,10 +325,10 @@ def test_process_pending_intake_resolves_and_assigns_team(db_session, monkeypatc
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["handoff_state"] == AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["department"] == "support"
     assert {tag.tag for tag in conversation.tags} == {"support"}
-    assert (
-        sent["body"]
-        == "Thanks for reaching out to us. A member of our support team will respond to you shortly. Please wait for the next available agent."
-    )
+    assert sent == [
+        "Thanks for reaching out to us. A member of our support team will respond to you shortly. Please wait for the next available agent.",
+        _profile_update_prompt_message(),
+    ]
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["handoff_sent"] is True
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["handoff_sent_at"] is not None
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["handoff_followup_due_at"] is not None
@@ -426,10 +428,10 @@ def test_process_pending_intake_routes_billing_payment_to_sales_call_center(db_s
             {"endpoint": "primary", "fallback_used": False},
         ),
     )
-    sent = {}
+    sent: list[str] = []
 
     def _fake_send_message(db, payload, author_id=None, trace_id=None):
-        sent["body"] = payload.body
+        sent.append(payload.body)
         outbound = Message(
             conversation_id=payload.conversation_id,
             channel_type=payload.channel_type,
@@ -462,10 +464,10 @@ def test_process_pending_intake_routes_billing_payment_to_sales_call_center(db_s
     assert assignment is not None
     assert assignment.team_id == sales_team.id
     assert assignment.agent_id is not None
-    assert (
-        sent["body"]
-        == "Thanks for reaching out to us. A member of our billing team will respond to you shortly. Please wait for the next available agent."
-    )
+    assert sent == [
+        "Thanks for reaching out to us. A member of our billing team will respond to you shortly. Please wait for the next available agent.",
+        _profile_update_prompt_message(),
+    ]
 
 
 def test_process_pending_intake_routes_billing_renewal_to_sales(db_session, monkeypatch):
@@ -495,10 +497,10 @@ def test_process_pending_intake_routes_billing_renewal_to_sales(db_session, monk
             {"endpoint": "primary", "fallback_used": False},
         ),
     )
-    sent = {}
+    sent: list[str] = []
 
     def _fake_send_message(db, payload, author_id=None, trace_id=None):
-        sent["body"] = payload.body
+        sent.append(payload.body)
         outbound = Message(
             conversation_id=payload.conversation_id,
             channel_type=payload.channel_type,
@@ -531,10 +533,10 @@ def test_process_pending_intake_routes_billing_renewal_to_sales(db_session, monk
     assert assignment is not None
     assert assignment.team_id == sales_team.id
     assert assignment.agent_id is not None
-    assert (
-        sent["body"]
-        == "Thanks for reaching out to us. A member of our billing team will respond to you shortly. Please wait for the next available agent."
-    )
+    assert sent == [
+        "Thanks for reaching out to us. A member of our billing team will respond to you shortly. Please wait for the next available agent.",
+        _profile_update_prompt_message(),
+    ]
 
 
 def test_process_pending_intake_assigns_specific_sales_agent_immediately(db_session, monkeypatch):
@@ -722,6 +724,14 @@ def test_coerce_ai_bool_variants(raw_value, expected):
 def test_handoff_copy_is_department_specific(department, handoff_message, reassurance_message):
     assert _handoff_message_for_department(department) == handoff_message
     assert _handoff_reassurance_message_for_department(department) == reassurance_message
+
+
+def test_profile_update_prompt_copy():
+    assert _profile_update_prompt_message() == (
+        "Thanks for reaching out to us. In the meantime, please take a moment to update your profile details so we can serve you better.\n\n"
+        "You can update your information here: https://selfcare.dotmac.io/portal/profile\n\n"
+        "Please remember to save your changes when you're done."
+    )
 
 
 def test_process_pending_intake_ignores_offline_agents_for_round_robin(db_session, monkeypatch):
@@ -1697,6 +1707,143 @@ def test_send_handoff_message_reconciles_existing_message_without_resend(db_sess
     assert state["handoff_sent"] is True
     assert state["handoff_sent_at"] == outbound.sent_at.replace(tzinfo=UTC).isoformat()
     assert state["handoff_message"] == outbound.body
+
+
+def test_send_profile_update_prompt_reconciles_existing_message_without_resend(db_session, monkeypatch):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    inbound = _make_message(db_session, conversation, body="Need help")
+    outbound = Message(
+        conversation_id=conversation.id,
+        channel_type=inbound.channel_type,
+        direction=MessageDirection.outbound,
+        status=MessageStatus.sent,
+        body=_profile_update_prompt_message(),
+        sent_at=datetime.now(UTC),
+        metadata_={
+            "ai_intake_generated": True,
+            "ai_intake_message_kind": "profile_update_prompt",
+        },
+    )
+    db_session.add(outbound)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.send_message",
+        lambda db, payload, author_id=None, trace_id=None: pytest.fail("existing profile update prompt should be reconciled"),
+    )
+
+    result = _send_profile_update_prompt(
+        db_session,
+        conversation=conversation,
+        message=inbound,
+    )
+
+    assert result is False
+
+
+def test_process_pending_intake_does_not_send_profile_update_prompt_when_handoff_is_suppressed(db_session, monkeypatch):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+    team = CrmTeam(name="Support", is_active=True)
+    db_session.add(team)
+    db_session.commit()
+    _make_agent(db_session, team, label="Assigned", status=AgentPresenceStatus.online)
+    _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
+        lambda db, **kwargs: (
+            SimpleNamespace(
+                content='{"department":"support","confidence":0.93,"reason":"service issue","needs_followup":false,"followup_question":""}'
+            ),
+            {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+    sent: list[str] = []
+
+    def _fake_send_handoff_message(db, *, conversation, message, department):
+        return False
+
+    def _fake_send_profile_update_prompt(db, *, conversation, message):
+        sent.append("profile")
+        return True
+
+    monkeypatch.setattr("app.services.crm.ai_intake._send_handoff_message", _fake_send_handoff_message)
+    monkeypatch.setattr("app.services.crm.ai_intake._send_profile_update_prompt", _fake_send_profile_update_prompt)
+
+    result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    assert result.handled is True
+    assert result.resolved is True
+    assert sent == []
+
+
+def test_process_pending_intake_sends_profile_update_prompt_after_handoff(db_session, monkeypatch):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+    team = CrmTeam(name="Support", is_active=True)
+    db_session.add(team)
+    db_session.commit()
+    _make_agent(db_session, team, label="Assigned", status=AgentPresenceStatus.online)
+    _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
+        lambda db, **kwargs: (
+            SimpleNamespace(
+                content='{"department":"support","confidence":0.93,"reason":"service issue","needs_followup":false,"followup_question":""}'
+            ),
+            {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+    sent: list[str] = []
+
+    def _fake_send_message(db, payload, author_id=None, trace_id=None):
+        outbound = Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+            metadata_=payload.metadata,
+        )
+        db.add(outbound)
+        db.commit()
+        db.refresh(outbound)
+        sent.append(payload.body)
+        return outbound
+
+    monkeypatch.setattr("app.services.crm.ai_intake.send_message", _fake_send_message)
+
+    result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    assert result.handled is True
+    assert result.resolved is True
+    assert sent == [
+        "Thanks for reaching out to us. A member of our support team will respond to you shortly. Please wait for the next available agent.",
+        _profile_update_prompt_message(),
+    ]
 
 
 def test_process_pending_intake_existing_pending_state_continues(db_session, monkeypatch):
