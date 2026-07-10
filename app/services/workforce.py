@@ -493,9 +493,7 @@ def build_work_order_portal_payload(db: Session, work_order: WorkOrder) -> dict:
         "priority": work_order.priority.value if work_order.priority else None,
         "ticket_id": str(work_order.ticket_id) if work_order.ticket_id else None,
         "project_id": str(work_order.project_id) if work_order.project_id else None,
-        "assigned_to_person_id": str(work_order.assigned_to_person_id)
-        if work_order.assigned_to_person_id
-        else None,
+        "assigned_to_person_id": str(work_order.assigned_to_person_id) if work_order.assigned_to_person_id else None,
         "assigned_to_name": technician_name,
         "technician_name": technician_name,
         "technician_phone": technician_phone,
