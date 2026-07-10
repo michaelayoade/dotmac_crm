@@ -5,6 +5,7 @@ from app.services.crm import inbox as inbox_service
 from app.services.crm.ai_intake import (
     backfill_missing_handoff_states,
     escalate_expired_pending_intakes,
+    reassign_stale_ai_handoffs,
     retry_team_only_ai_assignments,
     send_due_handoff_reassurance_followups,
 )
@@ -142,6 +143,38 @@ def retry_team_only_ai_assignments_task(limit: int = 200):
     finally:
         session.close()
         observe_job("retry_team_only_ai_assignments", status, time.monotonic() - start)
+
+
+@celery_app.task(name="app.tasks.crm_inbox.reassign_stale_ai_handoffs")
+def reassign_stale_ai_handoffs_task(limit: int = 200):
+    import logging
+    import time
+
+    from app.metrics import observe_job
+
+    logger = logging.getLogger(__name__)
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger.info("AI_INTAKE_STALE_HANDOFF_REASSIGN_START")
+    try:
+        result = reassign_stale_ai_handoffs(session, limit=limit)
+        logger.info(
+            "AI_INTAKE_STALE_HANDOFF_REASSIGN_COMPLETE processed=%s reassigned=%s queued=%s skipped=%s errors=%s",
+            result.get("processed", 0),
+            result.get("reassigned", 0),
+            result.get("queued", 0),
+            result.get("skipped", 0),
+            len(result.get("errors", [])),
+        )
+        return result
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("reassign_stale_ai_handoffs", status, time.monotonic() - start)
 
 
 @celery_app.task(name="app.tasks.crm_inbox.promote_queued_conversations")

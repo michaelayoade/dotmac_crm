@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 AI_INTAKE_METADATA_KEY = "ai_intake"
 AI_INTAKE_HANDOFF_SENT_KEY = "handoff_sent"
 AI_INTAKE_HANDOFF_FOLLOWUP_MINUTES = 15
+AI_INTAKE_HANDOFF_REASSIGN_MINUTES = 15
 AI_INTAKE_HANDOFF_MESSAGE_KIND = "handoff"
 AI_INTAKE_HANDOFF_REASSURANCE_KIND = "handoff_reassurance"
 AI_INTAKE_FOLLOWUP_QUESTION_KIND = "followup_question"
@@ -2137,6 +2138,192 @@ def retry_team_only_ai_assignments(db: Session, *, limit: int = 200) -> dict[str
         "processed": len(rows),
         "retried": retried,
         "assigned": assigned,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+
+def _handoff_action_at(state: dict[str, Any]) -> datetime | None:
+    candidates = [
+        _parse_timestamp(state.get("human_assigned_at")),
+        _parse_timestamp(state.get("assigned_at")),
+        _parse_timestamp(state.get("agent_assigned_at")),
+        _parse_timestamp(state.get("escalated_at")),
+        _parse_timestamp(state.get("resolved_at")),
+        _parse_timestamp(state.get("handoff_sent_at")),
+    ]
+    parsed = [candidate for candidate in candidates if candidate is not None]
+    return max(parsed) if parsed else None
+
+
+def _missed_handoff_reference_at(
+    *,
+    state: dict[str, Any],
+    assignment: ConversationAssignment,
+) -> datetime | None:
+    assignment_at = assignment.assigned_at
+    if assignment_at is not None and assignment_at.tzinfo is None:
+        assignment_at = assignment_at.replace(tzinfo=UTC)
+    handoff_at = _handoff_action_at(state)
+    candidates = [candidate for candidate in [assignment_at, handoff_at] if candidate is not None]
+    return max(candidates) if candidates else None
+
+
+def _select_reassignment_agent(
+    db: Session,
+    *,
+    team_id: str,
+    exclude_agent_id: str | None,
+):
+    active_agents = inbox_routing._list_active_agents(db, team_id)
+    if exclude_agent_id:
+        active_agents = [agent for agent in active_agents if str(agent.id) != str(exclude_agent_id)]
+    if not active_agents:
+        return None
+
+    load_map = inbox_routing._agent_active_chat_counts(db, [agent.id for agent in active_agents])
+    default_cap = inbox_routing._global_max_concurrent(db)
+    available = [
+        agent for agent in active_agents if load_map.get(agent.id, 0) < inbox_routing._agent_cap(agent, default_cap)
+    ]
+    if not available:
+        return None
+    available.sort(key=lambda agent: (load_map.get(agent.id, 0), agent.created_at, str(agent.id)))
+    return available[0]
+
+
+def _ai_handoff_reassignment_timeout_minutes(db: Session) -> int:
+    from app.services.settings_spec import SettingDomain, resolve_value
+
+    value = resolve_value(db, SettingDomain.notification, "crm_inbox_ai_handoff_reassign_after_minutes")
+    if isinstance(value, bool):
+        minutes = AI_INTAKE_HANDOFF_REASSIGN_MINUTES
+    elif isinstance(value, int | float | str):
+        try:
+            minutes = int(value)
+        except ValueError:
+            minutes = AI_INTAKE_HANDOFF_REASSIGN_MINUTES
+    else:
+        minutes = AI_INTAKE_HANDOFF_REASSIGN_MINUTES
+    return max(minutes, 1)
+
+
+def reassign_stale_ai_handoffs(db: Session, *, limit: int = 200) -> dict[str, Any]:
+    """Reassign AI handoffs when the first assigned agent has not replied in time."""
+    timeout_minutes = _ai_handoff_reassignment_timeout_minutes(db)
+    cutoff = _now() - timedelta(minutes=timeout_minutes)
+    rows = (
+        db.query(Conversation, ConversationAssignment)
+        .join(ConversationAssignment, ConversationAssignment.conversation_id == Conversation.id)
+        .filter(Conversation.is_active.is_(True))
+        .filter(Conversation.status.in_([ConversationStatus.open, ConversationStatus.pending]))
+        .filter(Conversation.first_response_at.is_(None))
+        .filter(ConversationAssignment.is_active.is_(True))
+        .filter(ConversationAssignment.agent_id.isnot(None))
+        .order_by(ConversationAssignment.assigned_at.asc())
+        .limit(limit)
+        .all()
+    )
+
+    processed = 0
+    reassigned = 0
+    queued = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for conversation, assignment in rows:
+        state = _state(conversation)
+        if state.get("status") not in {"resolved", "escalated", "human_assigned"}:
+            skipped += 1
+            continue
+
+        reference_at = _missed_handoff_reference_at(state=state, assignment=assignment)
+        if reference_at is None or reference_at > cutoff:
+            skipped += 1
+            continue
+
+        team_id = assignment.team_id or state.get("routing_assigned_team_id") or state.get("routing_selected_team_id")
+        if not team_id:
+            skipped += 1
+            continue
+
+        processed += 1
+        try:
+            next_agent = _select_reassignment_agent(
+                db,
+                team_id=str(team_id),
+                exclude_agent_id=str(assignment.agent_id) if assignment.agent_id else None,
+            )
+            now = _now()
+            state["missed_handoff_reassigned_at"] = _serialize_timestamp(now)
+            state["missed_handoff_previous_agent_id"] = str(assignment.agent_id) if assignment.agent_id else None
+            state["missed_handoff_reference_at"] = _serialize_timestamp(reference_at)
+            state["missed_handoff_reassign_after_minutes"] = timeout_minutes
+            state["missed_handoff_reassignment_count"] = int(state.get("missed_handoff_reassignment_count") or 0) + 1
+
+            if next_agent is None:
+                conversation_service.assign_conversation(
+                    db,
+                    conversation_id=str(conversation.id),
+                    agent_id=None,
+                    team_id=str(team_id),
+                    assigned_by_id=None,
+                    update_lead_owner=False,
+                )
+                state["missed_handoff_reassigned_agent_id"] = None
+                state["missed_handoff_reassignment_result"] = "team_queue"
+                _set_routing_state(
+                    state,
+                    department=_normalize_department_key(state.get("department")),
+                    selected_team_id=team_id,
+                    assigned_team_id=team_id,
+                    assigned_agent_id=None,
+                    routing_state="waiting_for_agent",
+                    skipped_reason="missed_first_response",
+                    fallback_blocked=bool(state.get("routing_fallback_blocked")),
+                )
+                queued += 1
+            else:
+                conversation_service.assign_conversation(
+                    db,
+                    conversation_id=str(conversation.id),
+                    agent_id=str(next_agent.id),
+                    team_id=str(team_id),
+                    assigned_by_id=None,
+                    update_lead_owner=False,
+                )
+                state["missed_handoff_reassigned_agent_id"] = str(next_agent.id)
+                state["missed_handoff_reassignment_result"] = "reassigned"
+                _set_routing_state(
+                    state,
+                    department=_normalize_department_key(state.get("department")),
+                    selected_team_id=team_id,
+                    assigned_team_id=team_id,
+                    assigned_agent_id=next_agent.id,
+                    routing_state="assigned",
+                )
+                reassigned += 1
+
+            _set_state(conversation, state)
+            db.commit()
+            inbox_cache.invalidate_inbox_list()
+            logger.info(
+                "ai_intake_missed_handoff_reassigned conversation_id=%s previous_agent_id=%s new_agent_id=%s team_id=%s result=%s",
+                conversation.id,
+                assignment.agent_id,
+                state.get("missed_handoff_reassigned_agent_id"),
+                team_id,
+                state.get("missed_handoff_reassignment_result"),
+            )
+        except Exception as exc:
+            db.rollback()
+            logger.exception("ai_intake_missed_handoff_reassign_failed conversation_id=%s", conversation.id)
+            errors.append(f"{conversation.id}: {exc}")
+
+    return {
+        "processed": processed,
+        "reassigned": reassigned,
+        "queued": queued,
         "skipped": skipped,
         "errors": errors,
     }

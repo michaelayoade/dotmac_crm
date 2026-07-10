@@ -671,6 +671,20 @@ def build_beat_schedule() -> dict:
             enabled=True,
             interval_seconds=max(ai_assignment_retry_interval_seconds, 30),
         )
+        ai_handoff_reassign_interval_seconds = _effective_int(
+            session,
+            SettingDomain.notification,
+            "crm_inbox_ai_handoff_reassign_interval_seconds",
+            "CRM_INBOX_AI_HANDOFF_REASSIGN_INTERVAL_SECONDS",
+            60,
+        )
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_ai_handoff_reassign",
+            task_name="app.tasks.crm_inbox.reassign_stale_ai_handoffs",
+            enabled=True,
+            interval_seconds=max(ai_handoff_reassign_interval_seconds, 30),
+        )
 
         # CRM chat queue promotion — assign queued chats as agents free up
         queue_promotion_interval_seconds = _effective_int(
