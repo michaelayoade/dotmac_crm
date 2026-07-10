@@ -2638,6 +2638,32 @@ SETTINGS_SPECS: list[SettingSpec] = [
     ),
     SettingSpec(
         domain=SettingDomain.integration,
+        key="support_tickets_moved_banner_enabled",
+        env_var="SUPPORT_TICKETS_MOVED_BANNER_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+        label="Show Tickets Moved Banner",
+        section="Selfcare",
+        help_text=(
+            "Display a banner on the CRM ticket admin pages announcing that "
+            "support tickets have moved to the sub admin and this system is read-only."
+        ),
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="support_tickets_moved_banner_url",
+        env_var="SUPPORT_TICKETS_MOVED_BANNER_URL",
+        value_type=SettingValueType.string,
+        default=None,
+        label="Tickets Moved Banner URL",
+        section="Selfcare",
+        help_text=(
+            "Link target for the tickets-moved banner. When empty, defaults to "
+            "the Selfcare Base URL plus /admin/support/tickets."
+        ),
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
         key="dotmac_erp_sync_enabled",
         env_var="DOTMAC_ERP_SYNC_ENABLED",
         value_type=SettingValueType.boolean,
