@@ -853,6 +853,60 @@ async def subscriber_sync_webhook(request: Request, db: Session = Depends(get_db
     return {"status": "ok", **(result if isinstance(result, dict) else {})}
 
 
+@router.post("/projects/relay", status_code=status.HTTP_200_OK)
+async def project_relay_webhook(request: Request, db: Session = Depends(get_db)):
+    """Inbound vendor project-stub relay from dotmac_sub (Phase 3, risk #6).
+
+    Authenticated by HMAC over the raw body with the shared selfcare webhook
+    secret (``X-Selfcare-Signature: sha256=<hex>``), mirroring the subscriber
+    sync receiver. Upserts a minimal project stub into CRM ``projects`` so the
+    vendor wrapper's ``installation_projects`` FK (and wireless_surveys /
+    material_requests / expense_requests) keeps resolving until the Phase 5
+    vendor port. Idempotent on the project id; never clobbers CRM-native rows.
+    """
+    from app.models.domain_settings import SettingDomain
+    from app.services import settings_spec
+
+    trace_id = str(uuid.uuid4())
+    try:
+        body = await request.body()
+    except ClientDisconnect:
+        logger.warning("project_relay_webhook_client_disconnect trace_id=%s", trace_id)
+        return Response(status_code=500)
+
+    secret = settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_customer_webhook_secret")
+    if not secret:
+        logger.warning("project_relay_webhook_secret_missing trace_id=%s", trace_id)
+        return JSONResponse(status_code=503, content={"status": "error", "detail": "Webhook secret not configured"})
+
+    signature = request.headers.get("X-Selfcare-Signature")
+    if not signature:
+        return JSONResponse(status_code=401, content={"status": "error", "detail": "Signature required"})
+    expected = "sha256=" + hmac.new(str(secret).encode("utf-8"), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        logger.warning("project_relay_webhook_signature_invalid trace_id=%s", trace_id)
+        return JSONResponse(status_code=401, content={"status": "error", "detail": "Invalid signature"})
+
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JSONResponse(status_code=400, content={"status": "error", "detail": "Invalid payload"})
+    if not isinstance(payload, dict):
+        return JSONResponse(status_code=400, content={"status": "error", "detail": "Invalid payload"})
+
+    from app.services.vendor_project_relay import RelayPayloadError, upsert_project_stub
+
+    try:
+        result = upsert_project_stub(db, payload)
+    except RelayPayloadError as exc:
+        return JSONResponse(status_code=400, content={"status": "error", "detail": str(exc)})
+    except Exception:
+        db.rollback()
+        logger.exception("project_relay_webhook_failed trace_id=%s", trace_id)
+        return JSONResponse(status_code=500, content={"status": "error", "detail": "Relay failed"})
+    return {"status": "ok", **result}
+
+
 def _email_webhook_secret() -> str:
     return settings.webhook_email_secret.strip()
 
