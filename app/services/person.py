@@ -473,6 +473,61 @@ class People(ListResponseMixin):
             {"referred_person_id": target.id}, synchronize_session=False
         )
 
+        # 8. Move remaining customer-SUBJECT records that would otherwise strand
+        # on the archived duplicate. Each column below names the person AS the
+        # customer/subject of the row (the ticket's customer, the order's buyer,
+        # the survey respondent, the ONT's owner, the outreach recipient, the
+        # org membership holder). Actor/audit columns on these same tables
+        # (tickets.created_by/assigned_to/*_manager_person_id, surveys.created_by_id,
+        # sales_orders.owner_agent_id, organizations.owner_id) are deliberately
+        # NOT moved — reassigning them would falsify who acted.
+        from app.models.comms import SurveyInvitation, SurveyResponse
+        from app.models.crm.chat_widget import WidgetVisitorSession
+        from app.models.network import OntAssignment
+        from app.models.organization_membership import OrganizationMembership
+        from app.models.sales_order import SalesOrder
+        from app.models.subscriber_outreach import SubscriberOfflineOutreachLog
+        from app.models.tickets import Ticket
+
+        db.query(Ticket).filter(Ticket.customer_person_id == source.id).update(
+            {"customer_person_id": target.id}, synchronize_session=False
+        )
+        db.query(SalesOrder).filter(SalesOrder.person_id == source.id).update(
+            {"person_id": target.id}, synchronize_session=False
+        )
+        db.query(SurveyResponse).filter(SurveyResponse.person_id == source.id).update(
+            {"person_id": target.id}, synchronize_session=False
+        )
+        db.query(SurveyInvitation).filter(SurveyInvitation.person_id == source.id).update(
+            {"person_id": target.id}, synchronize_session=False
+        )
+        db.query(WidgetVisitorSession).filter(WidgetVisitorSession.person_id == source.id).update(
+            {"person_id": target.id}, synchronize_session=False
+        )
+        db.query(OntAssignment).filter(OntAssignment.person_id == source.id).update(
+            {"person_id": target.id}, synchronize_session=False
+        )
+        db.query(SubscriberOfflineOutreachLog).filter(SubscriberOfflineOutreachLog.person_id == source.id).update(
+            {"person_id": target.id}, synchronize_session=False
+        )
+
+        # Organization memberships carry a UNIQUE(organization_id, person_id).
+        # Dedupe like the channel move above: repoint the source's membership only
+        # when the target has none for that org, else drop the duplicate.
+        for membership in db.query(OrganizationMembership).filter(OrganizationMembership.person_id == source.id).all():
+            existing_membership = (
+                db.query(OrganizationMembership)
+                .filter(
+                    OrganizationMembership.person_id == target.id,
+                    OrganizationMembership.organization_id == membership.organization_id,
+                )
+                .first()
+            )
+            if existing_membership:
+                db.delete(membership)
+            else:
+                membership.person_id = target.id
+
         # Log the merge
         merge_log = PersonMergeLog(
             source_person_id=source.id,
