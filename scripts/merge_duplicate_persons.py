@@ -122,41 +122,43 @@ class Candidate:
 # rank survivors by "customer footprint" and to report re-point counts. Kept in
 # sync with People.merge's re-point set (subject columns only, never actor/audit).
 def _person_fk_targets() -> list[tuple[type, str]]:
-    from app.models.comms import SurveyInvitation, SurveyResponse
-    from app.models.crm.campaign import CampaignRecipient
-    from app.models.crm.chat_widget import WidgetVisitorSession
-    from app.models.crm.conversation import Conversation, ConversationSummary
-    from app.models.crm.referral import Referral
-    from app.models.crm.sales import Lead, Quote
-    from app.models.network import OntAssignment
-    from app.models.organization_membership import OrganizationMembership
-    from app.models.reseller_commission import ResellerCommission
-    from app.models.sales_order import SalesOrder
-    from app.models.subscriber import Organization, Subscriber
-    from app.models.subscriber_outreach import SubscriberOfflineOutreachLog
-    from app.models.tickets import Ticket
-
-    return [
-        (Ticket, "customer_person_id"),
-        (SalesOrder, "person_id"),
-        (Lead, "person_id"),
-        (Quote, "person_id"),
-        (Conversation, "person_id"),
-        (ConversationSummary, "person_id"),
-        (Subscriber, "person_id"),
-        (Organization, "primary_contact_id"),
-        (OrganizationMembership, "person_id"),
-        (CampaignRecipient, "person_id"),
-        (ResellerCommission, "person_id"),
-        (Referral, "referrer_person_id"),
-        (Referral, "referred_person_id"),
-        (SurveyResponse, "person_id"),
-        (SurveyInvitation, "person_id"),
-        (WidgetVisitorSession, "person_id"),
-        (OntAssignment, "person_id"),
-        (SubscriberOfflineOutreachLog, "person_id"),
-        (PersonChannel, "person_id"),
+    # (module, class, attr) references to a person as a customer/subject. Used to
+    # rank survivors by footprint and report re-point counts. Kept in sync with
+    # People.merge's re-point set (subject columns only). Imports are tolerant:
+    # a model absent from the running deployment is skipped (it only feeds the
+    # tiebreaker), so the driver runs against any CRM version, not just tip.
+    specs = [
+        ("app.models.tickets", "Ticket", "customer_person_id"),
+        ("app.models.sales_order", "SalesOrder", "person_id"),
+        ("app.models.crm.sales", "Lead", "person_id"),
+        ("app.models.crm.sales", "Quote", "person_id"),
+        ("app.models.crm.conversation", "Conversation", "person_id"),
+        ("app.models.crm.conversation", "ConversationSummary", "person_id"),
+        ("app.models.subscriber", "Subscriber", "person_id"),
+        ("app.models.subscriber", "Organization", "primary_contact_id"),
+        ("app.models.organization_membership", "OrganizationMembership", "person_id"),
+        ("app.models.crm.campaign", "CampaignRecipient", "person_id"),
+        ("app.models.reseller_commission", "ResellerCommission", "person_id"),
+        ("app.models.crm.referral", "Referral", "referrer_person_id"),
+        ("app.models.crm.referral", "Referral", "referred_person_id"),
+        ("app.models.comms", "SurveyResponse", "person_id"),
+        ("app.models.comms", "SurveyInvitation", "person_id"),
+        ("app.models.crm.chat_widget", "WidgetVisitorSession", "person_id"),
+        ("app.models.network", "OntAssignment", "person_id"),
+        ("app.models.subscriber_outreach", "SubscriberOfflineOutreachLog", "person_id"),
+        ("app.models.person", "PersonChannel", "person_id"),
     ]
+    targets: list[tuple[type, str]] = []
+    import importlib
+
+    for module_path, class_name, attr in specs:
+        try:
+            model = getattr(importlib.import_module(module_path), class_name)
+        except (ImportError, AttributeError):
+            continue
+        if hasattr(model, attr):
+            targets.append((model, attr))
+    return targets
 
 
 def count_person_refs(db: Session, person_id: uuid.UUID, targets: list[tuple[type, str]]) -> int:
