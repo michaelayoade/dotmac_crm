@@ -1323,7 +1323,7 @@ def _finalize_confident_match_handoff(
                 message=message,
                 department=mapping.key,
             )
-            if handoff_sent:
+            if handoff_sent and not state.get("profile_collection_skipped"):
                 _send_profile_update_prompt(
                     db,
                     conversation=conversation,

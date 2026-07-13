@@ -490,6 +490,7 @@ def test_process_pending_intake_skips_profile_collection_for_contact_party_statu
     assert state["profile_collection_skip_reason"] == "party_status_contact"
     assert "profile_collection" not in state
     assert sent[-1].metadata["ai_intake_message_kind"] == "handoff"
+    assert all(payload.metadata["ai_intake_message_kind"] != "profile_update_prompt" for payload in sent)
     assert "Date of birth: YYYY-MM-DD" not in sent[-1].body
 
 
