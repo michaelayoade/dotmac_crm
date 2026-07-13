@@ -24,7 +24,7 @@ from app.models.crm.enums import (
     MessageDirection,
 )
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
-from app.models.person import Gender, Person
+from app.models.person import Gender, PartyStatus, Person
 from app.schemas.crm.ai_intake import (
     AiIntakeConfigCreate,
     AiIntakeConfigUpdate,
@@ -50,8 +50,10 @@ AI_INTAKE_HANDOFF_REASSURANCE_KIND = "handoff_reassurance"
 AI_INTAKE_FOLLOWUP_QUESTION_KIND = "followup_question"
 AI_INTAKE_PROFILE_REQUEST_KIND = "profile_request"
 AI_INTAKE_PROFILE_RETRY_KIND = "profile_retry"
+AI_INTAKE_PROFILE_NUDGE_KIND = "profile_nudge"
 AI_INTAKE_PROFILE_STATUS = "awaiting_profile"
 AI_INTAKE_PROFILE_MAX_INVALID_REPLIES = 1
+AI_INTAKE_PROFILE_NUDGE_MINUTES = 20
 AI_INTAKE_SEND_CLAIM_TTL_SECONDS = 300
 AI_INTAKE_PENDING_STATES = {"pending", "awaiting_customer", "awaiting_timeout", AI_INTAKE_PROFILE_STATUS}
 AI_INTAKE_TERMINAL_STATES = {"resolved", "escalated", "excluded", "human_assigned"}
@@ -1109,9 +1111,20 @@ def _build_profile_retry_message(missing_fields: Sequence[str]) -> str:
     return f"Please reply using this exact format so we can update your profile:\n\n{format_lines}"
 
 
-def _parse_profile_reply(body: str | None, requested_fields: Sequence[str]) -> tuple[dict[str, Any], str | None]:
-    parsed: dict[str, Any] = {}
-    lines = [line.strip() for line in (body or "").strip().splitlines() if line.strip()]
+def _profile_completion_message_for_department(department: str) -> str:
+    team_label = _handoff_team_label_for_department(department) or "team"
+    return f"Thanks, your profile has been updated. A member of our {team_label} will be with you shortly."
+
+
+def _profile_nudge_message_for_department(department: str | None) -> str:
+    team_label = _handoff_team_label_for_department(department or "") or "team"
+    return (
+        "Please provide your profile details in the requested format so we can route your matter "
+        f"to the right {team_label}."
+    )
+
+
+def _values_from_labeled_profile_lines(lines: Sequence[str]) -> tuple[dict[str, str], str | None]:
     values: dict[str, str] = {}
     for line in lines:
         if ":" not in line:
@@ -1125,6 +1138,38 @@ def _parse_profile_reply(body: str | None, requested_fields: Sequence[str]) -> t
             values["gender"] = clean_value
         else:
             return {}, "unexpected_field"
+    return values, None
+
+
+def _values_from_bare_profile_lines(
+    lines: Sequence[str], requested_fields: Sequence[str]
+) -> tuple[dict[str, str], str | None]:
+    if set(requested_fields) != {"date_of_birth", "gender"}:
+        return {}, "invalid_format"
+    if len(lines) != 2:
+        return {}, "invalid_format"
+    raw_dob, raw_gender = lines
+    if not _PROFILE_DATE_RE.fullmatch(raw_dob):
+        return {}, "invalid_date_of_birth"
+    if raw_gender.strip().lower() not in _PROFILE_GENDER_VALUES:
+        return {}, "invalid_gender"
+    return {"date_of_birth": raw_dob, "gender": raw_gender}, None
+
+
+def _parse_profile_reply(body: str | None, requested_fields: Sequence[str]) -> tuple[dict[str, Any], str | None]:
+    parsed: dict[str, Any] = {}
+    lines = [line.strip() for line in (body or "").strip().splitlines() if line.strip()]
+    if not lines:
+        return {}, "invalid_format"
+
+    if all(":" in line for line in lines):
+        values, error = _values_from_labeled_profile_lines(lines)
+    elif all(":" not in line for line in lines):
+        values, error = _values_from_bare_profile_lines(lines, requested_fields)
+    else:
+        return {}, "invalid_format"
+    if error is not None:
+        return {}, error
 
     if "date_of_birth" in requested_fields:
         raw_dob = values.get("date_of_birth")
@@ -1149,6 +1194,29 @@ def _parse_profile_reply(body: str | None, requested_fields: Sequence[str]) -> t
     if unexpected_values:
         return {}, "unexpected_field"
     return parsed, None
+
+
+def _send_profile_completion_message(
+    db: Session,
+    *,
+    conversation: Conversation,
+    message: Message,
+    state: dict[str, Any],
+    department: str,
+) -> bool:
+    body = _profile_completion_message_for_department(department)
+    _send_followup(
+        db,
+        conversation=conversation,
+        message=message,
+        body=body,
+        message_kind=AI_INTAKE_HANDOFF_MESSAGE_KIND,
+    )
+    state[AI_INTAKE_HANDOFF_SENT_KEY] = True
+    state["handoff_message"] = body
+    state["handoff_department"] = department
+    state["handoff_sent_at"] = _serialize_timestamp(_now())
+    return True
 
 
 def _apply_profile_update_and_sync(db: Session, *, person: Person, parsed_fields: dict[str, Any]) -> list[str]:
@@ -1200,12 +1268,23 @@ def _finalize_confident_match_handoff(
     message_id_str = str(message.id)
     channel_value = message.channel_type.value if message.channel_type else "unknown"
     try:
-        _send_handoff_message(
-            db,
-            conversation=conversation,
-            message=message,
-            department=mapping.key,
-        )
+        if state.get("profile_collection_completed"):
+            _send_profile_completion_message(
+                db,
+                conversation=conversation,
+                message=message,
+                state=state,
+                department=mapping.key,
+            )
+            _set_state(conversation, state)
+            db.commit()
+        else:
+            _send_handoff_message(
+                db,
+                conversation=conversation,
+                message=message,
+                department=mapping.key,
+            )
     except Exception as exc:
         logger.warning(
             "ai_intake_handoff_send_failed scope_key=%s conversation_id=%s department=%s error=%s",
@@ -1518,6 +1597,20 @@ def _candidate_handoff_followup_ids(db: Session, *, limit: int) -> list[str]:
     return [str(row[0]) for row in conversations]
 
 
+def _candidate_profile_nudge_ids(db: Session, *, limit: int) -> list[str]:
+    rows = (
+        db.query(Conversation.id)
+        .filter(Conversation.is_active.is_(True))
+        .filter(Conversation.status == ConversationStatus.pending)
+        .filter(Conversation.metadata_.isnot(None))
+        .filter(Conversation.metadata_[AI_INTAKE_METADATA_KEY]["status"].as_string() == AI_INTAKE_PROFILE_STATUS)
+        .order_by(Conversation.updated_at.asc())
+        .limit(limit)
+        .all()
+    )
+    return [str(row[0]) for row in rows]
+
+
 def backfill_missing_handoff_states(db: Session, *, limit: int = 500) -> dict[str, Any]:
     rows = (
         db.query(Conversation)
@@ -1544,6 +1637,177 @@ def backfill_missing_handoff_states(db: Session, *, limit: int = 500) -> dict[st
         db.commit()
         inbox_cache.invalidate_inbox_list()
     return {"processed": len(rows), "updated": updated}
+
+
+def send_due_profile_collection_nudges(db: Session, *, limit: int = 200) -> dict[str, Any]:
+    if not _enabled_by_env():
+        return {"skipped": True, "reason": "disabled"}
+
+    now = _now()
+    processed = 0
+    sent = 0
+    suppressed = 0
+    errors: list[str] = []
+
+    for conversation_id in _candidate_profile_nudge_ids(db, limit=limit):
+        conversation_uuid = coerce_uuid(conversation_id)
+        conversation = (
+            db.query(Conversation)
+            .filter(Conversation.id == conversation_uuid)
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+        if not conversation:
+            continue
+        processed += 1
+        state = _state(conversation)
+        if state.get("status") != AI_INTAKE_PROFILE_STATUS:
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=status ai_status=%s",
+                conversation.id,
+                state.get("status"),
+            )
+            continue
+        if not conversation.is_active or conversation.status != ConversationStatus.pending:
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=conversation_not_pending is_active=%s status=%s",
+                conversation.id,
+                conversation.is_active,
+                conversation.status,
+            )
+            continue
+        if _parse_timestamp(state.get("profile_nudge_sent_at")) is not None:
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=already_sent sent_at=%s",
+                conversation.id,
+                state.get("profile_nudge_sent_at"),
+            )
+            continue
+
+        raw_profile_state = state.get("profile_collection")
+        profile_state: dict[str, Any] = raw_profile_state if isinstance(raw_profile_state, dict) else {}
+        requested_at = _parse_timestamp(profile_state.get("requested_at")) or _parse_timestamp(
+            state.get("handoff_sent_at")
+        )
+        if not requested_at:
+            suppressed += 1
+            logger.info("ai_intake_profile_nudge_suppressed conversation_id=%s reason=no_requested_at", conversation.id)
+            continue
+        due_at = requested_at + timedelta(minutes=AI_INTAKE_PROFILE_NUDGE_MINUTES)
+        if due_at > now:
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=not_due due_at=%s now=%s",
+                conversation.id,
+                _serialize_timestamp(due_at),
+                _serialize_timestamp(now),
+            )
+            continue
+
+        inbound_after_request = (
+            db.query(Message.id)
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.direction == MessageDirection.inbound)
+            .filter(func.coalesce(Message.received_at, Message.created_at) > requested_at)
+            .first()
+        )
+        if inbound_after_request:
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=customer_replied_after_request",
+                conversation.id,
+            )
+            continue
+
+        existing_nudge = _find_existing_ai_message(
+            db,
+            conversation_id=conversation.id,
+            message_kind=AI_INTAKE_PROFILE_NUDGE_KIND,
+        )
+        if existing_nudge:
+            state["profile_nudge_sent_at"] = _serialize_timestamp(_message_timestamp(existing_nudge) or now)
+            state["profile_nudge_message"] = existing_nudge.body or state.get("profile_nudge_message")
+            _set_state(conversation, state)
+            db.commit()
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=already_persisted_from_message sent_at=%s",
+                conversation.id,
+                state["profile_nudge_sent_at"],
+            )
+            continue
+
+        inbound_message = (
+            db.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.direction == MessageDirection.inbound)
+            .order_by(func.coalesce(Message.received_at, Message.created_at).desc())
+            .first()
+        )
+        if not inbound_message:
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=no_inbound_message", conversation.id
+            )
+            continue
+
+        body = _profile_nudge_message_for_department(
+            str(profile_state.get("department") or state.get("handoff_department") or state.get("department") or "")
+        )
+        try:
+            _send_followup(
+                db,
+                conversation=conversation,
+                message=inbound_message,
+                body=body,
+                message_kind=AI_INTAKE_PROFILE_NUDGE_KIND,
+            )
+            locked = (
+                db.query(Conversation)
+                .filter(Conversation.id == conversation.id)
+                .with_for_update(skip_locked=True)
+                .first()
+            )
+            if not locked:
+                sent += 1
+                continue
+            latest_state = _state(locked)
+            existing_nudge = _find_existing_ai_message(
+                db,
+                conversation_id=locked.id,
+                message_kind=AI_INTAKE_PROFILE_NUDGE_KIND,
+            )
+            latest_state["profile_nudge_sent_at"] = _serialize_timestamp(
+                (_message_timestamp(existing_nudge) if existing_nudge else None) or now
+            )
+            latest_state["profile_nudge_message"] = (
+                existing_nudge.body if existing_nudge and existing_nudge.body else body
+            )
+            _set_state(locked, latest_state)
+            db.commit()
+            inbox_cache.invalidate_inbox_list()
+            sent += 1
+            logger.info(
+                "ai_intake_profile_nudge_sent conversation_id=%s due_at=%s waited_seconds=%s",
+                conversation.id,
+                _serialize_timestamp(due_at),
+                int(max((now - requested_at).total_seconds(), 0)),
+            )
+        except Exception as exc:
+            if not db.is_active:
+                db.rollback()
+            logger.exception("ai_intake_profile_nudge_failed conversation_id=%s", conversation_id)
+            errors.append(f"{conversation_id}: {exc}")
+
+    return {
+        "processed": processed,
+        "sent": sent,
+        "suppressed": suppressed,
+        "errors": errors,
+    }
 
 
 def send_due_handoff_reassurance_followups(db: Session, *, limit: int = 200) -> dict[str, Any]:
@@ -2285,6 +2549,24 @@ def process_pending_intake(
             )
 
         missing_standard_fields, required_missing_fields = _profile_missing_fields(person)
+        if person.party_status == PartyStatus.contact:
+            next_state["profile_collection_skipped"] = True
+            next_state["profile_collection_skip_reason"] = "party_status_contact"
+            logger.info(
+                "ai_intake_profile_collection_skipped conversation_id=%s message_id=%s person_id=%s party_status=%s",
+                conversation.id,
+                message.id,
+                person.id,
+                person.party_status.value,
+            )
+            return _finalize_confident_match_handoff(
+                db,
+                conversation=conversation,
+                message=message,
+                config=config,
+                state=next_state,
+                mapping=mapping_by_key[department],
+            )
         if required_missing_fields:
             return _begin_profile_collection(
                 db,
