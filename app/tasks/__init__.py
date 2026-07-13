@@ -19,6 +19,7 @@ from app.tasks.campaigns import (
 from app.tasks.crm_inbox import (
     cleanup_old_outbox_task,
     process_outbox_queue_task,
+    reassign_stale_ai_handoffs_task,
     reopen_due_snoozed_conversations_task,
     send_outbound_message_task,
     send_outbox_item_task,
@@ -106,6 +107,7 @@ __all__ = [
     "process_whatsapp_webhook",
     "prune_field_location_pings",
     "prune_snoozes",
+    "reassign_stale_ai_handoffs_task",
     "reconcile_churning_retention_customers_to_selfcare",
     "reconcile_subscriber_identity",
     "refresh_billing_risk_cache",

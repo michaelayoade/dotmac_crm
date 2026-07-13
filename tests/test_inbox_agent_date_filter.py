@@ -6,10 +6,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from app.models.crm.conversation import Conversation, ConversationAssignment
-from app.models.crm.enums import ConversationStatus
+from app.models.crm.enums import AgentPresenceStatus, ConversationStatus
+from app.models.crm.presence import AgentPresence
 from app.models.crm.team import CrmAgent
 from app.models.person import Person
-from app.services.crm.inbox.queries import list_inbox_conversations
+from app.services.crm import conversation as conversation_service
+from app.services.crm.inbox.queries import get_assignment_counts, list_inbox_conversations
 
 
 def _unique_email() -> str:
@@ -242,6 +244,92 @@ def test_team_assigned_filter_returns_team_only_assignments(db_session):
     assert conv_team_assigned.id in ids
     assert conv_agent_assigned.id not in ids
     assert conv_unassigned.id not in ids
+
+
+def test_ai_handling_filter_returns_active_ai_intake_conversations(db_session):
+    """AI handling should show conversations while AI intake is still active."""
+    contact = _create_person(db_session, name="AIHandling")
+
+    conv_ai_active = _create_conversation(db_session, contact)
+    conv_ai_active.status = ConversationStatus.pending
+    conv_ai_active.metadata_ = {"ai_intake": {"status": "awaiting_timeout"}}
+
+    conv_ai_done = _create_conversation(db_session, contact)
+    conv_ai_done.status = ConversationStatus.open
+    conv_ai_done.metadata_ = {"ai_intake": {"status": "resolved"}}
+
+    conv_normal_pending = _create_conversation(db_session, contact)
+    conv_normal_pending.status = ConversationStatus.pending
+
+    agent_person = _create_person(db_session, name="AssignedAI")
+    agent = _create_agent(db_session, agent_person)
+    db_session.add(
+        AgentPresence(
+            agent_id=agent.id,
+            status=AgentPresenceStatus.online,
+            manual_override_status=AgentPresenceStatus.online,
+        )
+    )
+    conv_ai_assigned = _create_conversation(db_session, contact)
+    conv_ai_assigned.status = ConversationStatus.pending
+    conv_ai_assigned.metadata_ = {"ai_intake": {"status": "awaiting_timeout"}}
+    db_session.add(
+        ConversationAssignment(
+            conversation_id=conv_ai_assigned.id,
+            agent_id=agent.id,
+            assigned_at=datetime.now(UTC),
+            is_active=True,
+        )
+    )
+    db_session.flush()
+
+    results = list_inbox_conversations(db_session, assignment="ai_handling")
+    ids = _result_ids(results)
+
+    assert conv_ai_active.id in ids
+    assert conv_ai_done.id not in ids
+    assert conv_normal_pending.id not in ids
+    assert conv_ai_assigned.id in ids
+
+    counts = get_assignment_counts(db_session, assigned_person_id=None)
+    assert counts["ai_handling"] == 2
+
+
+def test_manual_assignment_marks_ai_intake_human_assigned(db_session):
+    """Manual agent assignment should take the conversation out of AI ownership."""
+    contact = _create_person(db_session, name="ManualAI")
+    supervisor = _create_person(db_session, name="Supervisor")
+    agent_person = _create_person(db_session, name="ManualAgent")
+    agent = _create_agent(db_session, agent_person)
+    db_session.add(
+        AgentPresence(
+            agent_id=agent.id,
+            status=AgentPresenceStatus.online,
+            manual_override_status=AgentPresenceStatus.online,
+        )
+    )
+    conversation = _create_conversation(db_session, contact)
+    conversation.status = ConversationStatus.pending
+    conversation.metadata_ = {"ai_intake": {"status": "awaiting_timeout", "handoff_state": "none"}}
+    db_session.flush()
+
+    assignment = conversation_service.assign_conversation(
+        db_session,
+        conversation_id=str(conversation.id),
+        agent_id=str(agent.id),
+        assigned_by_id=str(supervisor.id),
+        update_lead_owner=False,
+    )
+
+    db_session.refresh(conversation)
+    state = conversation.metadata_["ai_intake"]
+    assert assignment is not None
+    assert conversation.status == ConversationStatus.open
+    assert state["status"] == "human_assigned"
+    assert state["handoff_state"] == "assigned"
+    assert state["human_assigned_agent_id"] == str(agent.id)
+    assert state["human_assigned_by_id"] == str(supervisor.id)
+    assert list_inbox_conversations(db_session, assignment="ai_handling") == []
 
 
 def test_agent_filter_orders_active_before_resolved_even_when_resolved_is_newer(db_session):

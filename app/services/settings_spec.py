@@ -430,6 +430,24 @@ SETTINGS_SPECS: list[SettingSpec] = [
     ),
     SettingSpec(
         domain=SettingDomain.notification,
+        key="crm_inbox_ai_handoff_reassign_after_minutes",
+        env_var="CRM_INBOX_AI_HANDOFF_REASSIGN_AFTER_MINUTES",
+        value_type=SettingValueType.integer,
+        default=15,
+        min_value=1,
+        max_value=1440,
+    ),
+    SettingSpec(
+        domain=SettingDomain.notification,
+        key="crm_inbox_ai_handoff_reassign_interval_seconds",
+        env_var="CRM_INBOX_AI_HANDOFF_REASSIGN_INTERVAL_SECONDS",
+        value_type=SettingValueType.integer,
+        default=60,
+        min_value=30,
+        max_value=3600,
+    ),
+    SettingSpec(
+        domain=SettingDomain.notification,
         key="crm_chat_max_concurrent_per_agent",
         env_var="CRM_CHAT_MAX_CONCURRENT_PER_AGENT",
         value_type=SettingValueType.integer,
@@ -2635,6 +2653,72 @@ SETTINGS_SPECS: list[SettingSpec] = [
         max_value=168,
         label="Selfcare Subscriber Sync Interval Hours",
         section="Selfcare",
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="support_tickets_moved_banner_enabled",
+        env_var="SUPPORT_TICKETS_MOVED_BANNER_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+        label="Show Tickets Moved Banner",
+        section="Selfcare",
+        help_text=(
+            "Display a banner on the CRM ticket admin pages announcing that "
+            "support tickets have moved to the sub admin and this system is read-only."
+        ),
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="support_tickets_moved_banner_url",
+        env_var="SUPPORT_TICKETS_MOVED_BANNER_URL",
+        value_type=SettingValueType.string,
+        default=None,
+        label="Tickets Moved Banner URL",
+        section="Selfcare",
+        help_text=(
+            "Link target for the tickets-moved banner. When empty, defaults to "
+            "the Selfcare Base URL plus /admin/support/tickets."
+        ),
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="work_orders_moved_banner_enabled",
+        env_var="WORK_ORDERS_MOVED_BANNER_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+        label="Show Work Orders Moved Banner",
+        section="Selfcare",
+        help_text=(
+            "Display a banner on the CRM work-order admin pages announcing that "
+            "work orders have moved to the sub admin and this system is read-only."
+        ),
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="work_orders_moved_banner_url",
+        env_var="WORK_ORDERS_MOVED_BANNER_URL",
+        value_type=SettingValueType.string,
+        default=None,
+        label="Work Orders Moved Banner URL",
+        section="Selfcare",
+        help_text=(
+            "Link target for the work-orders-moved banner. When empty, defaults to "
+            "the Selfcare Base URL plus /admin/dispatch/work-orders."
+        ),
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="work_order_events_to_selfcare_enabled",
+        env_var="WORK_ORDER_EVENTS_TO_SELFCARE_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=True,
+        label="Emit Work Order Events To Selfcare",
+        section="Selfcare",
+        help_text=(
+            "Push work-order lifecycle events to the sub (selfcare) field-service "
+            "mirror. Disable at the Phase 2 flip, once sub is the work-order "
+            "system-of-record, to stop CRM emission without a code change."
+        ),
     ),
     SettingSpec(
         domain=SettingDomain.integration,

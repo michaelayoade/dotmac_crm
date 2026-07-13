@@ -6,10 +6,10 @@ import pytest
 
 from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.enums import ConversationStatus
-from app.models.crm.team import CrmTeam
+from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
 from app.models.person import Person
 from app.models.service_team import ServiceTeam, ServiceTeamMember, ServiceTeamMemberRole, ServiceTeamType
-from app.services.crm.inbox.queries import list_inbox_conversations
+from app.services.crm.inbox.queries import get_assignment_counts, list_inbox_conversations
 
 
 def _unique_email():
@@ -111,6 +111,42 @@ class TestMyTeamFilter:
         conv_ids = [r[0].id for r in results]
         assert team_conversation.id in conv_ids
         assert unrelated_conversation.id not in conv_ids
+
+    def test_returns_conversations_for_direct_crm_agent_team_membership(self, db_session, agent_person, contact_person):
+        """Agent should see team queue conversations via crm_agent_teams membership."""
+        crm_team = CrmTeam(name="Direct CRM Support")
+        db_session.add(crm_team)
+        db_session.flush()
+
+        agent = CrmAgent(person_id=agent_person.id, is_active=True)
+        db_session.add(agent)
+        db_session.flush()
+
+        db_session.add(CrmAgentTeam(agent_id=agent.id, team_id=crm_team.id, is_active=True))
+        db_session.flush()
+
+        conv = Conversation(
+            person_id=contact_person.id,
+            status=ConversationStatus.open,
+            subject="AI waiting for agent",
+        )
+        db_session.add(conv)
+        db_session.flush()
+
+        db_session.add(ConversationAssignment(conversation_id=conv.id, team_id=crm_team.id, is_active=True))
+        db_session.flush()
+
+        results = list_inbox_conversations(
+            db_session,
+            assignment="my_team",
+            assigned_person_id=str(agent_person.id),
+        )
+
+        conv_ids = [r[0].id for r in results]
+        assert conv.id in conv_ids
+
+        counts = get_assignment_counts(db_session, assigned_person_id=str(agent_person.id))
+        assert counts["my_team"] == 1
 
     def test_returns_empty_when_no_person_id(self, db_session, team_conversation):
         """Should return empty list when no assigned_person_id provided."""

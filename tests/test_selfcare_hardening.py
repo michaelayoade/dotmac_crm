@@ -122,6 +122,48 @@ def test_pagination_stops_on_short_page_without_meta(monkeypatch):
     assert len(rows) == 3  # short page 2 (1 < per_page 2) is the last page
 
 
+def test_pagination_rejects_repeated_page_data(monkeypatch):
+    calls: list[int] = []
+
+    def fake_request(db, method, path, *, params=None, json_body=None):
+        calls.append(params["page"])
+        return {"data": [{"id": 1}, {"id": 2}], "meta": {"total": 4}}
+
+    monkeypatch.setattr(selfcare, "_request_json", fake_request)
+
+    with pytest.raises(selfcare.SelfcareProviderError, match="repeated data on page 2"):
+        selfcare._list_paginated(None, "/x", {"per_page": 2})
+
+    assert calls == [1, 2]
+
+
+def test_pagination_rejects_non_advancing_response_page(monkeypatch):
+    def fake_request(db, method, path, *, params=None, json_body=None):
+        return {
+            "data": [{"id": params["page"]}],
+            "meta": {"page": 1, "total": 2},
+        }
+
+    monkeypatch.setattr(selfcare, "_request_json", fake_request)
+
+    with pytest.raises(selfcare.SelfcareProviderError, match="requested page 2, received page 1"):
+        selfcare._list_paginated(None, "/x", {"per_page": 1})
+
+
+def test_pagination_row_cap_fails_instead_of_returning_partial_data(monkeypatch):
+    monkeypatch.setattr(selfcare, "_PAGINATION_MAX_ROWS", 2)
+    monkeypatch.setattr(
+        selfcare,
+        "_request_json",
+        lambda db, method, path, *, params=None, json_body=None: {
+            "data": [{"id": f"{params['page']}-1"}, {"id": f"{params['page']}-2"}]
+        },
+    )
+
+    with pytest.raises(selfcare.SelfcareProviderError, match="exceeded 2 rows"):
+        selfcare._list_paginated(None, "/x", {"per_page": 2})
+
+
 # ── orphan reconciliation (#14) ───────────────────────────────────────────────
 
 

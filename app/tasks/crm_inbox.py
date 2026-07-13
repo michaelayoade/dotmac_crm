@@ -5,8 +5,10 @@ from app.services.crm import inbox as inbox_service
 from app.services.crm.ai_intake import (
     backfill_missing_handoff_states,
     escalate_expired_pending_intakes,
+    reassign_stale_ai_handoffs,
     retry_team_only_ai_assignments,
     send_due_handoff_reassurance_followups,
+    send_due_profile_collection_nudges,
 )
 from app.services.crm.inbox.outbound import TransientOutboundError
 from app.services.crm.inbox.outbox import cleanup_old_outbox, list_due_outbox_ids, process_outbox_item
@@ -89,19 +91,23 @@ def escalate_expired_ai_intake_conversations_task(limit: int = 200):
     try:
         backfill = backfill_missing_handoff_states(session, limit=max(limit, 500))
         reminders = send_due_handoff_reassurance_followups(session, limit=limit)
+        profile_nudges = send_due_profile_collection_nudges(session, limit=limit)
         result = escalate_expired_pending_intakes(session, limit=limit)
         logger.info(
-            "AI_INTAKE_MAINTENANCE_COMPLETE backfill_updated=%s reminders_sent=%s reminders_suppressed=%s escalated=%s skipped=%s errors=%s",
+            "AI_INTAKE_MAINTENANCE_COMPLETE backfill_updated=%s reminders_sent=%s reminders_suppressed=%s profile_nudges_sent=%s profile_nudges_suppressed=%s escalated=%s skipped=%s errors=%s",
             backfill.get("updated", 0),
             reminders.get("sent", 0),
             reminders.get("suppressed", 0),
+            profile_nudges.get("sent", 0),
+            profile_nudges.get("suppressed", 0),
             result.get("escalated", 0),
             result.get("skipped", 0),
-            len(reminders.get("errors", [])) + len(result.get("errors", [])),
+            len(reminders.get("errors", [])) + len(profile_nudges.get("errors", [])) + len(result.get("errors", [])),
         )
         return {
             "backfill": backfill,
             "reminders": reminders,
+            "profile_nudges": profile_nudges,
             "escalations": result,
         }
     except Exception:
@@ -142,6 +148,38 @@ def retry_team_only_ai_assignments_task(limit: int = 200):
     finally:
         session.close()
         observe_job("retry_team_only_ai_assignments", status, time.monotonic() - start)
+
+
+@celery_app.task(name="app.tasks.crm_inbox.reassign_stale_ai_handoffs")
+def reassign_stale_ai_handoffs_task(limit: int = 200):
+    import logging
+    import time
+
+    from app.metrics import observe_job
+
+    logger = logging.getLogger(__name__)
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger.info("AI_INTAKE_STALE_HANDOFF_REASSIGN_START")
+    try:
+        result = reassign_stale_ai_handoffs(session, limit=limit)
+        logger.info(
+            "AI_INTAKE_STALE_HANDOFF_REASSIGN_COMPLETE processed=%s reassigned=%s queued=%s skipped=%s errors=%s",
+            result.get("processed", 0),
+            result.get("reassigned", 0),
+            result.get("queued", 0),
+            result.get("skipped", 0),
+            len(result.get("errors", [])),
+        )
+        return result
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("reassign_stale_ai_handoffs", status, time.monotonic() - start)
 
 
 @celery_app.task(name="app.tasks.crm_inbox.promote_queued_conversations")

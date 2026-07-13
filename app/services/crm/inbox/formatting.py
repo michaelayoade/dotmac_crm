@@ -13,12 +13,13 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.models import person as person_model
 from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.integration import IntegrationTarget
-from app.models import person as person_model
 from app.models.subscriber import Organization
 from app.models.tickets import Ticket
+from app.services import time_preferences
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
 from app.services.crm import conversation as conversation_service
@@ -62,9 +63,7 @@ def _derive_age(date_of_birth: date | None) -> int | None:
     if date_of_birth is None:
         return None
     today = date.today()
-    return today.year - date_of_birth.year - (
-        (today.month, today.day) < (date_of_birth.month, date_of_birth.day)
-    )
+    return today.year - date_of_birth.year - ((today.month, today.day) < (date_of_birth.month, date_of_birth.day))
 
 
 def _is_selfcare_managed_profile(contact: person_model.Person) -> bool:
@@ -74,8 +73,6 @@ def _is_selfcare_managed_profile(contact: person_model.Person) -> bool:
 
 def _localize_inbox_datetime(value: datetime | None, db: Session) -> tuple[datetime | None, str, str]:
     """Convert timestamps to the configured company timezone for inbox rendering."""
-    from app.services import time_preferences
-
     timezone, date_format, time_format, _ = time_preferences.resolve_company_time_prefs(db)
     if value is None:
         return None, date_format, time_format

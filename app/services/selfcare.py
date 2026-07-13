@@ -572,21 +572,39 @@ def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None
     """
     page = 1
     rows: list[dict[str, Any]] = []
+    seen_page_fingerprints: set[str] = set()
     base_params = dict(params or {})
-    per_page = int(base_params.get("per_page") or 0)
+    per_page = int(base_params.get("per_page") or _SUB_MAX_PER_PAGE)
     # Never request more than sub honors, or the short-page heuristic below
     # (len(batch) < per_page) would trip on a full-but-clamped page and drop data.
-    if per_page > _SUB_MAX_PER_PAGE:
-        per_page = _SUB_MAX_PER_PAGE
-        base_params["per_page"] = per_page
+    per_page = max(1, min(per_page, _SUB_MAX_PER_PAGE))
+    base_params["per_page"] = per_page
     while True:
         payload = _request_json(db, "GET", path, params={**base_params, "page": page})
         batch = _rows(payload)
-        rows.extend(batch)
         meta = payload.get("meta") if isinstance(payload, dict) else {}
         meta = meta if isinstance(meta, dict) else {}
         total = int(meta.get("total") or 0)
         last_page = meta.get("last_page")
+        response_page = meta.get("page", meta.get("current_page"))
+        if response_page is not None and int(response_page) != page:
+            raise SelfcareProviderError(
+                f"Selfcare pagination did not advance for {path}: requested page {page}, received page {response_page}"
+            )
+        if batch:
+            fingerprint = hashlib.sha256(
+                json.dumps(batch, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            if fingerprint in seen_page_fingerprints:
+                logger.error(
+                    "SELFCARE_API_PAGINATION_REPEATED_PAGE path=%s page=%d batch=%d",
+                    path,
+                    page,
+                    len(batch),
+                )
+                raise SelfcareProviderError(f"Selfcare pagination repeated data on page {page} for {path}")
+            seen_page_fingerprints.add(fingerprint)
+        rows.extend(batch)
         logger.info(
             "SELFCARE_API_PAGE path=%s page=%d batch=%d accumulated=%d total=%d last_page=%s",
             path,
@@ -610,7 +628,7 @@ def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None
             logger.error(
                 "SELFCARE_API_PAGINATION_ROW_CAP path=%s rows=%d cap=%d", path, len(rows), _PAGINATION_MAX_ROWS
             )
-            break
+            raise SelfcareProviderError(f"Selfcare pagination exceeded {_PAGINATION_MAX_ROWS} rows for {path}")
         if page >= _PAGINATION_MAX_PAGES:
             raise SelfcareProviderError(f"Selfcare pagination exceeded {_PAGINATION_MAX_PAGES} pages for {path}")
         page += 1
@@ -662,8 +680,7 @@ def fetch_customer_billing(db: Session, subscriber_id: str) -> dict[str, Any] | 
 
 
 def fetch_locations(db: Session) -> list[dict[str, Any]]:
-    payload = _request_json(db, "GET", "/locations")
-    return _rows(payload)
+    return _list_paginated(db, "/locations")
 
 
 def fetch_billing_risk_source(db: Session) -> list[dict[str, Any]]:
@@ -997,7 +1014,8 @@ def _map_profile_gender(value: object | None) -> Gender | None:
 
 
 def _extract_customer_profile(customer: dict[str, Any]) -> dict[str, Any]:
-    metadata = customer.get("metadata") if isinstance(customer.get("metadata"), dict) else {}
+    metadata_value = customer.get("metadata")
+    metadata = cast("dict[str, Any]", metadata_value) if isinstance(metadata_value, dict) else {}
     return {
         "date_of_birth": _parse_profile_date(
             customer.get("date_of_birth")
@@ -1022,12 +1040,9 @@ def _resolve_person_for_selfcare_customer(
         if person is not None:
             return person
 
-    metadata = customer.get("metadata") if isinstance(customer.get("metadata"), dict) else {}
-    crm_person_id = str(
-        customer.get("crm_person_id")
-        or metadata.get("crm_person_id")
-        or ""
-    ).strip()
+    metadata_value = customer.get("metadata")
+    metadata = cast("dict[str, Any]", metadata_value) if isinstance(metadata_value, dict) else {}
+    crm_person_id = str(customer.get("crm_person_id") or metadata.get("crm_person_id") or "").strip()
     if crm_person_id:
         person = db.get(Person, coerce_uuid(crm_person_id))
         if person is not None:
@@ -1037,7 +1052,7 @@ def _resolve_person_for_selfcare_customer(
     if selfcare_id:
         person = (
             db.query(Person)
-            .filter(func.json_extract_path_text(Person.metadata_, "selfcare_id") == selfcare_id)
+            .filter(Person.metadata_["selfcare_id"].as_string() == selfcare_id)
             .order_by(Person.updated_at.desc(), Person.created_at.desc())
             .first()
         )
@@ -1064,6 +1079,14 @@ def _is_empty_person_profile_value(value: object | None) -> bool:
     if isinstance(value, Gender):
         return value == Gender.unknown
     return False
+
+
+def _profile_audit_value(value: object | None) -> object | None:
+    if isinstance(value, Gender):
+        return value.value
+    if isinstance(value, datetime | date):
+        return value.isoformat()
+    return value
 
 
 def _log_profile_sync_audit(
@@ -1127,8 +1150,8 @@ def sync_person_profile_from_selfcare_customer(
             conflicts.append(
                 {
                     "field": field_name,
-                    "crm": current.value if isinstance(current, Gender) else current,
-                    "selfcare": incoming.value if isinstance(incoming, Gender) else incoming,
+                    "crm": _profile_audit_value(current),
+                    "selfcare": _profile_audit_value(incoming),
                     "overwritten": should_overwrite,
                 }
             )
@@ -1286,13 +1309,7 @@ def map_customer_to_subscriber_data(
         "blocked_date": _coalesce_str(customer.get("blocked_date"), (billing or {}).get("blocked_date")),
         "source": "selfcare",
     }
-    metadata.update(
-        {
-            key: value
-            for key, value in selfcare_metadata.items()
-            if value is not None and value != ""
-        }
-    )
+    metadata.update({key: value for key, value in selfcare_metadata.items() if value is not None and value != ""})
 
     data: dict[str, Any] = {
         "subscriber_number": _coalesce_str(customer.get("subscriber_number"), customer.get("login")),
@@ -1327,11 +1344,7 @@ def map_customer_to_subscriber_data(
         "last_synced_at": datetime.now(UTC),
         "sync_metadata": metadata,
     }
-    return {
-        key: value
-        for key, value in data.items()
-        if value is not None and value != ""
-    }
+    return {key: value for key, value in data.items() if value is not None and value != ""}
 
 
 def sync_subscribers_from_selfcare_data(

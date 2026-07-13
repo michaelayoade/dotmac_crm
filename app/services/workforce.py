@@ -531,8 +531,21 @@ def _work_order_subscriber_id(db: Session, work_order: WorkOrder) -> str | None:
 
 def _emit_work_order_to_sub(db: Session, work_order: WorkOrder, event_type: str) -> bool:
     """Push a work-order lifecycle event to dotmac_sub to hydrate its
-    field-service mirror. Best-effort: a failed push never breaks the flow."""
+    field-service mirror. Best-effort: a failed push never breaks the flow.
+
+    Gated by the ``work_order_events_to_selfcare_enabled`` integration setting
+    (default on): the Phase 2 flip-day kill switch that stops emission once sub
+    becomes the work-order system-of-record, without deleting the call sites.
+    """
     try:
+        if not settings_spec.resolve_value(db, SettingDomain.integration, "work_order_events_to_selfcare_enabled"):
+            logger.debug(
+                "work_order_event_emit_skipped work_order_id=%s event=%s reason=selfcare_emission_disabled",
+                getattr(work_order, "id", None),
+                event_type,
+            )
+            return False
+
         from app.services import selfcare
 
         subscriber_id = _work_order_subscriber_id(db, work_order)

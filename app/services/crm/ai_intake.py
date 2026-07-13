@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func
@@ -23,6 +24,7 @@ from app.models.crm.enums import (
     MessageDirection,
 )
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
+from app.models.person import Gender, PartyStatus, Person
 from app.schemas.crm.ai_intake import (
     AiIntakeConfigCreate,
     AiIntakeConfigUpdate,
@@ -42,13 +44,20 @@ logger = logging.getLogger(__name__)
 AI_INTAKE_METADATA_KEY = "ai_intake"
 AI_INTAKE_HANDOFF_SENT_KEY = "handoff_sent"
 AI_INTAKE_HANDOFF_FOLLOWUP_MINUTES = 15
+AI_INTAKE_HANDOFF_REASSIGN_MINUTES = 15
 AI_INTAKE_HANDOFF_MESSAGE_KIND = "handoff"
 AI_INTAKE_PROFILE_UPDATE_PROMPT_KIND = "profile_update_prompt"
 AI_INTAKE_HANDOFF_REASSURANCE_KIND = "handoff_reassurance"
 AI_INTAKE_FOLLOWUP_QUESTION_KIND = "followup_question"
+AI_INTAKE_PROFILE_REQUEST_KIND = "profile_request"
+AI_INTAKE_PROFILE_RETRY_KIND = "profile_retry"
+AI_INTAKE_PROFILE_NUDGE_KIND = "profile_nudge"
+AI_INTAKE_PROFILE_STATUS = "awaiting_profile"
+AI_INTAKE_PROFILE_MAX_INVALID_REPLIES = 1
+AI_INTAKE_PROFILE_NUDGE_MINUTES = 20
 AI_INTAKE_SEND_CLAIM_TTL_SECONDS = 300
-AI_INTAKE_PENDING_STATES = {"pending", "awaiting_customer", "awaiting_timeout"}
-AI_INTAKE_TERMINAL_STATES = {"resolved", "escalated", "excluded"}
+AI_INTAKE_PENDING_STATES = {"pending", "awaiting_customer", "awaiting_timeout", AI_INTAKE_PROFILE_STATUS}
+AI_INTAKE_TERMINAL_STATES = {"resolved", "escalated", "excluded", "human_assigned"}
 AI_INTAKE_RECOVERABLE_FAILURE_TYPES = {
     "auth",
     "provider_billing",
@@ -102,6 +111,13 @@ SUPPORTED_CHANNELS = {
     ChannelType.chat_widget,
 }
 ENV_FLAG = "CRM_AI_PENDING_INTAKE_ENABLED"
+_PROFILE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_PROFILE_GENDER_VALUES = {
+    "male": Gender.male,
+    "female": Gender.female,
+    "non-binary": Gender.non_binary,
+    "other": Gender.other,
+}
 
 
 @dataclass(frozen=True)
@@ -1049,7 +1065,12 @@ def _send_profile_update_prompt(
 ) -> bool:
     body = _profile_update_prompt_message()
     conversation_id = coerce_uuid(str(conversation.id))
-    locked = db.query(Conversation).filter(Conversation.id == conversation_id).with_for_update(skip_locked=True).first()
+    locked = (
+        db.query(Conversation)
+        .filter(Conversation.id == conversation_id)
+        .with_for_update(skip_locked=True)
+        .first()
+    )
     if not locked:
         return False
     existing = _find_existing_ai_message(
@@ -1068,6 +1089,447 @@ def _send_profile_update_prompt(
         message_kind=AI_INTAKE_PROFILE_UPDATE_PROMPT_KIND,
     )
     return True
+
+
+def _is_missing_profile_value(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, Gender):
+        return value == Gender.unknown
+    return False
+
+
+def _profile_missing_fields(person: Person) -> tuple[list[str], list[str]]:
+    standard_fields = [
+        "first_name",
+        "last_name",
+        "display_name",
+        "email",
+        "phone",
+        "date_of_birth",
+        "gender",
+        "nin",
+        "address_line1",
+        "address_line2",
+        "city",
+        "region",
+        "postal_code",
+        "country_code",
+    ]
+    missing_standard = [field for field in standard_fields if _is_missing_profile_value(getattr(person, field, None))]
+    required = [field for field in ("date_of_birth", "gender") if field in missing_standard]
+    return missing_standard, required
+
+
+def _profile_field_label(field: str) -> str:
+    return "date of birth" if field == "date_of_birth" else field.replace("_", " ")
+
+
+def _profile_format_lines(missing_fields: Sequence[str]) -> list[str]:
+    lines: list[str] = []
+    if "date_of_birth" in missing_fields:
+        lines.append("Date of birth: YYYY-MM-DD")
+    if "gender" in missing_fields:
+        lines.append("Gender: Male/Female/Non-binary/Other")
+    return lines
+
+
+def _build_profile_collection_message(*, department: str, missing_fields: Sequence[str]) -> str:
+    team_label = _handoff_team_label_for_department(department) or "team"
+    missing_labels = ", ".join(_profile_field_label(field) for field in missing_fields)
+    format_lines = "\n".join(_profile_format_lines(missing_fields))
+    return (
+        f"Thanks for reaching out. A member of our {team_label} will respond shortly.\n\n"
+        "In line with NCC profile requirements, we need to update your profile before we connect you. "
+        f"We are missing: {missing_labels}.\n\n"
+        "Please reply using this exact format:\n\n"
+        f"{format_lines}"
+    )
+
+
+def _build_profile_retry_message(missing_fields: Sequence[str]) -> str:
+    format_lines = "\n".join(_profile_format_lines(missing_fields))
+    return f"Please reply using this exact format so we can update your profile:\n\n{format_lines}"
+
+
+def _profile_completion_message_for_department(department: str) -> str:
+    team_label = _handoff_team_label_for_department(department) or "team"
+    return f"Thanks, your profile has been updated. A member of our {team_label} will be with you shortly."
+
+
+def _profile_nudge_message_for_department(department: str | None) -> str:
+    team_label = _handoff_team_label_for_department(department or "") or "team"
+    return (
+        "Please provide your profile details in the requested format so we can route your matter "
+        f"to the right {team_label}."
+    )
+
+
+def _values_from_labeled_profile_lines(lines: Sequence[str]) -> tuple[dict[str, str], str | None]:
+    values: dict[str, str] = {}
+    for line in lines:
+        if ":" not in line:
+            return {}, "invalid_format"
+        label, value = line.split(":", 1)
+        clean_label = " ".join(label.strip().lower().split())
+        clean_value = value.strip()
+        if clean_label == "date of birth":
+            values["date_of_birth"] = clean_value
+        elif clean_label == "gender":
+            values["gender"] = clean_value
+        else:
+            return {}, "unexpected_field"
+    return values, None
+
+
+def _values_from_bare_profile_lines(
+    lines: Sequence[str], requested_fields: Sequence[str]
+) -> tuple[dict[str, str], str | None]:
+    if set(requested_fields) != {"date_of_birth", "gender"}:
+        return {}, "invalid_format"
+    if len(lines) != 2:
+        return {}, "invalid_format"
+    raw_dob, raw_gender = lines
+    if not _PROFILE_DATE_RE.fullmatch(raw_dob):
+        return {}, "invalid_date_of_birth"
+    if raw_gender.strip().lower() not in _PROFILE_GENDER_VALUES:
+        return {}, "invalid_gender"
+    return {"date_of_birth": raw_dob, "gender": raw_gender}, None
+
+
+def _parse_profile_reply(body: str | None, requested_fields: Sequence[str]) -> tuple[dict[str, Any], str | None]:
+    parsed: dict[str, Any] = {}
+    lines = [line.strip() for line in (body or "").strip().splitlines() if line.strip()]
+    if not lines:
+        return {}, "invalid_format"
+
+    if all(":" in line for line in lines):
+        values, error = _values_from_labeled_profile_lines(lines)
+    elif all(":" not in line for line in lines):
+        values, error = _values_from_bare_profile_lines(lines, requested_fields)
+    else:
+        return {}, "invalid_format"
+    if error is not None:
+        return {}, error
+
+    if "date_of_birth" in requested_fields:
+        raw_dob = values.get("date_of_birth")
+        if not raw_dob or not _PROFILE_DATE_RE.fullmatch(raw_dob):
+            return {}, "invalid_date_of_birth"
+        try:
+            dob = date.fromisoformat(raw_dob)
+        except ValueError:
+            return {}, "invalid_date_of_birth"
+        if dob > _now().date():
+            return {}, "future_date_of_birth"
+        parsed["date_of_birth"] = dob
+
+    if "gender" in requested_fields:
+        raw_gender = values.get("gender")
+        gender = _PROFILE_GENDER_VALUES.get((raw_gender or "").strip().lower())
+        if gender is None:
+            return {}, "invalid_gender"
+        parsed["gender"] = gender
+
+    unexpected_values = set(values) - set(requested_fields)
+    if unexpected_values:
+        return {}, "unexpected_field"
+    return parsed, None
+
+
+def _send_profile_completion_message(
+    db: Session,
+    *,
+    conversation: Conversation,
+    message: Message,
+    state: dict[str, Any],
+    department: str,
+) -> bool:
+    body = _profile_completion_message_for_department(department)
+    _send_followup(
+        db,
+        conversation=conversation,
+        message=message,
+        body=body,
+        message_kind=AI_INTAKE_HANDOFF_MESSAGE_KIND,
+    )
+    state[AI_INTAKE_HANDOFF_SENT_KEY] = True
+    state["handoff_message"] = body
+    state["handoff_department"] = department
+    state["handoff_sent_at"] = _serialize_timestamp(_now())
+    return True
+
+
+def _apply_profile_update_and_sync(db: Session, *, person: Person, parsed_fields: dict[str, Any]) -> list[str]:
+    updated_fields: list[str] = []
+    for field_name, value in parsed_fields.items():
+        if getattr(person, field_name, None) != value:
+            setattr(person, field_name, value)
+            updated_fields.append(field_name)
+    if not updated_fields:
+        return []
+    db.commit()
+    db.refresh(person)
+    try:
+        from app.services.events.handlers.selfcare_customer import enqueue_person_contact_resync
+
+        enqueue_person_contact_resync(db, str(person.id), set(updated_fields))
+    except Exception as exc:
+        logger.warning("ai_intake_profile_selfcare_resync_failed person_id=%s error=%s", person.id, exc)
+    return updated_fields
+
+
+def _finalize_confident_match_handoff(
+    db: Session,
+    *,
+    conversation: Conversation,
+    message: Message,
+    config: AiIntakeConfig,
+    state: dict[str, Any],
+    mapping: AiIntakeDepartmentMapping,
+    source: str = "ai_intake_resolution",
+) -> AiIntakeResult:
+    _apply_department_assignment(
+        db,
+        conversation=conversation,
+        mapping=mapping,
+        state=state,
+        source=source,
+        fallback_team_id=coerce_uuid(config.fallback_team_id) if config.fallback_team_id else None,
+        block_fallback=True,
+    )
+    now = _now()
+    conversation.status = ConversationStatus.open
+    state["status"] = "resolved"
+    state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT
+    state["resolved_at"] = _serialize_timestamp(now)
+    _set_state(conversation, state)
+    db.commit()
+    conversation_id_str = str(conversation.id)
+    message_id_str = str(message.id)
+    channel_value = message.channel_type.value if message.channel_type else "unknown"
+    try:
+        if state.get("profile_collection_completed"):
+            _send_profile_completion_message(
+                db,
+                conversation=conversation,
+                message=message,
+                state=state,
+                department=mapping.key,
+            )
+            _set_state(conversation, state)
+            db.commit()
+        else:
+            handoff_sent = _send_handoff_message(
+                db,
+                conversation=conversation,
+                message=message,
+                department=mapping.key,
+            )
+            if handoff_sent:
+                _send_profile_update_prompt(
+                    db,
+                    conversation=conversation,
+                    message=message,
+                )
+    except Exception as exc:
+        logger.warning(
+            "ai_intake_post_handoff_send_failed scope_key=%s conversation_id=%s department=%s error=%s",
+            config.scope_key,
+            conversation_id_str,
+            mapping.key,
+            exc,
+        )
+        db.rollback()
+    inbox_cache.invalidate_inbox_list()
+    logger.info(
+        "ai_intake_resolved conversation_id=%s message_id=%s scope_key=%s department=%s confidence=%s",
+        conversation_id_str,
+        message_id_str,
+        state.get("scope_key") or config.scope_key,
+        mapping.key,
+        state.get("confidence"),
+    )
+    observe_ai_intake_result(
+        outcome="resolved",
+        channel=channel_value,
+    )
+    return AiIntakeResult(handled=True, resolved=True)
+
+
+def _begin_profile_collection(
+    db: Session,
+    *,
+    conversation: Conversation,
+    message: Message,
+    state: dict[str, Any],
+    department: str,
+    missing_standard_fields: list[str],
+    required_missing_fields: list[str],
+) -> AiIntakeResult:
+    now = _now()
+    body = _build_profile_collection_message(department=department, missing_fields=required_missing_fields)
+    state["status"] = AI_INTAKE_PROFILE_STATUS
+    state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_NONE
+    state[AI_INTAKE_HANDOFF_SENT_KEY] = True
+    state["handoff_message"] = body
+    state["handoff_department"] = department
+    state["handoff_sent_at"] = _serialize_timestamp(now)
+    state["handoff_followup_due_at"] = None
+    state["profile_collection"] = {
+        "requested_fields": required_missing_fields,
+        "missing_standard_fields": missing_standard_fields,
+        "attempt_count": 0,
+        "requested_at": _serialize_timestamp(now),
+        "department": department,
+    }
+    _set_state(conversation, state)
+    conversation.status = ConversationStatus.pending
+    db.commit()
+    _send_followup(
+        db,
+        conversation=conversation,
+        message=message,
+        body=body,
+        message_kind=AI_INTAKE_PROFILE_REQUEST_KIND,
+    )
+    inbox_cache.invalidate_inbox_list()
+    logger.info(
+        "ai_intake_profile_collection_requested conversation_id=%s message_id=%s department=%s fields=%s",
+        conversation.id,
+        message.id,
+        department,
+        required_missing_fields,
+    )
+    return AiIntakeResult(handled=True, waiting_for_customer=True)
+
+
+def _handle_profile_collection_reply(
+    db: Session,
+    *,
+    conversation: Conversation,
+    message: Message,
+    config: AiIntakeConfig,
+    current_state: dict[str, Any],
+) -> AiIntakeResult:
+    profile_state = current_state.get("profile_collection")
+    profile_state = profile_state if isinstance(profile_state, dict) else {}
+    requested_fields = [
+        str(field)
+        for field in (profile_state.get("requested_fields") or [])
+        if str(field) in {"date_of_birth", "gender"}
+    ]
+    department = _normalize_department_key(profile_state.get("department") or current_state.get("department"))
+    mapping_by_key = {item.key: item for item in _mapping_objects(config)}
+    mapping = mapping_by_key.get(department) if department else None
+    if not requested_fields or not mapping:
+        logger.warning(
+            "ai_intake_profile_state_invalid conversation_id=%s message_id=%s department=%s requested_fields=%s",
+            conversation.id,
+            message.id,
+            department,
+            requested_fields,
+        )
+        if mapping:
+            return _finalize_confident_match_handoff(
+                db,
+                conversation=conversation,
+                message=message,
+                config=config,
+                state=dict(current_state),
+                mapping=mapping,
+                source="ai_intake_profile_state_invalid",
+            )
+        return AiIntakeResult(handled=False)
+
+    parsed_fields, error = _parse_profile_reply(message.body, requested_fields)
+    if error is None:
+        person = db.get(Person, conversation.person_id) if conversation.person_id else None
+        state = dict(current_state)
+        if person is None:
+            logger.error(
+                "ai_intake_profile_person_missing conversation_id=%s message_id=%s person_id=%s",
+                conversation.id,
+                message.id,
+                conversation.person_id,
+            )
+            state["profile_collection_failed"] = True
+            state["profile_collection_failure_reason"] = "person_missing"
+            state["profile_collection_failed_at"] = _serialize_timestamp(_now())
+        else:
+            updated_fields = _apply_profile_update_and_sync(db, person=person, parsed_fields=parsed_fields)
+            state["profile_collection_completed"] = True
+            state["profile_collection_completed_at"] = _serialize_timestamp(_now())
+            state["profile_collection_updated_fields"] = updated_fields
+            logger.info(
+                "ai_intake_profile_collection_completed conversation_id=%s person_id=%s fields=%s",
+                conversation.id,
+                person.id,
+                updated_fields,
+            )
+        return _finalize_confident_match_handoff(
+            db,
+            conversation=conversation,
+            message=message,
+            config=config,
+            state=state,
+            mapping=mapping,
+            source="ai_intake_profile_completed",
+        )
+
+    attempt_count = int(profile_state.get("attempt_count") or 0)
+    state = dict(current_state)
+    profile_state = dict(profile_state)
+    if attempt_count < AI_INTAKE_PROFILE_MAX_INVALID_REPLIES:
+        profile_state["attempt_count"] = attempt_count + 1
+        profile_state["last_error"] = error
+        profile_state["last_attempt_at"] = _serialize_timestamp(_now())
+        state["profile_collection"] = profile_state
+        _set_state(conversation, state)
+        db.commit()
+        _send_followup(
+            db,
+            conversation=conversation,
+            message=message,
+            body=_build_profile_retry_message(requested_fields),
+            message_kind=AI_INTAKE_PROFILE_RETRY_KIND,
+        )
+        inbox_cache.invalidate_inbox_list()
+        logger.info(
+            "ai_intake_profile_collection_retry conversation_id=%s message_id=%s error=%s fields=%s",
+            conversation.id,
+            message.id,
+            error,
+            requested_fields,
+        )
+        return AiIntakeResult(handled=True, followup_sent=True, waiting_for_customer=True)
+
+    state["profile_collection_failed"] = True
+    state["profile_collection_failed_at"] = _serialize_timestamp(_now())
+    state["profile_collection_failure_reason"] = "invalid_format_retry_exhausted"
+    state["profile_collection_failed_fields"] = requested_fields
+    profile_state["attempt_count"] = attempt_count + 1
+    profile_state["last_error"] = error
+    profile_state["last_attempt_at"] = state["profile_collection_failed_at"]
+    state["profile_collection"] = profile_state
+    logger.info(
+        "ai_intake_profile_collection_failed conversation_id=%s message_id=%s error=%s fields=%s",
+        conversation.id,
+        message.id,
+        error,
+        requested_fields,
+    )
+    return _finalize_confident_match_handoff(
+        db,
+        conversation=conversation,
+        message=message,
+        config=config,
+        state=state,
+        mapping=mapping,
+        source="ai_intake_profile_failed",
+    )
 
 
 def _message_timestamp(message: Message) -> datetime | None:
@@ -1138,6 +1600,40 @@ def mark_handoff_in_progress_for_human_reply(
     return True
 
 
+def mark_handoff_assigned_for_manual_assignment(
+    db: Session,
+    *,
+    conversation: Conversation,
+    assigned_agent_id: str | None,
+    assigned_by_id: str | None,
+) -> bool:
+    """Move an AI-owned conversation out of AI control when a human is assigned."""
+    state = _state(conversation)
+    if not state:
+        return False
+    if (
+        state.get("status") not in AI_INTAKE_PENDING_STATES
+        and state.get("handoff_state") != AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT
+    ):
+        return False
+
+    now = _now()
+    state["status"] = "human_assigned"
+    state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_ASSIGNED
+    state["human_assigned_at"] = _serialize_timestamp(now)
+    state["human_assigned_by_id"] = assigned_by_id
+    state["human_assigned_agent_id"] = assigned_agent_id
+    state["routing_assigned_agent_id"] = assigned_agent_id
+    _set_state(conversation, state)
+    logger.info(
+        "ai_intake_handoff_assigned conversation_id=%s assigned_agent_id=%s assigned_by_id=%s",
+        conversation.id,
+        assigned_agent_id,
+        assigned_by_id,
+    )
+    return True
+
+
 def _candidate_handoff_followup_ids(db: Session, *, limit: int) -> list[str]:
     conversations = (
         db.query(Conversation.id)
@@ -1148,6 +1644,20 @@ def _candidate_handoff_followup_ids(db: Session, *, limit: int) -> list[str]:
         .all()
     )
     return [str(row[0]) for row in conversations]
+
+
+def _candidate_profile_nudge_ids(db: Session, *, limit: int) -> list[str]:
+    rows = (
+        db.query(Conversation.id)
+        .filter(Conversation.is_active.is_(True))
+        .filter(Conversation.status == ConversationStatus.pending)
+        .filter(Conversation.metadata_.isnot(None))
+        .filter(Conversation.metadata_[AI_INTAKE_METADATA_KEY]["status"].as_string() == AI_INTAKE_PROFILE_STATUS)
+        .order_by(Conversation.updated_at.asc())
+        .limit(limit)
+        .all()
+    )
+    return [str(row[0]) for row in rows]
 
 
 def backfill_missing_handoff_states(db: Session, *, limit: int = 500) -> dict[str, Any]:
@@ -1176,6 +1686,177 @@ def backfill_missing_handoff_states(db: Session, *, limit: int = 500) -> dict[st
         db.commit()
         inbox_cache.invalidate_inbox_list()
     return {"processed": len(rows), "updated": updated}
+
+
+def send_due_profile_collection_nudges(db: Session, *, limit: int = 200) -> dict[str, Any]:
+    if not _enabled_by_env():
+        return {"skipped": True, "reason": "disabled"}
+
+    now = _now()
+    processed = 0
+    sent = 0
+    suppressed = 0
+    errors: list[str] = []
+
+    for conversation_id in _candidate_profile_nudge_ids(db, limit=limit):
+        conversation_uuid = coerce_uuid(conversation_id)
+        conversation = (
+            db.query(Conversation)
+            .filter(Conversation.id == conversation_uuid)
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+        if not conversation:
+            continue
+        processed += 1
+        state = _state(conversation)
+        if state.get("status") != AI_INTAKE_PROFILE_STATUS:
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=status ai_status=%s",
+                conversation.id,
+                state.get("status"),
+            )
+            continue
+        if not conversation.is_active or conversation.status != ConversationStatus.pending:
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=conversation_not_pending is_active=%s status=%s",
+                conversation.id,
+                conversation.is_active,
+                conversation.status,
+            )
+            continue
+        if _parse_timestamp(state.get("profile_nudge_sent_at")) is not None:
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=already_sent sent_at=%s",
+                conversation.id,
+                state.get("profile_nudge_sent_at"),
+            )
+            continue
+
+        raw_profile_state = state.get("profile_collection")
+        profile_state: dict[str, Any] = raw_profile_state if isinstance(raw_profile_state, dict) else {}
+        requested_at = _parse_timestamp(profile_state.get("requested_at")) or _parse_timestamp(
+            state.get("handoff_sent_at")
+        )
+        if not requested_at:
+            suppressed += 1
+            logger.info("ai_intake_profile_nudge_suppressed conversation_id=%s reason=no_requested_at", conversation.id)
+            continue
+        due_at = requested_at + timedelta(minutes=AI_INTAKE_PROFILE_NUDGE_MINUTES)
+        if due_at > now:
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=not_due due_at=%s now=%s",
+                conversation.id,
+                _serialize_timestamp(due_at),
+                _serialize_timestamp(now),
+            )
+            continue
+
+        inbound_after_request = (
+            db.query(Message.id)
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.direction == MessageDirection.inbound)
+            .filter(func.coalesce(Message.received_at, Message.created_at) > requested_at)
+            .first()
+        )
+        if inbound_after_request:
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=customer_replied_after_request",
+                conversation.id,
+            )
+            continue
+
+        existing_nudge = _find_existing_ai_message(
+            db,
+            conversation_id=conversation.id,
+            message_kind=AI_INTAKE_PROFILE_NUDGE_KIND,
+        )
+        if existing_nudge:
+            state["profile_nudge_sent_at"] = _serialize_timestamp(_message_timestamp(existing_nudge) or now)
+            state["profile_nudge_message"] = existing_nudge.body or state.get("profile_nudge_message")
+            _set_state(conversation, state)
+            db.commit()
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=already_persisted_from_message sent_at=%s",
+                conversation.id,
+                state["profile_nudge_sent_at"],
+            )
+            continue
+
+        inbound_message = (
+            db.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.direction == MessageDirection.inbound)
+            .order_by(func.coalesce(Message.received_at, Message.created_at).desc())
+            .first()
+        )
+        if not inbound_message:
+            suppressed += 1
+            logger.info(
+                "ai_intake_profile_nudge_suppressed conversation_id=%s reason=no_inbound_message", conversation.id
+            )
+            continue
+
+        body = _profile_nudge_message_for_department(
+            str(profile_state.get("department") or state.get("handoff_department") or state.get("department") or "")
+        )
+        try:
+            _send_followup(
+                db,
+                conversation=conversation,
+                message=inbound_message,
+                body=body,
+                message_kind=AI_INTAKE_PROFILE_NUDGE_KIND,
+            )
+            locked = (
+                db.query(Conversation)
+                .filter(Conversation.id == conversation.id)
+                .with_for_update(skip_locked=True)
+                .first()
+            )
+            if not locked:
+                sent += 1
+                continue
+            latest_state = _state(locked)
+            existing_nudge = _find_existing_ai_message(
+                db,
+                conversation_id=locked.id,
+                message_kind=AI_INTAKE_PROFILE_NUDGE_KIND,
+            )
+            latest_state["profile_nudge_sent_at"] = _serialize_timestamp(
+                (_message_timestamp(existing_nudge) if existing_nudge else None) or now
+            )
+            latest_state["profile_nudge_message"] = (
+                existing_nudge.body if existing_nudge and existing_nudge.body else body
+            )
+            _set_state(locked, latest_state)
+            db.commit()
+            inbox_cache.invalidate_inbox_list()
+            sent += 1
+            logger.info(
+                "ai_intake_profile_nudge_sent conversation_id=%s due_at=%s waited_seconds=%s",
+                conversation.id,
+                _serialize_timestamp(due_at),
+                int(max((now - requested_at).total_seconds(), 0)),
+            )
+        except Exception as exc:
+            if not db.is_active:
+                db.rollback()
+            logger.exception("ai_intake_profile_nudge_failed conversation_id=%s", conversation_id)
+            errors.append(f"{conversation_id}: {exc}")
+
+    return {
+        "processed": processed,
+        "sent": sent,
+        "suppressed": suppressed,
+        "errors": errors,
+    }
 
 
 def send_due_handoff_reassurance_followups(db: Session, *, limit: int = 200) -> dict[str, Any]:
@@ -1678,16 +2359,14 @@ def process_pending_intake(
 ) -> AiIntakeResult:
     env_enabled = _enabled_by_env()
     eligible_channel = _eligible_channel(message)
-    gateway_enabled = ai_gateway.enabled(db)
-    if not env_enabled or not eligible_channel or not gateway_enabled:
+    if not env_enabled or not eligible_channel:
         logger.info(
-            "ai_intake_skipped conversation_id=%s message_id=%s scope_key=%s env_enabled=%s eligible_channel=%s gateway_enabled=%s",
+            "ai_intake_skipped conversation_id=%s message_id=%s scope_key=%s env_enabled=%s eligible_channel=%s",
             conversation.id,
             message.id,
             scope_key,
             env_enabled,
             eligible_channel,
-            gateway_enabled,
         )
         return AiIntakeResult(handled=False)
 
@@ -1705,6 +2384,26 @@ def process_pending_intake(
 
     merged_metadata = _merge_metadata(conversation, message)
     current_state = _state(conversation)
+
+    if current_state.get("status") == AI_INTAKE_PROFILE_STATUS:
+        return _handle_profile_collection_reply(
+            db,
+            conversation=conversation,
+            message=message,
+            config=config,
+            current_state=current_state,
+        )
+
+    gateway_enabled = ai_gateway.enabled(db)
+    if not gateway_enabled:
+        logger.info(
+            "ai_intake_skipped conversation_id=%s message_id=%s scope_key=%s gateway_enabled=%s",
+            conversation.id,
+            message.id,
+            scope_key,
+            gateway_enabled,
+        )
+        return AiIntakeResult(handled=False)
 
     if config.exclude_campaign_attribution and _campaign_attribution(merged_metadata):
         state, _, _ = _base_state(
@@ -1750,7 +2449,11 @@ def process_pending_intake(
         return AiIntakeResult(handled=False)
 
     started_at = _parse_timestamp(current_state.get("started_at"))
-    if started_at is not None and _now() >= _deadline_for_state(started_at=started_at, config=config):
+    if (
+        current_state.get("status") != AI_INTAKE_PROFILE_STATUS
+        and started_at is not None
+        and _now() >= _deadline_for_state(started_at=started_at, config=config)
+    ):
         return _escalate_pending_intake(
             db,
             conversation=conversation,
@@ -1875,61 +2578,62 @@ def process_pending_intake(
     )
 
     if department in mapping_by_key and confidence_value >= config.confidence_threshold and not needs_followup:
-        _apply_department_assignment(
-            db,
-            conversation=conversation,
-            mapping=mapping_by_key[department],
-            state=next_state,
-            source="ai_intake_resolution",
-            fallback_team_id=coerce_uuid(config.fallback_team_id) if config.fallback_team_id else None,
-            block_fallback=True,
-        )
-        conversation.status = ConversationStatus.open
-        next_state["status"] = "resolved"
-        next_state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT
-        next_state["resolved_at"] = _serialize_timestamp(now)
-        _set_state(conversation, next_state)
-        db.commit()
-        conversation_id_str = str(conversation.id)
-        message_id_str = str(message.id)
-        channel_value = message.channel_type.value if message.channel_type else "unknown"
-        try:
-            handoff_sent = _send_handoff_message(
+        person = db.get(Person, conversation.person_id) if conversation.person_id else None
+        if person is None:
+            logger.error(
+                "ai_intake_profile_person_invariant_violation conversation_id=%s message_id=%s person_id=%s",
+                conversation.id,
+                message.id,
+                conversation.person_id,
+            )
+            next_state["profile_collection_skipped"] = True
+            next_state["profile_collection_skip_reason"] = "person_missing"
+            return _finalize_confident_match_handoff(
                 db,
                 conversation=conversation,
                 message=message,
+                config=config,
+                state=next_state,
+                mapping=mapping_by_key[department],
+            )
+
+        missing_standard_fields, required_missing_fields = _profile_missing_fields(person)
+        if person.party_status == PartyStatus.contact:
+            next_state["profile_collection_skipped"] = True
+            next_state["profile_collection_skip_reason"] = "party_status_contact"
+            logger.info(
+                "ai_intake_profile_collection_skipped conversation_id=%s message_id=%s person_id=%s party_status=%s",
+                conversation.id,
+                message.id,
+                person.id,
+                person.party_status.value,
+            )
+            return _finalize_confident_match_handoff(
+                db,
+                conversation=conversation,
+                message=message,
+                config=config,
+                state=next_state,
+                mapping=mapping_by_key[department],
+            )
+        if required_missing_fields:
+            return _begin_profile_collection(
+                db,
+                conversation=conversation,
+                message=message,
+                state=next_state,
                 department=department,
+                missing_standard_fields=missing_standard_fields,
+                required_missing_fields=required_missing_fields,
             )
-            if handoff_sent:
-                _send_profile_update_prompt(
-                    db,
-                    conversation=conversation,
-                    message=message,
-                )
-        except Exception as exc:
-            logger.warning(
-                "ai_intake_post_handoff_send_failed scope_key=%s conversation_id=%s department=%s error=%s",
-                config.scope_key,
-                conversation_id_str,
-                department,
-                exc,
-            )
-            db.rollback()
-            conversation = db.get(Conversation, coerce_uuid(conversation_id_str)) or conversation
-        inbox_cache.invalidate_inbox_list()
-        logger.info(
-            "ai_intake_resolved conversation_id=%s message_id=%s scope_key=%s department=%s confidence=%s",
-            conversation_id_str,
-            message_id_str,
-            scope_key or config.scope_key,
-            department,
-            confidence_value,
+        return _finalize_confident_match_handoff(
+            db,
+            conversation=conversation,
+            message=message,
+            config=config,
+            state=next_state,
+            mapping=mapping_by_key[department],
         )
-        observe_ai_intake_result(
-            outcome="resolved",
-            channel=channel_value,
-        )
-        return AiIntakeResult(handled=True, resolved=True)
 
     turn_count = int(current_state.get("turn_count") or 0)
     can_follow_up = (
@@ -2021,6 +2725,13 @@ def escalate_expired_pending_intakes(db: Session, *, limit: int = 200) -> dict[s
         state = _state(conversation)
         if not state or state.get("status") not in AI_INTAKE_PENDING_STATES:
             skipped += 1
+            continue
+        if state.get("status") == AI_INTAKE_PROFILE_STATUS:
+            skipped += 1
+            logger.info(
+                "ai_intake_timeout_escalation_skipped conversation_id=%s reason=awaiting_profile",
+                conversation.id,
+            )
             continue
         deadline = _parse_timestamp(state.get("escalate_at"))
         if deadline is None:
@@ -2147,6 +2858,192 @@ def retry_team_only_ai_assignments(db: Session, *, limit: int = 200) -> dict[str
         "processed": len(rows),
         "retried": retried,
         "assigned": assigned,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+
+def _handoff_action_at(state: dict[str, Any]) -> datetime | None:
+    candidates = [
+        _parse_timestamp(state.get("human_assigned_at")),
+        _parse_timestamp(state.get("assigned_at")),
+        _parse_timestamp(state.get("agent_assigned_at")),
+        _parse_timestamp(state.get("escalated_at")),
+        _parse_timestamp(state.get("resolved_at")),
+        _parse_timestamp(state.get("handoff_sent_at")),
+    ]
+    parsed = [candidate for candidate in candidates if candidate is not None]
+    return max(parsed) if parsed else None
+
+
+def _missed_handoff_reference_at(
+    *,
+    state: dict[str, Any],
+    assignment: ConversationAssignment,
+) -> datetime | None:
+    assignment_at = assignment.assigned_at
+    if assignment_at is not None and assignment_at.tzinfo is None:
+        assignment_at = assignment_at.replace(tzinfo=UTC)
+    handoff_at = _handoff_action_at(state)
+    candidates = [candidate for candidate in [assignment_at, handoff_at] if candidate is not None]
+    return max(candidates) if candidates else None
+
+
+def _select_reassignment_agent(
+    db: Session,
+    *,
+    team_id: str,
+    exclude_agent_id: str | None,
+):
+    active_agents = inbox_routing._list_active_agents(db, team_id)
+    if exclude_agent_id:
+        active_agents = [agent for agent in active_agents if str(agent.id) != str(exclude_agent_id)]
+    if not active_agents:
+        return None
+
+    load_map = inbox_routing._agent_active_chat_counts(db, [agent.id for agent in active_agents])
+    default_cap = inbox_routing._global_max_concurrent(db)
+    available = [
+        agent for agent in active_agents if load_map.get(agent.id, 0) < inbox_routing._agent_cap(agent, default_cap)
+    ]
+    if not available:
+        return None
+    available.sort(key=lambda agent: (load_map.get(agent.id, 0), agent.created_at, str(agent.id)))
+    return available[0]
+
+
+def _ai_handoff_reassignment_timeout_minutes(db: Session) -> int:
+    from app.services.settings_spec import SettingDomain, resolve_value
+
+    value = resolve_value(db, SettingDomain.notification, "crm_inbox_ai_handoff_reassign_after_minutes")
+    if isinstance(value, bool):
+        minutes = AI_INTAKE_HANDOFF_REASSIGN_MINUTES
+    elif isinstance(value, int | float | str):
+        try:
+            minutes = int(value)
+        except ValueError:
+            minutes = AI_INTAKE_HANDOFF_REASSIGN_MINUTES
+    else:
+        minutes = AI_INTAKE_HANDOFF_REASSIGN_MINUTES
+    return max(minutes, 1)
+
+
+def reassign_stale_ai_handoffs(db: Session, *, limit: int = 200) -> dict[str, Any]:
+    """Reassign AI handoffs when the first assigned agent has not replied in time."""
+    timeout_minutes = _ai_handoff_reassignment_timeout_minutes(db)
+    cutoff = _now() - timedelta(minutes=timeout_minutes)
+    rows = (
+        db.query(Conversation, ConversationAssignment)
+        .join(ConversationAssignment, ConversationAssignment.conversation_id == Conversation.id)
+        .filter(Conversation.is_active.is_(True))
+        .filter(Conversation.status.in_([ConversationStatus.open, ConversationStatus.pending]))
+        .filter(Conversation.first_response_at.is_(None))
+        .filter(ConversationAssignment.is_active.is_(True))
+        .filter(ConversationAssignment.agent_id.isnot(None))
+        .order_by(ConversationAssignment.assigned_at.asc())
+        .limit(limit)
+        .all()
+    )
+
+    processed = 0
+    reassigned = 0
+    queued = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for conversation, assignment in rows:
+        state = _state(conversation)
+        if state.get("status") not in {"resolved", "escalated", "human_assigned"}:
+            skipped += 1
+            continue
+
+        reference_at = _missed_handoff_reference_at(state=state, assignment=assignment)
+        if reference_at is None or reference_at > cutoff:
+            skipped += 1
+            continue
+
+        team_id = assignment.team_id or state.get("routing_assigned_team_id") or state.get("routing_selected_team_id")
+        if not team_id:
+            skipped += 1
+            continue
+
+        processed += 1
+        try:
+            next_agent = _select_reassignment_agent(
+                db,
+                team_id=str(team_id),
+                exclude_agent_id=str(assignment.agent_id) if assignment.agent_id else None,
+            )
+            now = _now()
+            state["missed_handoff_reassigned_at"] = _serialize_timestamp(now)
+            state["missed_handoff_previous_agent_id"] = str(assignment.agent_id) if assignment.agent_id else None
+            state["missed_handoff_reference_at"] = _serialize_timestamp(reference_at)
+            state["missed_handoff_reassign_after_minutes"] = timeout_minutes
+            state["missed_handoff_reassignment_count"] = int(state.get("missed_handoff_reassignment_count") or 0) + 1
+
+            if next_agent is None:
+                conversation_service.assign_conversation(
+                    db,
+                    conversation_id=str(conversation.id),
+                    agent_id=None,
+                    team_id=str(team_id),
+                    assigned_by_id=None,
+                    update_lead_owner=False,
+                )
+                state["missed_handoff_reassigned_agent_id"] = None
+                state["missed_handoff_reassignment_result"] = "team_queue"
+                _set_routing_state(
+                    state,
+                    department=_normalize_department_key(state.get("department")),
+                    selected_team_id=team_id,
+                    assigned_team_id=team_id,
+                    assigned_agent_id=None,
+                    routing_state="waiting_for_agent",
+                    skipped_reason="missed_first_response",
+                    fallback_blocked=bool(state.get("routing_fallback_blocked")),
+                )
+                queued += 1
+            else:
+                conversation_service.assign_conversation(
+                    db,
+                    conversation_id=str(conversation.id),
+                    agent_id=str(next_agent.id),
+                    team_id=str(team_id),
+                    assigned_by_id=None,
+                    update_lead_owner=False,
+                )
+                state["missed_handoff_reassigned_agent_id"] = str(next_agent.id)
+                state["missed_handoff_reassignment_result"] = "reassigned"
+                _set_routing_state(
+                    state,
+                    department=_normalize_department_key(state.get("department")),
+                    selected_team_id=team_id,
+                    assigned_team_id=team_id,
+                    assigned_agent_id=next_agent.id,
+                    routing_state="assigned",
+                )
+                reassigned += 1
+
+            _set_state(conversation, state)
+            db.commit()
+            inbox_cache.invalidate_inbox_list()
+            logger.info(
+                "ai_intake_missed_handoff_reassigned conversation_id=%s previous_agent_id=%s new_agent_id=%s team_id=%s result=%s",
+                conversation.id,
+                assignment.agent_id,
+                state.get("missed_handoff_reassigned_agent_id"),
+                team_id,
+                state.get("missed_handoff_reassignment_result"),
+            )
+        except Exception as exc:
+            db.rollback()
+            logger.exception("ai_intake_missed_handoff_reassign_failed conversation_id=%s", conversation.id)
+            errors.append(f"{conversation.id}: {exc}")
+
+    return {
+        "processed": processed,
+        "reassigned": reassigned,
+        "queued": queued,
         "skipped": skipped,
         "errors": errors,
     }

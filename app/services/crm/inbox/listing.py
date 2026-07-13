@@ -21,7 +21,7 @@ from app.services.crm.inbox.conversation_status import reopen_due_snoozed_conver
 from app.services.crm.inbox.queries import list_inbox_conversations
 from app.services.crm.inbox.search import normalize_search
 
-INBOX_LIST_CACHE_SCHEMA = 2
+INBOX_LIST_CACHE_SCHEMA = 3
 DEFAULT_INBOX_PAGE_SIZE = 50
 
 
@@ -124,6 +124,8 @@ async def load_inbox_list(
     safe_offset = max(int(offset or 0), 0)
     safe_limit = max(int(limit or 0), 1)
     assignment_filter = (assignment or "").strip().lower()
+    if assignment_filter == "all":
+        assignment_filter = ""
     actor_sensitive_assignment = assignment_filter in {"assigned", "assigned_to_me", "mine", "my_team"}
     cache_params = {
         "cache_schema": INBOX_LIST_CACHE_SCHEMA,
@@ -132,7 +134,7 @@ async def load_inbox_list(
         "priority": priority,
         "outbox_status": outbox_status,
         "search": normalized_search,
-        "assignment": assignment,
+        "assignment": assignment_filter or None,
         "assigned_person_id": assigned_person_id if actor_sensitive_assignment else None,
         "target_id": target_id,
         "filter_agent_id": filter_agent_id,
@@ -210,7 +212,7 @@ async def load_inbox_list(
     exclude_superseded = status not in resolved_status_values if status else True
     target_prefix = (target_id or "").strip()
     target_is_comment = target_prefix.startswith("fb:") or target_prefix.startswith("ig:")
-    include_comments = not channel and assignment_filter != "assigned" and (status_enum is None)
+    include_comments = not channel and not assignment_filter and (status_enum is None)
     if outbox_status_filter:
         include_comments = False
     if assignment_filter in {"unreplied", "needs_attention"}:
@@ -234,7 +236,7 @@ async def load_inbox_list(
             priority=priority_enum,
             outbox_status=outbox_status_filter,
             search=normalized_search,
-            assignment=assignment,
+            assignment=assignment_filter,
             assigned_person_id=assigned_person_id,
             channel_target_id=target_id,
             exclude_superseded_resolved=exclude_superseded,

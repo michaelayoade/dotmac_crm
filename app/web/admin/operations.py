@@ -19,6 +19,7 @@ from app.db import get_db
 from app.models.auth import UserCredential
 from app.models.crm.team import CrmAgent
 from app.models.dispatch import TechnicianProfile
+from app.models.domain_settings import SettingDomain
 from app.models.inventory import InventoryItem
 from app.models.person import Person
 from app.models.projects import Project, ProjectTask, ProjectType
@@ -34,6 +35,7 @@ from app.schemas.workforce import WorkOrderCreate, WorkOrderNoteCreate, WorkOrde
 from app.services import dispatch as dispatch_service
 from app.services import projects as projects_service
 from app.services import sales_orders as sales_orders_service
+from app.services import settings_spec
 from app.services import vendor as vendor_service
 from app.services import workforce as workforce_service
 from app.services.auth_dependencies import require_any_permission, require_permission
@@ -791,6 +793,25 @@ def sales_order_delete(
 # =============================================================================
 
 
+def _work_orders_moved_banner(db: Session) -> dict[str, str] | None:
+    """Return context for the transition banner shown once work orders move to the sub admin.
+
+    Gated by the ``work_orders_moved_banner_enabled`` integration setting so the
+    banner stays invisible until the Phase 2 flip. The link defaults to the sub
+    (selfcare) admin dispatch queue derived from ``selfcare_base_url``.
+    """
+    enabled = settings_spec.resolve_value(db, SettingDomain.integration, "work_orders_moved_banner_enabled")
+    if not enabled:
+        return None
+    url = str(settings_spec.resolve_value(db, SettingDomain.integration, "work_orders_moved_banner_url") or "").strip()
+    if not url:
+        base_url = str(settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_base_url") or "").strip()
+        if not base_url:
+            return None
+        url = f"{base_url.rstrip('/')}/admin/dispatch/work-orders"
+    return {"url": url}
+
+
 @router.get(
     "/work-orders",
     response_class=HTMLResponse,
@@ -874,6 +895,7 @@ def work_orders_list(
             "statuses": [s.value for s in WorkOrderStatus],
             "priorities": [p.value for p in WorkOrderPriority],
             "status_options": [s.value for s in WorkOrderStatus],
+            "work_orders_moved_banner": _work_orders_moved_banner(db),
             "csrf_token": get_csrf_token(request),
         },
     )
@@ -1297,6 +1319,7 @@ def work_order_detail(
             "assignments": assignments,
             "notes": notes,
             "can_add_notes": can_add_notes,
+            "work_orders_moved_banner": _work_orders_moved_banner(db),
             "csrf_token": get_csrf_token(request),
         },
     )

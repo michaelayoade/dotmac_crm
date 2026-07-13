@@ -32,6 +32,7 @@ LEAD_SOURCE_OPTIONS = (
     "Facebook Ads",
     "Google",
     "Website",
+    "Portal",
 )
 
 _LEAD_SOURCE_NORMALIZED_MAP = {
@@ -64,6 +65,10 @@ _LEAD_SOURCE_NORMALIZED_MAP = {
     "web": "Website",
     "chat widget": "Website",
     "chat_widget": "Website",
+    "portal": "Portal",
+    "customer portal": "Portal",
+    "customer_portal": "Portal",
+    "selfcare": "Portal",
 }
 
 

@@ -1,6 +1,6 @@
 {% extends "layouts/admin.html" %}
 
-{% from "components/ui/macros.html" import danger_button, submit_button, table_shell, dashboard_filter_panel, dashboard_kpi_grid, stats_card %}
+{% from "components/ui/macros.html" import danger_button, submit_button, table_shell, dashboard_filter_panel, dashboard_kpi_grid, stats_card, info_banner %}
 {% block title %}Work Orders - Field Service{% endblock %}
 
 {% block content %}
@@ -11,6 +11,22 @@
 </div>
 
 <div class="relative space-y-6">
+    {# Work Orders Moved Banner (Phase 2 transition) #}
+    {% if work_orders_moved_banner %}
+    {% set moved_banner_actions %}
+    <a href="{{ work_orders_moved_banner.url }}" class="inline-flex items-center gap-1 font-medium text-amber-700 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200 transition-colors">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+        Open work orders in the sub admin
+    </a>
+    {% endset %}
+    {{ info_banner(
+        message='<span class="font-semibold">Work orders have moved to the sub admin</span> — this system is read-only.',
+        icon='<svg class="h-5 w-5 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>',
+        color="amber",
+        actions=moved_banner_actions
+    ) }}
+    {% endif %}
+
     <!-- Header -->
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between animate-fade-in-up">
         <div class="flex items-center gap-4">
