@@ -1065,12 +1065,7 @@ def _send_profile_update_prompt(
 ) -> bool:
     body = _profile_update_prompt_message()
     conversation_id = coerce_uuid(str(conversation.id))
-    locked = (
-        db.query(Conversation)
-        .filter(Conversation.id == conversation_id)
-        .with_for_update(skip_locked=True)
-        .first()
-    )
+    locked = db.query(Conversation).filter(Conversation.id == conversation_id).with_for_update(skip_locked=True).first()
     if not locked:
         return False
     existing = _find_existing_ai_message(
