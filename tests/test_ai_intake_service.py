@@ -45,6 +45,7 @@ def _make_person(db_session):
         last_name="Test",
         date_of_birth=date(1990, 1, 1),
         gender=Gender.male,
+        party_status=PartyStatus.customer,
     )
     db_session.add(person)
     db_session.flush()
