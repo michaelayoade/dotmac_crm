@@ -175,7 +175,7 @@ def test_fetch_customers_can_omit_include_for_basic_subscriber_rows(db_session, 
     assert calls[0] == {"per_page": 500, "page": 1}
 
 
-def test_fetch_locations_uses_single_locations_request(db_session, monkeypatch):
+def test_fetch_locations_uses_paginated_locations_request(db_session, monkeypatch):
     monkeypatch.setattr(
         selfcare.settings_spec,
         "resolve_value",
@@ -210,7 +210,7 @@ def test_fetch_locations_uses_single_locations_request(db_session, monkeypatch):
     ]
     assert len(calls) == 1
     assert calls[0]["url"] == "https://selfcare.example.test/api/v1/crm/locations"
-    assert calls[0]["params"] == {}
+    assert calls[0]["params"] == {"per_page": 500, "page": 1}
 
 
 def test_sync_subscribers_from_selfcare_skips_bad_record(db_session, monkeypatch):
