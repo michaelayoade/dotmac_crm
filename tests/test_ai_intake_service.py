@@ -10,7 +10,7 @@ from app.models.crm.conversation import Conversation, ConversationAssignment, Me
 from app.models.crm.enums import AgentPresenceStatus, ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.crm.presence import AgentPresence
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
-from app.models.person import Gender, Person
+from app.models.person import Gender, PartyStatus, Person
 from app.schemas.crm.conversation import MessageCreate
 from app.services.crm import conversation as conversation_service
 from app.services.crm.ai_intake import (
@@ -32,6 +32,7 @@ from app.services.crm.ai_intake import (
     recover_ai_error_escalations,
     save_ai_intake_config,
     send_due_handoff_reassurance_followups,
+    send_due_profile_collection_nudges,
 )
 
 
@@ -341,6 +342,7 @@ def test_process_pending_intake_resolves_and_assigns_team(db_session, monkeypatc
 
 def test_process_pending_intake_requests_missing_profile_before_assignment(db_session, monkeypatch):
     person = _make_person(db_session)
+    person.party_status = PartyStatus.lead
     person.date_of_birth = None
     person.gender = Gender.unknown
     conversation = _make_conversation(db_session, person)
@@ -413,6 +415,82 @@ def test_process_pending_intake_requests_missing_profile_before_assignment(db_se
     assert sent[0].metadata["ai_intake_message_kind"] == "profile_request"
 
 
+def test_process_pending_intake_skips_profile_collection_for_contact_party_status(db_session, monkeypatch):
+    person = _make_person(db_session)
+    person.party_status = PartyStatus.contact
+    person.date_of_birth = None
+    person.gender = Gender.unknown
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+    team = CrmTeam(name="Support", is_active=True)
+    db_session.add(team)
+    db_session.commit()
+    agent = _make_agent(db_session, team, label="Assigned", status=AgentPresenceStatus.online)
+    _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
+
+    sent = []
+
+    def _fake_send_message(db, payload, author_id=None, trace_id=None):
+        sent.append(payload)
+        outbound = Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+            metadata_=payload.metadata,
+        )
+        db.add(outbound)
+        db.commit()
+        db.refresh(outbound)
+        return outbound
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
+        lambda db, **kwargs: (
+            SimpleNamespace(
+                content='{"department":"support","confidence":0.93,"reason":"service issue","needs_followup":false,"followup_question":""}'
+            ),
+            {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+    monkeypatch.setattr("app.services.crm.ai_intake.send_message", _fake_send_message)
+
+    result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    db_session.refresh(conversation)
+    assignment = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .first()
+    )
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+
+    assert result.handled is True
+    assert result.resolved is True
+    assert result.waiting_for_customer is False
+    assert conversation.status == ConversationStatus.open
+    assert assignment is not None
+    assert assignment.team_id == team.id
+    assert assignment.agent_id == agent.id
+    assert state["status"] == "resolved"
+    assert state["profile_collection_skipped"] is True
+    assert state["profile_collection_skip_reason"] == "party_status_contact"
+    assert "profile_collection" not in state
+    assert sent[-1].metadata["ai_intake_message_kind"] == "handoff"
+    assert "Date of birth: YYYY-MM-DD" not in sent[-1].body
+
+
 def test_process_pending_intake_profile_reply_updates_person_and_finalizes_handoff(db_session, monkeypatch):
     person = _make_person(db_session)
     person.date_of_birth = None
@@ -463,17 +541,24 @@ def test_process_pending_intake_profile_reply_updates_person_and_finalizes_hando
         "app.services.events.handlers.selfcare_customer.enqueue_person_contact_resync",
         lambda db, person_id, changed_fields: resync_calls.append((person_id, changed_fields)),
     )
-    monkeypatch.setattr(
-        "app.services.crm.ai_intake.send_message",
-        lambda db, payload, author_id=None, trace_id=None: Message(
+    sent = []
+
+    def _fake_send_message(db, payload, author_id=None, trace_id=None):
+        sent.append(payload)
+        outbound = Message(
             conversation_id=payload.conversation_id,
             channel_type=payload.channel_type,
             direction=MessageDirection.outbound,
             status=MessageStatus.sent,
             body=payload.body,
             metadata_=payload.metadata,
-        ),
-    )
+        )
+        db.add(outbound)
+        db.commit()
+        db.refresh(outbound)
+        return outbound
+
+    monkeypatch.setattr("app.services.crm.ai_intake.send_message", _fake_send_message)
 
     result = process_pending_intake(
         db_session,
@@ -505,6 +590,93 @@ def test_process_pending_intake_profile_reply_updates_person_and_finalizes_hando
     assert state["status"] == "resolved"
     assert state["profile_collection_completed"] is True
     assert set(state["profile_collection_updated_fields"]) == {"date_of_birth", "gender"}
+    assert sent[-1].metadata["ai_intake_message_kind"] == "handoff"
+    assert sent[-1].metadata["ai_intake_generated"] is True
+    assert (
+        sent[-1].body == "Thanks, your profile has been updated. A member of our support team will be with you shortly."
+    )
+    assert state["handoff_message"] == sent[-1].body
+
+
+def test_process_pending_intake_profile_reply_accepts_bare_date_and_gender_lines(db_session, monkeypatch):
+    person = _make_person(db_session)
+    person.date_of_birth = None
+    person.gender = Gender.unknown
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    team = CrmTeam(name="Support", is_active=True)
+    db_session.add(team)
+    db_session.commit()
+    _make_agent(db_session, team, label="Assigned", status=AgentPresenceStatus.online)
+    _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
+
+    now = datetime.now(UTC)
+    conversation.status = ConversationStatus.pending
+    conversation.metadata_ = {
+        AI_INTAKE_METADATA_KEY: {
+            "status": "awaiting_profile",
+            "config_id": "config-1",
+            "scope_key": f"widget:{widget_id}",
+            "started_at": now.isoformat(),
+            "department": "support",
+            "confidence": 0.96,
+            "handoff_sent": True,
+            "handoff_department": "support",
+            "handoff_message": "Thanks for reaching out.",
+            "handoff_sent_at": now.isoformat(),
+            "profile_collection": {
+                "requested_fields": ["date_of_birth", "gender"],
+                "missing_standard_fields": ["date_of_birth", "gender"],
+                "attempt_count": 0,
+                "requested_at": now.isoformat(),
+                "department": "support",
+            },
+        }
+    }
+    db_session.commit()
+    message = _make_message(
+        db_session,
+        conversation,
+        body="2004-04-16\nmAlE",
+        metadata={"widget_config_id": widget_id},
+    )
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: False)
+    monkeypatch.setattr(
+        "app.services.events.handlers.selfcare_customer.enqueue_person_contact_resync",
+        lambda db, person_id, changed_fields: None,
+    )
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.send_message",
+        lambda db, payload, author_id=None, trace_id=None: Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+            metadata_=payload.metadata,
+        ),
+    )
+
+    result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=False,
+    )
+
+    db_session.refresh(person)
+    db_session.refresh(conversation)
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+
+    assert result.resolved is True
+    assert person.date_of_birth == date(2004, 4, 16)
+    assert person.gender == Gender.male
+    assert conversation.status == ConversationStatus.open
+    assert state["status"] == "resolved"
+    assert state["profile_collection_completed"] is True
 
 
 def test_process_pending_intake_profile_reply_retries_once_then_records_failure(db_session, monkeypatch):
@@ -1629,6 +1801,175 @@ def test_send_due_handoff_reassurance_followups_sends_after_15_minutes(db_sessio
     assert state["first_human_reply_at"] is None
     assert state["handoff_state"] == AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT
     assert handoff_at.isoformat() == state["handoff_sent_at"]
+
+
+def test_send_due_profile_collection_nudges_sends_after_20_minutes(db_session, monkeypatch):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    conversation.status = ConversationStatus.pending
+    inbound = _make_message(db_session, conversation, body="Payment issue")
+    requested_at = datetime.now(UTC) - timedelta(minutes=21)
+    inbound.created_at = (requested_at - timedelta(seconds=2)).replace(tzinfo=None)
+    inbound.received_at = (requested_at - timedelta(seconds=2)).replace(tzinfo=None)
+    conversation.metadata_ = {
+        AI_INTAKE_METADATA_KEY: {
+            "status": "awaiting_profile",
+            "department": "billing_payment",
+            "handoff_department": "billing_payment",
+            "handoff_sent_at": requested_at.isoformat(),
+            "profile_collection": {
+                "requested_fields": ["date_of_birth", "gender"],
+                "attempt_count": 0,
+                "requested_at": requested_at.isoformat(),
+                "department": "billing_payment",
+            },
+        }
+    }
+    db_session.commit()
+
+    sent = []
+
+    def _fake_send_message(db, payload, author_id=None, trace_id=None):
+        outbound = Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+            metadata_=payload.metadata,
+        )
+        db.add(outbound)
+        db.commit()
+        db.refresh(outbound)
+        sent.append(payload)
+        return outbound
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.send_message", _fake_send_message)
+
+    result = send_due_profile_collection_nudges(db_session, limit=20)
+
+    db_session.refresh(conversation)
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    assert inbound.id is not None
+    assert result["sent"] == 1
+    assert result["suppressed"] == 0
+    assert sent[0].metadata["ai_intake_generated"] is True
+    assert sent[0].metadata["ai_intake_message_kind"] == "profile_nudge"
+    assert "Please provide your profile details" in sent[0].body
+    assert "billing team" in sent[0].body
+    assert state["profile_nudge_sent_at"] is not None
+    assert state["profile_nudge_message"] == sent[0].body
+
+
+def test_send_due_profile_collection_nudges_waits_until_due_and_sends_once(db_session, monkeypatch):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    conversation.status = ConversationStatus.pending
+    requested_at = datetime.now(UTC) - timedelta(minutes=19, seconds=30)
+    inbound = _make_message(db_session, conversation, body="Support")
+    inbound.created_at = (datetime.now(UTC) - timedelta(minutes=22)).replace(tzinfo=None)
+    inbound.received_at = (datetime.now(UTC) - timedelta(minutes=22)).replace(tzinfo=None)
+    conversation.metadata_ = {
+        AI_INTAKE_METADATA_KEY: {
+            "status": "awaiting_profile",
+            "department": "support",
+            "handoff_sent_at": requested_at.isoformat(),
+            "profile_collection": {
+                "requested_fields": ["date_of_birth", "gender"],
+                "attempt_count": 0,
+                "requested_at": requested_at.isoformat(),
+                "department": "support",
+            },
+        }
+    }
+    db_session.commit()
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.send_message",
+        lambda db, payload, author_id=None, trace_id=None: pytest.fail("nudge should not send before due"),
+    )
+
+    result = send_due_profile_collection_nudges(db_session, limit=20)
+
+    db_session.refresh(conversation)
+    assert result["sent"] == 0
+    assert result["suppressed"] == 1
+    assert conversation.metadata_[AI_INTAKE_METADATA_KEY].get("profile_nudge_sent_at") is None
+
+    latest_state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    latest_profile = {
+        **latest_state["profile_collection"],
+        "requested_at": (datetime.now(UTC) - timedelta(minutes=21)).isoformat(),
+    }
+    conversation.metadata_ = {AI_INTAKE_METADATA_KEY: {**latest_state, "profile_collection": latest_profile}}
+    db_session.commit()
+
+    sent = []
+
+    def _fake_send_message(db, payload, author_id=None, trace_id=None):
+        outbound = Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+            metadata_=payload.metadata,
+        )
+        db.add(outbound)
+        db.commit()
+        db.refresh(outbound)
+        sent.append(payload)
+        return outbound
+
+    monkeypatch.setattr("app.services.crm.ai_intake.send_message", _fake_send_message)
+
+    first = send_due_profile_collection_nudges(db_session, limit=20)
+    second = send_due_profile_collection_nudges(db_session, limit=20)
+
+    assert first["sent"] == 1
+    assert second["sent"] == 0
+    assert second["suppressed"] == 1
+    assert len(sent) == 1
+
+
+def test_send_due_profile_collection_nudges_skips_after_customer_reply(db_session, monkeypatch):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    conversation.status = ConversationStatus.pending
+    requested_at = datetime.now(UTC) - timedelta(minutes=21)
+    initial = _make_message(db_session, conversation, body="Support")
+    initial.created_at = (requested_at - timedelta(seconds=2)).replace(tzinfo=None)
+    initial.received_at = (requested_at - timedelta(seconds=2)).replace(tzinfo=None)
+    conversation.metadata_ = {
+        AI_INTAKE_METADATA_KEY: {
+            "status": "awaiting_profile",
+            "department": "support",
+            "handoff_sent_at": requested_at.isoformat(),
+            "profile_collection": {
+                "requested_fields": ["date_of_birth", "gender"],
+                "attempt_count": 0,
+                "requested_at": requested_at.isoformat(),
+                "department": "support",
+            },
+        }
+    }
+    reply = _make_message(db_session, conversation, body="I will send it soon")
+    reply.created_at = datetime.now(UTC).replace(tzinfo=None)
+    reply.received_at = datetime.now(UTC).replace(tzinfo=None)
+    db_session.commit()
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.send_message",
+        lambda db, payload, author_id=None, trace_id=None: pytest.fail("nudge should not send after customer reply"),
+    )
+
+    result = send_due_profile_collection_nudges(db_session, limit=20)
+
+    assert result["sent"] == 0
+    assert result["suppressed"] == 1
 
 
 def test_send_due_handoff_reassurance_followups_waits_until_due(db_session, monkeypatch):

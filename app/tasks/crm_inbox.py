@@ -8,6 +8,7 @@ from app.services.crm.ai_intake import (
     reassign_stale_ai_handoffs,
     retry_team_only_ai_assignments,
     send_due_handoff_reassurance_followups,
+    send_due_profile_collection_nudges,
 )
 from app.services.crm.inbox.outbound import TransientOutboundError
 from app.services.crm.inbox.outbox import cleanup_old_outbox, list_due_outbox_ids, process_outbox_item
@@ -90,19 +91,23 @@ def escalate_expired_ai_intake_conversations_task(limit: int = 200):
     try:
         backfill = backfill_missing_handoff_states(session, limit=max(limit, 500))
         reminders = send_due_handoff_reassurance_followups(session, limit=limit)
+        profile_nudges = send_due_profile_collection_nudges(session, limit=limit)
         result = escalate_expired_pending_intakes(session, limit=limit)
         logger.info(
-            "AI_INTAKE_MAINTENANCE_COMPLETE backfill_updated=%s reminders_sent=%s reminders_suppressed=%s escalated=%s skipped=%s errors=%s",
+            "AI_INTAKE_MAINTENANCE_COMPLETE backfill_updated=%s reminders_sent=%s reminders_suppressed=%s profile_nudges_sent=%s profile_nudges_suppressed=%s escalated=%s skipped=%s errors=%s",
             backfill.get("updated", 0),
             reminders.get("sent", 0),
             reminders.get("suppressed", 0),
+            profile_nudges.get("sent", 0),
+            profile_nudges.get("suppressed", 0),
             result.get("escalated", 0),
             result.get("skipped", 0),
-            len(reminders.get("errors", [])) + len(result.get("errors", [])),
+            len(reminders.get("errors", [])) + len(profile_nudges.get("errors", [])) + len(result.get("errors", [])),
         )
         return {
             "backfill": backfill,
             "reminders": reminders,
+            "profile_nudges": profile_nudges,
             "escalations": result,
         }
     except Exception:
