@@ -572,21 +572,39 @@ def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None
     """
     page = 1
     rows: list[dict[str, Any]] = []
+    seen_page_fingerprints: set[str] = set()
     base_params = dict(params or {})
-    per_page = int(base_params.get("per_page") or 0)
+    per_page = int(base_params.get("per_page") or _SUB_MAX_PER_PAGE)
     # Never request more than sub honors, or the short-page heuristic below
     # (len(batch) < per_page) would trip on a full-but-clamped page and drop data.
-    if per_page > _SUB_MAX_PER_PAGE:
-        per_page = _SUB_MAX_PER_PAGE
-        base_params["per_page"] = per_page
+    per_page = max(1, min(per_page, _SUB_MAX_PER_PAGE))
+    base_params["per_page"] = per_page
     while True:
         payload = _request_json(db, "GET", path, params={**base_params, "page": page})
         batch = _rows(payload)
-        rows.extend(batch)
         meta = payload.get("meta") if isinstance(payload, dict) else {}
         meta = meta if isinstance(meta, dict) else {}
         total = int(meta.get("total") or 0)
         last_page = meta.get("last_page")
+        response_page = meta.get("page", meta.get("current_page"))
+        if response_page is not None and int(response_page) != page:
+            raise SelfcareProviderError(
+                f"Selfcare pagination did not advance for {path}: requested page {page}, received page {response_page}"
+            )
+        if batch:
+            fingerprint = hashlib.sha256(
+                json.dumps(batch, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            if fingerprint in seen_page_fingerprints:
+                logger.error(
+                    "SELFCARE_API_PAGINATION_REPEATED_PAGE path=%s page=%d batch=%d",
+                    path,
+                    page,
+                    len(batch),
+                )
+                raise SelfcareProviderError(f"Selfcare pagination repeated data on page {page} for {path}")
+            seen_page_fingerprints.add(fingerprint)
+        rows.extend(batch)
         logger.info(
             "SELFCARE_API_PAGE path=%s page=%d batch=%d accumulated=%d total=%d last_page=%s",
             path,
@@ -610,7 +628,7 @@ def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None
             logger.error(
                 "SELFCARE_API_PAGINATION_ROW_CAP path=%s rows=%d cap=%d", path, len(rows), _PAGINATION_MAX_ROWS
             )
-            break
+            raise SelfcareProviderError(f"Selfcare pagination exceeded {_PAGINATION_MAX_ROWS} rows for {path}")
         if page >= _PAGINATION_MAX_PAGES:
             raise SelfcareProviderError(f"Selfcare pagination exceeded {_PAGINATION_MAX_PAGES} pages for {path}")
         page += 1
@@ -662,8 +680,7 @@ def fetch_customer_billing(db: Session, subscriber_id: str) -> dict[str, Any] | 
 
 
 def fetch_locations(db: Session) -> list[dict[str, Any]]:
-    payload = _request_json(db, "GET", "/locations")
-    return _rows(payload)
+    return _list_paginated(db, "/locations")
 
 
 def fetch_billing_risk_source(db: Session) -> list[dict[str, Any]]:
