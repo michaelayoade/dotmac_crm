@@ -379,18 +379,38 @@ class Messages(ListResponseMixin):
         if (
             message.direction == MessageDirection.outbound
             and conversation.first_response_at is None
-            and message.author_id is not None
+            and message.author_id
         ):
-            from app.models.crm.team import CrmAgent
+            from app.services.crm.metrics import (
+                active_agent_assignment_for_conversation,
+                active_assignment_for_agent,
+                agent_for_person,
+                effective_handoff_at,
+                ensure_aware,
+            )
 
-            is_agent = (
-                db.query(CrmAgent.id)
-                .filter(CrmAgent.person_id == message.author_id, CrmAgent.is_active.is_(True))
-                .first()
-            ) is not None
-            if is_agent:
+            assignment = None
+            is_first_response_owner = False
+            agent = agent_for_person(db, message.author_id)
+            if agent:
+                assignment = active_assignment_for_agent(db, conversation_id=conversation.id, agent_id=agent.id)
+                has_other_active_agent = (
+                    assignment is None
+                    and active_agent_assignment_for_conversation(db, conversation_id=conversation.id) is not None
+                )
+                if has_other_active_agent:
+                    is_first_response_owner = False
+                else:
+                    # Preserve metric capture for legacy/unassigned conversations while
+                    # avoiding credit when another agent owns the active assignment.
+                    is_first_response_owner = True
+
+            if is_first_response_owner:
+                handoff_at = effective_handoff_at(conversation, assignment=assignment)
+                timestamp = ensure_aware(timestamp) or timestamp
+                handoff_at = ensure_aware(handoff_at) or ensure_aware(conversation.created_at) or timestamp
                 conversation.first_response_at = timestamp
-                conversation.response_time_seconds = int((timestamp - conversation.created_at).total_seconds())
+                conversation.response_time_seconds = max(0, int((timestamp - handoff_at).total_seconds()))
                 from app.services.crm.ai_intake import mark_handoff_in_progress_for_human_reply
 
                 mark_handoff_in_progress_for_human_reply(

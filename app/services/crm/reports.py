@@ -17,6 +17,7 @@ from app.models.projects import Project, ProjectTask
 from app.models.tickets import Ticket, TicketSlaEvent, TicketStatus
 from app.models.workforce import WorkOrder
 from app.services.common import coerce_uuid
+from app.services.crm.metrics import effective_handoff_at, ensure_aware
 
 
 def _status_group(status: TicketStatus) -> str:
@@ -546,16 +547,19 @@ def agent_performance_metrics(
     # Load all assignments once to avoid per-agent queries.
     agent_ids = [agent.id for agent in agents]
     assignment_rows = (
-        db.query(ConversationAssignment.agent_id, ConversationAssignment.conversation_id)
+        db.query(ConversationAssignment.agent_id, ConversationAssignment.conversation_id, ConversationAssignment)
         .filter(ConversationAssignment.agent_id.in_(agent_ids))
+        .filter(ConversationAssignment.is_active.is_(True))
         .all()
     )
     convo_ids_by_agent: dict[Any, set[Any]] = {agent.id: set() for agent in agents}
+    assignment_by_agent_convo: dict[tuple[Any, Any], ConversationAssignment] = {}
     all_conversation_ids: set[Any] = set()
-    for assigned_agent_id, conversation_id in assignment_rows:
+    for assigned_agent_id, conversation_id, assignment in assignment_rows:
         if assigned_agent_id is None or conversation_id is None:
             continue
         convo_ids_by_agent.setdefault(assigned_agent_id, set()).add(conversation_id)
+        assignment_by_agent_convo[(assigned_agent_id, conversation_id)] = assignment
         all_conversation_ids.add(conversation_id)
 
     channel_value = _resolve_channel_value(channel_type)
@@ -576,60 +580,29 @@ def agent_performance_metrics(
         filtered_conversations = convo_query.all()
         conversations_by_id = {convo.id: convo for convo in filtered_conversations}
 
-    # Preload first inbound/outbound timestamps for all filtered conversations.
-    inbound_map: dict[Any, Any] = {}
-    outbound_map: dict[Any, Any] = {}
+    # Preload first human outbound timestamps for all filtered conversations.
+    outbound_map: dict[tuple[str, str], Any] = {}
     filtered_ids = list(conversations_by_id.keys())
     if filtered_ids:
         message_time = _message_activity_time()
-        inbound_subq = (
-            db.query(
-                Message.conversation_id.label("conversation_id"),
-                message_time.label("msg_time"),
-                func.row_number()
-                .over(
-                    partition_by=Message.conversation_id,
-                    order_by=message_time.asc(),
-                )
-                .label("rn"),
-            )
-            .filter(Message.conversation_id.in_(filtered_ids))
-            .filter(Message.direction == MessageDirection.inbound)
-        )
-        outbound_subq = (
-            db.query(
-                Message.conversation_id.label("conversation_id"),
-                message_time.label("msg_time"),
-                func.row_number()
-                .over(
-                    partition_by=Message.conversation_id,
-                    order_by=message_time.asc(),
-                )
-                .label("rn"),
-            )
+        outbound_rows = (
+            db.query(Message.conversation_id, Message.author_id, message_time.label("msg_time"), Message.metadata_)
             .filter(Message.conversation_id.in_(filtered_ids))
             .filter(Message.direction == MessageDirection.outbound)
+            .filter(Message.author_id.isnot(None))
         )
         if start_at:
-            inbound_subq = inbound_subq.filter(message_time >= start_at)
-            outbound_subq = outbound_subq.filter(message_time >= start_at)
+            outbound_rows = outbound_rows.filter(message_time >= start_at)
         if end_at:
-            inbound_subq = inbound_subq.filter(message_time <= end_at)
-            outbound_subq = outbound_subq.filter(message_time <= end_at)
+            outbound_rows = outbound_rows.filter(message_time <= end_at)
         if channel_value:
-            inbound_subq = inbound_subq.filter(Message.channel_type == channel_value)
-            outbound_subq = outbound_subq.filter(Message.channel_type == channel_value)
-        inbound_subq = inbound_subq.subquery()
-        outbound_subq = outbound_subq.subquery()
+            outbound_rows = outbound_rows.filter(Message.channel_type == channel_value)
 
-        inbound_rows = (
-            db.query(inbound_subq.c.conversation_id, inbound_subq.c.msg_time).filter(inbound_subq.c.rn == 1).all()
-        )
-        outbound_rows = (
-            db.query(outbound_subq.c.conversation_id, outbound_subq.c.msg_time).filter(outbound_subq.c.rn == 1).all()
-        )
-        inbound_map = {row[0]: row[1] for row in inbound_rows}
-        outbound_map = {row[0]: row[1] for row in outbound_rows}
+        for conversation_id, author_id, msg_time, metadata in outbound_rows.order_by(message_time.asc()).all():
+            metadata_map = metadata if isinstance(metadata, dict) else {}
+            if metadata_map.get("ai_intake_generated"):
+                continue
+            outbound_map.setdefault((str(conversation_id), str(author_id)), msg_time)
 
     agent_stats: list[dict[str, Any]] = []
     for agent in agents:
@@ -647,6 +620,7 @@ def agent_performance_metrics(
 
         conversation_ids = convo_ids_by_agent.get(agent.id, set())
         conversations = [conversations_by_id[cid] for cid in conversation_ids if cid in conversations_by_id]
+        person = person_map.get(agent.person_id)
 
         total = len(conversations)
         resolved = sum(1 for c in conversations if _is_resolved_in_window(c, start_at, end_at))
@@ -654,18 +628,23 @@ def agent_performance_metrics(
         response_times = []
         resolution_times = []
         for convo in conversations:
-            inbound_time = inbound_map.get(convo.id)
-            outbound_time = outbound_map.get(convo.id)
-            if inbound_time and outbound_time and outbound_time > inbound_time:
-                response_times.append((outbound_time - inbound_time).total_seconds() / 60)
+            assignment = assignment_by_agent_convo.get((agent.id, convo.id))
+            handoff_at = effective_handoff_at(convo, assignment=assignment)
+            outbound_time = outbound_map.get((str(convo.id), str(agent.person_id)))
+            if handoff_at and outbound_time:
+                handoff_at = ensure_aware(handoff_at)
+                outbound_time = ensure_aware(outbound_time)
+                if outbound_time and handoff_at and outbound_time >= handoff_at:
+                    response_times.append((outbound_time - handoff_at).total_seconds() / 60)
             resolved_at = _resolution_timestamp(convo)
-            if _is_resolved_in_window(convo, start_at, end_at) and inbound_time and resolved_at:
-                resolution_times.append((resolved_at - inbound_time).total_seconds() / 60)
+            if _is_resolved_in_window(convo, start_at, end_at) and handoff_at and resolved_at:
+                resolved_at = ensure_aware(resolved_at)
+                if resolved_at and resolved_at >= handoff_at:
+                    resolution_times.append((resolved_at - handoff_at).total_seconds() / 60)
 
         avg_frt = sum(response_times) / len(response_times) if response_times else None
         avg_resolution = sum(resolution_times) / len(resolution_times) if resolution_times else None
 
-        person = person_map.get(agent.person_id)
         name = (
             (person.display_name or f"{person.first_name or ''} {person.last_name or ''}".strip() or "Agent")
             if person
@@ -680,6 +659,8 @@ def agent_performance_metrics(
                 "resolved_conversations": resolved,
                 "avg_first_response_minutes": round(avg_frt, 1) if avg_frt is not None else None,
                 "avg_resolution_minutes": round(avg_resolution, 1) if avg_resolution is not None else None,
+                "first_response_count": len(response_times),
+                "resolution_time_count": len(resolution_times),
                 "active_seconds": int(active_seconds),
                 "active_hours": round(active_hours, 2),
                 "active_hours_display": active_hours_display,
