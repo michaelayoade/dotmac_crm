@@ -545,36 +545,24 @@ def agent_performance_metrics(
             end_at=end_at,
         )
 
-    # Load assignments once to avoid per-agent queries. Active assignments still
-    # drive ownership/resolution metrics; all assignments are needed for first
-    # response attribution after reassignment.
+    # Load assignments once to avoid per-agent queries. Performance rows use any
+    # assignment history for the period so reassigned conversations are counted
+    # consistently in all-agent and single-agent views.
     agent_ids = [agent.id for agent in agents]
-    assignment_rows = (
-        db.query(ConversationAssignment.agent_id, ConversationAssignment.conversation_id, ConversationAssignment)
-        .filter(ConversationAssignment.agent_id.in_(agent_ids))
-        .filter(ConversationAssignment.is_active.is_(True))
-        .all()
-    )
-    convo_ids_by_agent: dict[Any, set[Any]] = {agent.id: set() for agent in agents}
-    assignment_by_agent_convo: dict[tuple[Any, Any], ConversationAssignment] = {}
-    all_conversation_ids: set[Any] = set()
-    for assigned_agent_id, conversation_id, assignment in assignment_rows:
-        if assigned_agent_id is None or conversation_id is None:
-            continue
-        convo_ids_by_agent.setdefault(assigned_agent_id, set()).add(conversation_id)
-        assignment_by_agent_convo[(assigned_agent_id, conversation_id)] = assignment
-        all_conversation_ids.add(conversation_id)
-
     all_assignment_rows = (
         db.query(ConversationAssignment.agent_id, ConversationAssignment.conversation_id, ConversationAssignment)
         .filter(ConversationAssignment.agent_id.in_(agent_ids))
         .all()
     )
+    convo_ids_by_agent: dict[Any, set[Any]] = {agent.id: set() for agent in agents}
     any_assignment_by_agent_convo: dict[tuple[Any, Any], ConversationAssignment] = {}
+    all_conversation_ids: set[Any] = set()
     for assigned_agent_id, conversation_id, assignment in all_assignment_rows:
         if assigned_agent_id is None or conversation_id is None:
             continue
+        convo_ids_by_agent.setdefault(assigned_agent_id, set()).add(conversation_id)
         any_assignment_by_agent_convo[(assigned_agent_id, conversation_id)] = assignment
+        all_conversation_ids.add(conversation_id)
 
     channel_value = _resolve_channel_value(channel_type)
     agent_id_by_person_id = {str(agent.person_id): agent.id for agent in agents if agent.person_id}
@@ -644,7 +632,11 @@ def agent_performance_metrics(
     response_times_by_agent: dict[Any, list[float]] = {agent.id: [] for agent in agents}
     for convo in conversations_by_id.values():
         first_inbound_at = first_inbound_map.get(str(convo.id))
+        customer_wait_start = ensure_aware(first_inbound_at) or ensure_aware(getattr(convo, "created_at", None))
         for outbound_time, message in outbound_candidates.get(str(convo.id), []):
+            outbound_time = ensure_aware(outbound_time)
+            if customer_wait_start and outbound_time and outbound_time < customer_wait_start:
+                continue
             responding_agent_id = agent_id_by_person_id.get(str(message.author_id))
             if responding_agent_id is None:
                 break
@@ -658,7 +650,6 @@ def agent_performance_metrics(
                 response_at=outbound_time,
             )
             response_start = ensure_aware(response_start)
-            outbound_time = ensure_aware(outbound_time)
             if outbound_time and response_start and outbound_time >= response_start:
                 response_times_by_agent.setdefault(responding_agent_id, []).append(
                     (outbound_time - response_start).total_seconds() / 60
@@ -689,7 +680,7 @@ def agent_performance_metrics(
         response_times = response_times_by_agent.get(agent.id, [])
         resolution_times = []
         for convo in conversations:
-            assignment = assignment_by_agent_convo.get((agent.id, convo.id))
+            assignment = any_assignment_by_agent_convo.get((agent.id, convo.id))
             handoff_at = effective_handoff_at(convo, assignment=assignment)
             resolved_at = _resolution_timestamp(convo)
             if _is_resolved_in_window(convo, start_at, end_at) and handoff_at and resolved_at:

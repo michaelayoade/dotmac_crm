@@ -557,6 +557,117 @@ def test_agent_performance_attributes_first_response_to_first_human_responder(db
     assert rows_by_agent_id[str(final_agent.id)]["first_response_count"] == 0
 
 
+def test_agent_performance_first_responder_scope_matches_filtered_view(db_session, monkeypatch):
+    now = datetime.now(UTC)
+    start_at = now - timedelta(days=1)
+
+    contact = Person(first_name="Contact", last_name="Scope", email="contact-scope@example.com")
+    first_responder_person = Person(first_name="Chris", last_name="Mbah", email="chris-scope@example.com")
+    other_agent_person = Person(first_name="Other", last_name="Agent", email="other-scope@example.com")
+    db_session.add_all([contact, first_responder_person, other_agent_person])
+    db_session.flush()
+
+    first_responder = CrmAgent(person_id=first_responder_person.id, is_active=True)
+    other_agent = CrmAgent(person_id=other_agent_person.id, is_active=True)
+    db_session.add_all([first_responder, other_agent])
+    db_session.flush()
+
+    inbound_at = now - timedelta(hours=3)
+    first_responder_assigned_at = now - timedelta(hours=2, minutes=30)
+    first_reply_at = first_responder_assigned_at + timedelta(minutes=19)
+    other_agent_assigned_at = now - timedelta(hours=1)
+    conversation = Conversation(
+        person_id=contact.id,
+        status=ConversationStatus.resolved,
+        created_at=inbound_at - timedelta(minutes=10),
+        first_assigned_at=first_responder_assigned_at,
+        resolved_at=now,
+        updated_at=now,
+    )
+    db_session.add(conversation)
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            ConversationAssignment(
+                agent_id=first_responder.id,
+                conversation_id=conversation.id,
+                assigned_at=first_responder_assigned_at,
+                is_active=False,
+            ),
+            ConversationAssignment(
+                agent_id=other_agent.id,
+                conversation_id=conversation.id,
+                assigned_at=other_agent_assigned_at,
+                is_active=True,
+            ),
+            Message(
+                conversation_id=conversation.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.outbound,
+                body="Earlier note before the customer waited",
+                sent_at=inbound_at - timedelta(minutes=5),
+                created_at=inbound_at - timedelta(minutes=5),
+                author_id=other_agent_person.id,
+            ),
+            Message(
+                conversation_id=conversation.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.inbound,
+                body="Need support",
+                received_at=inbound_at,
+                created_at=inbound_at,
+            ),
+            Message(
+                conversation_id=conversation.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.outbound,
+                body="I will check this.",
+                sent_at=first_reply_at,
+                created_at=first_reply_at,
+                author_id=first_responder_person.id,
+            ),
+            Message(
+                conversation_id=conversation.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.outbound,
+                body="Resolved.",
+                sent_at=now - timedelta(minutes=10),
+                created_at=now - timedelta(minutes=10),
+                author_id=other_agent_person.id,
+            ),
+        ]
+    )
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.crm.presence.agent_presence.seconds_by_status_bulk",
+        lambda *args, **kwargs: {},
+    )
+
+    all_rows = agent_performance_metrics(
+        db=db_session,
+        start_at=start_at,
+        end_at=now + timedelta(minutes=1),
+        agent_id=None,
+        team_id=None,
+        channel_type="whatsapp",
+    )
+    filtered_rows = agent_performance_metrics(
+        db=db_session,
+        start_at=start_at,
+        end_at=now + timedelta(minutes=1),
+        agent_id=str(first_responder.id),
+        team_id=None,
+        channel_type="whatsapp",
+    )
+    all_row = {row["agent_id"]: row for row in all_rows}[str(first_responder.id)]
+    filtered_row = filtered_rows[0]
+
+    assert all_row["total_conversations"] == filtered_row["total_conversations"] == 1
+    assert all_row["avg_first_response_minutes"] == filtered_row["avg_first_response_minutes"] == 19.0
+    assert all_row["first_response_count"] == filtered_row["first_response_count"] == 1
+
+
 def test_agent_performance_does_not_attribute_unassigned_first_human_reply(db_session, monkeypatch):
     now = datetime.now(UTC)
     start_at = now - timedelta(days=1)
