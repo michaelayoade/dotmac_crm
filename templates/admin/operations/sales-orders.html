@@ -160,7 +160,7 @@
                 <div>
                     <div class="flex items-center justify-between text-sm">
                         <span class="truncate font-medium text-slate-700 dark:text-slate-200">{{ item.label|replace('_', ' ')|title }}</span>
-                        <span class="shrink-0 text-slate-500 dark:text-slate-400">{{ item.count }} · ₦{{ "{:,.0f}".format(item.value) }}</span>
+                        <span class="shrink-0 text-slate-500 dark:text-slate-400">{{ item.count }} · ₦{{ "{:,.0f}".format(item.total|default(0)) }}</span>
                     </div>
                     <div class="mt-1.5 h-2 rounded-full bg-slate-100 dark:bg-slate-700"><div class="h-2 rounded-full {{ bar_class }}" style="width: {{ pct }}%"></div></div>
                 </div>

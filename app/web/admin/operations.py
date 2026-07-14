@@ -236,6 +236,7 @@ def sales_orders_list(
             if row.owner_agent_id
             else "Unassigned / Manual",
             "orders": int(row.orders or 0),
+            "paid_orders": int(row.paid_orders or 0),
             "gross_sales": Decimal(row.gross_sales or 0),
             "collected": Decimal(row.collected or 0),
             "outstanding": Decimal(row.outstanding or 0),
@@ -244,6 +245,9 @@ def sales_orders_list(
         .with_entities(
             SalesOrder.owner_agent_id.label("owner_agent_id"),
             func.count(SalesOrder.id).label("orders"),
+            func.sum(case((SalesOrder.payment_status == SalesOrderPaymentStatus.paid, 1), else_=0)).label(
+                "paid_orders"
+            ),
             func.coalesce(func.sum(SalesOrder.total), 0).label("gross_sales"),
             func.coalesce(func.sum(SalesOrder.amount_paid), 0).label("collected"),
             func.coalesce(func.sum(SalesOrder.balance_due), 0).label("outstanding"),
