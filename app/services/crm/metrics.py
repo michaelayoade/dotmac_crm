@@ -9,6 +9,7 @@ from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.team import CrmAgent
 
 AI_INTAKE_METADATA_KEY = "ai_intake"
+RESOLVED_CLOSING_METADATA_KEY = "resolved_closing_message"
 
 
 def ensure_aware(value: Any) -> datetime | None:
@@ -34,6 +35,24 @@ def ai_intake_state(conversation: Conversation) -> dict[str, Any]:
     metadata = metadata_value if isinstance(metadata_value, dict) else {}
     state = metadata.get(AI_INTAKE_METADATA_KEY)
     return state if isinstance(state, dict) else {}
+
+
+def ai_intake_engaged_customer(conversation: Conversation) -> bool:
+    """Whether AI intake should own the pre-handoff waiting time.
+
+    Older rows can have ai_intake metadata even when the provider failed before
+    a customer-facing AI response. In that case, first response should start at
+    the customer's first inbound message rather than a later assignment retry.
+    """
+    state = ai_intake_state(conversation)
+    if not state:
+        return False
+    try:
+        if int(state.get("turn_count") or 0) > 0:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return state.get("status") == "resolved"
 
 
 def effective_handoff_at(
@@ -66,6 +85,66 @@ def effective_handoff_at(
     if valid:
         return max(valid)
     return ensure_aware(getattr(conversation, "created_at", None))
+
+
+def effective_first_response_start_at(
+    conversation: Conversation,
+    *,
+    assignment: ConversationAssignment | None = None,
+    first_inbound_at: datetime | None = None,
+    response_at: datetime | None = None,
+) -> datetime | None:
+    """Start time for first response metrics.
+
+    AI-engaged chats start when AI hands off. Ordinary chats start when the
+    customer first waited. If historical assignment metadata was recorded after
+    a human reply, fall back to the customer wait start so the real first reply
+    is not skipped.
+    """
+    customer_wait_start = ensure_aware(first_inbound_at) or ensure_aware(getattr(conversation, "created_at", None))
+    response_time = ensure_aware(response_at)
+    if ai_intake_engaged_customer(conversation):
+        handoff_at = effective_handoff_at(conversation, assignment=assignment)
+        if handoff_at and response_time and response_time < handoff_at and customer_wait_start:
+            return customer_wait_start
+        return handoff_at or customer_wait_start
+    return customer_wait_start
+
+
+def resolved_closing_message_ids(conversation: Conversation) -> set[str]:
+    metadata_value = getattr(conversation, "metadata_", None)
+    metadata = metadata_value if isinstance(metadata_value, dict) else {}
+    closing = metadata.get(RESOLVED_CLOSING_METADATA_KEY)
+    if not isinstance(closing, dict):
+        return set()
+    ids: set[str] = set()
+    message_id = closing.get("message_id")
+    if message_id:
+        ids.add(str(message_id))
+    ticket_handoffs = closing.get("ticket_handoffs")
+    if isinstance(ticket_handoffs, dict):
+        for state in ticket_handoffs.values():
+            if isinstance(state, dict) and state.get("message_id"):
+                ids.add(str(state["message_id"]))
+    return ids
+
+
+def is_resolved_closing_message(message: Any, *, conversation: Conversation | None = None) -> bool:
+    if conversation is not None and str(getattr(message, "id", "")) in resolved_closing_message_ids(conversation):
+        return True
+    metadata_value = getattr(message, "metadata_", None)
+    metadata = metadata_value if isinstance(metadata_value, dict) else {}
+    if metadata.get("resolved_closing_message") or metadata.get("resolved_closing_generated"):
+        return True
+    body = (getattr(message, "body", None) or "").strip().lower()
+    if not body:
+        return False
+    return (
+        body.startswith("thanks for chatting with us today")
+        or body.startswith("glad we could get this sorted")
+        or body.startswith("your request has been successfully resolved")
+        or "follow us for updates" in body
+    )
 
 
 def active_assignment_for_agent(

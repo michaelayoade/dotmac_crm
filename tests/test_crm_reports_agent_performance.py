@@ -283,6 +283,174 @@ def test_agent_performance_starts_response_and_resolution_at_ai_handoff(db_sessi
     assert rows[0]["resolution_time_count"] == 1
 
 
+def test_agent_performance_counts_agent_reply_before_late_assignment(db_session, monkeypatch):
+    now = datetime.now(UTC)
+    start_at = now - timedelta(days=1)
+
+    contact = Person(first_name="Contact", last_name="Late", email="contact-late@example.com")
+    agent_person = Person(first_name="Shallom", last_name="Agent", email="agent-late@example.com")
+    db_session.add_all([contact, agent_person])
+    db_session.flush()
+
+    agent = CrmAgent(person_id=agent_person.id, is_active=True)
+    db_session.add(agent)
+    db_session.flush()
+
+    inbound_at = now - timedelta(minutes=50)
+    first_reply_at = now - timedelta(minutes=2)
+    assigned_at = now
+    conversation = Conversation(
+        person_id=contact.id,
+        status=ConversationStatus.resolved,
+        created_at=inbound_at,
+        first_assigned_at=assigned_at,
+        resolved_at=now,
+        updated_at=now,
+        metadata_={
+            "ai_intake": {
+                "status": "escalated",
+                "turn_count": 0,
+                "reason": "ai_error:AIClientError",
+                "handoff_sent_at": assigned_at.isoformat(),
+            }
+        },
+    )
+    db_session.add(conversation)
+    db_session.flush()
+
+    db_session.add(
+        ConversationAssignment(
+            agent_id=agent.id,
+            conversation_id=conversation.id,
+            assigned_at=assigned_at,
+            is_active=True,
+        )
+    )
+    db_session.add_all(
+        [
+            Message(
+                conversation_id=conversation.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.inbound,
+                body="Internet not working",
+                received_at=inbound_at,
+                created_at=inbound_at,
+            ),
+            Message(
+                conversation_id=conversation.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.outbound,
+                body="We are checking this.",
+                sent_at=first_reply_at,
+                created_at=first_reply_at,
+                author_id=agent_person.id,
+            ),
+            Message(
+                conversation_id=conversation.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.outbound,
+                body="Thanks for chatting with us today.\n\nFollow us for updates:",
+                sent_at=now + timedelta(days=3),
+                created_at=now + timedelta(days=3),
+                author_id=agent_person.id,
+            ),
+        ]
+    )
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.crm.presence.agent_presence.seconds_by_status_bulk",
+        lambda *args, **kwargs: {},
+    )
+
+    rows = agent_performance_metrics(
+        db=db_session,
+        start_at=start_at,
+        end_at=now + timedelta(days=4),
+        agent_id=str(agent.id),
+        team_id=None,
+        channel_type="whatsapp",
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["avg_first_response_minutes"] == 48.0
+
+
+def test_agent_performance_ignores_resolved_closing_message_as_first_response(db_session, monkeypatch):
+    now = datetime.now(UTC)
+    start_at = now - timedelta(days=1)
+
+    contact = Person(first_name="Contact", last_name="Close", email="contact-close@example.com")
+    agent_person = Person(first_name="Close", last_name="Agent", email="agent-close@example.com")
+    db_session.add_all([contact, agent_person])
+    db_session.flush()
+
+    agent = CrmAgent(person_id=agent_person.id, is_active=True)
+    db_session.add(agent)
+    db_session.flush()
+
+    inbound_at = now - timedelta(minutes=30)
+    closing_at = now - timedelta(minutes=5)
+    conversation = Conversation(
+        person_id=contact.id,
+        status=ConversationStatus.resolved,
+        created_at=inbound_at,
+        resolved_at=closing_at,
+        updated_at=closing_at,
+    )
+    db_session.add(conversation)
+    db_session.flush()
+
+    closing_message = Message(
+        conversation_id=conversation.id,
+        channel_type=ChannelType.whatsapp,
+        direction=MessageDirection.outbound,
+        body="Thanks for chatting with us today.\n\nFollow us for updates:",
+        sent_at=closing_at,
+        created_at=closing_at,
+        author_id=agent_person.id,
+    )
+    db_session.add_all(
+        [
+            ConversationAssignment(
+                agent_id=agent.id,
+                conversation_id=conversation.id,
+                assigned_at=inbound_at,
+                is_active=True,
+            ),
+            Message(
+                conversation_id=conversation.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.inbound,
+                body="Need help",
+                received_at=inbound_at,
+                created_at=inbound_at,
+            ),
+            closing_message,
+        ]
+    )
+    db_session.flush()
+    conversation.metadata_ = {"resolved_closing_message": {"message_id": str(closing_message.id)}}
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.crm.presence.agent_presence.seconds_by_status_bulk",
+        lambda *args, **kwargs: {},
+    )
+
+    rows = agent_performance_metrics(
+        db=db_session,
+        start_at=start_at,
+        end_at=now,
+        agent_id=str(agent.id),
+        team_id=None,
+        channel_type="whatsapp",
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["first_response_count"] == 0
+    assert rows[0]["avg_first_response_minutes"] is None
+    assert rows[0]["resolution_time_count"] == 1
+
+
 def test_agent_performance_ignores_outbound_from_non_assigned_agent(db_session, monkeypatch):
     now = datetime.now(UTC)
     start_at = now - timedelta(hours=1)

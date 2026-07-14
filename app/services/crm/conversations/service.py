@@ -385,8 +385,9 @@ class Messages(ListResponseMixin):
                 active_agent_assignment_for_conversation,
                 active_assignment_for_agent,
                 agent_for_person,
-                effective_handoff_at,
+                effective_first_response_start_at,
                 ensure_aware,
+                is_resolved_closing_message,
             )
 
             assignment = None
@@ -405,12 +406,24 @@ class Messages(ListResponseMixin):
                     # avoiding credit when another agent owns the active assignment.
                     is_first_response_owner = True
 
-            if is_first_response_owner:
-                handoff_at = effective_handoff_at(conversation, assignment=assignment)
+            if is_first_response_owner and not is_resolved_closing_message(message, conversation=conversation):
+                first_inbound_at = (
+                    db.query(func.coalesce(Message.received_at, Message.sent_at, Message.created_at))
+                    .filter(Message.conversation_id == conversation.id)
+                    .filter(Message.direction == MessageDirection.inbound)
+                    .order_by(func.coalesce(Message.received_at, Message.sent_at, Message.created_at).asc())
+                    .first()
+                )
+                response_start = effective_first_response_start_at(
+                    conversation,
+                    assignment=assignment,
+                    first_inbound_at=first_inbound_at[0] if first_inbound_at else None,
+                    response_at=timestamp,
+                )
                 timestamp = ensure_aware(timestamp) or timestamp
-                handoff_at = ensure_aware(handoff_at) or ensure_aware(conversation.created_at) or timestamp
+                response_start = ensure_aware(response_start) or ensure_aware(conversation.created_at) or timestamp
                 conversation.first_response_at = timestamp
-                conversation.response_time_seconds = max(0, int((timestamp - handoff_at).total_seconds()))
+                conversation.response_time_seconds = max(0, int((timestamp - response_start).total_seconds()))
                 from app.services.crm.ai_intake import mark_handoff_in_progress_for_human_reply
 
                 mark_handoff_in_progress_for_human_reply(
