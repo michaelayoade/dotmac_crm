@@ -148,10 +148,11 @@ def get_engine():
     return _engine
 
 
-def collect_db_runtime_snapshot() -> None:
+def collect_db_runtime_snapshot() -> dict[str, int | float] | None:
+    """Collect PostgreSQL pressure outside the synchronous scrape path."""
     engine = get_engine()
     if make_url(settings.database_url).drivername.startswith("sqlite"):
-        return
+        return None
     try:
         with engine.connect() as connection:
             row = connection.execute(
@@ -168,15 +169,23 @@ def collect_db_runtime_snapshot() -> None:
                     """
                 )
             ).one()
+        snapshot: dict[str, int | float] = {
+            "active": int(row.active or 0),
+            "idle": int(row.idle or 0),
+            "idle_in_transaction": int(row.idle_in_transaction or 0),
+            "total": int(row.total or 0),
+            "oldest_xact_age_seconds": float(row.oldest_xact_age_seconds or 0.0),
+        }
         set_db_runtime_sessions(
-            active=int(row.active or 0),
-            idle=int(row.idle or 0),
-            idle_in_transaction=int(row.idle_in_transaction or 0),
-            total=int(row.total or 0),
+            active=int(snapshot["active"]),
+            idle=int(snapshot["idle"]),
+            idle_in_transaction=int(snapshot["idle_in_transaction"]),
+            total=int(snapshot["total"]),
         )
-        set_db_oldest_transaction_age(duration_seconds=float(row.oldest_xact_age_seconds or 0.0))
+        set_db_oldest_transaction_age(duration_seconds=float(snapshot["oldest_xact_age_seconds"]))
+        return snapshot
     except Exception:
-        return
+        return None
 
 
 SessionLocal = sessionmaker(bind=get_engine(), autoflush=False, autocommit=False, class_=ObservedSession)

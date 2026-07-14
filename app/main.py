@@ -99,7 +99,7 @@ from app.csrf import (
     generate_csrf_token,
     set_csrf_cookie,
 )
-from app.db import SessionLocal, collect_db_runtime_snapshot, end_read_only_transaction
+from app.db import SessionLocal, end_read_only_transaction
 from app.errors import register_error_handlers
 from app.logging import configure_logging, get_logger
 from app.middleware.api_rate_limit import APIRateLimitMiddleware, WebhookRateLimitMiddleware
@@ -653,7 +653,10 @@ def head_health():
 def metrics(request: Request):
     if not is_bearer_token_authorized(request.headers.get("authorization"), settings.metrics_token):
         raise HTTPException(status_code=401, detail="Unauthorized")
-    collect_db_runtime_snapshot()
+    from app.metrics import apply_db_runtime_snapshot
+    from app.services.metrics_snapshot import load_database_pressure_snapshot
+
+    apply_db_runtime_snapshot(load_database_pressure_snapshot())
     data = generate_latest()
     return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 
