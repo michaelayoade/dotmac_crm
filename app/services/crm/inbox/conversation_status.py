@@ -589,7 +589,12 @@ def update_conversation_status(
                 conversation.resolved_at = now
                 from app.services.crm.metrics import active_agent_assignment_for_conversation, effective_handoff_at
 
-                assignment = active_agent_assignment_for_conversation(db, conversation_id=conversation.id)
+                resolved_conversation_id = getattr(conversation, "id", None)
+                assignment = (
+                    active_agent_assignment_for_conversation(db, conversation_id=resolved_conversation_id)
+                    if resolved_conversation_id is not None
+                    else None
+                )
                 resolution_start = effective_handoff_at(conversation, assignment=assignment)
                 conversation.resolution_time_seconds = (
                     max(0, int((now - resolution_start).total_seconds())) if resolution_start else 0

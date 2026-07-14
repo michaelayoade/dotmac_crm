@@ -11,8 +11,8 @@ from app.models.crm.team import CrmAgent
 AI_INTAKE_METADATA_KEY = "ai_intake"
 
 
-def ensure_aware(value: datetime | None) -> datetime | None:
-    if value is None:
+def ensure_aware(value: Any) -> datetime | None:
+    if not isinstance(value, datetime):
         return None
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
@@ -30,7 +30,8 @@ def parse_metadata_timestamp(value: Any) -> datetime | None:
 
 
 def ai_intake_state(conversation: Conversation) -> dict[str, Any]:
-    metadata = conversation.metadata_ if isinstance(conversation.metadata_, dict) else {}
+    metadata_value = getattr(conversation, "metadata_", None)
+    metadata = metadata_value if isinstance(metadata_value, dict) else {}
     state = metadata.get(AI_INTAKE_METADATA_KEY)
     return state if isinstance(state, dict) else {}
 
@@ -47,12 +48,14 @@ def effective_handoff_at(
     and conversation creation is the fallback.
     """
     state = ai_intake_state(conversation)
-    assignment_at = ensure_aware(assignment.assigned_at) if assignment else None
-    assignment_created_at = ensure_aware(assignment.created_at) if assignment and assignment_at is None else None
+    assignment_at = ensure_aware(getattr(assignment, "assigned_at", None)) if assignment else None
+    assignment_created_at = (
+        ensure_aware(getattr(assignment, "created_at", None)) if assignment and assignment_at is None else None
+    )
     candidates = [
         assignment_at,
         assignment_created_at,
-        ensure_aware(conversation.first_assigned_at),
+        ensure_aware(getattr(conversation, "first_assigned_at", None)),
         parse_metadata_timestamp(state.get("human_assigned_at")),
         parse_metadata_timestamp(state.get("assigned_at")),
         parse_metadata_timestamp(state.get("agent_assigned_at")),
@@ -62,7 +65,7 @@ def effective_handoff_at(
     valid = [candidate for candidate in candidates if candidate is not None]
     if valid:
         return max(valid)
-    return ensure_aware(conversation.created_at)
+    return ensure_aware(getattr(conversation, "created_at", None))
 
 
 def active_assignment_for_agent(
