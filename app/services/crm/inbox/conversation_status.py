@@ -587,10 +587,18 @@ def update_conversation_status(
                     resolution_context=resolution_context,
                 )
                 conversation.resolved_at = now
-                created = conversation.created_at
-                if created is not None and created.tzinfo is None:
-                    created = created.replace(tzinfo=UTC)
-                conversation.resolution_time_seconds = int((now - created).total_seconds()) if created else 0
+                from app.services.crm.metrics import active_agent_assignment_for_conversation, effective_handoff_at
+
+                resolved_conversation_id = getattr(conversation, "id", None)
+                assignment = (
+                    active_agent_assignment_for_conversation(db, conversation_id=resolved_conversation_id)
+                    if resolved_conversation_id is not None
+                    else None
+                )
+                resolution_start = effective_handoff_at(conversation, assignment=assignment)
+                conversation.resolution_time_seconds = (
+                    max(0, int((now - resolution_start).total_seconds())) if resolution_start else 0
+                )
                 db.commit()
                 # A slot just freed for the assigned agent — pull the next queued chat.
                 if previous_status not in {ConversationStatus.resolved, ConversationStatus.resolved_to_ticket}:

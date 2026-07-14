@@ -1,8 +1,9 @@
 """Tests for conversation metric population (first_response_at, response_time_seconds)."""
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
-from app.models.crm.conversation import Conversation
+from app.models.crm.conversation import Conversation, ConversationAssignment
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.crm.team import CrmAgent
 from app.models.person import Person
@@ -155,6 +156,77 @@ class TestFirstResponseAt:
         assert conv.first_response_at is None
         assert conv.response_time_seconds is None
 
+    def test_first_response_seconds_start_at_assignment_handoff(self, db_session):
+        person = _make_person(db_session)
+        agent_person = _make_person(db_session)
+        agent = _make_agent(db_session, agent_person.id)
+        conv = _make_conversation(db_session, person.id)
+        assigned_at = datetime.now(UTC) - timedelta(minutes=4)
+        conv.created_at = datetime.now(UTC) - timedelta(minutes=30)
+        conv.first_assigned_at = assigned_at
+        conv.metadata_ = {
+            "ai_intake": {
+                "status": "resolved",
+                "resolved_at": assigned_at.isoformat(),
+                "handoff_sent_at": assigned_at.isoformat(),
+            }
+        }
+        db_session.add(
+            ConversationAssignment(
+                conversation_id=conv.id,
+                agent_id=agent.id,
+                assigned_at=assigned_at,
+                is_active=True,
+            )
+        )
+        db_session.commit()
+
+        payload = MessageCreate(
+            conversation_id=conv.id,
+            channel_type=ChannelType.chat_widget,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body="Human reply",
+            author_id=agent_person.id,
+        )
+        Messages.create(db_session, payload)
+        db_session.refresh(conv)
+
+        assert conv.first_response_at is not None
+        assert conv.response_time_seconds is not None
+        assert 0 <= conv.response_time_seconds < 300
+
+    def test_reply_from_non_assigned_agent_does_not_set_first_response(self, db_session):
+        person = _make_person(db_session)
+        assigned_person = _make_person(db_session)
+        other_person = _make_person(db_session)
+        assigned_agent = _make_agent(db_session, assigned_person.id)
+        _make_agent(db_session, other_person.id)
+        conv = _make_conversation(db_session, person.id)
+        db_session.add(
+            ConversationAssignment(
+                conversation_id=conv.id,
+                agent_id=assigned_agent.id,
+                assigned_at=datetime.now(UTC) - timedelta(minutes=4),
+                is_active=True,
+            )
+        )
+        db_session.commit()
+
+        payload = MessageCreate(
+            conversation_id=conv.id,
+            channel_type=ChannelType.email,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body="Wrong owner reply",
+            author_id=other_person.id,
+        )
+        Messages.create(db_session, payload)
+        db_session.refresh(conv)
+
+        assert conv.first_response_at is None
+        assert conv.response_time_seconds is None
+
 
 class TestResolvedAt:
     def test_set_on_resolve(self, db_session):
@@ -174,6 +246,44 @@ class TestResolvedAt:
         assert conv.resolved_at is not None
         assert conv.resolution_time_seconds is not None
         assert conv.resolution_time_seconds >= 0
+
+    def test_resolution_seconds_start_at_assignment_handoff(self, db_session):
+        from app.services.crm.inbox.conversation_status import update_conversation_status
+
+        person = _make_person(db_session)
+        agent_person = _make_person(db_session)
+        agent = _make_agent(db_session, agent_person.id)
+        conv = _make_conversation(db_session, person.id)
+        assigned_at = datetime.now(UTC) - timedelta(minutes=3)
+        conv.created_at = datetime.now(UTC) - timedelta(minutes=40)
+        conv.first_assigned_at = assigned_at
+        conv.metadata_ = {
+            "ai_intake": {
+                "status": "resolved",
+                "resolved_at": assigned_at.isoformat(),
+                "handoff_sent_at": assigned_at.isoformat(),
+            }
+        }
+        db_session.add(
+            ConversationAssignment(
+                conversation_id=conv.id,
+                agent_id=agent.id,
+                assigned_at=assigned_at,
+                is_active=True,
+            )
+        )
+        db_session.commit()
+
+        result = update_conversation_status(
+            db_session,
+            conversation_id=str(conv.id),
+            new_status="resolved",
+        )
+        db_session.refresh(conv)
+
+        assert result.kind == "updated"
+        assert conv.resolution_time_seconds is not None
+        assert 0 <= conv.resolution_time_seconds < 300
 
     def test_reopen_from_resolved_is_blocked(self, db_session):
         from app.services.crm.inbox.conversation_status import update_conversation_status

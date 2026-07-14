@@ -7042,24 +7042,27 @@ def crm_performance_report(
     resolved_conversations = sum(agent["resolved_conversations"] for agent in agent_stats)
     resolution_rate = resolved_conversations / total_conversations * 100 if total_conversations > 0 else 0
 
-    # Weighted average FRT across agents (weight by total conversations with valid FRT)
+    # Weighted average FRT across agents (weight by conversations with a measured first response)
     total_team_response_minutes = sum(
-        (a["avg_first_response_minutes"] or 0) * a["total_conversations"]
+        (a["avg_first_response_minutes"] or 0) * int(a.get("first_response_count") or 0)
         for a in agent_stats
         if a["avg_first_response_minutes"] is not None
     )
     total_convos_with_frt = sum(
-        a["total_conversations"] for a in agent_stats if a["avg_first_response_minutes"] is not None
+        int(a.get("first_response_count") or 0) for a in agent_stats if a["avg_first_response_minutes"] is not None
     )
     avg_frt = total_team_response_minutes / total_convos_with_frt if total_convos_with_frt > 0 else None
 
-    # Weighted average resolution time across agents (weight by resolved conversations)
+    # Weighted average resolution time across agents (weight by conversations with measured resolution time)
     total_resolution_minutes = sum(
-        (a["avg_resolution_minutes"] or 0) * a["resolved_conversations"]
+        (a["avg_resolution_minutes"] or 0) * int(a.get("resolution_time_count") or 0)
         for a in agent_stats
         if a["avg_resolution_minutes"] is not None
     )
-    avg_resolution_time = total_resolution_minutes / resolved_conversations if resolved_conversations > 0 else None
+    total_resolution_samples = sum(
+        int(a.get("resolution_time_count") or 0) for a in agent_stats if a["avg_resolution_minutes"] is not None
+    )
+    avg_resolution_time = total_resolution_minutes / total_resolution_samples if total_resolution_samples > 0 else None
 
     # Get teams and agents for filter dropdowns
     teams = crm_team_service.Teams.list(
