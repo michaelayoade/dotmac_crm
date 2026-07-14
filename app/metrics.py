@@ -65,6 +65,18 @@ DB_OLDEST_TRANSACTION_AGE = Gauge(
     [],
 )
 
+DB_RUNTIME_SNAPSHOT_AVAILABLE = Gauge(
+    "db_runtime_snapshot_available",
+    "1 when a worker-produced PostgreSQL runtime snapshot is available",
+    [],
+)
+
+DB_RUNTIME_SNAPSHOT_AGE = Gauge(
+    "db_runtime_snapshot_age_seconds",
+    "Seconds since the latest worker-produced PostgreSQL runtime snapshot",
+    [],
+)
+
 JOB_DURATION = Histogram(
     "job_duration_seconds",
     "Background job duration",
@@ -223,6 +235,35 @@ def set_db_runtime_sessions(*, active: int, idle: int, idle_in_transaction: int,
 
 def set_db_oldest_transaction_age(*, duration_seconds: float) -> None:
     DB_OLDEST_TRANSACTION_AGE.set(max(float(duration_seconds), 0.0))
+
+
+def apply_db_runtime_snapshot(snapshot: dict | None) -> None:
+    """Project one bounded worker snapshot into process-local gauges."""
+    from datetime import UTC, datetime
+
+    if not isinstance(snapshot, dict):
+        DB_RUNTIME_SNAPSHOT_AVAILABLE.set(0)
+        return
+    values = snapshot.get("values")
+    if not isinstance(values, dict):
+        DB_RUNTIME_SNAPSHOT_AVAILABLE.set(0)
+        return
+    try:
+        set_db_runtime_sessions(
+            active=int(values["active"]),
+            idle=int(values["idle"]),
+            idle_in_transaction=int(values["idle_in_transaction"]),
+            total=int(values["total"]),
+        )
+        set_db_oldest_transaction_age(duration_seconds=float(values["oldest_xact_age_seconds"]))
+        observed_at = datetime.fromisoformat(str(snapshot["observed_at"]))
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=UTC)
+        DB_RUNTIME_SNAPSHOT_AGE.set(max(0.0, (datetime.now(UTC) - observed_at).total_seconds()))
+    except (KeyError, TypeError, ValueError):
+        DB_RUNTIME_SNAPSHOT_AVAILABLE.set(0)
+        return
+    DB_RUNTIME_SNAPSHOT_AVAILABLE.set(1)
 
 
 def observe_ai_provider_request(

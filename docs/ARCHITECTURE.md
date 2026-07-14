@@ -998,3 +998,12 @@ The following were removed during the omni-channel refactoring and should NOT be
 - **SNMP/TR069** (`app/services/snmp.py`, `app/services/tr069.py`)
 
 See `CLAUDE.md` for cleanup tasks related to orphaned references.
+
+---
+
+## Metrics Scrape Safety
+
+The `/metrics` route is a thin exporter over process-local instruments and
+bounded snapshots. It must never open a database session or run business
+queries. The enforceable cross-Dotmac contract and migration procedure are in
+`docs/METRICS_SCRAPE_SAFETY.md`.
