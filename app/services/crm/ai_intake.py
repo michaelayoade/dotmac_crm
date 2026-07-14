@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
@@ -54,6 +54,9 @@ AI_INTAKE_PROFILE_RETRY_KIND = "profile_retry"
 AI_INTAKE_PROFILE_NUDGE_KIND = "profile_nudge"
 AI_INTAKE_PROFILE_STATUS = "awaiting_profile"
 AI_INTAKE_PROFILE_MAX_INVALID_REPLIES = 1
+AI_INTAKE_BACKGROUND_CAPTURE_METADATA_KEY = "ncc_profile_background_capture"
+AI_INTAKE_BACKGROUND_CAPTURE_REVIEW_TAG = "ncc-profile-review"
+AI_INTAKE_BACKGROUND_CAPTURE_CONFIDENCE_THRESHOLD = 0.98
 AI_INTAKE_PROFILE_NUDGE_MINUTES = 20
 AI_INTAKE_SEND_CLAIM_TTL_SECONDS = 300
 AI_INTAKE_PENDING_STATES = {"pending", "awaiting_customer", "awaiting_timeout", AI_INTAKE_PROFILE_STATUS}
@@ -1232,6 +1235,319 @@ def _parse_profile_reply(body: str | None, requested_fields: Sequence[str]) -> t
     if unexpected_values:
         return {}, "unexpected_field"
     return parsed, None
+
+
+_BACKGROUND_CAPTURE_PREFILTER_RE = re.compile(
+    r"\b(?:dob|date\s+of\s+birth|birth(?:day)?|born|gender|male|female|non[-\s]?binary)\b"
+    r"|\b\d{4}-\d{1,2}-\d{1,2}\b"
+    r"|\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",
+    re.IGNORECASE,
+)
+
+
+def _has_background_profile_candidate(body: str | None) -> bool:
+    return bool(body and _BACKGROUND_CAPTURE_PREFILTER_RE.search(body))
+
+
+def _ensure_conversation_tag(db: Session, *, conversation_id, tag: str) -> bool:
+    clean = str(tag or "").strip()
+    if not clean:
+        return False
+    existing = (
+        db.query(ConversationTag)
+        .filter(ConversationTag.conversation_id == conversation_id)
+        .filter(ConversationTag.tag == clean)
+        .first()
+    )
+    if existing:
+        return False
+    db.add(ConversationTag(conversation_id=conversation_id, tag=clean))
+    return True
+
+
+def _background_capture_state(conversation: Conversation) -> dict[str, Any]:
+    metadata = conversation.metadata_ if isinstance(conversation.metadata_, dict) else {}
+    raw = metadata.get(AI_INTAKE_BACKGROUND_CAPTURE_METADATA_KEY)
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def _set_background_capture_state(conversation: Conversation, state: dict[str, Any]) -> None:
+    metadata = dict(conversation.metadata_ or {}) if isinstance(conversation.metadata_, dict) else {}
+    metadata[AI_INTAKE_BACKGROUND_CAPTURE_METADATA_KEY] = state
+    conversation.metadata_ = metadata
+
+
+def _message_scan_key(message: Message) -> tuple[datetime, str]:
+    timestamp = _message_timestamp(message) or _now()
+    return timestamp, str(message.id)
+
+
+def _message_after_scan_state(message: Message, scan_state: dict[str, Any]) -> bool:
+    last_scanned_at = _parse_timestamp(scan_state.get("last_scanned_message_at"))
+    if last_scanned_at is None:
+        return True
+    message_at, message_id = _message_scan_key(message)
+    if message_at > last_scanned_at:
+        return True
+    if message_at < last_scanned_at:
+        return False
+    return message_id > str(scan_state.get("last_scanned_message_id") or "")
+
+
+def _update_background_scan_cursor(
+    conversation: Conversation,
+    *,
+    message: Message | None,
+    status: str,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    scan_state = _background_capture_state(conversation)
+    scan_state["last_scan_at"] = _serialize_timestamp(_now())
+    scan_state["last_status"] = status
+    if message is not None:
+        message_at, message_id = _message_scan_key(message)
+        scan_state["last_scanned_message_at"] = _serialize_timestamp(message_at)
+        scan_state["last_scanned_message_id"] = message_id
+    if extra:
+        scan_state.update(extra)
+    _set_background_capture_state(conversation, scan_state)
+
+
+def _background_capture_missing_fields(person: Person | None) -> list[str]:
+    if person is None:
+        return []
+    missing: list[str] = []
+    if _is_missing_profile_value(person.date_of_birth):
+        missing.append("date_of_birth")
+    if _is_missing_profile_value(person.gender):
+        missing.append("gender")
+    return missing
+
+
+def _build_background_capture_prompt(*, message: Message, missing_fields: Sequence[str]) -> tuple[str, str]:
+    system = (
+        "You classify CRM customer messages for safe NCC profile backfill. Return strict JSON only.\n"
+        "Decide whether the CUSTOMER is clearly stating THEIR OWN date_of_birth and/or gender.\n"
+        "Reject third-party references, quoted text, installation/payment/complaint dates, multiple-date uncertainty, "
+        "ambiguous numeric dates, two-digit years, and anything not clearly self-referential.\n"
+        "Use confidence >= 0.98 only for explicit self-statements safe for unattended writes to a real customer record.\n"
+        'Return keys: is_self_profile_statement, fields, confidence, reason. fields.date_of_birth must be "YYYY-MM-DD" '
+        'or null. fields.gender must be "male", "female", "non_binary", "other", or null.'
+    )
+    prompt = json.dumps(
+        {"missing_fields": list(missing_fields), "customer_message": message.body or ""},
+        ensure_ascii=False,
+    )
+    return system, prompt
+
+
+def _parse_background_capture_response(content: str) -> tuple[bool, dict[str, Any], float, str]:
+    parsed = _parse_ai_response(content)
+    raw_fields = parsed.get("fields")
+    fields = raw_fields if isinstance(raw_fields, dict) else {}
+    try:
+        confidence = float(parsed.get("confidence") or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return (
+        _coerce_ai_bool(parsed.get("is_self_profile_statement")),
+        fields,
+        confidence,
+        str(parsed.get("reason") or "").strip(),
+    )
+
+
+def _validate_background_capture_fields(
+    fields: dict[str, Any],
+    missing_fields: Sequence[str],
+) -> tuple[dict[str, Any], str | None]:
+    requested = [field for field in ("date_of_birth", "gender") if field in missing_fields and fields.get(field)]
+    if not requested:
+        return {}, "no_supported_fields"
+    lines: list[str] = []
+    if "date_of_birth" in requested:
+        lines.append(f"Date of birth: {fields.get('date_of_birth')}")
+    if "gender" in requested:
+        raw_gender = str(fields.get("gender") or "").replace("_", "-")
+        lines.append(f"Gender: {raw_gender}")
+    return _parse_profile_reply("\n".join(lines), requested)
+
+
+def _candidate_background_capture_ids(db: Session, *, limit: int) -> list[str]:
+    rows = (
+        db.query(Conversation.id)
+        .join(Person, Person.id == Conversation.person_id)
+        .filter(Conversation.is_active.is_(True))
+        .filter(or_(Person.date_of_birth.is_(None), Person.gender.is_(None), Person.gender == Gender.unknown))
+        .order_by(Conversation.updated_at.asc())
+        .limit(limit)
+        .all()
+    )
+    return [str(row[0]) for row in rows]
+
+
+def run_background_ncc_profile_capture(db: Session, *, limit: int = 200) -> dict[str, Any]:
+    if not _enabled_by_env():
+        return {"skipped": True, "reason": "disabled"}
+
+    processed = 0
+    scanned_messages = 0
+    ai_classified = 0
+    captured = 0
+    tagged_for_review = 0
+    suppressed = 0
+    errors: list[str] = []
+
+    for conversation_id in _candidate_background_capture_ids(db, limit=limit):
+        conversation_uuid = coerce_uuid(conversation_id)
+        conversation = (
+            db.query(Conversation)
+            .filter(Conversation.id == conversation_uuid)
+            .with_for_update(skip_locked=True)
+            .first()
+        )
+        if not conversation:
+            continue
+        processed += 1
+        person = db.get(Person, conversation.person_id) if conversation.person_id else None
+        missing_fields = _background_capture_missing_fields(person)
+        if not person or not missing_fields:
+            suppressed += 1
+            _update_background_scan_cursor(conversation, message=None, status="profile_complete_or_missing_person")
+            db.commit()
+            continue
+
+        ai_state = _state(conversation)
+        active_awaiting_profile = ai_state.get("status") == AI_INTAKE_PROFILE_STATUS
+        messages = (
+            db.query(Message)
+            .filter(Message.conversation_id == conversation.id)
+            .filter(Message.direction == MessageDirection.inbound)
+            .order_by(func.coalesce(Message.received_at, Message.created_at).asc(), Message.created_at.asc())
+            .all()
+        )
+        scan_state = _background_capture_state(conversation)
+        new_messages = [message for message in messages if _message_after_scan_state(message, scan_state)]
+        if not new_messages:
+            suppressed += 1
+            continue
+
+        if active_awaiting_profile:
+            suppressed += 1
+            _update_background_scan_cursor(
+                conversation,
+                message=new_messages[-1],
+                status="skipped_awaiting_profile",
+            )
+            db.commit()
+            continue
+
+        for message in new_messages:
+            scanned_messages += 1
+            if not _has_background_profile_candidate(message.body):
+                _update_background_scan_cursor(conversation, message=message, status="no_candidate")
+                db.commit()
+                continue
+            try:
+                system, prompt = _build_background_capture_prompt(message=message, missing_fields=missing_fields)
+                ai_response, meta = ai_gateway.generate_with_fallback(db, system=system, prompt=prompt, max_tokens=500)
+                ai_classified += 1
+                is_self_statement, fields, confidence, reason = _parse_background_capture_response(ai_response.content)
+                parsed_fields, validation_error = _validate_background_capture_fields(fields, missing_fields)
+                capture_details = {
+                    "candidate_message_id": str(message.id),
+                    "candidate_message_at": _serialize_timestamp(_message_timestamp(message)),
+                    "confidence": confidence,
+                    "reason": reason,
+                    "endpoint": meta.get("endpoint") if isinstance(meta, dict) else None,
+                    "fallback_used": bool(isinstance(meta, dict) and meta.get("fallback_used")),
+                    "validation_error": validation_error,
+                    "fields": {
+                        key: value.isoformat()
+                        if isinstance(value, date)
+                        else value.value
+                        if isinstance(value, Gender)
+                        else value
+                        for key, value in parsed_fields.items()
+                    },
+                }
+                if (
+                    is_self_statement
+                    and validation_error is None
+                    and parsed_fields
+                    and confidence >= AI_INTAKE_BACKGROUND_CAPTURE_CONFIDENCE_THRESHOLD
+                ):
+                    updated_fields = _apply_profile_update_and_sync(db, person=person, parsed_fields=parsed_fields)
+                    captured += 1 if updated_fields else 0
+                    _update_background_scan_cursor(
+                        conversation,
+                        message=message,
+                        status="captured",
+                        extra={"last_capture": capture_details},
+                    )
+                    db.commit()
+                    logger.info(
+                        "ncc_profile_background_captured conversation_id=%s person_id=%s message_id=%s fields=%s confidence=%s",
+                        conversation.id,
+                        person.id,
+                        message.id,
+                        updated_fields,
+                        confidence,
+                    )
+                    missing_fields = _background_capture_missing_fields(person)
+                    if not missing_fields:
+                        break
+                    continue
+                if is_self_statement and validation_error is None and parsed_fields:
+                    if _ensure_conversation_tag(
+                        db,
+                        conversation_id=conversation.id,
+                        tag=AI_INTAKE_BACKGROUND_CAPTURE_REVIEW_TAG,
+                    ):
+                        tagged_for_review += 1
+                    _update_background_scan_cursor(
+                        conversation,
+                        message=message,
+                        status="review_required",
+                        extra={"last_review_candidate": capture_details},
+                    )
+                    db.commit()
+                    logger.info(
+                        "ncc_profile_background_review_tagged conversation_id=%s person_id=%s message_id=%s confidence=%s",
+                        conversation.id,
+                        person.id,
+                        message.id,
+                        confidence,
+                    )
+                    continue
+                _update_background_scan_cursor(
+                    conversation,
+                    message=message,
+                    status="rejected",
+                    extra={"last_rejected_candidate": capture_details},
+                )
+                db.commit()
+            except Exception as exc:
+                db.rollback()
+                logger.exception(
+                    "ncc_profile_background_capture_failed conversation_id=%s message_id=%s",
+                    conversation.id,
+                    message.id,
+                )
+                errors.append(f"{conversation.id}:{message.id}:{exc}")
+                break
+
+    if captured or tagged_for_review:
+        inbox_cache.invalidate_inbox_list()
+    return {
+        "processed": processed,
+        "scanned_messages": scanned_messages,
+        "ai_classified": ai_classified,
+        "captured": captured,
+        "tagged_for_review": tagged_for_review,
+        "suppressed": suppressed,
+        "errors": errors,
+    }
 
 
 def _send_profile_completion_message(

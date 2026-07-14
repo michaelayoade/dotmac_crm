@@ -6,7 +6,7 @@ import pytest
 
 from app.metrics import AI_INTAKE_ESCALATIONS
 from app.models.crm.ai_intake import AiIntakeConfig
-from app.models.crm.conversation import Conversation, ConversationAssignment, Message
+from app.models.crm.conversation import Conversation, ConversationAssignment, ConversationTag, Message
 from app.models.crm.enums import AgentPresenceStatus, ChannelType, ConversationStatus, MessageDirection, MessageStatus
 from app.models.crm.presence import AgentPresence
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
@@ -32,6 +32,7 @@ from app.services.crm.ai_intake import (
     process_pending_intake,
     reassign_stale_ai_handoffs,
     recover_ai_error_escalations,
+    run_background_ncc_profile_capture,
     save_ai_intake_config,
     send_due_handoff_reassurance_followups,
     send_due_profile_collection_nudges,
@@ -3211,3 +3212,234 @@ def test_save_ai_intake_config_accepts_split_billing_keys(db_session):
 
     keys = {item["key"] for item in config.department_mappings or []}
     assert keys == {"billing_payment", "billing_renewal"}
+
+
+def _make_missing_profile_conversation(db_session, *, ai_status="human_assigned"):
+    person = _make_person(db_session)
+    person.date_of_birth = None
+    person.gender = Gender.unknown
+    conversation = _make_conversation(db_session, person)
+    conversation.metadata_ = {
+        AI_INTAKE_METADATA_KEY: {
+            "status": ai_status,
+            "scope_key": "widget:test",
+            "started_at": (datetime.now(UTC) - timedelta(minutes=30)).isoformat(),
+            "handoff_state": AI_INTAKE_HANDOFF_STATE_IN_PROGRESS,
+        }
+    }
+    if ai_status == "awaiting_profile":
+        conversation.status = ConversationStatus.pending
+        conversation.metadata_[AI_INTAKE_METADATA_KEY]["profile_collection"] = {
+            "requested_fields": ["date_of_birth", "gender"],
+            "attempt_count": 0,
+            "requested_at": (datetime.now(UTC) - timedelta(minutes=5)).isoformat(),
+            "department": "support",
+        }
+    db_session.commit()
+    return person, conversation
+
+
+def _mock_background_classifier(monkeypatch, *, content, calls=None):
+    if calls is None:
+        calls = []
+
+    def _fake_generate(db, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(content=content), {"endpoint": "primary", "fallback_used": False}
+
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.generate_with_fallback", _fake_generate)
+    return calls
+
+
+def test_background_ncc_profile_capture_auto_writes_high_confidence_self_statement(db_session, monkeypatch):
+    person, conversation = _make_missing_profile_conversation(db_session)
+    message = _make_message(
+        db_session,
+        conversation,
+        body="My date of birth is 1994-12-08 and I am male.",
+    )
+    calls = _mock_background_classifier(
+        monkeypatch,
+        content=(
+            '{"is_self_profile_statement":true,'
+            '"fields":{"date_of_birth":"1994-12-08","gender":"male"},'
+            '"confidence":0.99,"reason":"explicit self statement"}'
+        ),
+    )
+    synced = []
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr(
+        "app.services.events.handlers.selfcare_customer.enqueue_person_contact_resync",
+        lambda db, person_id, changed_fields: synced.append((person_id, changed_fields)),
+    )
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.send_message",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("background capture must not send messages")),
+    )
+
+    result = run_background_ncc_profile_capture(db_session)
+
+    db_session.refresh(person)
+    db_session.refresh(conversation)
+    assert result["captured"] == 1
+    assert result["tagged_for_review"] == 0
+    assert len(calls) == 1
+    assert person.date_of_birth == date(1994, 12, 8)
+    assert person.gender == Gender.male
+    assert synced == [(str(person.id), {"date_of_birth", "gender"})]
+    state = conversation.metadata_["ncc_profile_background_capture"]
+    assert state["last_status"] == "captured"
+    assert state["last_capture"]["candidate_message_id"] == str(message.id)
+
+
+def test_background_ncc_profile_capture_tags_subthreshold_candidate_without_write(db_session, monkeypatch):
+    person, conversation = _make_missing_profile_conversation(db_session)
+    _make_message(db_session, conversation, body="My date of birth is 1994-12-08 and I am male.")
+    _mock_background_classifier(
+        monkeypatch,
+        content=(
+            '{"is_self_profile_statement":true,'
+            '"fields":{"date_of_birth":"1994-12-08","gender":"male"},'
+            '"confidence":0.91,"reason":"plausible but below threshold"}'
+        ),
+    )
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+
+    result = run_background_ncc_profile_capture(db_session)
+
+    db_session.refresh(person)
+    tags = {
+        row[0]
+        for row in db_session.query(ConversationTag.tag)
+        .filter(ConversationTag.conversation_id == conversation.id)
+        .all()
+    }
+    assert result["captured"] == 0
+    assert result["tagged_for_review"] == 1
+    assert person.date_of_birth is None
+    assert person.gender == Gender.unknown
+    assert "ncc-profile-review" in tags
+
+
+@pytest.mark.parametrize(
+    ("body", "reason"),
+    [
+        ("My son's birthday is 1994-12-08.", "third party"),
+        ('Your agent said "DOB: 1994-12-08 Gender: Male".', "quoted text"),
+        ("Install date was 1994-12-08 and payment is due 2026-08-01.", "multiple dates"),
+        ("My DOB is 02/04/1980 and I am male.", "ambiguous numeric"),
+    ],
+)
+def test_background_ncc_profile_capture_rejects_unsafe_candidates(db_session, monkeypatch, body, reason):
+    person, conversation = _make_missing_profile_conversation(db_session)
+    _make_message(db_session, conversation, body=body)
+    _mock_background_classifier(
+        monkeypatch,
+        content=(
+            '{"is_self_profile_statement":false,'
+            '"fields":{"date_of_birth":null,"gender":null},'
+            f'"confidence":0.0,"reason":"{reason}"}}'
+        ),
+    )
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+
+    result = run_background_ncc_profile_capture(db_session)
+
+    db_session.refresh(person)
+    tag_count = (
+        db_session.query(ConversationTag)
+        .filter(ConversationTag.conversation_id == conversation.id)
+        .filter(ConversationTag.tag == "ncc-profile-review")
+        .count()
+    )
+    assert result["captured"] == 0
+    assert result["tagged_for_review"] == 0
+    assert person.date_of_birth is None
+    assert person.gender == Gender.unknown
+    assert tag_count == 0
+
+
+def test_background_ncc_profile_capture_blocks_high_confidence_invalid_parser_value(db_session, monkeypatch):
+    person, conversation = _make_missing_profile_conversation(db_session)
+    _make_message(db_session, conversation, body="My DOB is 02/04/1980 and I am male.")
+    _mock_background_classifier(
+        monkeypatch,
+        content=(
+            '{"is_self_profile_statement":true,'
+            '"fields":{"date_of_birth":"02/04/1980","gender":"male"},'
+            '"confidence":0.99,"reason":"model should not override parser"}'
+        ),
+    )
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+
+    result = run_background_ncc_profile_capture(db_session)
+
+    db_session.refresh(person)
+    tag_count = (
+        db_session.query(ConversationTag)
+        .filter(ConversationTag.conversation_id == conversation.id)
+        .filter(ConversationTag.tag == "ncc-profile-review")
+        .count()
+    )
+    assert result["captured"] == 0
+    assert result["tagged_for_review"] == 0
+    assert person.date_of_birth is None
+    assert person.gender == Gender.unknown
+    assert tag_count == 0
+
+
+def test_background_ncc_profile_capture_skips_when_profile_complete(db_session, monkeypatch):
+    person = _make_person(db_session)
+    conversation = _make_conversation(db_session, person)
+    _make_message(db_session, conversation, body="My date of birth is 1994-12-08 and I am male.")
+    calls = _mock_background_classifier(monkeypatch, content="{}", calls=[])
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+
+    result = run_background_ncc_profile_capture(db_session)
+
+    assert result["processed"] == 0
+    assert calls == []
+
+
+def test_background_ncc_profile_capture_skips_active_awaiting_profile_flow(db_session, monkeypatch):
+    person, conversation = _make_missing_profile_conversation(db_session, ai_status="awaiting_profile")
+    message = _make_message(db_session, conversation, body="My date of birth is 1994-12-08 and I am male.")
+    calls = _mock_background_classifier(monkeypatch, content="{}", calls=[])
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+
+    result = run_background_ncc_profile_capture(db_session)
+
+    db_session.refresh(person)
+    db_session.refresh(conversation)
+    assert result["captured"] == 0
+    assert result["suppressed"] == 1
+    assert calls == []
+    assert person.date_of_birth is None
+    assert person.gender == Gender.unknown
+    state = conversation.metadata_["ncc_profile_background_capture"]
+    assert state["last_status"] == "skipped_awaiting_profile"
+    assert state["last_scanned_message_id"] == str(message.id)
+
+
+def test_background_ncc_profile_capture_does_not_rescan_processed_messages(db_session, monkeypatch):
+    person, conversation = _make_missing_profile_conversation(db_session)
+    _make_message(db_session, conversation, body="My date of birth is 1994-12-08 and I am male.")
+    calls = _mock_background_classifier(
+        monkeypatch,
+        content=(
+            '{"is_self_profile_statement":true,'
+            '"fields":{"date_of_birth":"1994-12-08","gender":"male"},'
+            '"confidence":0.88,"reason":"review"}'
+        ),
+    )
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+
+    first = run_background_ncc_profile_capture(db_session)
+    second = run_background_ncc_profile_capture(db_session)
+
+    db_session.refresh(person)
+    assert first["tagged_for_review"] == 1
+    assert second["ai_classified"] == 0
+    assert len(calls) == 1
+    assert person.date_of_birth is None
+    assert person.gender == Gender.unknown

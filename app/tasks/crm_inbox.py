@@ -7,6 +7,7 @@ from app.services.crm.ai_intake import (
     escalate_expired_pending_intakes,
     reassign_stale_ai_handoffs,
     retry_team_only_ai_assignments,
+    run_background_ncc_profile_capture,
     send_due_handoff_reassurance_followups,
     send_due_profile_collection_nudges,
 )
@@ -180,6 +181,40 @@ def reassign_stale_ai_handoffs_task(limit: int = 200):
     finally:
         session.close()
         observe_job("reassign_stale_ai_handoffs", status, time.monotonic() - start)
+
+
+@celery_app.task(name="app.tasks.crm_inbox.run_background_ncc_profile_capture")
+def run_background_ncc_profile_capture_task(limit: int = 200):
+    import logging
+    import time
+
+    from app.metrics import observe_job
+
+    logger = logging.getLogger(__name__)
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    logger.info("NCC_PROFILE_BACKGROUND_CAPTURE_START")
+    try:
+        result = run_background_ncc_profile_capture(session, limit=limit)
+        logger.info(
+            "NCC_PROFILE_BACKGROUND_CAPTURE_COMPLETE processed=%s scanned_messages=%s ai_classified=%s captured=%s tagged_for_review=%s suppressed=%s errors=%s",
+            result.get("processed", 0),
+            result.get("scanned_messages", 0),
+            result.get("ai_classified", 0),
+            result.get("captured", 0),
+            result.get("tagged_for_review", 0),
+            result.get("suppressed", 0),
+            len(result.get("errors", [])),
+        )
+        return result
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("run_background_ncc_profile_capture", status, time.monotonic() - start)
 
 
 @celery_app.task(name="app.tasks.crm_inbox.promote_queued_conversations")

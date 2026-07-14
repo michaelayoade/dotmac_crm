@@ -685,6 +685,13 @@ def build_beat_schedule() -> dict:
             enabled=True,
             interval_seconds=max(ai_handoff_reassign_interval_seconds, 30),
         )
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_ncc_profile_background_capture",
+            task_name="app.tasks.crm_inbox.run_background_ncc_profile_capture",
+            enabled=True,
+            interval_seconds=900,
+        )
 
         # CRM chat queue promotion — assign queued chats as agents free up
         queue_promotion_interval_seconds = _effective_int(
