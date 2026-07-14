@@ -280,6 +280,51 @@ class TestFirstResponseAt:
         assert conv.response_time_seconds is not None
         assert 47 * 60 <= conv.response_time_seconds <= 49 * 60
 
+    def test_first_response_seconds_uses_assignment_when_customer_waited_before_assignment(self, db_session):
+        person = _make_person(db_session)
+        agent_person = _make_person(db_session)
+        agent = _make_agent(db_session, agent_person.id)
+        conv = _make_conversation(db_session, person.id)
+        inbound_at = datetime.now(UTC) - timedelta(days=2)
+        assigned_at = datetime.now(UTC) - timedelta(minutes=35)
+        conv.created_at = inbound_at
+        conv.first_assigned_at = assigned_at
+        db_session.add(
+            ConversationAssignment(
+                conversation_id=conv.id,
+                agent_id=agent.id,
+                assigned_at=assigned_at,
+                is_active=True,
+            )
+        )
+        db_session.commit()
+
+        inbound_payload = MessageCreate(
+            conversation_id=conv.id,
+            channel_type=ChannelType.email,
+            direction=MessageDirection.inbound,
+            status=MessageStatus.received,
+            body="Still down",
+            received_at=inbound_at,
+            author_id=person.id,
+        )
+        Messages.create(db_session, inbound_payload)
+
+        payload = MessageCreate(
+            conversation_id=conv.id,
+            channel_type=ChannelType.email,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body="Checking now.",
+            author_id=agent_person.id,
+        )
+        Messages.create(db_session, payload)
+        db_session.refresh(conv)
+
+        assert conv.first_response_at is not None
+        assert conv.response_time_seconds is not None
+        assert 34 * 60 <= conv.response_time_seconds <= 36 * 60
+
     def test_resolved_closing_message_does_not_set_first_response(self, db_session):
         person = _make_person(db_session)
         agent_person = _make_person(db_session)
