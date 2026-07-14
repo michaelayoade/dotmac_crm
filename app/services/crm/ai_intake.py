@@ -53,7 +53,8 @@ AI_INTAKE_PROFILE_REQUEST_KIND = "profile_request"
 AI_INTAKE_PROFILE_RETRY_KIND = "profile_retry"
 AI_INTAKE_PROFILE_NUDGE_KIND = "profile_nudge"
 AI_INTAKE_PROFILE_STATUS = "awaiting_profile"
-AI_INTAKE_PROFILE_MAX_INVALID_REPLIES = 1
+AI_INTAKE_PROFILE_MAX_INVALID_REPLIES = 2
+AI_INTAKE_PROFILE_FAILED_TAG = "ncc-profile-failed"
 AI_INTAKE_BACKGROUND_CAPTURE_METADATA_KEY = "ncc_profile_background_capture"
 AI_INTAKE_BACKGROUND_CAPTURE_REVIEW_TAG = "ncc-profile-review"
 AI_INTAKE_BACKGROUND_CAPTURE_CONFIDENCE_THRESHOLD = 0.98
@@ -115,6 +116,36 @@ SUPPORTED_CHANNELS = {
 }
 ENV_FLAG = "CRM_AI_PENDING_INTAKE_ENABLED"
 _PROFILE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_PROFILE_YEAR_FIRST_RE = re.compile(r"^(?P<year>\d{4})[\s./-]+(?P<month>\d{1,2})[\s./-]+(?P<day>\d{1,2})$")
+_PROFILE_DMY_SLASH_RE = re.compile(r"^(?P<day>\d{1,2})[/-](?P<month>\d{1,2})[/-](?P<year>\d{2,4})$")
+_PROFILE_TWO_DIGIT_YEAR_RE = re.compile(r"(?:^|\D)\d{1,2}[/-]\d{1,2}[/-]\d{2}(?:\D|$)")
+_PROFILE_ORDINAL_SUFFIX_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)\b", re.IGNORECASE)
+_PROFILE_MONTHS = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
 _PROFILE_GENDER_VALUES = {
     "male": Gender.male,
     "female": Gender.female,
@@ -1128,7 +1159,7 @@ def _profile_field_label(field: str) -> str:
 def _profile_format_lines(missing_fields: Sequence[str]) -> list[str]:
     lines: list[str] = []
     if "date_of_birth" in missing_fields:
-        lines.append("Date of birth: YYYY-MM-DD")
+        lines.append("Date of birth: YYYY-MM-DD (for example, 1997-05-09 or 7 May 1997)")
     if "gender" in missing_fields:
         lines.append("Gender: Male/Female/Non-binary/Other")
     return lines
@@ -1165,6 +1196,74 @@ def _profile_nudge_message_for_department(department: str | None) -> str:
     )
 
 
+def _coerce_profile_date_parts(year: int, month: int, day: int) -> date | None:
+    try:
+        parsed = date(year, month, day)
+    except ValueError:
+        return None
+    if parsed > _now().date():
+        return None
+    return parsed
+
+
+def _parse_profile_date(raw_dob: str | None) -> tuple[date | None, str | None]:
+    value = " ".join((raw_dob or "").strip().replace(",", " ").split())
+    if not value:
+        return None, "invalid_date_of_birth"
+    if _PROFILE_TWO_DIGIT_YEAR_RE.search(value):
+        return None, "ambiguous_date_of_birth"
+
+    if _PROFILE_DATE_RE.fullmatch(value):
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError:
+            return None, "invalid_date_of_birth"
+        if parsed > _now().date():
+            return None, "future_date_of_birth"
+        return parsed, None
+
+    year_first = _PROFILE_YEAR_FIRST_RE.fullmatch(value)
+    if year_first:
+        year_first_date = _coerce_profile_date_parts(
+            int(year_first.group("year")),
+            int(year_first.group("month")),
+            int(year_first.group("day")),
+        )
+        return (year_first_date, None) if year_first_date else (None, "invalid_date_of_birth")
+
+    dmy_slash = _PROFILE_DMY_SLASH_RE.fullmatch(value)
+    if dmy_slash:
+        day = int(dmy_slash.group("day"))
+        month = int(dmy_slash.group("month"))
+        year_text = dmy_slash.group("year")
+        if len(year_text) != 4:
+            return None, "ambiguous_date_of_birth"
+        if day <= 12:
+            return None, "ambiguous_date_of_birth"
+        dmy_date = _coerce_profile_date_parts(int(year_text), month, day)
+        return (dmy_date, None) if dmy_date else (None, "invalid_date_of_birth")
+
+    natural = _PROFILE_ORDINAL_SUFFIX_RE.sub(r"\1", value.lower())
+    natural_parts = natural.split()
+    if len(natural_parts) == 3:
+        first, second, third = natural_parts
+        if first.isdigit() and len(first) == 4 and second in _PROFILE_MONTHS and third.isdigit():
+            natural_year_first_date = _coerce_profile_date_parts(int(first), _PROFILE_MONTHS[second], int(third))
+            return (natural_year_first_date, None) if natural_year_first_date else (None, "invalid_date_of_birth")
+        if (second in _PROFILE_MONTHS and third.isdigit() and len(third) != 4) or (
+            first in _PROFILE_MONTHS and third.isdigit() and len(third) != 4
+        ):
+            return None, "ambiguous_date_of_birth"
+        if first.isdigit() and second in _PROFILE_MONTHS and third.isdigit() and len(third) == 4:
+            natural_dmy_date = _coerce_profile_date_parts(int(third), _PROFILE_MONTHS[second], int(first))
+            return (natural_dmy_date, None) if natural_dmy_date else (None, "invalid_date_of_birth")
+        if first in _PROFILE_MONTHS and second.isdigit() and third.isdigit() and len(third) == 4:
+            natural_mdy_date = _coerce_profile_date_parts(int(third), _PROFILE_MONTHS[first], int(second))
+            return (natural_mdy_date, None) if natural_mdy_date else (None, "invalid_date_of_birth")
+
+    return None, "invalid_date_of_birth"
+
+
 def _values_from_labeled_profile_lines(lines: Sequence[str]) -> tuple[dict[str, str], str | None]:
     values: dict[str, str] = {}
     for line in lines:
@@ -1185,16 +1284,31 @@ def _values_from_labeled_profile_lines(lines: Sequence[str]) -> tuple[dict[str, 
 def _values_from_bare_profile_lines(
     lines: Sequence[str], requested_fields: Sequence[str]
 ) -> tuple[dict[str, str], str | None]:
-    if set(requested_fields) != {"date_of_birth", "gender"}:
+    if len(lines) not in {1, 2}:
         return {}, "invalid_format"
-    if len(lines) != 2:
+    values: dict[str, str] = {}
+    for line in lines:
+        clean = line.strip()
+        if not clean:
+            continue
+        if "date_of_birth" in requested_fields and _parse_profile_date(clean)[1] is None:
+            if "date_of_birth" in values:
+                return {}, "invalid_format"
+            values["date_of_birth"] = clean
+            continue
+        if "gender" in requested_fields and clean.lower() in _PROFILE_GENDER_VALUES:
+            if "gender" in values:
+                return {}, "invalid_format"
+            values["gender"] = clean
+            continue
+        if "date_of_birth" in requested_fields and re.search(r"\d", clean):
+            return {}, _parse_profile_date(clean)[1] or "invalid_date_of_birth"
+        if "gender" in requested_fields:
+            return {}, "invalid_gender"
         return {}, "invalid_format"
-    raw_dob, raw_gender = lines
-    if not _PROFILE_DATE_RE.fullmatch(raw_dob):
-        return {}, "invalid_date_of_birth"
-    if raw_gender.strip().lower() not in _PROFILE_GENDER_VALUES:
-        return {}, "invalid_gender"
-    return {"date_of_birth": raw_dob, "gender": raw_gender}, None
+    if not values:
+        return {}, "invalid_format"
+    return values, None
 
 
 def _parse_profile_reply(body: str | None, requested_fields: Sequence[str]) -> tuple[dict[str, Any], str | None]:
@@ -1214,14 +1328,9 @@ def _parse_profile_reply(body: str | None, requested_fields: Sequence[str]) -> t
 
     if "date_of_birth" in requested_fields:
         raw_dob = values.get("date_of_birth")
-        if not raw_dob or not _PROFILE_DATE_RE.fullmatch(raw_dob):
-            return {}, "invalid_date_of_birth"
-        try:
-            dob = date.fromisoformat(raw_dob)
-        except ValueError:
-            return {}, "invalid_date_of_birth"
-        if dob > _now().date():
-            return {}, "future_date_of_birth"
+        dob, date_error = _parse_profile_date(raw_dob)
+        if date_error is not None or dob is None:
+            return {}, date_error or "invalid_date_of_birth"
         parsed["date_of_birth"] = dob
 
     if "gender" in requested_fields:
@@ -1235,6 +1344,77 @@ def _parse_profile_reply(body: str | None, requested_fields: Sequence[str]) -> t
     if unexpected_values:
         return {}, "unexpected_field"
     return parsed, None
+
+
+def _merge_profile_partial_fields(
+    parsed_fields: dict[str, Any],
+    profile_state: dict[str, Any],
+    requested_fields: Sequence[str],
+) -> tuple[dict[str, Any], list[str]]:
+    partial_fields = _deserialize_profile_partial_fields(profile_state.get("partial_fields"))
+    merged = {**partial_fields, **parsed_fields}
+    complete_fields = [field for field in requested_fields if field in merged]
+    remaining_fields = [field for field in requested_fields if field not in merged]
+    return {field: merged[field] for field in complete_fields}, remaining_fields
+
+
+def _parse_profile_reply_partially(
+    body: str | None,
+    requested_fields: Sequence[str],
+    profile_state: dict[str, Any],
+) -> tuple[dict[str, Any], list[str], str | None]:
+    parsed_fields, error = _parse_profile_reply(body, requested_fields)
+    if error is None:
+        merged_fields, remaining_fields = _merge_profile_partial_fields(parsed_fields, profile_state, requested_fields)
+        return merged_fields, remaining_fields, None
+
+    partial_parsed: dict[str, Any] = {}
+    partial_errors: list[str] = []
+    for field in requested_fields:
+        field_parsed, field_error = _parse_profile_reply(body, [field])
+        if field_error is None:
+            partial_parsed.update(field_parsed)
+        elif field_error not in {"invalid_format", "unexpected_field"}:
+            partial_errors.append(field_error)
+
+    if partial_parsed:
+        merged_fields, remaining_fields = _merge_profile_partial_fields(partial_parsed, profile_state, requested_fields)
+        return merged_fields, remaining_fields, None
+    return {}, list(requested_fields), partial_errors[0] if partial_errors else error
+
+
+def _mark_profile_collection_failed(db: Session, conversation: Conversation) -> None:
+    _ensure_conversation_tag(db, conversation_id=conversation.id, tag=AI_INTAKE_PROFILE_FAILED_TAG)
+    if conversation.priority != ConversationPriority.urgent:
+        conversation.priority = ConversationPriority.high
+
+
+def _serialize_profile_partial_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    serialized: dict[str, Any] = {}
+    if isinstance(fields.get("date_of_birth"), date):
+        serialized["date_of_birth"] = fields["date_of_birth"].isoformat()
+    elif fields.get("date_of_birth"):
+        serialized["date_of_birth"] = str(fields["date_of_birth"])
+    if isinstance(fields.get("gender"), Gender):
+        serialized["gender"] = fields["gender"].value
+    elif fields.get("gender"):
+        serialized["gender"] = str(fields["gender"])
+    return serialized
+
+
+def _deserialize_profile_partial_fields(fields: Any) -> dict[str, Any]:
+    if not isinstance(fields, dict):
+        return {}
+    parsed: dict[str, Any] = {}
+    if fields.get("date_of_birth"):
+        dob, error = _parse_profile_date(str(fields["date_of_birth"]))
+        if error is None and dob is not None:
+            parsed["date_of_birth"] = dob
+    if fields.get("gender"):
+        gender = _PROFILE_GENDER_VALUES.get(str(fields["gender"]).strip().lower())
+        if gender is not None:
+            parsed["gender"] = gender
+    return parsed
 
 
 _BACKGROUND_CAPTURE_PREFILTER_RE = re.compile(
@@ -1755,8 +1935,10 @@ def _handle_profile_collection_reply(
             )
         return AiIntakeResult(handled=False)
 
-    parsed_fields, error = _parse_profile_reply(message.body, requested_fields)
-    if error is None:
+    parsed_fields, remaining_fields, error = _parse_profile_reply_partially(
+        message.body, requested_fields, profile_state
+    )
+    if error is None and not remaining_fields:
         person = db.get(Person, conversation.person_id) if conversation.person_id else None
         state = dict(current_state)
         if person is None:
@@ -1789,6 +1971,32 @@ def _handle_profile_collection_reply(
             mapping=mapping,
             source="ai_intake_profile_completed",
         )
+
+    if error is None and remaining_fields:
+        state = dict(current_state)
+        profile_state = dict(profile_state)
+        profile_state["partial_fields"] = _serialize_profile_partial_fields(parsed_fields)
+        profile_state["partial_fields_received_at"] = _serialize_timestamp(_now())
+        profile_state["last_attempt_at"] = profile_state["partial_fields_received_at"]
+        state["profile_collection"] = profile_state
+        _set_state(conversation, state)
+        db.commit()
+        _send_followup(
+            db,
+            conversation=conversation,
+            message=message,
+            body=_build_profile_retry_message(remaining_fields),
+            message_kind=AI_INTAKE_PROFILE_RETRY_KIND,
+        )
+        inbox_cache.invalidate_inbox_list()
+        logger.info(
+            "ai_intake_profile_collection_partial conversation_id=%s message_id=%s captured_fields=%s remaining_fields=%s",
+            conversation.id,
+            message.id,
+            sorted(parsed_fields),
+            remaining_fields,
+        )
+        return AiIntakeResult(handled=True, followup_sent=True, waiting_for_customer=True)
 
     attempt_count = int(profile_state.get("attempt_count") or 0)
     state = dict(current_state)
@@ -1825,6 +2033,7 @@ def _handle_profile_collection_reply(
     profile_state["last_error"] = error
     profile_state["last_attempt_at"] = state["profile_collection_failed_at"]
     state["profile_collection"] = profile_state
+    _mark_profile_collection_failed(db, conversation)
     logger.info(
         "ai_intake_profile_collection_failed conversation_id=%s message_id=%s error=%s fields=%s",
         conversation.id,
