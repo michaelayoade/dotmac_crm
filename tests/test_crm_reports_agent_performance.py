@@ -375,6 +375,81 @@ def test_agent_performance_counts_agent_reply_before_late_assignment(db_session,
     assert rows[0]["avg_first_response_minutes"] == 48.0
 
 
+def test_agent_performance_starts_at_assignment_when_customer_waited_before_assignment(db_session, monkeypatch):
+    now = datetime.now(UTC)
+    start_at = now - timedelta(days=3)
+
+    contact = Person(first_name="Contact", last_name="Assigned", email="contact-assigned@example.com")
+    agent_person = Person(first_name="Shallom", last_name="Assigned", email="agent-assigned@example.com")
+    db_session.add_all([contact, agent_person])
+    db_session.flush()
+
+    agent = CrmAgent(person_id=agent_person.id, is_active=True)
+    db_session.add(agent)
+    db_session.flush()
+
+    inbound_at = now - timedelta(days=2)
+    assigned_at = now - timedelta(minutes=35)
+    first_reply_at = now
+    conversation = Conversation(
+        person_id=contact.id,
+        status=ConversationStatus.resolved,
+        created_at=inbound_at,
+        first_assigned_at=assigned_at,
+        resolved_at=now,
+        updated_at=now,
+    )
+    db_session.add(conversation)
+    db_session.flush()
+
+    db_session.add(
+        ConversationAssignment(
+            agent_id=agent.id,
+            conversation_id=conversation.id,
+            assigned_at=assigned_at,
+            is_active=True,
+        )
+    )
+    db_session.add_all(
+        [
+            Message(
+                conversation_id=conversation.id,
+                channel_type=ChannelType.email,
+                direction=MessageDirection.inbound,
+                body="Still down",
+                received_at=inbound_at,
+                created_at=inbound_at,
+            ),
+            Message(
+                conversation_id=conversation.id,
+                channel_type=ChannelType.email,
+                direction=MessageDirection.outbound,
+                body="Checking now.",
+                sent_at=first_reply_at,
+                created_at=first_reply_at,
+                author_id=agent_person.id,
+            ),
+        ]
+    )
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.crm.presence.agent_presence.seconds_by_status_bulk",
+        lambda *args, **kwargs: {},
+    )
+
+    rows = agent_performance_metrics(
+        db=db_session,
+        start_at=start_at,
+        end_at=now + timedelta(minutes=1),
+        agent_id=str(agent.id),
+        team_id=None,
+        channel_type="email",
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["avg_first_response_minutes"] == 35.0
+
+
 def test_agent_performance_ignores_resolved_closing_message_as_first_response(db_session, monkeypatch):
     now = datetime.now(UTC)
     start_at = now - timedelta(days=1)

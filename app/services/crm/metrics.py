@@ -37,24 +37,6 @@ def ai_intake_state(conversation: Conversation) -> dict[str, Any]:
     return state if isinstance(state, dict) else {}
 
 
-def ai_intake_engaged_customer(conversation: Conversation) -> bool:
-    """Whether AI intake should own the pre-handoff waiting time.
-
-    Older rows can have ai_intake metadata even when the provider failed before
-    a customer-facing AI response. In that case, first response should start at
-    the customer's first inbound message rather than a later assignment retry.
-    """
-    state = ai_intake_state(conversation)
-    if not state:
-        return False
-    try:
-        if int(state.get("turn_count") or 0) > 0:
-            return True
-    except (TypeError, ValueError):
-        pass
-    return state.get("status") == "resolved"
-
-
 def effective_handoff_at(
     conversation: Conversation,
     *,
@@ -96,18 +78,18 @@ def effective_first_response_start_at(
 ) -> datetime | None:
     """Start time for first response metrics.
 
-    AI-engaged chats start when AI hands off. Ordinary chats start when the
-    customer first waited. If historical assignment metadata was recorded after
-    a human reply, fall back to the customer wait start so the real first reply
-    is not skipped.
+    A human agent should be timed from when the customer was waiting on that
+    agent. Use handoff/assignment when it exists before the reply, but fall
+    back to the customer wait start if historical assignment metadata was
+    recorded after the human reply.
     """
     customer_wait_start = ensure_aware(first_inbound_at) or ensure_aware(getattr(conversation, "created_at", None))
     response_time = ensure_aware(response_at)
-    if ai_intake_engaged_customer(conversation):
-        handoff_at = effective_handoff_at(conversation, assignment=assignment)
-        if handoff_at and response_time and response_time < handoff_at and customer_wait_start:
+    responsibility_start = effective_handoff_at(conversation, assignment=assignment)
+    if responsibility_start and response_time and responsibility_start <= response_time:
+        if customer_wait_start and customer_wait_start > responsibility_start:
             return customer_wait_start
-        return handoff_at or customer_wait_start
+        return responsibility_start
     return customer_wait_start
 
 
