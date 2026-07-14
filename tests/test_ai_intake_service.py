@@ -7,7 +7,14 @@ import pytest
 from app.metrics import AI_INTAKE_ESCALATIONS
 from app.models.crm.ai_intake import AiIntakeConfig
 from app.models.crm.conversation import Conversation, ConversationAssignment, ConversationTag, Message
-from app.models.crm.enums import AgentPresenceStatus, ChannelType, ConversationStatus, MessageDirection, MessageStatus
+from app.models.crm.enums import (
+    AgentPresenceStatus,
+    ChannelType,
+    ConversationPriority,
+    ConversationStatus,
+    MessageDirection,
+    MessageStatus,
+)
 from app.models.crm.presence import AgentPresence
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
 from app.models.person import Gender, PartyStatus, Person
@@ -23,6 +30,7 @@ from app.services.crm.ai_intake import (
     _handoff_reassurance_message_for_department,
     _history,
     _normalize_department_key,
+    _parse_profile_reply,
     _profile_update_prompt_message,
     _send_handoff_message,
     _send_profile_update_prompt,
@@ -413,7 +421,7 @@ def test_process_pending_intake_requests_missing_profile_before_assignment(db_se
     assert state["status"] == "awaiting_profile"
     assert state["handoff_sent"] is True
     assert state["profile_collection"]["requested_fields"] == ["date_of_birth", "gender"]
-    assert "Date of birth: YYYY-MM-DD" in sent[0].body
+    assert "Date of birth: YYYY-MM-DD (for example, 1997-05-09 or 7 May 1997)" in sent[0].body
     assert "Gender: Male/Female/Non-binary/Other" in sent[0].body
     assert sent[0].metadata["ai_intake_generated"] is True
     assert sent[0].metadata["ai_intake_message_kind"] == "profile_request"
@@ -684,7 +692,148 @@ def test_process_pending_intake_profile_reply_accepts_bare_date_and_gender_lines
     assert state["profile_collection_completed"] is True
 
 
-def test_process_pending_intake_profile_reply_retries_once_then_records_failure(db_session, monkeypatch):
+def test_parse_profile_reply_accepts_unambiguous_natural_language_date():
+    parsed, error = _parse_profile_reply(
+        "Date of birth: 7th May 1980\nGender: Female",
+        ["date_of_birth", "gender"],
+    )
+
+    assert error is None
+    assert parsed["date_of_birth"] == date(1980, 5, 7)
+    assert parsed["gender"] == Gender.female
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Date of birth: 02/04/1980",
+        "Date of birth: 02/04/18",
+        "Date of birth: 7 May 80",
+    ],
+)
+def test_parse_profile_reply_rejects_ambiguous_or_two_digit_year_dates(body):
+    parsed, error = _parse_profile_reply(body, ["date_of_birth"])
+
+    assert parsed == {}
+    assert error == "ambiguous_date_of_birth"
+
+
+def test_process_pending_intake_profile_reply_accepts_date_and_gender_across_messages(db_session, monkeypatch):
+    person = _make_person(db_session)
+    person.date_of_birth = None
+    person.gender = Gender.unknown
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    team = CrmTeam(name="Support", is_active=True)
+    db_session.add(team)
+    db_session.commit()
+    _make_agent(db_session, team, label="Assigned", status=AgentPresenceStatus.online)
+    _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
+
+    now = datetime.now(UTC)
+    conversation.status = ConversationStatus.pending
+    conversation.metadata_ = {
+        AI_INTAKE_METADATA_KEY: {
+            "status": "awaiting_profile",
+            "config_id": "config-1",
+            "scope_key": f"widget:{widget_id}",
+            "started_at": now.isoformat(),
+            "department": "support",
+            "confidence": 0.96,
+            "handoff_sent": True,
+            "handoff_department": "support",
+            "handoff_message": "Thanks for reaching out.",
+            "handoff_sent_at": now.isoformat(),
+            "profile_collection": {
+                "requested_fields": ["date_of_birth", "gender"],
+                "missing_standard_fields": ["date_of_birth", "gender"],
+                "attempt_count": 0,
+                "requested_at": now.isoformat(),
+                "department": "support",
+            },
+        }
+    }
+    db_session.commit()
+
+    sent = []
+
+    def _fake_send_message(db, payload, author_id=None, trace_id=None):
+        sent.append(payload)
+        outbound = Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+            metadata_=payload.metadata,
+        )
+        db.add(outbound)
+        db.commit()
+        db.refresh(outbound)
+        return outbound
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: False)
+    monkeypatch.setattr("app.services.crm.ai_intake.send_message", _fake_send_message)
+    monkeypatch.setattr(
+        "app.services.events.handlers.selfcare_customer.enqueue_person_contact_resync",
+        lambda db, person_id, changed_fields: None,
+    )
+
+    dob_message = _make_message(
+        db_session,
+        conversation,
+        body="Date of birth: 1997 May 09",
+        metadata={"widget_config_id": widget_id},
+    )
+    first_result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=dob_message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=False,
+    )
+
+    db_session.refresh(person)
+    db_session.refresh(conversation)
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    assert first_result.waiting_for_customer is True
+    assert first_result.resolved is False
+    assert person.date_of_birth is None
+    assert person.gender == Gender.unknown
+    assert state["status"] == "awaiting_profile"
+    assert state["profile_collection"]["partial_fields"] == {"date_of_birth": "1997-05-09"}
+    assert state["profile_collection"]["attempt_count"] == 0
+    assert sent[-1].metadata["ai_intake_message_kind"] == "profile_retry"
+    assert "Gender: Male/Female/Non-binary/Other" in sent[-1].body
+    assert "Date of birth:" not in sent[-1].body
+
+    gender_message = _make_message(
+        db_session,
+        conversation,
+        body="Female",
+        metadata={"widget_config_id": widget_id},
+    )
+    second_result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=gender_message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=False,
+    )
+
+    db_session.refresh(person)
+    db_session.refresh(conversation)
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    assert second_result.resolved is True
+    assert person.date_of_birth == date(1997, 5, 9)
+    assert person.gender == Gender.female
+    assert state["status"] == "resolved"
+    assert state["profile_collection_completed"] is True
+    assert set(state["profile_collection_updated_fields"]) == {"date_of_birth", "gender"}
+
+
+def test_process_pending_intake_profile_reply_allows_two_retries_then_records_failure_marker(db_session, monkeypatch):
     person = _make_person(db_session)
     person.date_of_birth = None
     conversation = _make_conversation(db_session, person)
@@ -740,10 +889,7 @@ def test_process_pending_intake_profile_reply_retries_once_then_records_failure(
     monkeypatch.setattr("app.services.crm.ai_intake.send_message", _fake_send_message)
 
     first_bad = _make_message(
-        db_session,
-        conversation,
-        body="DOB: 20/05/1994",
-        metadata={"widget_config_id": widget_id},
+        db_session, conversation, body="Date of birth: 02/04/1980", metadata={"widget_config_id": widget_id}
     )
     first_result = process_pending_intake(
         db_session,
@@ -760,12 +906,12 @@ def test_process_pending_intake_profile_reply_retries_once_then_records_failure(
     assert state["status"] == "awaiting_profile"
     assert state["profile_collection"]["attempt_count"] == 1
     assert sent[-1].metadata["ai_intake_message_kind"] == "profile_retry"
-    assert "Date of birth: YYYY-MM-DD" in sent[-1].body
+    assert "Date of birth: YYYY-MM-DD (for example, 1997-05-09 or 7 May 1997)" in sent[-1].body
 
     second_bad = _make_message(
         db_session,
         conversation,
-        body="Date of birth: 20/05/1994",
+        body="Date of birth: 7 May 80",
         metadata={"widget_config_id": widget_id},
     )
     second_result = process_pending_intake(
@@ -776,13 +922,42 @@ def test_process_pending_intake_profile_reply_retries_once_then_records_failure(
         is_new_conversation=False,
     )
 
+    db_session.refresh(conversation)
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    assert second_result.followup_sent is True
+    assert conversation.status == ConversationStatus.pending
+    assert state["status"] == "awaiting_profile"
+    assert state["profile_collection"]["attempt_count"] == 2
+
+    third_bad = _make_message(
+        db_session,
+        conversation,
+        body="Date of birth: tomorrow",
+        metadata={"widget_config_id": widget_id},
+    )
+    third_result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=third_bad,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=False,
+    )
+
     db_session.refresh(person)
     db_session.refresh(conversation)
     state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    tags = {
+        row[0]
+        for row in db_session.query(ConversationTag.tag)
+        .filter(ConversationTag.conversation_id == conversation.id)
+        .all()
+    }
 
-    assert second_result.resolved is True
+    assert third_result.resolved is True
     assert person.date_of_birth is None
     assert conversation.status == ConversationStatus.open
+    assert conversation.priority == ConversationPriority.high
+    assert "ncc-profile-failed" in tags
     assert state["status"] == "resolved"
     assert state["profile_collection_failed"] is True
     assert state["profile_collection_failure_reason"] == "invalid_format_retry_exhausted"
