@@ -649,6 +649,8 @@ def agent_performance_metrics(
             if responding_agent_id is None:
                 break
             assignment = any_assignment_by_agent_convo.get((responding_agent_id, convo.id))
+            if assignment is None:
+                break
             response_start = effective_first_response_start_at(
                 convo,
                 assignment=assignment,
