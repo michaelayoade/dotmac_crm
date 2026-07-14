@@ -545,7 +545,9 @@ def agent_performance_metrics(
             end_at=end_at,
         )
 
-    # Load all assignments once to avoid per-agent queries.
+    # Load assignments once to avoid per-agent queries. Active assignments still
+    # drive ownership/resolution metrics; all assignments are needed for first
+    # response attribution after reassignment.
     agent_ids = [agent.id for agent in agents]
     assignment_rows = (
         db.query(ConversationAssignment.agent_id, ConversationAssignment.conversation_id, ConversationAssignment)
@@ -563,7 +565,19 @@ def agent_performance_metrics(
         assignment_by_agent_convo[(assigned_agent_id, conversation_id)] = assignment
         all_conversation_ids.add(conversation_id)
 
+    all_assignment_rows = (
+        db.query(ConversationAssignment.agent_id, ConversationAssignment.conversation_id, ConversationAssignment)
+        .filter(ConversationAssignment.agent_id.in_(agent_ids))
+        .all()
+    )
+    any_assignment_by_agent_convo: dict[tuple[Any, Any], ConversationAssignment] = {}
+    for assigned_agent_id, conversation_id, assignment in all_assignment_rows:
+        if assigned_agent_id is None or conversation_id is None:
+            continue
+        any_assignment_by_agent_convo[(assigned_agent_id, conversation_id)] = assignment
+
     channel_value = _resolve_channel_value(channel_type)
+    agent_id_by_person_id = {str(agent.person_id): agent.id for agent in agents if agent.person_id}
 
     # Load conversations with message activity in the selected period once.
     conversations_by_id: dict[Any, Conversation] = {}
@@ -576,15 +590,17 @@ def agent_performance_metrics(
             activity_query = activity_query.filter(message_time <= end_at)
         if channel_value:
             activity_query = activity_query.filter(Message.channel_type == channel_value)
-        active_conversation_ids = [row[0] for row in activity_query.distinct().all()]
-        convo_query = db.query(Conversation).filter(Conversation.id.in_(active_conversation_ids))
-        filtered_conversations = convo_query.all()
-        conversations_by_id = {convo.id: convo for convo in filtered_conversations}
+        active_conversation_ids = {row[0] for row in activity_query.distinct().all()}
+
+        if active_conversation_ids:
+            convo_query = db.query(Conversation).filter(Conversation.id.in_(active_conversation_ids))
+            filtered_conversations = convo_query.all()
+            conversations_by_id = {convo.id: convo for convo in filtered_conversations}
 
     # Preload first inbound timestamps and ordered human outbound candidates for
     # all filtered conversations.
     first_inbound_map: dict[str, Any] = {}
-    outbound_candidates: dict[tuple[str, str], list[tuple[Any, Message]]] = {}
+    outbound_candidates: dict[str, list[tuple[Any, Message]]] = {}
     filtered_ids = list(conversations_by_id.keys())
     if filtered_ids:
         message_time = _message_activity_time()
@@ -616,14 +632,36 @@ def agent_performance_metrics(
         if channel_value:
             outbound_rows = outbound_rows.filter(Message.channel_type == channel_value)
 
-        for conversation_id, author_id, msg_time, message in outbound_rows.order_by(message_time.asc()).all():
+        for conversation_id, _author_id, msg_time, message in outbound_rows.order_by(message_time.asc()).all():
             metadata_map = message.metadata_ if isinstance(message.metadata_, dict) else {}
             if metadata_map.get("ai_intake_generated"):
                 continue
             conversation = conversations_by_id.get(conversation_id)
             if conversation is not None and _is_resolved_closing_message(message, conversation=conversation):
                 continue
-            outbound_candidates.setdefault((str(conversation_id), str(author_id)), []).append((msg_time, message))
+            outbound_candidates.setdefault(str(conversation_id), []).append((msg_time, message))
+
+    response_times_by_agent: dict[Any, list[float]] = {agent.id: [] for agent in agents}
+    for convo in conversations_by_id.values():
+        first_inbound_at = first_inbound_map.get(str(convo.id))
+        for outbound_time, message in outbound_candidates.get(str(convo.id), []):
+            responding_agent_id = agent_id_by_person_id.get(str(message.author_id))
+            if responding_agent_id is None:
+                break
+            assignment = any_assignment_by_agent_convo.get((responding_agent_id, convo.id))
+            response_start = effective_first_response_start_at(
+                convo,
+                assignment=assignment,
+                first_inbound_at=first_inbound_at,
+                response_at=outbound_time,
+            )
+            response_start = ensure_aware(response_start)
+            outbound_time = ensure_aware(outbound_time)
+            if outbound_time and response_start and outbound_time >= response_start:
+                response_times_by_agent.setdefault(responding_agent_id, []).append(
+                    (outbound_time - response_start).total_seconds() / 60
+                )
+                break
 
     agent_stats: list[dict[str, Any]] = []
     for agent in agents:
@@ -646,24 +684,11 @@ def agent_performance_metrics(
         total = len(conversations)
         resolved = sum(1 for c in conversations if _is_resolved_in_window(c, start_at, end_at))
 
-        response_times = []
+        response_times = response_times_by_agent.get(agent.id, [])
         resolution_times = []
         for convo in conversations:
             assignment = assignment_by_agent_convo.get((agent.id, convo.id))
             handoff_at = effective_handoff_at(convo, assignment=assignment)
-            first_inbound_at = first_inbound_map.get(str(convo.id))
-            for outbound_time, _message in outbound_candidates.get((str(convo.id), str(agent.person_id)), []):
-                response_start = effective_first_response_start_at(
-                    convo,
-                    assignment=assignment,
-                    first_inbound_at=first_inbound_at,
-                    response_at=outbound_time,
-                )
-                response_start = ensure_aware(response_start)
-                outbound_time = ensure_aware(outbound_time)
-                if outbound_time and response_start and outbound_time >= response_start:
-                    response_times.append((outbound_time - response_start).total_seconds() / 60)
-                    break
             resolved_at = _resolution_timestamp(convo)
             if _is_resolved_in_window(convo, start_at, end_at) and handoff_at and resolved_at:
                 resolved_at = ensure_aware(resolved_at)
