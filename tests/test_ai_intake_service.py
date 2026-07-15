@@ -354,7 +354,7 @@ def test_process_pending_intake_resolves_and_assigns_team(db_session, monkeypatc
 
 def test_process_pending_intake_requests_missing_profile_before_assignment(db_session, monkeypatch):
     person = _make_person(db_session)
-    person.party_status = PartyStatus.lead
+    person.party_status = PartyStatus.customer
     person.date_of_birth = None
     person.gender = Gender.unknown
     conversation = _make_conversation(db_session, person)
@@ -427,9 +427,12 @@ def test_process_pending_intake_requests_missing_profile_before_assignment(db_se
     assert sent[0].metadata["ai_intake_message_kind"] == "profile_request"
 
 
-def test_process_pending_intake_skips_profile_collection_for_contact_party_status(db_session, monkeypatch):
+@pytest.mark.parametrize("party_status", [PartyStatus.contact, PartyStatus.lead])
+def test_process_pending_intake_skips_profile_collection_for_non_customer_party_status(
+    db_session, monkeypatch, party_status
+):
     person = _make_person(db_session)
-    person.party_status = PartyStatus.contact
+    person.party_status = party_status
     person.date_of_birth = None
     person.gender = Gender.unknown
     conversation = _make_conversation(db_session, person)
@@ -497,7 +500,7 @@ def test_process_pending_intake_skips_profile_collection_for_contact_party_statu
     assert assignment.agent_id == agent.id
     assert state["status"] == "resolved"
     assert state["profile_collection_skipped"] is True
-    assert state["profile_collection_skip_reason"] == "party_status_contact"
+    assert state["profile_collection_skip_reason"] == "non_customer_party_status"
     assert "profile_collection" not in state
     assert sent[-1].metadata["ai_intake_message_kind"] == "handoff"
     assert all(payload.metadata["ai_intake_message_kind"] != "profile_update_prompt" for payload in sent)
