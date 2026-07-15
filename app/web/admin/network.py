@@ -7,6 +7,7 @@ import logging
 import math
 from datetime import UTC, date, datetime
 from enum import Enum
+from typing import Any, cast
 from urllib.parse import quote
 from uuid import UUID
 
@@ -22,12 +23,14 @@ from app.models.fiber_change_request import FiberChangeRequestOperation, FiberCh
 from app.models.gis import GeoAreaType, GeoLocation, GeoLocationType
 from app.models.network import (
     FdhCabinet,
+    FiberAccessPoint,
     FiberSegment,
     FiberSplice,
     FiberSpliceClosure,
     FiberSpliceTray,
     FiberStrand,
     FiberTerminationPoint,
+    OLTDevice,
     Splitter,
     SplitterPort,
 )
@@ -55,7 +58,9 @@ def network_index():
 
 _ASSET_MODEL_BY_TYPE = {
     "fdh_cabinet": FdhCabinet,
+    "olt_device": OLTDevice,
     "splice_closure": FiberSpliceClosure,
+    "access_point": FiberAccessPoint,
     "fiber_segment": FiberSegment,
     "fiber_splice": FiberSplice,
     "fiber_splice_tray": FiberSpliceTray,
@@ -191,6 +196,55 @@ def _asset_snapshot(db: Session, asset_type: str | None, asset_id: str | None):
         return None
 
 
+def _asset_type_label(asset_type: str) -> str:
+    return {
+        "fdh_cabinet": "FDH Cabinet",
+        "splice_closure": "Splice Closure",
+        "olt_device": "OLT / Base Station",
+        "access_point": "Access Point",
+    }.get(asset_type, "Asset")
+
+
+def _asset_detail_url(asset_type: str, asset_id: object) -> str:
+    if asset_type == "fdh_cabinet":
+        return f"/admin/network/fdh-cabinets/{asset_id}"
+    if asset_type == "splice_closure":
+        return f"/admin/network/splice-closures/{asset_id}"
+    return "/admin/network/map"
+
+
+def _render_asset_form(
+    request: Request,
+    db: Session,
+    *,
+    asset=None,
+    asset_type: str = "fdh_cabinet",
+    action_url: str = "/admin/network/assets/new",
+    error: str | None = None,
+    status_code: int = 200,
+):
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+
+    return templates.TemplateResponse(
+        "admin/network/fiber/fdh-cabinet-form.html",
+        {
+            "request": request,
+            "active_page": "network-map",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "asset": asset,
+            "cabinet": asset if asset_type == "fdh_cabinet" else None,
+            "regions": _get_regions(db),
+            "action_url": action_url,
+            "selected_asset_type": asset_type,
+            "asset_type_label": _asset_type_label(asset_type),
+            "error": error,
+        },
+        status_code=status_code,
+    )
+
+
 def _is_conflict(change_request, asset) -> bool:
     if not change_request or not asset:
         return False
@@ -321,6 +375,7 @@ def fdh_cabinets_list(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/assets/new", response_class=HTMLResponse)
 @router.get("/fdh-cabinets/new", response_class=HTMLResponse)
 def fdh_cabinet_new(request: Request, db: Session = Depends(get_db)):
     from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
@@ -335,17 +390,32 @@ def fdh_cabinet_new(request: Request, db: Session = Depends(get_db)):
             "sidebar_stats": get_sidebar_stats(db),
             "cabinet": None,
             "regions": _get_regions(db),
-            "action_url": "/admin/network/fdh-cabinets/new",
+            "action_url": "/admin/network/assets/new",
+            "selected_asset_type": "fdh_cabinet",
         },
     )
 
 
+@router.post("/assets/new", response_class=HTMLResponse)
 @router.post("/fdh-cabinets/new", response_class=HTMLResponse)
 def fdh_cabinet_create(
     request: Request,
     name: str = Form(...),
+    asset_type: str | None = Form("fdh_cabinet"),
     code: str | None = Form(None),
     region_id: str | None = Form(None),
+    site_role: str | None = Form("olt"),
+    hostname: str | None = Form(None),
+    mgmt_ip: str | None = Form(None),
+    vendor: str | None = Form(None),
+    model: str | None = Form(None),
+    serial_number: str | None = Form(None),
+    access_point_type: str | None = Form(None),
+    placement: str | None = Form(None),
+    street: str | None = Form(None),
+    city: str | None = Form(None),
+    county: str | None = Form(None),
+    state: str | None = Form(None),
     latitude: str | None = Form(None),
     longitude: str | None = Form(None),
     notes: str | None = Form(None),
@@ -353,30 +423,80 @@ def fdh_cabinet_create(
     db: Session = Depends(get_db),
 ):
     error = None
+    selected_asset_type = (asset_type or "fdh_cabinet").strip()
     try:
         lat_value = None
         lng_value = None
         if latitude or longitude:
             lat_value, lng_value = _parse_lat_lng(latitude or "", longitude or "")
-        cabinet = FdhCabinet(
-            name=name.strip(),
-            code=(code or "").strip() or None,
-            region_id=coerce_uuid(region_id) if region_id else None,
-            latitude=lat_value,
-            longitude=lng_value,
-            notes=(notes or "").strip() or None,
-            is_active=is_active == "true",
-        )
-        db.add(cabinet)
+        cleaned_name = name.strip()
+        asset: Any
+        if selected_asset_type == "fdh_cabinet":
+            asset = FdhCabinet(
+                name=cleaned_name,
+                code=(code or "").strip() or None,
+                region_id=coerce_uuid(region_id) if region_id else None,
+                latitude=lat_value,
+                longitude=lng_value,
+                notes=(notes or "").strip() or None,
+                is_active=is_active == "true",
+            )
+            redirect_url = None
+        elif selected_asset_type == "splice_closure":
+            asset = FiberSpliceClosure(
+                name=cleaned_name,
+                latitude=lat_value,
+                longitude=lng_value,
+                notes=(notes or "").strip() or None,
+                is_active=is_active == "true",
+            )
+            redirect_url = None
+        elif selected_asset_type == "olt_device":
+            role_value = (site_role or "olt").strip()
+            if role_value not in {"olt", "base_station"}:
+                role_value = "olt"
+            asset = OLTDevice(
+                name=cleaned_name,
+                site_role=role_value,
+                hostname=(hostname or "").strip() or None,
+                mgmt_ip=(mgmt_ip or "").strip() or None,
+                vendor=(vendor or "").strip() or None,
+                model=(model or "").strip() or None,
+                serial_number=(serial_number or "").strip() or None,
+                latitude=lat_value,
+                longitude=lng_value,
+                notes=(notes or "").strip() or None,
+                is_active=is_active == "true",
+            )
+            redirect_url = "/admin/network/map"
+        elif selected_asset_type == "access_point":
+            asset = FiberAccessPoint(
+                name=cleaned_name,
+                code=(code or "").strip() or None,
+                access_point_type=(access_point_type or "").strip() or None,
+                placement=(placement or "").strip() or None,
+                latitude=lat_value,
+                longitude=lng_value,
+                street=(street or "").strip() or None,
+                city=(city or "").strip() or None,
+                county=(county or "").strip() or None,
+                state=(state or "").strip() or None,
+                notes=(notes or "").strip() or None,
+                is_active=is_active == "true",
+            )
+            redirect_url = "/admin/network/map"
+        else:
+            raise ValueError("Unsupported asset type")
+        db.add(asset)
         db.commit()
-        return RedirectResponse(
-            url=f"/admin/network/fdh-cabinets/{cabinet.id}",
-            status_code=303,
-        )
+        if redirect_url is None:
+            prefix = "fdh-cabinets" if selected_asset_type == "fdh_cabinet" else "splice-closures"
+            redirect_url = f"/admin/network/{prefix}/{asset.id}"
+        return RedirectResponse(url=redirect_url, status_code=303)
     except Exception as exc:
         db.rollback()
         error = _sanitize_error(exc)
-        logger.exception("FDH cabinet create failed")
+        logger.exception("Asset create failed")
 
     from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
 
@@ -390,8 +510,9 @@ def fdh_cabinet_create(
             "sidebar_stats": get_sidebar_stats(db),
             "cabinet": None,
             "regions": _get_regions(db),
-            "action_url": "/admin/network/fdh-cabinets/new",
+            "action_url": "/admin/network/assets/new",
             "error": error,
+            "selected_asset_type": selected_asset_type,
         },
         status_code=400,
     )
@@ -500,6 +621,314 @@ def fdh_cabinet_update(
             "cabinet": cabinet,
             "regions": _get_regions(db),
             "action_url": f"/admin/network/fdh-cabinets/{cabinet_id}/edit",
+            "error": error,
+        },
+        status_code=400,
+    )
+
+
+@router.get("/assets/{asset_type}/{asset_id}/edit", response_class=HTMLResponse)
+def network_asset_edit(request: Request, asset_type: str, asset_id: str, db: Session = Depends(get_db)):
+    normalized_type = _normalize_asset_type(asset_type)
+    if normalized_type == "olt":
+        normalized_type = "olt_device"
+    model_cls = _ASSET_MODEL_BY_TYPE.get(normalized_type)
+    if normalized_type not in {"fdh_cabinet", "splice_closure", "olt_device", "access_point"} or model_cls is None:
+        return RedirectResponse(url="/admin/network/map", status_code=303)
+
+    asset = cast(Any, db.get(model_cls, coerce_uuid(asset_id)))
+    if not asset:
+        return RedirectResponse(url="/admin/network/map", status_code=303)
+
+    return _render_asset_form(
+        request,
+        db,
+        asset=asset,
+        asset_type=normalized_type,
+        action_url=f"/admin/network/assets/{normalized_type}/{asset_id}/edit",
+    )
+
+
+@router.post("/assets/{asset_type}/{asset_id}/edit", response_class=HTMLResponse)
+def network_asset_update(
+    request: Request,
+    asset_type: str,
+    asset_id: str,
+    name: str = Form(...),
+    code: str | None = Form(None),
+    region_id: str | None = Form(None),
+    site_role: str | None = Form("olt"),
+    hostname: str | None = Form(None),
+    mgmt_ip: str | None = Form(None),
+    vendor: str | None = Form(None),
+    model: str | None = Form(None),
+    serial_number: str | None = Form(None),
+    access_point_type: str | None = Form(None),
+    placement: str | None = Form(None),
+    street: str | None = Form(None),
+    city: str | None = Form(None),
+    county: str | None = Form(None),
+    state: str | None = Form(None),
+    latitude: str | None = Form(None),
+    longitude: str | None = Form(None),
+    notes: str | None = Form(None),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    normalized_type = _normalize_asset_type(asset_type)
+    if normalized_type == "olt":
+        normalized_type = "olt_device"
+    model_cls = _ASSET_MODEL_BY_TYPE.get(normalized_type)
+    if normalized_type not in {"fdh_cabinet", "splice_closure", "olt_device", "access_point"} or model_cls is None:
+        return RedirectResponse(url="/admin/network/map", status_code=303)
+
+    asset = cast(Any, db.get(model_cls, coerce_uuid(asset_id)))
+    if not asset:
+        return RedirectResponse(url="/admin/network/map", status_code=303)
+
+    error = None
+    try:
+        lat_value = None
+        lng_value = None
+        if latitude or longitude:
+            lat_value, lng_value = _parse_lat_lng(latitude or "", longitude or "")
+
+        asset.name = name.strip()
+        asset.latitude = lat_value
+        asset.longitude = lng_value
+        asset.notes = (notes or "").strip() or None
+        asset.is_active = is_active == "true"
+
+        if normalized_type == "fdh_cabinet":
+            asset.code = (code or "").strip() or None
+            asset.region_id = coerce_uuid(region_id) if region_id else None
+        elif normalized_type == "olt_device":
+            role_value = (site_role or "olt").strip()
+            if role_value not in {"olt", "base_station"}:
+                role_value = "olt"
+            asset.site_role = role_value
+            asset.hostname = (hostname or "").strip() or None
+            asset.mgmt_ip = (mgmt_ip or "").strip() or None
+            asset.vendor = (vendor or "").strip() or None
+            asset.model = (model or "").strip() or None
+            asset.serial_number = (serial_number or "").strip() or None
+        elif normalized_type == "access_point":
+            asset.code = (code or "").strip() or None
+            asset.access_point_type = (access_point_type or "").strip() or None
+            asset.placement = (placement or "").strip() or None
+            asset.street = (street or "").strip() or None
+            asset.city = (city or "").strip() or None
+            asset.county = (county or "").strip() or None
+            asset.state = (state or "").strip() or None
+
+        db.commit()
+        return RedirectResponse(url=_asset_detail_url(normalized_type, asset.id), status_code=303)
+    except Exception as exc:
+        db.rollback()
+        error = _sanitize_error(exc)
+        logger.exception("Network asset update failed for %s %s", normalized_type, asset_id)
+
+    return _render_asset_form(
+        request,
+        db,
+        asset=asset,
+        asset_type=normalized_type,
+        action_url=f"/admin/network/assets/{normalized_type}/{asset_id}/edit",
+        error=error,
+        status_code=400,
+    )
+
+
+@router.get("/splice-closures", response_class=HTMLResponse)
+def splice_closures_list(request: Request, db: Session = Depends(get_db)):
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+
+    closures = (
+        db.query(FiberSpliceClosure)
+        .filter(FiberSpliceClosure.is_active.is_(True))
+        .order_by(FiberSpliceClosure.name.asc())
+        .limit(500)
+        .all()
+    )
+    stats = {
+        "total": db.query(func.count(FiberSpliceClosure.id)).filter(FiberSpliceClosure.is_active.is_(True)).scalar()
+        or 0,
+    }
+    return templates.TemplateResponse(
+        "admin/network/fiber/splice-closures.html",
+        {
+            "request": request,
+            "active_page": "splice-closures",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "closures": closures,
+            "stats": stats,
+        },
+    )
+
+
+@router.get("/splice-closures/new", response_class=HTMLResponse)
+def splice_closure_new(request: Request, db: Session = Depends(get_db)):
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+
+    return templates.TemplateResponse(
+        "admin/network/fiber/splice-closure-form.html",
+        {
+            "request": request,
+            "active_page": "splice-closures",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "closure": None,
+            "action_url": "/admin/network/splice-closures/new",
+        },
+    )
+
+
+@router.post("/splice-closures/new", response_class=HTMLResponse)
+def splice_closure_create(
+    request: Request,
+    name: str = Form(...),
+    latitude: str | None = Form(None),
+    longitude: str | None = Form(None),
+    notes: str | None = Form(None),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    error = None
+    try:
+        lat_value = None
+        lng_value = None
+        if latitude or longitude:
+            lat_value, lng_value = _parse_lat_lng(latitude or "", longitude or "")
+        closure = FiberSpliceClosure(
+            name=name.strip(),
+            latitude=lat_value,
+            longitude=lng_value,
+            notes=(notes or "").strip() or None,
+            is_active=is_active == "true",
+        )
+        db.add(closure)
+        db.commit()
+        return RedirectResponse(url=f"/admin/network/splice-closures/{closure.id}", status_code=303)
+    except Exception as exc:
+        db.rollback()
+        error = _sanitize_error(exc)
+        logger.exception("Splice closure create failed")
+
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+
+    return templates.TemplateResponse(
+        "admin/network/fiber/splice-closure-form.html",
+        {
+            "request": request,
+            "active_page": "splice-closures",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "closure": None,
+            "action_url": "/admin/network/splice-closures/new",
+            "error": error,
+        },
+        status_code=400,
+    )
+
+
+@router.get("/splice-closures/{closure_id}", response_class=HTMLResponse)
+def splice_closure_detail(request: Request, closure_id: str, db: Session = Depends(get_db)):
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+
+    closure = db.get(FiberSpliceClosure, coerce_uuid(closure_id))
+    if not closure:
+        return RedirectResponse(url="/admin/network/splice-closures", status_code=303)
+    trays = (
+        db.query(FiberSpliceTray)
+        .filter(FiberSpliceTray.closure_id == closure.id)
+        .order_by(FiberSpliceTray.tray_number.asc())
+        .all()
+    )
+    splices = db.query(FiberSplice).filter(FiberSplice.closure_id == closure.id).all()
+    return templates.TemplateResponse(
+        "admin/network/fiber/splice-closure-detail.html",
+        {
+            "request": request,
+            "active_page": "splice-closures",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "closure": closure,
+            "trays": trays,
+            "splices": splices,
+        },
+    )
+
+
+@router.get("/splice-closures/{closure_id}/edit", response_class=HTMLResponse)
+def splice_closure_edit(request: Request, closure_id: str, db: Session = Depends(get_db)):
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+
+    closure = db.get(FiberSpliceClosure, coerce_uuid(closure_id))
+    if not closure:
+        return RedirectResponse(url="/admin/network/splice-closures", status_code=303)
+    return templates.TemplateResponse(
+        "admin/network/fiber/splice-closure-form.html",
+        {
+            "request": request,
+            "active_page": "splice-closures",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "closure": closure,
+            "action_url": f"/admin/network/splice-closures/{closure_id}/edit",
+        },
+    )
+
+
+@router.post("/splice-closures/{closure_id}/edit", response_class=HTMLResponse)
+def splice_closure_update(
+    request: Request,
+    closure_id: str,
+    name: str = Form(...),
+    latitude: str | None = Form(None),
+    longitude: str | None = Form(None),
+    notes: str | None = Form(None),
+    is_active: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    error = None
+    closure = db.get(FiberSpliceClosure, coerce_uuid(closure_id))
+    if not closure:
+        return RedirectResponse(url="/admin/network/splice-closures", status_code=303)
+    try:
+        lat_value = None
+        lng_value = None
+        if latitude or longitude:
+            lat_value, lng_value = _parse_lat_lng(latitude or "", longitude or "")
+        closure.name = name.strip()
+        closure.latitude = lat_value
+        closure.longitude = lng_value
+        closure.notes = (notes or "").strip() or None
+        closure.is_active = is_active == "true"
+        db.commit()
+        return RedirectResponse(url=f"/admin/network/splice-closures/{closure_id}", status_code=303)
+    except Exception as exc:
+        db.rollback()
+        error = _sanitize_error(exc)
+        logger.exception("Splice closure update failed for %s", closure_id)
+
+    from app.web.admin._auth_helpers import get_current_user, get_sidebar_stats
+
+    return templates.TemplateResponse(
+        "admin/network/fiber/splice-closure-form.html",
+        {
+            "request": request,
+            "active_page": "splice-closures",
+            "active_menu": "network",
+            "current_user": get_current_user(request),
+            "sidebar_stats": get_sidebar_stats(db),
+            "closure": closure,
+            "action_url": f"/admin/network/splice-closures/{closure_id}/edit",
             "error": error,
         },
         status_code=400,

@@ -1,26 +1,30 @@
 {% extends "layouts/admin.html" %}
 
 {% from "components/ui/macros.html" import submit_button %}
-{% block title %}{{ 'Edit' if cabinet else 'New' }} FDH Cabinet - Admin{% endblock %}
+{% set form_asset = asset if asset is defined and asset else cabinet %}
+{% set form_asset_type = selected_asset_type | default('fdh_cabinet') %}
+{% set is_edit = form_asset is not none %}
+{% set form_asset_label = asset_type_label | default('FDH Cabinet' if form_asset_type == 'fdh_cabinet' else 'Asset') %}
+{% block title %}{{ 'Edit ' ~ form_asset_label if is_edit else 'Add Asset' }} - Admin{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
             <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2">
-                <a href="/admin/network/fdh-cabinets" class="hover:text-primary-600">FDH Cabinets</a>
+                <a href="{{ '/admin/network/fdh-cabinets' if form_asset_type == 'fdh_cabinet' and is_edit else '/admin/network/map' }}" class="hover:text-primary-600">{{ 'FDH Cabinets' if form_asset_type == 'fdh_cabinet' and is_edit else 'Network Map' }}</a>
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                <span class="text-slate-900 dark:text-white">{{ 'Edit Cabinet' if cabinet else 'New Cabinet' }}</span>
+                <span class="text-slate-900 dark:text-white">{{ 'Edit ' ~ form_asset_label if is_edit else 'New Asset' }}</span>
             </nav>
-            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ 'Edit FDH Cabinet' if cabinet else 'Add FDH Cabinet' }}</h1>
-            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ 'Update cabinet configuration' if cabinet else 'Register a fiber distribution hub cabinet' }}</p>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">{{ 'Edit ' ~ form_asset_label if is_edit else 'Add Asset' }}</h1>
+            <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ 'Update asset configuration' if is_edit else 'Register a map asset and place it on the network map' }}</p>
         </div>
     </div>
 
-    <form method="POST" action="{{ action_url }}" class="space-y-6">
+    <form method="POST" action="{{ action_url }}" class="space-y-6" data-asset-form>
         <div class="rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
             <div class="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-                <h2 class="font-semibold text-slate-900 dark:text-white">Cabinet Information</h2>
+                <h2 class="font-semibold text-slate-900 dark:text-white">{{ form_asset_label ~ ' Information' if is_edit else 'Asset Information' }}</h2>
             </div>
             <div class="p-6 space-y-6">
                 {% if error %}
@@ -30,38 +34,132 @@
                 {% endif %}
 
                 <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                    {% if not is_edit %}
                     <div class="sm:col-span-2">
-                        <label for="name" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Cabinet Name <span class="text-red-500">*</span></label>
+                        <label for="asset_type" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Asset Type <span class="text-red-500">*</span></label>
+                        <select name="asset_type" id="asset_type" required
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <option value="fdh_cabinet" {% if selected_asset_type == 'fdh_cabinet' %}selected{% endif %}>FDH Cabinet</option>
+                            <option value="splice_closure" {% if selected_asset_type == 'splice_closure' %}selected{% endif %}>Splice Closure</option>
+                            <option value="olt_device" {% if selected_asset_type == 'olt_device' %}selected{% endif %}>OLT / Base Station</option>
+                            <option value="access_point" {% if selected_asset_type == 'access_point' %}selected{% endif %}>Access Point</option>
+                        </select>
+                    </div>
+                    {% else %}
+                    <input type="hidden" id="asset_type" name="asset_type" value="{{ form_asset_type }}">
+                    <div class="sm:col-span-2">
+                        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Asset Type</label>
+                        <div class="mt-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">{{ form_asset_label }}</div>
+                    </div>
+                    {% endif %}
+
+                    <div class="sm:col-span-2">
+                        <label for="name" class="block text-sm font-medium text-slate-700 dark:text-slate-300">{{ 'Asset Name' if not is_edit else form_asset_label ~ ' Name' }} <span class="text-red-500">*</span></label>
                         <input type="text" name="name" id="name" required maxlength="160"
-                            value="{{ cabinet.name if cabinet else '' }}"
-                            placeholder="FDH-Main-01"
+                            value="{{ form_asset.name if is_edit else '' }}"
+                            placeholder="{{ form_asset_label ~ ' name' if is_edit else 'Asset name' }}"
                             class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     </div>
 
-                    <div>
-                        <label for="code" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Cabinet Code</label>
+                    <div data-asset-field="fdh_cabinet access_point">
+                        <label for="code" class="block text-sm font-medium text-slate-700 dark:text-slate-300">{{ 'Cabinet Code' if form_asset_type == 'fdh_cabinet' and is_edit else 'Asset Code' }}</label>
                         <input type="text" name="code" id="code" maxlength="80"
-                            value="{{ cabinet.code if cabinet else '' }}"
-                            placeholder="FDH001"
+                            value="{{ form_asset.code | default('', true) if is_edit else '' }}"
+                            placeholder="{{ 'FDH001' if form_asset_type == 'fdh_cabinet' else 'Optional unique code' }}"
                             class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white font-mono">
-                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Unique identifier for this cabinet</p>
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Unique identifier for this asset</p>
                     </div>
 
-                    <div>
+                    <div data-asset-field="fdh_cabinet">
                         <label for="region_id" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Region</label>
                         <select name="region_id" id="region_id"
                             class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                             <option value="">No region</option>
                             {% for region in regions %}
-                            <option value="{{ region.id }}" {% if cabinet and cabinet.region_id == region.id %}selected{% endif %}>{{ region.name }}</option>
+                            <option value="{{ region.id }}" {% if is_edit and form_asset.region_id is defined and form_asset.region_id == region.id %}selected{% endif %}>{{ region.name }}</option>
                             {% endfor %}
                         </select>
+                    </div>
+
+                    <div data-asset-field="olt_device">
+                        <label for="site_role" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Map Role</label>
+                        <select name="site_role" id="site_role"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <option value="olt" {% if is_edit and form_asset.site_role | default('olt', true) == 'olt' %}selected{% endif %}>OLT Device</option>
+                            <option value="base_station" {% if is_edit and form_asset.site_role | default('olt', true) == 'base_station' %}selected{% endif %}>Base Station</option>
+                        </select>
+                    </div>
+
+                    <div data-asset-field="olt_device">
+                        <label for="hostname" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Hostname</label>
+                        <input type="text" name="hostname" id="hostname" maxlength="160" value="{{ form_asset.hostname | default('', true) if is_edit else '' }}" placeholder="olt-main-01"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white font-mono">
+                    </div>
+
+                    <div data-asset-field="olt_device">
+                        <label for="mgmt_ip" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Management IP</label>
+                        <input type="text" name="mgmt_ip" id="mgmt_ip" maxlength="64" value="{{ form_asset.mgmt_ip | default('', true) if is_edit else '' }}" placeholder="10.0.0.10"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white font-mono">
+                    </div>
+
+                    <div data-asset-field="olt_device">
+                        <label for="vendor" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Vendor</label>
+                        <input type="text" name="vendor" id="vendor" maxlength="120" value="{{ form_asset.vendor | default('', true) if is_edit else '' }}" placeholder="Huawei"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div data-asset-field="olt_device">
+                        <label for="model" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Model</label>
+                        <input type="text" name="model" id="model" maxlength="120" value="{{ form_asset.model | default('', true) if is_edit else '' }}" placeholder="MA5800"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div data-asset-field="olt_device">
+                        <label for="serial_number" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Serial Number</label>
+                        <input type="text" name="serial_number" id="serial_number" maxlength="120" value="{{ form_asset.serial_number | default('', true) if is_edit else '' }}"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white font-mono">
+                    </div>
+
+                    <div data-asset-field="access_point">
+                        <label for="access_point_type" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Access Point Type</label>
+                        <input type="text" name="access_point_type" id="access_point_type" maxlength="60" value="{{ form_asset.access_point_type | default('', true) if is_edit else '' }}" placeholder="NAP / FAT / terminal"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div data-asset-field="access_point">
+                        <label for="placement" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Placement</label>
+                        <input type="text" name="placement" id="placement" maxlength="60" value="{{ form_asset.placement | default('', true) if is_edit else '' }}" placeholder="Pole / wall / chamber"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div data-asset-field="access_point">
+                        <label for="street" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Street</label>
+                        <input type="text" name="street" id="street" maxlength="200" value="{{ form_asset.street | default('', true) if is_edit else '' }}"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div data-asset-field="access_point">
+                        <label for="city" class="block text-sm font-medium text-slate-700 dark:text-slate-300">City</label>
+                        <input type="text" name="city" id="city" maxlength="100" value="{{ form_asset.city | default('', true) if is_edit else '' }}"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div data-asset-field="access_point">
+                        <label for="county" class="block text-sm font-medium text-slate-700 dark:text-slate-300">County / LGA</label>
+                        <input type="text" name="county" id="county" maxlength="100" value="{{ form_asset.county | default('', true) if is_edit else '' }}"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    </div>
+
+                    <div data-asset-field="access_point">
+                        <label for="state" class="block text-sm font-medium text-slate-700 dark:text-slate-300">State</label>
+                        <input type="text" name="state" id="state" maxlength="60" value="{{ form_asset.state | default('', true) if is_edit else '' }}"
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
                     </div>
 
                     <div>
                         <label for="latitude" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Latitude</label>
                         <input type="number" name="latitude" id="latitude" step="any" min="-90" max="90"
-                            value="{{ cabinet.latitude if cabinet and cabinet.latitude else '' }}"
+                            value="{{ form_asset.latitude if is_edit and form_asset.latitude else '' }}"
                             placeholder="-1.2921"
                             class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white font-mono">
                     </div>
@@ -69,7 +167,7 @@
                     <div>
                         <label for="longitude" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Longitude</label>
                         <input type="number" name="longitude" id="longitude" step="any" min="-180" max="180"
-                            value="{{ cabinet.longitude if cabinet and cabinet.longitude else '' }}"
+                            value="{{ form_asset.longitude if is_edit and form_asset.longitude else '' }}"
                             placeholder="36.8219"
                             class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white font-mono">
                         <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">GPS coordinates for map display</p>
@@ -79,12 +177,12 @@
                         <label for="notes" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Notes</label>
                         <textarea name="notes" id="notes" rows="3"
                             placeholder="Location details, access instructions, etc."
-                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ cabinet.notes if cabinet else '' }}</textarea>
+                            class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white">{{ form_asset.notes | default('', true) if is_edit else '' }}</textarea>
                     </div>
 
                     <div>
                         <label class="flex items-center gap-2">
-                            <input type="checkbox" name="is_active" value="true" {% if not cabinet or cabinet.is_active %}checked{% endif %}
+                            <input type="checkbox" name="is_active" value="true" {% if not is_edit or form_asset.is_active %}checked{% endif %}
                                 class="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500">
                             <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Active</span>
                         </label>
@@ -94,11 +192,28 @@
         </div>
 
         <div class="flex items-center justify-end gap-3">
-            <a href="/admin/network/fdh-cabinets" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <a href="{{ '/admin/network/fdh-cabinets' if form_asset_type == 'fdh_cabinet' and is_edit else '/admin/network/map' }}" class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
                 Cancel
             </a>
-            {{ submit_button(('Save Changes' if cabinet else 'Create Cabinet'), loading_label="Creating...") }}
+            {{ submit_button(('Save Changes' if is_edit else 'Create Asset'), loading_label="Saving...") }}
         </div>
     </form>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const typeSelect = document.getElementById('asset_type');
+    const sections = Array.from(document.querySelectorAll('[data-asset-field]'));
+    function updateAssetFields() {
+        const selected = typeSelect ? typeSelect.value : 'fdh_cabinet';
+        sections.forEach(function(section) {
+            const allowed = String(section.dataset.assetField || '').split(/\s+/);
+            section.classList.toggle('hidden', !allowed.includes(selected));
+        });
+    }
+    if (typeSelect) {
+        typeSelect.addEventListener('change', updateAssetFields);
+        updateAssetFields();
+    }
+});
+</script>
 {% endblock %}
