@@ -3118,9 +3118,9 @@ def process_pending_intake(
             )
 
         missing_standard_fields, required_missing_fields = _profile_missing_fields(person)
-        if person.party_status == PartyStatus.contact:
+        if person.party_status != PartyStatus.customer:
             next_state["profile_collection_skipped"] = True
-            next_state["profile_collection_skip_reason"] = "party_status_contact"
+            next_state["profile_collection_skip_reason"] = "non_customer_party_status"
             logger.info(
                 "ai_intake_profile_collection_skipped conversation_id=%s message_id=%s person_id=%s party_status=%s",
                 conversation.id,
