@@ -6,7 +6,7 @@ def test_create_subscription_posts_offer_and_ref(db_session, monkeypatch):
 
     seen = {}
 
-    def _fake(db, method, path, *, params=None, json_body=None):
+    def _fake(db, method, path, *, params=None, json_body=None, idempotent=False):
         seen["method"] = method
         seen["path"] = path
         seen["body"] = json_body
