@@ -217,20 +217,24 @@ def _get_api_config(db: Session) -> dict[str, Any]:
 
     base_url = settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_base_url", use_cache=False)
     api_token = settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_api_token", use_cache=False)
+    api_key = settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_api_key", use_cache=False)
     timeout_value = (
         settings_spec.resolve_value(db, SettingDomain.integration, "selfcare_timeout_seconds", use_cache=False) or 30
     )
     if not base_url:
         raise SelfcareProviderError("Selfcare base URL is not configured.")
-    if not api_token:
-        raise SelfcareProviderError("Selfcare API token is not configured.")
+    if not api_token and not api_key:
+        raise SelfcareProviderError(
+            "Selfcare auth is not configured (set selfcare_api_key, or the legacy selfcare_api_token)."
+        )
     try:
         timeout_seconds = int(timeout_value if isinstance(timeout_value, int) else str(timeout_value))
     except (TypeError, ValueError):
         timeout_seconds = 30
     return {
         "base_url": _validate_base_url(str(base_url).rstrip("/")),
-        "api_token": str(api_token),
+        "api_token": str(api_token) if api_token else "",
+        "api_key": str(api_key) if api_key else "",
         "timeout_seconds": timeout_seconds,
     }
 
@@ -243,11 +247,18 @@ def _crm_url(config: dict[str, Any], path: str) -> str:
 
 
 def _api_headers(config: dict[str, Any]) -> dict[str, str]:
-    return {
+    headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {config['api_token']}",
     }
+    # Scoped, rotatable ApiKey preferred; the legacy shared bearer remains only
+    # until every environment has selfcare_api_key configured (sub dual-accepts
+    # during the migration window and retires the bearer afterwards).
+    if config.get("api_key"):
+        headers["X-Api-Key"] = config["api_key"]
+    else:
+        headers["Authorization"] = f"Bearer {config['api_token']}"
+    return headers
 
 
 def _unwrap_data(payload: Any) -> Any:

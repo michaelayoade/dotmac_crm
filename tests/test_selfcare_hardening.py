@@ -298,3 +298,22 @@ def test_record_installation_invoice_not_retried(monkeypatch):
             None, subscriber_id="s1", amount="100", description="Install", external_ref="ref-1"
         )
     assert calls["n"] == 1  # non-idempotent POST → no retry
+
+
+# --- Outbound auth: scoped ApiKey preferred over the legacy shared bearer ---
+
+
+def test_api_headers_prefer_scoped_key():
+    from app.services.selfcare import _api_headers
+
+    headers = _api_headers({"api_key": "sk-scoped", "api_token": "legacy", "base_url": "http://s"})
+    assert headers["X-Api-Key"] == "sk-scoped"
+    assert "Authorization" not in headers
+
+
+def test_api_headers_fall_back_to_legacy_bearer():
+    from app.services.selfcare import _api_headers
+
+    headers = _api_headers({"api_key": "", "api_token": "legacy", "base_url": "http://s"})
+    assert headers["Authorization"] == "Bearer legacy"
+    assert "X-Api-Key" not in headers
