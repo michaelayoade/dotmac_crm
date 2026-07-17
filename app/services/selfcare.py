@@ -27,6 +27,7 @@ from app.models.person import Gender, PartyStatus, Person
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.services import settings_spec
 from app.services.common import coerce_uuid
+from app.services.secrets import resolve_secret
 
 logger = logging.getLogger(__name__)
 
@@ -233,8 +234,8 @@ def _get_api_config(db: Session) -> dict[str, Any]:
         timeout_seconds = 30
     return {
         "base_url": _validate_base_url(str(base_url).rstrip("/")),
-        "api_token": str(api_token) if api_token else "",
-        "api_key": str(api_key) if api_key else "",
+        "api_token": resolve_secret(str(api_token)) if api_token else "",
+        "api_key": resolve_secret(str(api_key)) if api_key else "",
         "timeout_seconds": timeout_seconds,
     }
 

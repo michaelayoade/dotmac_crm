@@ -12,6 +12,7 @@ from app.models.domain_settings import SettingDomain
 from app.models.inventory import InventoryItem, InventoryLocation, InventoryStock
 from app.services import settings_spec
 from app.services.dotmac_erp.client import DotMacERPClient, DotMacERPError
+from app.services.secrets import resolve_setting_secret
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,9 @@ class DotMacERPInventorySync:
             return None
 
         base_url_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_base_url")
-        token_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_token")
+        token_value = resolve_setting_secret(
+            settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_token")
+        )
 
         base_url = str(base_url_value) if base_url_value else None
         token = str(token_value) if token_value else None
