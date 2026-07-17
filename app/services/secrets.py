@@ -245,7 +245,7 @@ def clear_cache() -> None:
 def list_secret_paths() -> list[str]:
     """List all secret paths under the ``secret/`` mount."""
     try:
-        addr, token, namespace, kv_version = _openbao_config()
+        addr, token, namespace, _kv_version = _openbao_config()
         url = f"{addr}/v1/secret/metadata/?list=true"
         headers: dict[str, str] = {"X-Vault-Token": token}
         if namespace:
@@ -281,7 +281,7 @@ def read_secret_metadata(path: str) -> dict:
 def read_secret_fields(path: str) -> dict[str, str]:
     """Read secret values for internal update and resolution workflows."""
     try:
-        addr, token, namespace, kv_version = _openbao_config()
+        addr, token, namespace, _kv_version = _openbao_config()
         url = f"{addr}/v1/secret/data/{path}"
         headers: dict[str, str] = {"X-Vault-Token": token}
         if namespace:
