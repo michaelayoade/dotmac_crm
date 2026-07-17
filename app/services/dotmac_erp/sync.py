@@ -69,6 +69,12 @@ class SyncEntityResult:
 _BULK_SYNC_CHUNK = 500
 _EXPENSE_TOTALS_CHUNK = 200
 
+# Orphan reconcile sends ONE request per entity type with the full seen-id set
+# (operator-scale counts; the ERP request schema caps the list at 50k). Beyond
+# this we log and skip rather than truncate — a partial set would look like
+# mass cancellation upstream.
+_RECONCILE_MAX_IDS = 50_000
+
 
 def _chunked(seq: list, size: int):
     """Yield successive ``size``-length slices of ``seq``."""
@@ -963,7 +969,88 @@ class DotMacERPSync:
 
         logger.info(f"Syncing to ERP: {len(projects)} projects, {len(tickets)} tickets, {len(work_orders)} work orders")
 
-        return self.bulk_sync(projects=projects, tickets=tickets, work_orders=work_orders)
+        result = self.bulk_sync(projects=projects, tickets=tickets, work_orders=work_orders)
+        self._reconcile_erp_orphans(
+            result,
+            {"project": projects, "ticket": tickets, "work_order": work_orders},
+            limit=limit,
+        )
+        return result
+
+    def _reconcile_erp_orphans(
+        self,
+        result: SyncResult,
+        entities_by_type: dict[str, list],
+        limit: int,
+    ) -> None:
+        """After a FULL run, send ERP the complete seen-id set per entity type.
+
+        The bulk push filters to active entities and is upsert-only, so a
+        canceled/soft-deleted CRM entity simply disappears from the push — no
+        tombstone — and its ERP copy stays live forever. The seen sets are
+        built from what the queries RETURNED (not from what synced
+        successfully, mirroring selfcare's ``seen_external_ids`` principle:
+        a per-entity push error doesn't make the entity an orphan).
+
+        Skipped entirely when the run didn't complete cleanly at the transport
+        level (config/api errors), and per type when the fetch hit ``limit``
+        (the id set may be truncated, so absence can't be trusted). ERP applies
+        its own min-fetch / max-terminate rails before closing anything.
+        """
+        enabled = settings_spec.resolve_value(
+            self.db,
+            SettingDomain.integration,
+            "dotmac_erp_reconcile_orphans_enabled",
+            use_cache=False,
+        )
+        if not enabled:
+            return
+        if any(error.get("type") in ("config", "api") for error in result.errors):
+            logger.warning("ERP orphan reconcile skipped: bulk sync did not complete cleanly")
+            return
+        client = self._get_client()
+        if client is None:
+            return
+
+        for entity_type, entities in entities_by_type.items():
+            seen_ids = [str(entity.id) for entity in entities]
+            if not seen_ids:
+                # Nothing seen: ERP's min-fetch rail would skip anyway (or
+                # there is nothing to reconcile) — save the round trip.
+                logger.debug("ERP orphan reconcile skipped for %s: no active entities", entity_type)
+                continue
+            if len(seen_ids) >= limit:
+                logger.warning(
+                    "ERP orphan reconcile skipped for %s: fetch hit limit=%d (id set may be truncated)",
+                    entity_type,
+                    limit,
+                )
+                continue
+            if len(seen_ids) >= _RECONCILE_MAX_IDS:
+                logger.warning(
+                    "ERP orphan reconcile skipped for %s: %d ids exceeds cap %d",
+                    entity_type,
+                    len(seen_ids),
+                    _RECONCILE_MAX_IDS,
+                )
+                continue
+            try:
+                summary = client.reconcile_orphans(
+                    entity_type=entity_type,
+                    seen_ids=seen_ids,
+                    active_count=len(seen_ids),
+                )
+                logger.info(
+                    "ERP_ORPHAN_RECONCILE entity_type=%s examined=%s orphaned=%s closed=%s skipped_reason=%s",
+                    entity_type,
+                    summary.get("examined"),
+                    summary.get("orphaned"),
+                    summary.get("closed"),
+                    summary.get("skipped_reason"),
+                )
+            except DotMacERPError as exc:
+                logger.warning("ERP orphan reconcile failed for %s: %s", entity_type, exc)
+                result.errors.append({"type": "reconcile", "entity_type": entity_type, "error": str(exc)})
 
     def sync_recently_updated(self, since_minutes: int = 60) -> SyncResult:
         """

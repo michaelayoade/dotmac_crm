@@ -2780,6 +2780,21 @@ SETTINGS_SPECS: list[SettingSpec] = [
         label="Sync Interval (minutes)",
         section="DotMac ERP",
     ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_reconcile_orphans_enabled",
+        env_var="DOTMAC_ERP_RECONCILE_ORPHANS_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=True,
+        label="Reconcile ERP Orphans After Full Sync",
+        section="DotMac ERP",
+        help_text=(
+            "After a clean full sync run, report the complete active id set to "
+            "ERP so it can soft-close entities that were canceled/soft-deleted "
+            "in CRM (the push has no tombstones). ERP applies safety rails "
+            "before closing anything."
+        ),
+    ),
     # ---- ERP Inventory Sync ----
     SettingSpec(
         domain=SettingDomain.integration,
