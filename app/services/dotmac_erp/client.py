@@ -294,6 +294,37 @@ class DotMacERPClient:
         """Sync a single work order."""
         return self.bulk_sync(work_orders=[work_order])
 
+    def reconcile_orphans(self, entity_type: str, seen_ids: list[str], active_count: int) -> dict:
+        """Report the complete active id set for one entity type after a full sync.
+
+        The bulk push is upsert-only with no tombstones, so ERP can't tell a
+        canceled/soft-deleted CRM entity from one that just didn't change.
+        This tells ERP everything a clean FULL run saw; ERP soft-closes its
+        mappings not in the set (behind its own min-fetch / max-terminate
+        safety rails).
+
+        Args:
+            entity_type: "project", "ticket", or "work_order"
+            seen_ids: Every CRM id the full-sync queries returned for the type
+            active_count: CRM-side active count for the run (logging/rails)
+
+        Returns:
+            Reconcile summary: {examined, orphaned, closed, skipped_reason, errors}
+        """
+        payload = {
+            "entity_type": entity_type,
+            "seen_crm_ids": seen_ids,
+            "active_count": active_count,
+        }
+        result = self._request(
+            "POST",
+            "/api/v1/sync/crm/reconcile-orphans",
+            json_data=payload,
+            idempotency_key=f"reconcile-{uuid.uuid4()}",
+            expected_status_codes={200},
+        )
+        return result if isinstance(result, dict) else {}
+
     def get_expense_totals(
         self,
         project_omni_ids: list[str] | None = None,
