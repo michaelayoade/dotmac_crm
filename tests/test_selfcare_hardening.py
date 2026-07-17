@@ -284,8 +284,10 @@ def test_record_payment_retries_transient_failure(monkeypatch):
     assert calls["n"] == 2  # retried past the transient failure
 
 
-def test_record_installation_invoice_not_retried(monkeypatch):
-    """/crm/invoices is not DB-race-safe idempotent, so its POST stays non-retryable."""
+def test_invoice_post_retries_only_with_external_ref(monkeypatch):
+    """/crm/invoices retries only when external_ref anchors the server-side
+    unique (uq_invoices_active_crm_external_ref); without a ref it stays
+    single-shot (P6)."""
     calls = {"n": 0}
 
     def handler(method, url, **kw):
@@ -297,7 +299,14 @@ def test_record_installation_invoice_not_retried(monkeypatch):
         selfcare.create_installation_invoice(
             None, subscriber_id="s1", amount="100", description="Install", external_ref="ref-1"
         )
-    assert calls["n"] == 1  # non-idempotent POST → no retry
+    assert calls["n"] == 3  # ref present → guarded → retried
+
+    calls["n"] = 0
+    with pytest.raises(selfcare.SelfcareProviderError):
+        selfcare.create_installation_invoice(
+            None, subscriber_id="s1", amount="100", description="Install", external_ref=None
+        )
+    assert calls["n"] == 1  # no ref → unguarded → single-shot
 
 
 # --- Outbound auth: scoped ApiKey preferred over the legacy shared bearer ---

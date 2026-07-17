@@ -53,8 +53,12 @@ _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 # row (lost response / read timeout) would double-create an invoice/credit. Only
 # retry safe methods; let POST failures propagate to the caller (which
 # records/retries). A specific POST may opt in via idempotent=True when the sub
-# endpoint is DB-race-safe idempotent on external_ref (currently only /payments —
-# see record_payment).
+# endpoint is DB-race-safe idempotent on external_ref. All four money POSTs now
+# carry server-side guards (P6, verified 2026-07-17): /payments
+# (uq_payments_active_crm_external_id), /invoices
+# (uq_invoices_active_crm_external_ref — hence opt-in only with external_ref),
+# /subscriptions (_find_crm_subscription + first-invoice unique backstop),
+# /credits (deterministic uuid5 idempotency_key).
 _NON_IDEMPOTENT_METHODS = frozenset({"POST"})
 _MAX_ATTEMPTS = 3
 _BACKOFF_BASE_SECONDS = 0.5
@@ -539,7 +543,10 @@ def create_installation_invoice(
     # Let SelfcareProviderError propagate so the caller can record a failure marker
     # and retry — previously a transient outage silently produced no invoice and no
     # signal. None is now returned ONLY for the legitimate "no invoice" cases above.
-    data = _request_json(db, "POST", "/invoices", json_body=body)
+    # Retry opt-in (P6) only when external_ref anchors the server-side unique
+    # (uq_invoices_active_crm_external_ref); without a ref a lost-response retry
+    # could double-create, so those stay single-shot.
+    data = _request_json(db, "POST", "/invoices", json_body=body, idempotent=bool(external_ref))
     row = _unwrap_data(data) or {}
     invoice_id = str(row.get("id") or "").strip() if isinstance(row, dict) else ""
     return invoice_id or None
@@ -622,7 +629,9 @@ def create_subscription(
     if start_at is not None:
         body["start_at"] = start_at.isoformat() if hasattr(start_at, "isoformat") else start_at
 
-    data = _request_json(db, "POST", "/subscriptions", json_body=body)
+    # Server-side idempotency on external_ref (sub _find_crm_subscription +
+    # uq_invoices_active_crm_external_ref backstop) makes retries safe (P6).
+    data = _request_json(db, "POST", "/subscriptions", json_body=body, idempotent=True)
     row = _unwrap_data(data) or {}
     return row if isinstance(row, dict) else None
 
@@ -659,7 +668,9 @@ def create_account_credit(
         "external_ref": external_ref,
         "currency": currency,
     }
-    data = _request_json(db, "POST", "/credits", json_body=body)
+    # Server-side idempotency: deterministic uuid5 idempotency_key over
+    # external_ref + memo-ref lookup (P6).
+    data = _request_json(db, "POST", "/credits", json_body=body, idempotent=True)
     row = _unwrap_data(data) or {}
     credit_id = str(row.get("id") or "").strip() if isinstance(row, dict) else ""
     if not credit_id:
