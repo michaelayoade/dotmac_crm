@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import httpx
 import pytest
-
-from app.services.integration_http import IntegrationHttpClient
+from dotmac_integration import IntegrationHttpClient
 
 
 class _Rate(Exception):
@@ -85,7 +86,7 @@ def test_non_retryable_raises_immediately():
 
 def test_rate_limit_honours_retry_after(monkeypatch):
     slept: list[float] = []
-    monkeypatch.setattr("app.services.integration_http.time.sleep", lambda s: slept.append(s))
+    monkeypatch.setattr("dotmac_integration.http.time.sleep", lambda s: slept.append(s))
     c, _ = _client([_Rate(retry_after=7), {"ok": True}])
     assert c.request("GET", "/x") == {"ok": True}
     assert slept[0] == 7  # retry_after overrode the backoff
@@ -155,7 +156,7 @@ def test_idempotency_key_header_injected():
     class _CapClient:
         def request(self, **kw):
             captured.update(kw)
-            return {"ok": True}
+            return SimpleNamespace(status_code=200, body={"ok": True})
 
     c = IntegrationHttpClient(
         client_factory=lambda: _CapClient(),
