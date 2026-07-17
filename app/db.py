@@ -45,6 +45,11 @@ def reset_request_db_context(tokens: tuple[Token, Token]) -> None:
     _request_id_var.reset(request_id_token)
 
 
+def get_request_id() -> str | None:
+    """The current request's x-request-id (None outside a request context)."""
+    return _request_id_var.get()
+
+
 class ObservedSession(Session):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

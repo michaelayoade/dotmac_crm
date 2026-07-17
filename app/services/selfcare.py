@@ -18,9 +18,12 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlparse
 
+import httpx
+from dotmac_integration import IntegrationHttpClient
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.db import get_request_id
 from app.models.audit import AuditActorType, AuditEvent
 from app.models.domain_settings import SettingDomain
 from app.models.person import Gender, PartyStatus, Person
@@ -109,6 +112,37 @@ def _sleep_backoff(attempt: int) -> None:
     time.sleep(delay + random.uniform(0, 0.25))  # nosec B311 - jitter, not security
 
 
+def _engine_backoff(attempt: int) -> float:
+    """Adapt the retry engine's 0-indexed backoff hook to ``_sleep_backoff``.
+
+    ``_sleep_backoff`` is 1-indexed and performs the (jittered) sleep itself so
+    tests can neutralise it; the engine then sleeps the returned 0.0s.
+    """
+    _sleep_backoff(attempt + 1)
+    return 0.0
+
+
+# Pooled outbound HTTP clients, keyed by read timeout (connect is fixed). The
+# old requests-based transport rebuilt its connection per attempt; a shared
+# httpx.Client reuses pooled connections across calls.
+_HTTP_CLIENT_LOCK = threading.Lock()
+_HTTP_CLIENTS: dict[int, httpx.Client] = {}
+
+
+def _http_client(read_timeout: int) -> httpx.Client:
+    with _HTTP_CLIENT_LOCK:
+        client = _HTTP_CLIENTS.get(read_timeout)
+        if client is None:
+            client = httpx.Client(timeout=httpx.Timeout(read_timeout, connect=_CONNECT_TIMEOUT_SECONDS))
+            _HTTP_CLIENTS[read_timeout] = client
+        return client
+
+
+def _outbound_request_id() -> str | None:
+    """Propagate the inbound x-request-id onto outbound sub calls (omit when empty)."""
+    return get_request_id() or None
+
+
 def _validate_base_url(base_url: str) -> str:
     parsed = urlparse(base_url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
@@ -136,6 +170,20 @@ class SelfcareCustomerIdentity:
 
 class SelfcareProviderError(RuntimeError):
     """Raised when the Selfcare CRM API cannot serve a requested operation."""
+
+
+class _RetryableStatusError(SelfcareProviderError):
+    """Internal: a retryable HTTP status (429/5xx) on a retryable method.
+
+    Distinguishable so the shared retry engine retries it; never escapes
+    ``_request_json`` — exhausted retries are re-raised as a plain
+    :class:`SelfcareProviderError` with the same ``HTTP {status}`` message.
+    """
+
+    def __init__(self, message: str, *, status: int, body: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.body = body
 
 
 RETENTION_DEACTIVATED_STATUS = "disabled"
@@ -281,6 +329,57 @@ def _rows(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+def _handle_selfcare_response(
+    response: Any,
+    *,
+    method: str,
+    path: str,
+    retryable: bool,
+    started: float,
+) -> Any:
+    """Map a sub response to parsed JSON or a typed error (engine policy hook).
+
+    Retry classification keys off the exception type: a retryable status
+    (429/5xx) on a retryable method raises the transient subclass so the shared
+    engine retries it; anything else raises/returns immediately.
+    """
+    status = response.status_code
+    if retryable and status in _RETRYABLE_STATUS:
+        logger.warning(
+            "SELFCARE_API_REQUEST_RETRY method=%s path=%s status=%s",
+            method,
+            path,
+            status,
+        )
+        raise _RetryableStatusError(
+            f"Selfcare request failed for {path}: HTTP {status}",
+            status=status,
+            body=str(response.text or "")[:500],
+        )
+    logger.info(
+        "SELFCARE_API_REQUEST_COMPLETE method=%s path=%s status_code=%s duration=%.3fs",
+        method,
+        path,
+        status,
+        time.monotonic() - started,
+    )
+    if status < 200 or status >= 300:
+        # Log the full body for diagnostics; raise only status (no body/url) so
+        # upstream error detail can't leak into a CRM-operator-facing message.
+        logger.error(
+            "SELFCARE_API_REQUEST_FAILED method=%s path=%s status=%s body=%s",
+            method,
+            path,
+            status,
+            str(response.text or "")[:500],
+        )
+        raise SelfcareProviderError(f"Selfcare request failed for {path}: HTTP {status}")
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise SelfcareProviderError(f"Selfcare returned invalid JSON for {path}") from exc
+
+
 def _request_json(
     db: Session,
     method: str,
@@ -290,17 +389,24 @@ def _request_json(
     json_body: dict[str, Any] | None = None,
     idempotent: bool = False,
 ) -> Any:
-    config = _get_api_config(db)
-    import requests
+    """Issue one logical request via the shared integration engine.
 
+    The engine (``dotmac-integration-client``) owns the retry loop, backoff
+    sleeps (delegated back to ``_sleep_backoff`` — same base/cap/jitter as
+    before), the reachability circuit trip/reset, auth-header injection, and
+    x-request-id propagation. This wrapper owns the selfcare policy: which
+    methods retry, the sanitized ``SelfcareProviderError`` messages, and the
+    request log lines.
+    """
+    config = _get_api_config(db)
     url = _crm_url(config, path)
     read_timeout = int(config.get("timeout_seconds") or 30)
-    timeout = (_CONNECT_TIMEOUT_SECONDS, read_timeout)
     method_u = method.upper()
     # A POST is retried only when the caller asserts the sub endpoint is
     # DB-race-safe idempotent on external_ref (idempotent=True) — otherwise a
     # retry after a lost response (or a read-timeout that overlaps the still-in-
-    # flight original) would double-create a money row.
+    # flight original) would double-create a money row. Implemented as a
+    # single-attempt engine for non-idempotent writes.
     retryable_method = idempotent or method_u not in _NON_IDEMPOTENT_METHODS
     # Fast-fail while sub is known-unreachable so a per-subscriber fan-out isn't
     # N separate timeouts. Degrades exactly like any other request failure.
@@ -310,80 +416,76 @@ def _request_json(
         "SELFCARE_API_REQUEST_START method=%s path=%s timeout=%s params=%s",
         method_u,
         path,
-        timeout,
+        (_CONNECT_TIMEOUT_SECONDS, read_timeout),
         _redact_params(params),
     )
-    for attempt in range(1, _MAX_ATTEMPTS + 1):
-        request_started = time.monotonic()
-        try:
-            response = requests.request(  # nosec B113 - timeout is config-driven.
-                method_u,
-                url,
-                headers=_api_headers(config),
-                params=params or {},
-                json=json_body,
-                timeout=timeout,
-            )
-            # A response (any status) means sub is reachable — close the breaker.
-            _REACHABILITY_CIRCUIT.reset()
-        except requests.RequestException as exc:
-            # Connection/timeout failures signal sub is slow/down — trip the
-            # breaker so the rest of the fan-out fast-fails this window.
-            if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
-                _REACHABILITY_CIRCUIT.trip()
-            duration = time.monotonic() - request_started
-            logger.warning(
-                "SELFCARE_API_REQUEST_ERROR method=%s path=%s attempt=%d/%d duration=%.3fs error=%s",
-                method_u,
-                path,
-                attempt,
-                _MAX_ATTEMPTS,
-                duration,
-                exc,
-            )
-            if retryable_method and attempt < _MAX_ATTEMPTS:
-                _sleep_backoff(attempt)
-                continue
-            # Sanitized message (no host/url); full detail stayed in the log.
-            raise SelfcareProviderError(f"Selfcare request failed for {path} after {attempt} attempts") from exc
+    started = time.monotonic()
 
-        status = response.status_code
-        duration = time.monotonic() - request_started
-        if retryable_method and status in _RETRYABLE_STATUS and attempt < _MAX_ATTEMPTS:
+    def _transport_observer(
+        *,
+        error: BaseException | None = None,
+        duration_seconds: float = 0.0,
+        **_kw: Any,
+    ) -> None:
+        # Connection/timeout failures; full detail stays in the log, the raised
+        # message below remains sanitized (no host/url/exception detail).
+        if error is not None:
             logger.warning(
-                "SELFCARE_API_REQUEST_RETRY method=%s path=%s status=%s attempt=%d/%d",
+                "SELFCARE_API_REQUEST_ERROR method=%s path=%s duration=%.3fs error=%s",
                 method_u,
                 path,
-                status,
-                attempt,
-                _MAX_ATTEMPTS,
+                duration_seconds,
+                error,
             )
-            _sleep_backoff(attempt)
-            continue
-        logger.info(
-            "SELFCARE_API_REQUEST_COMPLETE method=%s path=%s status_code=%s duration=%.3fs",
+
+    engine = IntegrationHttpClient(
+        client_factory=lambda: _http_client(read_timeout),
+        response_handler=_handle_selfcare_response,
+        backoff=_engine_backoff,
+        max_attempts=_MAX_ATTEMPTS if retryable_method else 1,
+        retryable_excs=(_RetryableStatusError,),
+        non_retryable_excs=(SelfcareProviderError,),
+        transport_exhausted_factory=lambda exc, retries: SelfcareProviderError(
+            f"Selfcare request failed for {path} after {retries + 1} attempts"
+        ),
+        # Without a rate-limit exception the loop-exhausted hook only fires for
+        # a circuit that opened between our pre-check and the engine's.
+        loop_exhausted_factory=lambda exc, retries: SelfcareProviderError(
+            f"Selfcare temporarily unavailable (circuit open) for {path}"
+        ),
+        unexpected_error_factory=lambda exc: SelfcareProviderError(
+            f"Selfcare request failed for {path} after 1 attempts"
+        ),
+        circuit=_REACHABILITY_CIRCUIT,
+        auth_headers=lambda: _api_headers(config),
+        edge="selfcare",
+        request_id_provider=_outbound_request_id,
+        observer=_transport_observer,
+    )
+    try:
+        return engine.request(
+            method_u,
+            url,
+            params=params,
+            json_data=json_body,
+            handler_kwargs={
+                "method": method_u,
+                "path": path,
+                "retryable": retryable_method,
+                "started": started,
+            },
+        )
+    except _RetryableStatusError as exc:
+        # Retries exhausted (or a single-attempt write hit a 429/5xx): surface
+        # the same sanitized message/type the old loop raised.
+        logger.error(
+            "SELFCARE_API_REQUEST_FAILED method=%s path=%s status=%s body=%s",
             method_u,
             path,
-            status,
-            duration,
+            exc.status,
+            exc.body,
         )
-        if status < 200 or status >= 300:
-            # Log the full body for diagnostics; raise only status (no body/url) so
-            # upstream error detail can't leak into a CRM-operator-facing message.
-            logger.error(
-                "SELFCARE_API_REQUEST_FAILED method=%s path=%s status=%s body=%s",
-                method_u,
-                path,
-                status,
-                response.text[:500],
-            )
-            raise SelfcareProviderError(f"Selfcare request failed for {path}: HTTP {status}")
-        try:
-            return response.json()
-        except ValueError as exc:
-            raise SelfcareProviderError(f"Selfcare returned invalid JSON for {path}") from exc
-    # Loop always returns or raises; this satisfies type checkers.
-    raise SelfcareProviderError(f"Selfcare request failed for {path}")
+        raise SelfcareProviderError(str(exc)) from None
 
 
 def ping(db: Session) -> bool:
