@@ -47,25 +47,25 @@ class _Resp:
 
 
 def _patch_request(monkeypatch, handler):
-    import requests
+    import httpx
 
     monkeypatch.setattr(
         selfcare, "_get_api_config", lambda db: {"base_url": "http://x", "api_token": "t", "timeout_seconds": 5}
     )
     monkeypatch.setattr(selfcare, "_sleep_backoff", lambda attempt: None)
-    monkeypatch.setattr(requests, "request", handler)
-    return requests
+    monkeypatch.setattr(httpx.Client, "request", lambda self, method, url, **kw: handler(method, url, **kw))
+    return httpx
 
 
 def test_request_retries_then_succeeds(monkeypatch):
-    import requests
+    import httpx
 
     calls = {"n": 0}
 
     def handler(method, url, **kw):
         calls["n"] += 1
         if calls["n"] < 3:
-            raise requests.ConnectionError("boom")
+            raise httpx.ConnectError("boom")
         return _Resp(200)
 
     _patch_request(monkeypatch, handler)

@@ -23,7 +23,7 @@ def _reset_circuit():
 
 
 def _patch(monkeypatch, handler):
-    import requests
+    import httpx
 
     monkeypatch.setattr(
         selfcare,
@@ -31,7 +31,7 @@ def _patch(monkeypatch, handler):
         lambda db: {"base_url": "http://x", "api_token": "t", "timeout_seconds": 5},
     )
     monkeypatch.setattr(selfcare, "_sleep_backoff", lambda attempt: None)
-    monkeypatch.setattr(requests, "request", handler)
+    monkeypatch.setattr(httpx.Client, "request", lambda self, method, url, **kw: handler(method, url, **kw))
 
 
 class _Resp:
@@ -65,10 +65,10 @@ def test_open_circuit_fast_fails_without_a_request(monkeypatch):
 
 
 def test_connection_failure_trips_the_circuit(monkeypatch):
-    import requests
+    import httpx
 
     def handler(*_a, **_k):
-        raise requests.ConnectionError("sub down")
+        raise httpx.ConnectError("sub down")
 
     _patch(monkeypatch, handler)
     with pytest.raises(SelfcareProviderError):
@@ -77,14 +77,14 @@ def test_connection_failure_trips_the_circuit(monkeypatch):
 
 
 def test_recovery_within_retries_closes_the_circuit(monkeypatch):
-    import requests
+    import httpx
 
     state = {"n": 0}
 
     def handler(*_a, **_k):
         state["n"] += 1
         if state["n"] == 1:
-            raise requests.ConnectionError("blip")  # trips
+            raise httpx.ConnectError("blip")  # trips
         return _Resp()  # succeeds -> resets
 
     _patch(monkeypatch, handler)

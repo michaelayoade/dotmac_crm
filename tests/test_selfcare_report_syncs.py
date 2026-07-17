@@ -38,6 +38,17 @@ def _settings_resolver(values: dict[str, object]):
     return _resolve
 
 
+def _patch_transport(monkeypatch, handler):
+    """Route the selfcare httpx transport to a fake handler(method, url, headers, params, json)."""
+    import httpx
+
+    monkeypatch.setattr(
+        httpx.Client,
+        "request",
+        lambda self, method, url, params=None, json=None, headers=None: handler(method, url, headers, params, json),
+    )
+
+
 def test_selfcare_client_uses_bearer_token_and_unwraps_envelope(db_session, monkeypatch):
     monkeypatch.setattr(
         selfcare.settings_spec,
@@ -53,19 +64,18 @@ def test_selfcare_client_uses_bearer_token_and_unwraps_envelope(db_session, monk
     )
     calls = []
 
-    def _request(method, url, headers, params, json, timeout):
+    def _request(method, url, headers, params, json):
         calls.append(
             {
                 "method": method,
                 "url": url,
                 "headers": headers,
                 "params": params,
-                "timeout": timeout,
             }
         )
         return _Response(200, {"data": [{"id": "sc-1"}], "meta": {"page": 1, "total": 1}})
 
-    monkeypatch.setattr("requests.request", _request)
+    _patch_transport(monkeypatch, _request)
 
     rows = selfcare.fetch_customers(db_session)
 
@@ -89,7 +99,8 @@ def test_selfcare_client_raises_provider_error_on_non_2xx(db_session, monkeypatc
             }
         ),
     )
-    monkeypatch.setattr("requests.request", lambda *args, **kwargs: _Response(503, text="down"))
+    monkeypatch.setattr(selfcare, "_sleep_backoff", lambda attempt: None)
+    _patch_transport(monkeypatch, lambda *args, **kwargs: _Response(503, text="down"))
 
     with pytest.raises(selfcare.SelfcareProviderError):
         selfcare.ping(db_session)
@@ -140,12 +151,12 @@ def test_fetch_customers_paginates(db_session, monkeypatch):
         ),
     )
 
-    def _request(method, url, headers, params, json, timeout):
+    def _request(method, url, headers, params, json):
         page = int(params["page"])
         payload = {"data": [{"id": f"sc-{page}"}], "meta": {"page": page, "total": 2}}
         return _Response(200, payload)
 
-    monkeypatch.setattr("requests.request", _request)
+    _patch_transport(monkeypatch, _request)
 
     assert selfcare.fetch_customers(db_session) == [{"id": "sc-1"}, {"id": "sc-2"}]
 
@@ -165,11 +176,11 @@ def test_fetch_customers_can_omit_include_for_basic_subscriber_rows(db_session, 
     )
     calls = []
 
-    def _request(method, url, headers, params, json, timeout):
+    def _request(method, url, headers, params, json):
         calls.append(params)
         return _Response(200, {"data": [{"id": "sc-basic", "billing_mode": "prepaid"}], "meta": {"total": 1}})
 
-    monkeypatch.setattr("requests.request", _request)
+    _patch_transport(monkeypatch, _request)
 
     assert selfcare.fetch_customers(db_session, include=None) == [{"id": "sc-basic", "billing_mode": "prepaid"}]
     assert calls[0] == {"per_page": 500, "page": 1}
@@ -190,7 +201,7 @@ def test_fetch_locations_uses_paginated_locations_request(db_session, monkeypatc
     )
     calls = []
 
-    def _request(method, url, headers, params, json, timeout):
+    def _request(method, url, headers, params, json):
         calls.append({"method": method, "url": url, "params": params})
         return _Response(
             200,
@@ -202,7 +213,7 @@ def test_fetch_locations_uses_paginated_locations_request(db_session, monkeypatc
             },
         )
 
-    monkeypatch.setattr("requests.request", _request)
+    _patch_transport(monkeypatch, _request)
 
     assert selfcare.fetch_locations(db_session) == [
         {"id": "09 Dawaki Model City Abuja, NG", "name": "Gwarimpa"},
@@ -393,11 +404,11 @@ def test_create_installation_invoice_posts_to_crm_invoices(db_session, monkeypat
     _enable_selfcare(monkeypatch)
     calls = []
 
-    def _request(method, url, headers, params, json, timeout):
+    def _request(method, url, headers, params, json):
         calls.append({"method": method, "url": url, "json": json})
         return _Response(201, {"data": {"id": "inv-9", "total": "25000.00", "status": "issued"}})
 
-    monkeypatch.setattr("requests.request", _request)
+    _patch_transport(monkeypatch, _request)
 
     invoice_id = selfcare.create_installation_invoice(
         db_session,
@@ -422,7 +433,7 @@ def test_create_installation_invoice_posts_to_crm_invoices(db_session, monkeypat
 def test_create_installation_invoice_skips_non_positive_amount(db_session, monkeypatch):
     _enable_selfcare(monkeypatch)
     called = []
-    monkeypatch.setattr("requests.request", lambda *a, **k: called.append(1) or _Response(201, {"data": {}}))
+    _patch_transport(monkeypatch, lambda *a, **k: called.append(1) or _Response(201, {"data": {}}))
 
     assert selfcare.create_installation_invoice(db_session, subscriber_id="s1", amount="0") is None
     assert selfcare.create_installation_invoice(db_session, subscriber_id="s1", amount="not-a-number") is None
@@ -434,7 +445,7 @@ def test_create_installation_invoice_raises_on_provider_error(db_session, monkey
     # and retry — rather than silently producing no invoice and no signal.
     _enable_selfcare(monkeypatch)
     monkeypatch.setattr(selfcare, "_sleep_backoff", lambda attempt: None)
-    monkeypatch.setattr("requests.request", lambda *a, **k: _Response(502, {}, text="bad gateway"))
+    _patch_transport(monkeypatch, lambda *a, **k: _Response(502, {}, text="bad gateway"))
 
     with pytest.raises(selfcare.SelfcareProviderError):
         selfcare.create_installation_invoice(db_session, subscriber_id="s1", amount="100")
