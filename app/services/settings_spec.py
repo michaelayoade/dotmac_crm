@@ -2614,6 +2614,17 @@ SETTINGS_SPECS: list[SettingSpec] = [
     ),
     SettingSpec(
         domain=SettingDomain.integration,
+        key="selfcare_api_key",
+        env_var="SELFCARE_API_KEY",
+        value_type=SettingValueType.string,
+        default=None,
+        required=False,
+        is_secret=True,
+        label="Selfcare API Key (scoped, preferred over the legacy token)",
+        section="Selfcare",
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
         key="selfcare_api_token",
         env_var="SELFCARE_API_TOKEN",
         value_type=SettingValueType.string,
