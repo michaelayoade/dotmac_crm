@@ -13,7 +13,7 @@ from app.models.person import Person
 from app.models.service_team import ServiceTeam, ServiceTeamMember, ServiceTeamMemberRole, ServiceTeamType
 from app.services import settings_spec
 from app.services.dotmac_erp.client import DotMacERPClient, DotMacERPError
-from app.services.secrets import resolve_secret
+from app.services.secrets import resolve_setting_secret
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class DotMacERPTeamSync:
             return None
 
         base_url_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_base_url")
-        token_value = resolve_secret(
+        token_value = resolve_setting_secret(
             settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_token")
         )
 

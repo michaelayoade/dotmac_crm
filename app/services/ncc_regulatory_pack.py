@@ -266,10 +266,10 @@ def _build_erp_client(db: Session):
     from app.models.domain_settings import SettingDomain
     from app.services import settings_spec
     from app.services.dotmac_erp.client import DotMacERPClient
-    from app.services.secrets import resolve_secret
+    from app.services.secrets import resolve_setting_secret
 
     base_url = settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_base_url")
-    token = resolve_secret(settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_token"))
+    token = resolve_setting_secret(settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_token"))
     if not base_url or not token:
         return None
     return DotMacERPClient(base_url=str(base_url), token=str(token))

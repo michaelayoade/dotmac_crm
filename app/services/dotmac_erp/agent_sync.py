@@ -19,7 +19,7 @@ from app.models.domain_settings import SettingDomain
 from app.models.person import Person
 from app.services import settings_spec
 from app.services.dotmac_erp.client import DotMacERPClient, DotMacERPNotFoundError
-from app.services.secrets import resolve_secret
+from app.services.secrets import resolve_setting_secret
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ class DotMacERPAgentSync:
             return None
 
         base_url_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_base_url")
-        token_value = resolve_secret(
+        token_value = resolve_setting_secret(
             settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_token")
         )
 

@@ -13,7 +13,7 @@ from app.models.person import ChannelType, PartyStatus, Person, PersonChannel
 from app.models.subscriber import Organization
 from app.services import settings_spec
 from app.services.dotmac_erp.client import DotMacERPClient
-from app.services.secrets import resolve_secret
+from app.services.secrets import resolve_setting_secret
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class DotMacERPContactSync:
             return None
 
         base_url_value = settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_base_url")
-        token_value = resolve_secret(
+        token_value = resolve_setting_secret(
             settings_spec.resolve_value(self.db, SettingDomain.integration, "dotmac_erp_token")
         )
 

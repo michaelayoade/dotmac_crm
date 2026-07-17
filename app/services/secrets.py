@@ -337,3 +337,14 @@ def delete_secret(path: str) -> bool:
     except Exception as exc:
         logger.error("Failed to delete OpenBao secret %s: %s", path, exc)
         return False
+
+
+def resolve_setting_secret(value: object) -> str | None:
+    """resolve_secret for settings-spec values (typed ``object``).
+
+    Coerces non-empty values to str before resolution so call sites reading
+    ``settings_spec.resolve_value`` stay mypy-clean.
+    """
+    if value is None or value == "":
+        return None
+    return resolve_secret(str(value))
