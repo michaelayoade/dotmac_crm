@@ -24,6 +24,7 @@ from app.services.dotmac_erp.client import (
     DotMacERPRateLimitError,
     DotMacERPTransientError,
 )
+from app.services.secrets import resolve_secret
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,7 @@ class DotMacERPSync:
         )
 
         base_url = str(base_url_value) if base_url_value else None
-        token = str(token_value) if token_value else None
+        token = resolve_secret(str(token_value)) if token_value else None
 
         if not base_url or not token:
             logger.warning("DotMac ERP sync enabled but not configured (missing URL or token)")
