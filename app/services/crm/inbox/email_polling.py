@@ -6,7 +6,7 @@ import email
 import imaplib
 import poplib
 import re
-from datetime import UTC
+from datetime import UTC, datetime
 from email.header import decode_header
 from email.utils import parseaddr, parsedate_to_datetime
 
@@ -26,6 +26,7 @@ logger = get_logger(__name__)
 
 EMAIL_POLL_CONNECT_TIMEOUT = 30
 POP3_UIDL_HISTORY_LIMIT = 500
+MALFORMED_EMAIL_SKIP_HISTORY_LIMIT = 50
 
 
 def _decode_header(value: str | None) -> str | None:
@@ -86,6 +87,68 @@ def _extract_uid_from_fetch_header(header: object) -> str | None:
     if not match:
         return None
     return match.group(1).decode("utf-8", errors="replace")
+
+
+def _trim_header(value: str | None, limit: int = 300) -> str | None:
+    if not value:
+        return None
+    value = value.strip()
+    if len(value) <= limit:
+        return value
+    return value[: limit - 3] + "..."
+
+
+def _trim_header_list(values: list[str] | None) -> list[str]:
+    trimmed: list[str] = []
+    for value in values or []:
+        item = _trim_header(value)
+        if item:
+            trimmed.append(item)
+    return trimmed
+
+
+def _record_malformed_sender_skip(
+    metadata: dict,
+    *,
+    protocol: str,
+    uid: str | None,
+    uidl: str | None = None,
+    mailbox: str | None = None,
+    from_raw: str | None,
+    reply_to: list[str] | None,
+    return_path: str | None,
+    message_id: str | None,
+    subject: str | None,
+) -> None:
+    skips_raw = metadata.get("malformed_email_skips")
+    skips = skips_raw if isinstance(skips_raw, list) else []
+    skip = {
+        "protocol": protocol,
+        "uid": uid,
+        "uidl": uidl,
+        "mailbox": mailbox,
+        "reason": "blank_or_malformed_sender",
+        "from_raw": _trim_header(from_raw),
+        "reply_to": _trim_header_list(reply_to),
+        "return_path": _trim_header(return_path),
+        "message_id": _trim_header(message_id),
+        "subject": _trim_header(subject, limit=200),
+        "skipped_at": datetime.now(UTC).isoformat(),
+    }
+    skips.append(skip)
+    metadata["malformed_email_skips"] = skips[-MALFORMED_EMAIL_SKIP_HISTORY_LIMIT:]
+    logger.warning(
+        "EMAIL_INGEST_SKIP_MALFORMED_SENDER protocol=%s mailbox=%s uid=%s uidl=%s message_id=%s subject=%s from_raw=%s reply_to=%s return_path=%s",
+        protocol,
+        mailbox,
+        uid,
+        uidl,
+        message_id,
+        subject,
+        from_raw,
+        reply_to,
+        return_path,
+    )
 
 
 def poll_email_inbox(db: Session, connector_config_id: str) -> dict:
@@ -303,12 +366,6 @@ def _imap_poll_inner(
             msg = email.message_from_bytes(raw)
             from_header = msg.get("From") or ""
             from_addr = parseaddr(from_header)[1]
-            if _is_self_sender(from_addr, config, auth_config):
-                if uid_value and uid_value.isdigit():
-                    uid_int = int(uid_value)
-                    if last_uid is None or uid_int > last_uid:
-                        last_uid = uid_int
-                continue
             subject = _decode_header(msg.get("Subject"))
             if isinstance(subject, str):
                 subject = subject.strip()
@@ -316,6 +373,30 @@ def _imap_poll_inner(
                     subject = subject[:200]
             message_id = msg.get("Message-ID")
             reply_to = msg.get_all("Reply-To") or []
+            return_path = msg.get("Return-Path")
+            if not from_addr.strip():
+                _record_malformed_sender_skip(
+                    metadata,
+                    protocol="imap",
+                    mailbox=mailbox_value,
+                    uid=uid_value,
+                    from_raw=from_header,
+                    reply_to=reply_to,
+                    return_path=return_path,
+                    message_id=message_id,
+                    subject=subject,
+                )
+                if uid_value and uid_value.isdigit():
+                    uid_int = int(uid_value)
+                    if last_uid is None or uid_int > last_uid:
+                        last_uid = uid_int
+                continue
+            if _is_self_sender(from_addr, config, auth_config):
+                if uid_value and uid_value.isdigit():
+                    uid_int = int(uid_value)
+                    if last_uid is None or uid_int > last_uid:
+                        last_uid = uid_int
+                continue
             to_addrs = msg.get_all("To") or []
             cc_addrs = msg.get_all("Cc") or []
             in_reply_to = msg.get("In-Reply-To")
@@ -393,6 +474,34 @@ def _imap_poll_inner(
         msg = email.message_from_bytes(raw_bytes)
         from_header = msg.get("From") or ""
         from_addr = parseaddr(from_header)[1]
+        subject = _decode_header(msg.get("Subject"))
+        if isinstance(subject, str):
+            subject = subject.strip()
+            if len(subject) > 200:
+                subject = subject[:200]
+        message_id = msg.get("Message-ID")
+        reply_to = msg.get_all("Reply-To") or []
+        return_path = msg.get("Return-Path")
+        uid_str = uid.decode() if isinstance(uid, bytes) else str(uid)
+        if not from_addr.strip():
+            _record_malformed_sender_skip(
+                metadata,
+                protocol="imap",
+                mailbox=mailbox_value,
+                uid=uid_str,
+                from_raw=from_header,
+                reply_to=reply_to,
+                return_path=return_path,
+                message_id=message_id,
+                subject=subject,
+            )
+            try:
+                uid_int = int(uid)
+                if last_uid is None or uid_int > last_uid:
+                    last_uid = uid_int
+            except ValueError:
+                pass
+            continue
         if _is_self_sender(from_addr, config, auth_config):
             try:
                 uid_int = int(uid)
@@ -401,13 +510,6 @@ def _imap_poll_inner(
             except ValueError:
                 pass
             continue
-        subject = _decode_header(msg.get("Subject"))
-        if isinstance(subject, str):
-            subject = subject.strip()
-            if len(subject) > 200:
-                subject = subject[:200]
-        message_id = msg.get("Message-ID")
-        reply_to = msg.get_all("Reply-To") or []
         to_addrs = msg.get_all("To") or []
         cc_addrs = msg.get_all("Cc") or []
         in_reply_to = msg.get("In-Reply-To")
@@ -426,7 +528,6 @@ def _imap_poll_inner(
         if not body:
             body = subject or "[No content]"
         attachments = _extract_attachments(msg)
-        uid_str = uid.decode() if isinstance(uid, bytes) else str(uid)
         payload = EmailWebhookPayload(
             contact_address=from_addr,
             contact_name=_decode_header(parseaddr(from_header)[0]) or None,
@@ -535,9 +636,6 @@ def _pop3_poll_inner(
         msg = email.message_from_bytes(raw)
         from_header = msg.get("From") or ""
         from_addr = parseaddr(from_header)[1]
-        if _is_self_sender(from_addr, config, auth_config):
-            last_uidl = uidl
-            continue
         subject = _decode_header(msg.get("Subject"))
         if isinstance(subject, str):
             subject = subject.strip()
@@ -545,6 +643,28 @@ def _pop3_poll_inner(
                 subject = subject[:200]
         message_id = msg.get("Message-ID")
         reply_to = msg.get_all("Reply-To") or []
+        return_path = msg.get("Return-Path")
+        if not from_addr.strip():
+            _record_malformed_sender_skip(
+                metadata,
+                protocol="pop3",
+                uid=None,
+                uidl=uidl,
+                from_raw=from_header,
+                reply_to=reply_to,
+                return_path=return_path,
+                message_id=message_id,
+                subject=subject,
+            )
+            last_uidl = uidl
+            seen_uidls.add(uidl)
+            seen_uidls_raw.append(uidl)
+            if len(seen_uidls_raw) > POP3_UIDL_HISTORY_LIMIT:
+                seen_uidls_raw = seen_uidls_raw[-POP3_UIDL_HISTORY_LIMIT:]
+            continue
+        if _is_self_sender(from_addr, config, auth_config):
+            last_uidl = uidl
+            continue
         to_addrs = msg.get_all("To") or []
         cc_addrs = msg.get_all("Cc") or []
         in_reply_to = msg.get("In-Reply-To")
