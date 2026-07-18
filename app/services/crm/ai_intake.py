@@ -24,7 +24,8 @@ from app.models.crm.enums import (
     MessageDirection,
 )
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
-from app.models.person import Gender, PartyStatus, Person
+from app.models.person import Gender, Person
+from app.models.subscriber import Subscriber
 from app.schemas.crm.ai_intake import (
     AiIntakeConfigCreate,
     AiIntakeConfigUpdate,
@@ -58,6 +59,7 @@ AI_INTAKE_PROFILE_FAILED_TAG = "ncc-profile-failed"
 AI_INTAKE_BACKGROUND_CAPTURE_METADATA_KEY = "ncc_profile_background_capture"
 AI_INTAKE_BACKGROUND_CAPTURE_REVIEW_TAG = "ncc-profile-review"
 AI_INTAKE_BACKGROUND_CAPTURE_CONFIDENCE_THRESHOLD = 0.98
+AI_INTAKE_PROFILE_COLLECTION_DEPARTMENTS = frozenset({"support", "billing_payment", "billing_renewal"})
 AI_INTAKE_PROFILE_NUDGE_MINUTES = 20
 AI_INTAKE_SEND_CLAIM_TTL_SECONDS = 300
 AI_INTAKE_PENDING_STATES = {"pending", "awaiting_customer", "awaiting_timeout", AI_INTAKE_PROFILE_STATUS}
@@ -120,6 +122,7 @@ _PROFILE_YEAR_FIRST_RE = re.compile(r"^(?P<year>\d{4})[\s./-]+(?P<month>\d{1,2})
 _PROFILE_DMY_SLASH_RE = re.compile(r"^(?P<day>\d{1,2})[/-](?P<month>\d{1,2})[/-](?P<year>\d{2,4})$")
 _PROFILE_TWO_DIGIT_YEAR_RE = re.compile(r"(?:^|\D)\d{1,2}[/-]\d{1,2}[/-]\d{2}(?:\D|$)")
 _PROFILE_ORDINAL_SUFFIX_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)\b", re.IGNORECASE)
+_PROFILE_INLINE_LABEL_SEPARATOR_RE = re.compile(r"\s*[,;]\s*(?=(?:date\s+of\s+birth|gender)\s*:)", re.IGNORECASE)
 _PROFILE_MONTHS = {
     "jan": 1,
     "january": 1,
@@ -1313,7 +1316,12 @@ def _values_from_bare_profile_lines(
 
 def _parse_profile_reply(body: str | None, requested_fields: Sequence[str]) -> tuple[dict[str, Any], str | None]:
     parsed: dict[str, Any] = {}
-    lines = [line.strip() for line in (body or "").strip().splitlines() if line.strip()]
+    lines = [
+        segment.strip()
+        for line in (body or "").strip().splitlines()
+        for segment in _PROFILE_INLINE_LABEL_SEPARATOR_RE.split(line)
+        if segment.strip()
+    ]
     if not lines:
         return {}, "invalid_format"
 
@@ -1504,6 +1512,21 @@ def _background_capture_missing_fields(person: Person | None) -> list[str]:
     return missing
 
 
+def _is_selfcare_managed_profile(db: Session, person: Person | None) -> bool:
+    if person is None:
+        return False
+    metadata = person.metadata_ if isinstance(person.metadata_, dict) else {}
+    if str(metadata.get("selfcare_id") or "").strip():
+        return True
+    return (
+        db.query(Subscriber)
+        .filter(Subscriber.person_id == person.id)
+        .filter(Subscriber.external_system == "selfcare")
+        .first()
+        is not None
+    )
+
+
 def _build_background_capture_prompt(*, message: Message, missing_fields: Sequence[str]) -> tuple[str, str]:
     system = (
         "You classify CRM customer messages for safe NCC profile backfill. Return strict JSON only.\n"
@@ -1594,6 +1617,11 @@ def run_background_ncc_profile_capture(db: Session, *, limit: int = 200) -> dict
         if not person or not missing_fields:
             suppressed += 1
             _update_background_scan_cursor(conversation, message=None, status="profile_complete_or_missing_person")
+            db.commit()
+            continue
+        if _is_selfcare_managed_profile(db, person):
+            suppressed += 1
+            _update_background_scan_cursor(conversation, message=None, status="skipped_selfcare_managed_profile")
             db.commit()
             continue
 
@@ -3118,25 +3146,7 @@ def process_pending_intake(
             )
 
         missing_standard_fields, required_missing_fields = _profile_missing_fields(person)
-        if person.party_status != PartyStatus.customer:
-            next_state["profile_collection_skipped"] = True
-            next_state["profile_collection_skip_reason"] = "non_customer_party_status"
-            logger.info(
-                "ai_intake_profile_collection_skipped conversation_id=%s message_id=%s person_id=%s party_status=%s",
-                conversation.id,
-                message.id,
-                person.id,
-                person.party_status.value,
-            )
-            return _finalize_confident_match_handoff(
-                db,
-                conversation=conversation,
-                message=message,
-                config=config,
-                state=next_state,
-                mapping=mapping_by_key[department],
-            )
-        if required_missing_fields:
+        if department in AI_INTAKE_PROFILE_COLLECTION_DEPARTMENTS and required_missing_fields:
             return _begin_profile_collection(
                 db,
                 conversation=conversation,
