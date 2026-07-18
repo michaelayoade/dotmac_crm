@@ -520,6 +520,7 @@ def test_send_email_with_connector_config(db_session, crm_contact, crm_contact_c
         connector_type=ConnectorType.email,
         metadata_={"smtp": {"host": "smtp.test.com", "port": 587}},
         auth_config={"username": "user", "password": "pass"},
+        timeout_sec=7,
     )
     db_session.add(config)
     db_session.commit()
@@ -549,6 +550,7 @@ def test_send_email_with_connector_config(db_session, crm_contact, crm_contact_c
         message = inbox_service.send_message(db_session, payload)
 
         mock_send.assert_called_once()
+        assert mock_send.call_args.args[0]["timeout_sec"] == 7
         assert message.status == MessageStatus.sent
 
 

@@ -20,6 +20,7 @@ from app.services.branding import get_branding
 from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
+_DEFAULT_SMTP_SEND_TIMEOUT_SECONDS = 10
 
 
 def _env_value(name: str) -> str | None:
@@ -37,6 +38,14 @@ def _env_int(name: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def _coerce_timeout(value: object, default: int = _DEFAULT_SMTP_SEND_TIMEOUT_SECONDS) -> float:
+    try:
+        timeout = float(str(value))
+    except (TypeError, ValueError):
+        timeout = float(default)
+    return timeout if timeout > 0 else float(default)
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -95,6 +104,7 @@ def _get_smtp_config(db: Session | None) -> dict:
         "from_name": _env_value("SMTP_FROM_NAME")
         or _setting_value(db, "smtp_from_name")
         or (get_branding(db)["company_name"] if db else "Dotmac"),
+        "timeout_sec": _env_int("SMTP_SEND_TIMEOUT_SECONDS", _DEFAULT_SMTP_SEND_TIMEOUT_SECONDS),
         "user": username,
         "from_addr": from_email,
     }
@@ -155,6 +165,7 @@ def send_email_with_config(
             host,
             port,
             bool(config.get("use_ssl")),
+            timeout=_coerce_timeout(config.get("timeout_sec")),
         )
 
         if config.get("use_tls") and not config.get("use_ssl"):
@@ -254,6 +265,7 @@ def send_email(
             host,
             port,
             bool(config["use_ssl"]),
+            timeout=_coerce_timeout(config.get("timeout_sec")),
         )
 
         if config["use_tls"] and not config["use_ssl"]:

@@ -168,6 +168,8 @@ def _smtp_config_from_connector(config: ConnectorConfig) -> dict | None:
         smtp_config["from_email"] = auth_config.get("from_email")
     if auth_config.get("from_name"):
         smtp_config["from_name"] = auth_config.get("from_name")
+    if config.timeout_sec:
+        smtp_config["timeout_sec"] = config.timeout_sec
     # Ensure From domain aligns with authenticated SMTP user when possible.
     username = smtp_config.get("username")
     from_email = smtp_config.get("from_email")
