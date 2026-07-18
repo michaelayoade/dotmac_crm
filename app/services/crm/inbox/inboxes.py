@@ -96,6 +96,12 @@ def build_email_state_for_target(
         "imap": metadata.get("imap"),
         "pop3": metadata.get("pop3"),
         "rate_limit_per_minute": metadata.get("rate_limit_per_minute"),
+        "poll_max_messages": metadata.get("poll_max_messages"),
+        "poll_max_runtime_seconds": metadata.get("poll_max_runtime_seconds"),
+        "last_email_poll": metadata.get("last_email_poll"),
+        "malformed_email_skips": metadata.get("malformed_email_skips")
+        if isinstance(metadata.get("malformed_email_skips"), list)
+        else [],
         "poll_interval_seconds": poll_interval,
         "polling_active": bool(job and job.is_active),
         "receiving_enabled": bool((metadata.get("imap") or metadata.get("pop3")) and job and job.is_active),

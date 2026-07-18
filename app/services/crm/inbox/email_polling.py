@@ -4,8 +4,10 @@ import base64
 import contextlib
 import email
 import imaplib
+import os
 import poplib
 import re
+import time
 from datetime import UTC, datetime
 from email.header import decode_header
 from email.utils import parseaddr, parsedate_to_datetime
@@ -27,6 +29,109 @@ logger = get_logger(__name__)
 EMAIL_POLL_CONNECT_TIMEOUT = 30
 POP3_UIDL_HISTORY_LIMIT = 500
 MALFORMED_EMAIL_SKIP_HISTORY_LIMIT = 50
+EMAIL_POLL_DEFAULT_MAX_MESSAGES = 200
+EMAIL_POLL_DEFAULT_MAX_RUNTIME_SECONDS = 45
+EMAIL_POLL_DEFAULT_MALFORMED_ALERT_THRESHOLD = 1
+
+
+def _int_from_env(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _positive_int(value: object, default: int) -> int:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value if value > 0 else default
+    if not isinstance(value, str):
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _poll_limit_config(metadata: dict, protocol_config: dict) -> tuple[int, int, int]:
+    max_messages_default = _int_from_env("EMAIL_POLL_MAX_MESSAGES", EMAIL_POLL_DEFAULT_MAX_MESSAGES)
+    max_runtime_default = _int_from_env("EMAIL_POLL_MAX_RUNTIME_SECONDS", EMAIL_POLL_DEFAULT_MAX_RUNTIME_SECONDS)
+    alert_threshold_default = _int_from_env(
+        "EMAIL_POLL_MALFORMED_ALERT_THRESHOLD",
+        EMAIL_POLL_DEFAULT_MALFORMED_ALERT_THRESHOLD,
+    )
+    max_messages = _positive_int(
+        protocol_config.get("max_messages") or metadata.get("poll_max_messages"),
+        max_messages_default,
+    )
+    max_runtime_seconds = _positive_int(
+        protocol_config.get("max_runtime_seconds") or metadata.get("poll_max_runtime_seconds"),
+        max_runtime_default,
+    )
+    malformed_alert_threshold = _positive_int(
+        metadata.get("malformed_email_alert_threshold"),
+        alert_threshold_default,
+    )
+    return max_messages, max_runtime_seconds, malformed_alert_threshold
+
+
+def _limit_reason(attempted: int, max_messages: int, start_monotonic: float, max_runtime_seconds: int) -> str | None:
+    if attempted >= max_messages:
+        return "max_messages"
+    if time.monotonic() - start_monotonic >= max_runtime_seconds:
+        return "max_runtime_seconds"
+    return None
+
+
+def _record_email_poll_run(
+    metadata: dict,
+    *,
+    protocol: str,
+    mailbox: str | None = None,
+    processed: int,
+    attempted: int,
+    malformed_skips: int,
+    limited_reason: str | None,
+    max_messages: int,
+    max_runtime_seconds: int,
+    started_at: datetime,
+    alert_threshold: int,
+) -> None:
+    finished_at = datetime.now(UTC)
+    metadata["last_email_poll"] = {
+        "protocol": protocol,
+        "mailbox": mailbox,
+        "processed": processed,
+        "attempted": attempted,
+        "malformed_skips": malformed_skips,
+        "limited_reason": limited_reason,
+        "max_messages": max_messages,
+        "max_runtime_seconds": max_runtime_seconds,
+        "started_at": started_at.isoformat(),
+        "finished_at": finished_at.isoformat(),
+    }
+    if limited_reason:
+        logger.warning(
+            "EMAIL_POLL_LIMIT_REACHED protocol=%s mailbox=%s reason=%s attempted=%s processed=%s malformed_skips=%s max_messages=%s max_runtime_seconds=%s",
+            protocol,
+            mailbox,
+            limited_reason,
+            attempted,
+            processed,
+            malformed_skips,
+            max_messages,
+            max_runtime_seconds,
+        )
+    if malformed_skips >= alert_threshold:
+        logger.warning(
+            "EMAIL_INGEST_MALFORMED_SENDER_ALERT protocol=%s mailbox=%s malformed_skips=%s threshold=%s",
+            protocol,
+            mailbox,
+            malformed_skips,
+            alert_threshold,
+        )
 
 
 def _decode_header(value: str | None) -> str | None:
@@ -288,6 +393,9 @@ def _imap_poll_inner(
 
     metadata = dict(config.metadata_ or {})
     last_uid = metadata.get("imap_last_uid") if isinstance(metadata.get("imap_last_uid"), int) else None
+    max_messages, max_runtime_seconds, malformed_alert_threshold = _poll_limit_config(metadata, imap_config)
+    started_at = datetime.now(UTC)
+    start_monotonic = time.monotonic()
 
     def _uid_search(search_criteria: str) -> list[bytes]:
         # Some IMAP servers reject UTF-8 unless explicitly enabled; fall back to US-ASCII.
@@ -324,6 +432,9 @@ def _imap_poll_inner(
     )
 
     processed = 0
+    attempted = 0
+    malformed_skips = 0
+    limited_reason = None
     search_all = bool(imap_config.get("search_all"))
     criteria_label = "ALL" if search_all else "UNSEEN"
     if last_uid:
@@ -350,6 +461,9 @@ def _imap_poll_inner(
             len(seq_nums),
         )
         for seq in seq_nums:
+            limited_reason = _limit_reason(attempted, max_messages, start_monotonic, max_runtime_seconds)
+            if limited_reason:
+                break
             seq_value = seq.decode() if isinstance(seq, bytes) else str(seq)
             _, msg_data = client.fetch(seq_value, "(UID RFC822)")
             if not msg_data or not msg_data[0]:
@@ -364,6 +478,7 @@ def _imap_poll_inner(
                 if int(uid_value) <= last_uid:
                     continue
             msg = email.message_from_bytes(raw)
+            attempted += 1
             from_header = msg.get("From") or ""
             from_addr = parseaddr(from_header)[1]
             subject = _decode_header(msg.get("Subject"))
@@ -386,6 +501,7 @@ def _imap_poll_inner(
                     message_id=message_id,
                     subject=subject,
                 )
+                malformed_skips += 1
                 if uid_value and uid_value.isdigit():
                     uid_int = int(uid_value)
                     if last_uid is None or uid_int > last_uid:
@@ -445,10 +561,23 @@ def _imap_poll_inner(
                 uid_int = int(uid_value)
                 if last_uid is None or uid_int > last_uid:
                     last_uid = uid_int
+        _record_email_poll_run(
+            metadata,
+            protocol="imap",
+            mailbox=mailbox_value,
+            processed=processed,
+            attempted=attempted,
+            malformed_skips=malformed_skips,
+            limited_reason=limited_reason,
+            max_messages=max_messages,
+            max_runtime_seconds=max_runtime_seconds,
+            started_at=started_at,
+            alert_threshold=malformed_alert_threshold,
+        )
         if last_uid is not None:
             metadata["imap_last_uid"] = last_uid
-            config.metadata_ = metadata
-            db.commit()
+        config.metadata_ = metadata
+        db.commit()
         return processed
     if uids:
         try:
@@ -464,6 +593,9 @@ def _imap_poll_inner(
             logger.debug("Failed to parse received email message; skipping.", exc_info=True)
 
     for uid in uids:
+        limited_reason = _limit_reason(attempted, max_messages, start_monotonic, max_runtime_seconds)
+        if limited_reason:
+            break
         uid_value = uid.decode() if isinstance(uid, bytes) else str(uid)
         _, msg_data = client.uid("fetch", uid_value, "(RFC822)")
         if not msg_data or not msg_data[0]:
@@ -472,6 +604,7 @@ def _imap_poll_inner(
         if not isinstance(raw_bytes, bytes | bytearray):
             continue
         msg = email.message_from_bytes(raw_bytes)
+        attempted += 1
         from_header = msg.get("From") or ""
         from_addr = parseaddr(from_header)[1]
         subject = _decode_header(msg.get("Subject"))
@@ -495,6 +628,7 @@ def _imap_poll_inner(
                 message_id=message_id,
                 subject=subject,
             )
+            malformed_skips += 1
             try:
                 uid_int = int(uid)
                 if last_uid is None or uid_int > last_uid:
@@ -559,10 +693,23 @@ def _imap_poll_inner(
         except ValueError:
             pass
 
+    _record_email_poll_run(
+        metadata,
+        protocol="imap",
+        mailbox=mailbox_value,
+        processed=processed,
+        attempted=attempted,
+        malformed_skips=malformed_skips,
+        limited_reason=limited_reason,
+        max_messages=max_messages,
+        max_runtime_seconds=max_runtime_seconds,
+        started_at=started_at,
+        alert_threshold=malformed_alert_threshold,
+    )
     if last_uid is not None:
         metadata["imap_last_uid"] = last_uid
-        config.metadata_ = metadata
-        db.commit()
+    config.metadata_ = metadata
+    db.commit()
 
     return processed
 
@@ -601,7 +748,7 @@ def _pop3_poll(
         client.user(username)
         client.pass_(password)
         return _pop3_poll_inner(
-            db, config, auth_config, target_id, client, metadata, last_uidl, seen_uidls, seen_uidls_raw
+            db, config, pop3_config, auth_config, target_id, client, metadata, last_uidl, seen_uidls, seen_uidls_raw
         )
     finally:
         with contextlib.suppress(Exception):
@@ -611,6 +758,7 @@ def _pop3_poll(
 def _pop3_poll_inner(
     db: Session,
     config: ConnectorConfig,
+    pop3_config: dict,
     auth_config: dict,
     target_id: str | None,
     client,
@@ -619,21 +767,30 @@ def _pop3_poll_inner(
     seen_uidls: set[str],
     seen_uidls_raw: list,
 ) -> int:
+    metadata_config = metadata if isinstance(metadata, dict) else {}
+    max_messages, max_runtime_seconds, malformed_alert_threshold = _poll_limit_config(metadata_config, pop3_config)
+    started_at = datetime.now(UTC)
+    start_monotonic = time.monotonic()
     _resp, listings, _ = client.uidl()
-    if not listings:
-        return 0
 
     processed = 0
-    for entry in listings:
+    attempted = 0
+    malformed_skips = 0
+    limited_reason = None
+    for entry in listings or []:
         parts = entry.decode().split()
         if len(parts) != 2:
             continue
         msg_num, uidl = parts
         if uidl in seen_uidls:
             continue
+        limited_reason = _limit_reason(attempted, max_messages, start_monotonic, max_runtime_seconds)
+        if limited_reason:
+            break
         _, lines, _ = client.retr(int(msg_num))
         raw = b"\n".join(lines)
         msg = email.message_from_bytes(raw)
+        attempted += 1
         from_header = msg.get("From") or ""
         from_addr = parseaddr(from_header)[1]
         subject = _decode_header(msg.get("Subject"))
@@ -656,6 +813,7 @@ def _pop3_poll_inner(
                 message_id=message_id,
                 subject=subject,
             )
+            malformed_skips += 1
             last_uidl = uidl
             seen_uidls.add(uidl)
             seen_uidls_raw.append(uidl)
@@ -664,6 +822,10 @@ def _pop3_poll_inner(
             continue
         if _is_self_sender(from_addr, config, auth_config):
             last_uidl = uidl
+            seen_uidls.add(uidl)
+            seen_uidls_raw.append(uidl)
+            if len(seen_uidls_raw) > POP3_UIDL_HISTORY_LIMIT:
+                seen_uidls_raw = seen_uidls_raw[-POP3_UIDL_HISTORY_LIMIT:]
             continue
         to_addrs = msg.get_all("To") or []
         cc_addrs = msg.get_all("Cc") or []
@@ -712,11 +874,24 @@ def _pop3_poll_inner(
         if len(seen_uidls_raw) > POP3_UIDL_HISTORY_LIMIT:
             seen_uidls_raw = seen_uidls_raw[-POP3_UIDL_HISTORY_LIMIT:]
 
+    _record_email_poll_run(
+        metadata,
+        protocol="pop3",
+        mailbox=None,
+        processed=processed,
+        attempted=attempted,
+        malformed_skips=malformed_skips,
+        limited_reason=limited_reason,
+        max_messages=max_messages,
+        max_runtime_seconds=max_runtime_seconds,
+        started_at=started_at,
+        alert_threshold=malformed_alert_threshold,
+    )
     if last_uidl:
         metadata["pop3_last_uidl"] = last_uidl
         metadata["pop3_seen_uidls"] = seen_uidls_raw
-        config.metadata_ = metadata
-        db.commit()
+    config.metadata_ = metadata
+    db.commit()
 
     return processed
 
