@@ -275,6 +275,9 @@ class VendorPurchaseInvoice(Base):
     attachment_file_size: Mapped[int | None] = mapped_column(Integer)
     erp_purchase_order_id: Mapped[str | None] = mapped_column(String(100), index=True)
     erp_purchase_invoice_id: Mapped[str | None] = mapped_column(String(100), index=True)
+    # Sweepable push marker (audit D1), values mirror MaterialRequestERPSyncStatus;
+    # see app/services/dotmac_erp/push_redrive.py.
+    erp_sync_status: Mapped[str | None] = mapped_column(String(40), index=True)
     erp_sync_error: Mapped[str | None] = mapped_column(String(500))
     erp_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

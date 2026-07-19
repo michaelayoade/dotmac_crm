@@ -2795,6 +2795,56 @@ SETTINGS_SPECS: list[SettingSpec] = [
             "before closing anything."
         ),
     ),
+    # ---- ERP Push Re-drive (failed/stale money pushes) ----
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_push_redrive_enabled",
+        env_var="DOTMAC_ERP_PUSH_REDRIVE_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=True,
+        label="Enable ERP Push Re-drive Sweep",
+        section="DotMac ERP",
+        help_text=(
+            "Periodically re-enqueue material-request, purchase-order and "
+            "purchase-invoice pushes whose sync marker is 'failed' or stuck "
+            "in 'pending'/'retrying'. Safe to re-run: pushes use deterministic "
+            "idempotency keys, so ERP treats duplicates as no-ops."
+        ),
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_push_redrive_interval_seconds",
+        env_var="DOTMAC_ERP_PUSH_REDRIVE_INTERVAL_SECONDS",
+        value_type=SettingValueType.integer,
+        default=600,
+        min_value=120,
+        label="Push Re-drive Interval (seconds)",
+        section="DotMac ERP",
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_push_redrive_stale_minutes",
+        env_var="DOTMAC_ERP_PUSH_REDRIVE_STALE_MINUTES",
+        value_type=SettingValueType.integer,
+        default=30,
+        min_value=5,
+        label="Push Re-drive Staleness Threshold (minutes)",
+        section="DotMac ERP",
+        help_text=(
+            "A push left in 'pending' or 'retrying' longer than this is considered lost and re-enqueued by the sweep."
+        ),
+    ),
+    SettingSpec(
+        domain=SettingDomain.integration,
+        key="dotmac_erp_push_redrive_batch_limit",
+        env_var="DOTMAC_ERP_PUSH_REDRIVE_BATCH_LIMIT",
+        value_type=SettingValueType.integer,
+        default=100,
+        min_value=1,
+        max_value=1000,
+        label="Push Re-drive Max Rows Per Run",
+        section="DotMac ERP",
+    ),
     # ---- ERP Inventory Sync ----
     SettingSpec(
         domain=SettingDomain.integration,

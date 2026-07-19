@@ -1574,6 +1574,34 @@ def refresh_pending_expense_request_erp_statuses(batch_limit: int = 100):
 
 
 @celery_app.task(
+    name="app.tasks.integrations.redrive_failed_erp_pushes",
+    time_limit=300,
+    soft_time_limit=240,
+)
+def redrive_failed_erp_pushes():
+    """Re-drive ERP money pushes stuck in failed or stale in-flight states.
+
+    Thin wrapper; the sweep logic (and its config knobs) lives in
+    app.services.dotmac_erp.push_redrive.redrive_failed_erp_pushes.
+    """
+    from app.services.dotmac_erp import push_redrive
+
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    try:
+        return push_redrive.redrive_failed_erp_pushes(session)
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        duration = time.monotonic() - start
+        observe_job("erp_push_redrive", status, duration)
+
+
+@celery_app.task(
     name="app.tasks.integrations.sync_purchase_order_to_erp",
     bind=True,
     time_limit=60,
@@ -1602,8 +1630,16 @@ def sync_purchase_order_to_erp(self, work_order_id: str, quote_id: str):
         DotMacERPAuthError,
         DotMacERPError,
         DotMacERPRateLimitError,
+        DotMacERPTransientError,
     )
     from app.services.dotmac_erp.po_sync import dotmac_erp_purchase_order_sync
+    from app.services.dotmac_erp.push_redrive import (
+        ERP_SYNC_FAILED,
+        ERP_SYNC_NOT_CONFIGURED,
+        ERP_SYNC_PENDING,
+        ERP_SYNC_RETRYING,
+        ERP_SYNC_SYNCED,
+    )
 
     start = time.monotonic()
     status = "success"
@@ -1630,11 +1666,21 @@ def sync_purchase_order_to_erp(self, work_order_id: str, quote_id: str):
             logger.warning("PO_SYNC_QUOTE_NOT_FOUND quote_id=%s", quote_id)
             return {"success": False, "error": "Quote not found"}
 
+        wo.erp_sync_status = ERP_SYNC_PENDING
+        wo.erp_sync_error = None
+        if wo.erp_po_quote_id != quote.id:
+            wo.erp_po_quote_id = quote.id
+        session.commit()
+
         sync_service = dotmac_erp_purchase_order_sync(session)
         result = sync_service.sync_purchase_order(wo, quote)
         sync_service.close()
 
         if result.success:
+            wo.erp_sync_status = ERP_SYNC_SYNCED
+            wo.erp_sync_error = None
+            wo.erp_synced_at = datetime.now(UTC)
+            session.commit()
             logger.info(
                 "PO_SYNC_COMPLETE work_order_id=%s erp_po_id=%s",
                 work_order_id,
@@ -1642,6 +1688,9 @@ def sync_purchase_order_to_erp(self, work_order_id: str, quote_id: str):
             )
         else:
             status = "error"
+            wo.erp_sync_status = ERP_SYNC_FAILED
+            wo.erp_sync_error = (result.error or "ERP purchase order sync failed")[:500]
+            session.commit()
             logger.warning(
                 "PO_SYNC_FAILED work_order_id=%s error=%s",
                 work_order_id,
@@ -1655,8 +1704,20 @@ def sync_purchase_order_to_erp(self, work_order_id: str, quote_id: str):
             "error": result.error,
         }
 
+    except ValueError as e:
+        status = "error"
+        if "wo" in locals() and wo:
+            wo.erp_sync_status = ERP_SYNC_NOT_CONFIGURED
+            wo.erp_sync_error = str(e)[:500]
+            session.commit()
+        logger.error("PO_SYNC_NOT_CONFIGURED work_order_id=%s error=%s", work_order_id, e)
+        return {"success": False, "error": str(e), "error_type": "not_configured"}
     except DotMacERPRateLimitError as e:
         status = "retry"
+        if "wo" in locals() and wo:
+            wo.erp_sync_status = ERP_SYNC_RETRYING
+            wo.erp_sync_error = str(e)[:500]
+            session.commit()
         retry_after = e.retry_after or 60
         logger.warning(
             "PO_SYNC_RATE_LIMITED work_order_id=%s retry_after=%s",
@@ -1666,14 +1727,34 @@ def sync_purchase_order_to_erp(self, work_order_id: str, quote_id: str):
         raise self.retry(exc=e, countdown=retry_after)
     except DotMacERPAuthError as e:
         status = "error"
+        if "wo" in locals() and wo:
+            wo.erp_sync_status = ERP_SYNC_FAILED
+            wo.erp_sync_error = str(e)[:500]
+            session.commit()
         logger.error(
             "PO_SYNC_AUTH_ERROR work_order_id=%s error=%s",
             work_order_id,
             str(e),
         )
         return {"success": False, "error": str(e), "error_type": "auth"}
+    except DotMacERPTransientError as e:
+        status = "retry"
+        if "wo" in locals() and wo:
+            wo.erp_sync_status = ERP_SYNC_RETRYING
+            wo.erp_sync_error = str(e)[:500]
+            session.commit()
+        logger.warning(
+            "PO_SYNC_TRANSIENT work_order_id=%s error=%s",
+            work_order_id,
+            str(e),
+        )
+        raise
     except DotMacERPError as e:
         status = "error"
+        if "wo" in locals() and wo:
+            wo.erp_sync_status = ERP_SYNC_FAILED
+            wo.erp_sync_error = str(e)[:500]
+            session.commit()
         logger.error(
             "PO_SYNC_ERROR work_order_id=%s error=%s",
             work_order_id,
@@ -1682,12 +1763,19 @@ def sync_purchase_order_to_erp(self, work_order_id: str, quote_id: str):
         return {"success": False, "error": str(e)}
     except Exception as e:
         status = "error"
+        session.rollback()
+        if "wo" in locals() and wo:
+            try:
+                wo.erp_sync_status = ERP_SYNC_FAILED
+                wo.erp_sync_error = str(e)[:500]
+                session.commit()
+            except Exception:
+                session.rollback()
         logger.exception(
             "PO_SYNC_FAILED work_order_id=%s error=%s",
             work_order_id,
             str(e),
         )
-        session.rollback()
         raise
 
     finally:
@@ -1716,7 +1804,15 @@ def sync_purchase_invoice_to_erp(self, invoice_id: str):
         DotMacERPAuthError,
         DotMacERPError,
         DotMacERPRateLimitError,
+        DotMacERPTransientError,
         dotmac_erp_purchase_invoice_sync,
+    )
+    from app.services.dotmac_erp.push_redrive import (
+        ERP_SYNC_FAILED,
+        ERP_SYNC_NOT_CONFIGURED,
+        ERP_SYNC_PENDING,
+        ERP_SYNC_RETRYING,
+        ERP_SYNC_SYNCED,
     )
 
     start = time.monotonic()
@@ -1740,11 +1836,20 @@ def sync_purchase_invoice_to_erp(self, invoice_id: str):
             logger.warning("PURCHASE_INVOICE_SYNC_NOT_FOUND invoice_id=%s", invoice_id)
             return {"success": False, "error": "Purchase invoice not found"}
 
+        invoice.erp_sync_status = ERP_SYNC_PENDING
+        invoice.erp_sync_error = None
+        session.commit()
+
         sync_service = dotmac_erp_purchase_invoice_sync(session)
         result = sync_service.sync_purchase_invoice(invoice)
         sync_service.close()
 
         if result.success:
+            invoice.erp_sync_status = ERP_SYNC_SYNCED
+            invoice.erp_sync_error = None
+            if invoice.erp_synced_at is None:
+                invoice.erp_synced_at = datetime.now(UTC)
+            session.commit()
             logger.info(
                 "PURCHASE_INVOICE_SYNC_COMPLETE invoice_id=%s erp_purchase_invoice_id=%s",
                 invoice_id,
@@ -1752,6 +1857,14 @@ def sync_purchase_invoice_to_erp(self, invoice_id: str):
             )
         else:
             status = "error"
+            if result.error_type == "PendingPrerequisite":
+                # Not terminal: the PO hasn't landed in ERP yet. Stay "pending"
+                # so the re-drive sweep retries once it goes stale.
+                invoice.erp_sync_status = ERP_SYNC_PENDING
+            else:
+                invoice.erp_sync_status = ERP_SYNC_FAILED
+            invoice.erp_sync_error = (result.error or "ERP purchase invoice sync failed")[:500]
+            session.commit()
             logger.warning(
                 "PURCHASE_INVOICE_SYNC_FAILED invoice_id=%s error=%s",
                 invoice_id,
@@ -1764,8 +1877,20 @@ def sync_purchase_invoice_to_erp(self, invoice_id: str):
             "erp_purchase_invoice_id": result.erp_purchase_invoice_id,
             "error": result.error,
         }
+    except ValueError as e:
+        status = "error"
+        if "invoice" in locals() and invoice:
+            invoice.erp_sync_status = ERP_SYNC_NOT_CONFIGURED
+            invoice.erp_sync_error = str(e)[:500]
+            session.commit()
+        logger.error("PURCHASE_INVOICE_SYNC_NOT_CONFIGURED invoice_id=%s error=%s", invoice_id, e)
+        return {"success": False, "error": str(e), "error_type": "not_configured"}
     except DotMacERPRateLimitError as e:
         status = "retry"
+        if "invoice" in locals() and invoice:
+            invoice.erp_sync_status = ERP_SYNC_RETRYING
+            invoice.erp_sync_error = str(e)[:500]
+            session.commit()
         retry_after = e.retry_after or 60
         logger.warning(
             "PURCHASE_INVOICE_SYNC_RATE_LIMITED invoice_id=%s retry_after=%s",
@@ -1775,16 +1900,39 @@ def sync_purchase_invoice_to_erp(self, invoice_id: str):
         raise self.retry(exc=e, countdown=retry_after)
     except DotMacERPAuthError as e:
         status = "error"
+        if "invoice" in locals() and invoice:
+            invoice.erp_sync_status = ERP_SYNC_FAILED
+            invoice.erp_sync_error = str(e)[:500]
+            session.commit()
         logger.error("PURCHASE_INVOICE_SYNC_AUTH_ERROR invoice_id=%s error=%s", invoice_id, str(e))
         return {"success": False, "error": str(e), "error_type": "auth"}
+    except DotMacERPTransientError as e:
+        status = "retry"
+        if "invoice" in locals() and invoice:
+            invoice.erp_sync_status = ERP_SYNC_RETRYING
+            invoice.erp_sync_error = str(e)[:500]
+            session.commit()
+        logger.warning("PURCHASE_INVOICE_SYNC_TRANSIENT invoice_id=%s error=%s", invoice_id, str(e))
+        raise
     except DotMacERPError as e:
         status = "error"
+        if "invoice" in locals() and invoice:
+            invoice.erp_sync_status = ERP_SYNC_FAILED
+            invoice.erp_sync_error = str(e)[:500]
+            session.commit()
         logger.error("PURCHASE_INVOICE_SYNC_ERROR invoice_id=%s error=%s", invoice_id, str(e))
         return {"success": False, "error": str(e)}
     except Exception as e:
         status = "error"
-        logger.exception("PURCHASE_INVOICE_SYNC_FAILED invoice_id=%s error=%s", invoice_id, str(e))
         session.rollback()
+        if "invoice" in locals() and invoice:
+            try:
+                invoice.erp_sync_status = ERP_SYNC_FAILED
+                invoice.erp_sync_error = str(e)[:500]
+                session.commit()
+            except Exception:
+                session.rollback()
+        logger.exception("PURCHASE_INVOICE_SYNC_FAILED invoice_id=%s error=%s", invoice_id, str(e))
         raise
     finally:
         session.close()
