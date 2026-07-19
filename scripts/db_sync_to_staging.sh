@@ -24,6 +24,10 @@ SOURCE_SSH_PASSWORD="${SOURCE_SSH_PASSWORD:-}"
 SOURCE_SSH_IDENTITY_FILE="${SOURCE_SSH_IDENTITY_FILE:-}"
 SOURCE_DB_CONTAINER="${SOURCE_DB_CONTAINER:-dotmac_omni_db}"
 RUN_COMPOSE_RESTART="${RUN_COMPOSE_RESTART:-1}"
+# Optional command run after the swap and before app services restart, so the
+# refreshed copy is migrated to the deployed application head (each nightly
+# sync doubles as a migration rehearsal). Empty disables the step.
+STAGING_MIGRATE_COMMAND="${STAGING_MIGRATE_COMMAND:-}"
 SYNC_TMP_DIR="${SYNC_TMP_DIR:-/tmp/dotmac-staging-sync}"
 SYNC_LOCK_FILE="${SYNC_LOCK_FILE:-/tmp/dotmac-staging-sync.lock}"
 SYNC_LABEL="${SYNC_LABEL:-dotmac_staging_refresh}"
@@ -237,6 +241,15 @@ docker_psql -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE dat
 log "Swapping ${TARGET_TEMP_DB_NAME} into place as ${TARGET_DB_NAME}"
 docker_psql -c "ALTER DATABASE ${TARGET_DB_NAME} RENAME TO ${archive_db_name};"
 docker_psql -c "ALTER DATABASE ${TARGET_TEMP_DB_NAME} RENAME TO ${TARGET_DB_NAME};"
+
+if [[ -n "${STAGING_MIGRATE_COMMAND}" ]]; then
+  log "Migrating refreshed database to the deployed application head"
+  if ! bash -c "${STAGING_MIGRATE_COMMAND}"; then
+    log "ERROR: post-sync migration failed; application services remain stopped."
+    log "The pre-sync database is preserved as ${archive_db_name} for recovery."
+    exit 1
+  fi
+fi
 
 if [[ "${RUN_COMPOSE_RESTART}" == "1" ]]; then
   log "Starting staging application services"
