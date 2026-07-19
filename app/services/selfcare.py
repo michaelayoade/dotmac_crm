@@ -235,6 +235,13 @@ def _get_config(db: Session) -> dict[str, Any] | None:
         logger.warning("selfcare_config_incomplete")
         return None
 
+    # The webhook secret may be stored as a secret reference (bao://..., env://...);
+    # resolve it like selfcare_api_key. Plain values pass through unchanged.
+    resolved_webhook_secret = resolve_secret(str(webhook_secret))
+    if not resolved_webhook_secret:
+        logger.warning("selfcare_config_incomplete")
+        return None
+
     try:
         timeout_seconds = int(timeout_value if isinstance(timeout_value, int) else str(timeout_value))
     except (TypeError, ValueError):
@@ -243,7 +250,7 @@ def _get_config(db: Session) -> dict[str, Any] | None:
     return {
         "base_url": _validate_base_url(str(base_url).rstrip("/")),
         "webhook_path": str(webhook_path or DEFAULT_CUSTOMER_WEBHOOK_PATH),
-        "webhook_secret": str(webhook_secret),
+        "webhook_secret": resolved_webhook_secret,
         "timeout_seconds": timeout_seconds,
     }
 

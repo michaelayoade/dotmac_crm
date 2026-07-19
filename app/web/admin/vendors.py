@@ -1293,7 +1293,14 @@ def vendor_purchase_invoice_approve(
             status_code=303,
         )
 
+    from app.services.dotmac_erp.push_redrive import ERP_SYNC_FAILED, ERP_SYNC_PENDING
+
     if not (approved_invoice.erp_purchase_order_id or "").strip():
+        # Leave a swept "pending" marker: once the PO lands in ERP the
+        # re-drive sweep picks this invoice up, so the miss is not terminal.
+        approved_invoice.erp_sync_status = ERP_SYNC_PENDING
+        approved_invoice.erp_sync_error = "ERP sync not queued: no ERP purchase order linked to the project yet"
+        db.commit()
         detail = urlquote(
             "Purchase invoice approved, but ERP sync was not queued because no ERP PO is linked to the project.",
             safe="",
@@ -1302,11 +1309,17 @@ def vendor_purchase_invoice_approve(
         redirect_url = _append_query_param(redirect_url, "invoice_error_detail", detail)
         return RedirectResponse(url=redirect_url, status_code=303)
 
+    approved_invoice.erp_sync_status = ERP_SYNC_PENDING
+    approved_invoice.erp_sync_error = None
+    db.commit()
     try:
         from app.tasks.integrations import sync_purchase_invoice_to_erp
 
         sync_purchase_invoice_to_erp.apply_async(args=[invoice_id], countdown=2, priority=5)
     except Exception as exc:
+        approved_invoice.erp_sync_status = ERP_SYNC_FAILED
+        approved_invoice.erp_sync_error = f"ERP sync enqueue failed: {exc}"[:500]
+        db.commit()
         detail = urlquote(f"Purchase invoice approved, but ERP sync could not be queued: {exc}", safe="")
         redirect_url = _append_query_param(success_redirect, "invoice_action", "approved")
         redirect_url = _append_query_param(redirect_url, "invoice_error_detail", detail)

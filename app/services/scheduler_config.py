@@ -425,6 +425,28 @@ def build_beat_schedule() -> dict:
             interval_seconds=max(pending_expense_refresh_interval, 120),
         )
 
+        erp_push_redrive_enabled = _effective_bool(
+            session,
+            SettingDomain.integration,
+            "dotmac_erp_push_redrive_enabled",
+            "DOTMAC_ERP_PUSH_REDRIVE_ENABLED",
+            True,
+        )
+        erp_push_redrive_interval = _effective_int(
+            session,
+            SettingDomain.integration,
+            "dotmac_erp_push_redrive_interval_seconds",
+            "DOTMAC_ERP_PUSH_REDRIVE_INTERVAL_SECONDS",
+            600,
+        )
+        _sync_scheduled_task(
+            session,
+            name="dotmac_erp_push_redrive",
+            task_name="app.tasks.integrations.redrive_failed_erp_pushes",
+            enabled=erp_push_redrive_enabled,
+            interval_seconds=max(erp_push_redrive_interval, 120),
+        )
+
         retention_enabled = _effective_bool(
             session,
             SettingDomain.catalog,

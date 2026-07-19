@@ -507,6 +507,11 @@ def _execute_create_work_order(db: Session, params: dict, event: Event) -> None:
         and quote_id
         and work_order.id
     ):
+        from app.services.dotmac_erp.push_redrive import ERP_SYNC_FAILED, ERP_SYNC_PENDING
+
+        work_order.erp_sync_status = ERP_SYNC_PENDING
+        work_order.erp_sync_error = None
+        work_order.erp_po_quote_id = coerce_uuid(str(quote_id))
         try:
             from app.tasks.integrations import sync_purchase_order_to_erp
 
@@ -514,7 +519,9 @@ def _execute_create_work_order(db: Session, params: dict, event: Event) -> None:
                 args=[str(work_order.id), str(quote_id)],
                 countdown=5,
             )
-        except Exception:
+        except Exception as exc:
+            work_order.erp_sync_status = ERP_SYNC_FAILED
+            work_order.erp_sync_error = f"ERP PO sync enqueue failed: {exc}"[:500]
             logger.warning("Failed to queue PO sync for WO %s", work_order.id, exc_info=True)
 
 

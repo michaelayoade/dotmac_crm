@@ -34,6 +34,7 @@ from app.tasks.gis import sync_gis_sources
 from app.tasks.infrastructure_health import run_infrastructure_health_checks
 from app.tasks.integrations import (
     detect_dotmac_erp_identity_drift,
+    redrive_failed_erp_pushes,
     refresh_material_request_erp_status,
     refresh_pending_material_request_erp_statuses,
     run_integration_job,
@@ -110,6 +111,7 @@ __all__ = [
     "reassign_stale_ai_handoffs_task",
     "reconcile_churning_retention_customers_to_selfcare",
     "reconcile_subscriber_identity",
+    "redrive_failed_erp_pushes",
     "refresh_billing_risk_cache",
     "refresh_expiring_tokens",
     "refresh_material_request_erp_status",
