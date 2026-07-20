@@ -59,7 +59,6 @@ AI_INTAKE_PROFILE_FAILED_TAG = "ncc-profile-failed"
 AI_INTAKE_BACKGROUND_CAPTURE_METADATA_KEY = "ncc_profile_background_capture"
 AI_INTAKE_BACKGROUND_CAPTURE_REVIEW_TAG = "ncc-profile-review"
 AI_INTAKE_BACKGROUND_CAPTURE_CONFIDENCE_THRESHOLD = 0.98
-AI_INTAKE_PROFILE_COLLECTION_DEPARTMENTS = frozenset({"support", "billing_payment", "billing_renewal"})
 AI_INTAKE_PROFILE_NUDGE_MINUTES = 20
 AI_INTAKE_SEND_CLAIM_TTL_SECONDS = 300
 AI_INTAKE_PENDING_STATES = {"pending", "awaiting_customer", "awaiting_timeout", AI_INTAKE_PROFILE_STATUS}
@@ -3102,52 +3101,51 @@ def process_pending_intake(
                 mapping=mapping_by_key[department],
             )
 
-        if department in AI_INTAKE_PROFILE_COLLECTION_DEPARTMENTS:
-            resolution = resolve_ncc_profile_subject(db, conversation=conversation)
-            next_state["ncc_identity_resolution"] = {
-                "reason": resolution.reason,
-                "original_person_id": str(resolution.original_person_id) if resolution.original_person_id else None,
-                "canonical_person_id": str(resolution.canonical_person_id) if resolution.canonical_person_id else None,
-                "candidate_person_ids": [str(person_id) for person_id in resolution.candidate_person_ids],
-                "repointed": resolution.repointed,
-            }
-            if resolution.ambiguous:
-                _ensure_conversation_tag(
+        resolution = resolve_ncc_profile_subject(db, conversation=conversation)
+        next_state["ncc_identity_resolution"] = {
+            "reason": resolution.reason,
+            "original_person_id": str(resolution.original_person_id) if resolution.original_person_id else None,
+            "canonical_person_id": str(resolution.canonical_person_id) if resolution.canonical_person_id else None,
+            "candidate_person_ids": [str(person_id) for person_id in resolution.candidate_person_ids],
+            "repointed": resolution.repointed,
+        }
+        if resolution.ambiguous:
+            _ensure_conversation_tag(
+                db,
+                conversation_id=conversation.id,
+                tag=NCC_IDENTITY_AMBIGUOUS_TAG,
+            )
+            next_state["profile_collection_skipped"] = True
+            next_state["profile_collection_skip_reason"] = "ambiguous_identity"
+            logger.warning(
+                "ai_intake_profile_identity_ambiguous conversation_id=%s message_id=%s person_id=%s candidates=%s",
+                conversation.id,
+                message.id,
+                resolution.original_person_id,
+                resolution.candidate_person_ids,
+            )
+        elif not resolution.eligible or resolution.person is None:
+            next_state["profile_collection_skipped"] = True
+            next_state["profile_collection_skip_reason"] = resolution.reason
+            logger.info(
+                "ai_intake_profile_ineligible conversation_id=%s message_id=%s person_id=%s reason=%s",
+                conversation.id,
+                message.id,
+                resolution.original_person_id,
+                resolution.reason,
+            )
+        else:
+            missing_standard_fields, required_missing_fields = _profile_missing_fields(resolution.person)
+            if required_missing_fields:
+                return _begin_profile_collection(
                     db,
-                    conversation_id=conversation.id,
-                    tag=NCC_IDENTITY_AMBIGUOUS_TAG,
+                    conversation=conversation,
+                    message=message,
+                    state=next_state,
+                    department=department,
+                    missing_standard_fields=missing_standard_fields,
+                    required_missing_fields=required_missing_fields,
                 )
-                next_state["profile_collection_skipped"] = True
-                next_state["profile_collection_skip_reason"] = "ambiguous_identity"
-                logger.warning(
-                    "ai_intake_profile_identity_ambiguous conversation_id=%s message_id=%s person_id=%s candidates=%s",
-                    conversation.id,
-                    message.id,
-                    resolution.original_person_id,
-                    resolution.candidate_person_ids,
-                )
-            elif not resolution.eligible or resolution.person is None:
-                next_state["profile_collection_skipped"] = True
-                next_state["profile_collection_skip_reason"] = resolution.reason
-                logger.info(
-                    "ai_intake_profile_ineligible conversation_id=%s message_id=%s person_id=%s reason=%s",
-                    conversation.id,
-                    message.id,
-                    resolution.original_person_id,
-                    resolution.reason,
-                )
-            else:
-                missing_standard_fields, required_missing_fields = _profile_missing_fields(resolution.person)
-                if required_missing_fields:
-                    return _begin_profile_collection(
-                        db,
-                        conversation=conversation,
-                        message=message,
-                        state=next_state,
-                        department=department,
-                        missing_standard_fields=missing_standard_fields,
-                        required_missing_fields=required_missing_fields,
-                    )
 
         return _finalize_confident_match_handoff(
             db,

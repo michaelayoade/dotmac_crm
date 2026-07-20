@@ -47,6 +47,17 @@ from app.services.crm.ai_intake import (
 )
 from app.services.crm.ncc_profile import NCC_IDENTITY_AMBIGUOUS_TAG, resolve_ncc_profile_subject
 
+CANONICAL_AI_INTAKE_DEPARTMENTS = (
+    "support",
+    "billing_payment",
+    "billing_renewal",
+    "billing_reactivation",
+    "billing_adjustment",
+    "billing_general",
+    "sales",
+    "billing",
+)
+
 
 def _make_person(db_session):
     person = Person(
@@ -145,7 +156,14 @@ def _make_agent_reply(db_session, conversation, agent, *, body="On it", sent_at=
     return message
 
 
-def _make_config(db_session, *, scope_key, team_id=None, exclude_campaign_attribution=True):
+def _make_config(
+    db_session,
+    *,
+    scope_key,
+    team_id=None,
+    exclude_campaign_attribution=True,
+    department="support",
+):
     config = AiIntakeConfig(
         scope_key=scope_key,
         channel_type=ChannelType.chat_widget,
@@ -158,10 +176,10 @@ def _make_config(db_session, *, scope_key, team_id=None, exclude_campaign_attrib
         fallback_team_id=team_id,
         department_mappings=[
             {
-                "key": "support",
-                "label": "Support",
+                "key": department,
+                "label": department.replace("_", " ").title(),
                 "team_id": str(team_id) if team_id else str(uuid.uuid4()),
-                "tags": ["support"],
+                "tags": [department],
                 "priority": "high",
                 "notify_email": "",
             }
@@ -172,12 +190,17 @@ def _make_config(db_session, *, scope_key, team_id=None, exclude_campaign_attrib
     return config
 
 
-def _enable_confident_support_intake(db_session, monkeypatch, *, widget_id):
-    team = CrmTeam(name=f"NCC Support {uuid.uuid4().hex[:8]}", is_active=True)
+def _enable_confident_intake(db_session, monkeypatch, *, widget_id, department="support", confidence=0.93):
+    team = CrmTeam(name=f"NCC {department} {uuid.uuid4().hex[:8]}", is_active=True)
     db_session.add(team)
     db_session.commit()
     agent = _make_agent(db_session, team, label=f"NCC-{uuid.uuid4().hex[:6]}", status=AgentPresenceStatus.online)
-    _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
+    _make_config(
+        db_session,
+        scope_key=f"widget:{widget_id}",
+        team_id=team.id,
+        department=department,
+    )
 
     monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
     monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
@@ -185,7 +208,10 @@ def _enable_confident_support_intake(db_session, monkeypatch, *, widget_id):
         "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
         lambda db, **kwargs: (
             SimpleNamespace(
-                content='{"department":"support","confidence":0.93,"reason":"service issue","needs_followup":false,"followup_question":""}'
+                content=(
+                    f'{{"department":"{department}","confidence":{confidence},'
+                    '"reason":"service issue","needs_followup":false,"followup_question":""}'
+                )
             ),
             {"endpoint": "primary", "fallback_used": False},
         ),
@@ -657,7 +683,8 @@ def test_resolve_ncc_profile_subject_redirects_unique_selfcare_external_id(db_se
     assert conversation.person_id == canonical.id
 
 
-def test_process_pending_intake_tags_and_skips_ambiguous_ncc_identity(db_session, monkeypatch):
+@pytest.mark.parametrize("department", CANONICAL_AI_INTAKE_DEPARTMENTS)
+def test_process_pending_intake_tags_and_skips_ambiguous_ncc_identity(db_session, monkeypatch, department):
     shadow = _make_person(db_session)
     shadow.party_status = PartyStatus.lead
     shadow.date_of_birth = None
@@ -685,7 +712,12 @@ def test_process_pending_intake_tags_and_skips_ambiguous_ncc_identity(db_session
     conversation = _make_conversation(db_session, shadow)
     widget_id = str(uuid.uuid4())
     message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
-    _, _, sent = _enable_confident_support_intake(db_session, monkeypatch, widget_id=widget_id)
+    _, _, sent = _enable_confident_intake(
+        db_session,
+        monkeypatch,
+        widget_id=widget_id,
+        department=department,
+    )
 
     result = process_pending_intake(
         db_session,
@@ -706,7 +738,7 @@ def test_process_pending_intake_tags_and_skips_ambiguous_ncc_identity(db_session
         str(first_candidate.id),
         str(second_candidate.id),
     }
-    assert {tag.tag for tag in conversation.tags} == {"support", NCC_IDENTITY_AMBIGUOUS_TAG}
+    assert {tag.tag for tag in conversation.tags} == {department, NCC_IDENTITY_AMBIGUOUS_TAG}
     assert all(payload.metadata["ai_intake_message_kind"] != "profile_request" for payload in sent)
 
 
@@ -731,7 +763,7 @@ def test_process_pending_intake_redirects_then_writes_profile_to_canonical_perso
     conversation = _make_conversation(db_session, shadow)
     widget_id = str(uuid.uuid4())
     message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
-    _, _, sent = _enable_confident_support_intake(db_session, monkeypatch, widget_id=widget_id)
+    _, _, sent = _enable_confident_intake(db_session, monkeypatch, widget_id=widget_id)
 
     first_result = process_pending_intake(
         db_session,
@@ -850,17 +882,11 @@ def test_process_pending_intake_requests_missing_profile_for_selfcare_managed_pe
     assert "Gender: Male/Female/Non-binary/Other" in sent[-1].body
 
 
-@pytest.mark.parametrize(
-    ("department", "confidence", "expected_status"),
-    [
-        ("sales", 0.96, "resolved"),
-        ("billing_adjustment", 0.96, "resolved"),
-        ("billing_general", 0.96, "resolved"),
-        ("support", 0.70, "awaiting_timeout"),
-    ],
-)
-def test_process_pending_intake_only_collects_profile_for_hardened_departments(
-    db_session, monkeypatch, department, confidence, expected_status
+@pytest.mark.parametrize("department", CANONICAL_AI_INTAKE_DEPARTMENTS)
+def test_process_pending_intake_collects_profile_for_every_confident_department(
+    db_session,
+    monkeypatch,
+    department,
 ):
     person = _make_person(db_session)
     person.date_of_birth = None
@@ -868,68 +894,12 @@ def test_process_pending_intake_only_collects_profile_for_hardened_departments(
     conversation = _make_conversation(db_session, person)
     widget_id = str(uuid.uuid4())
     message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
-    team = CrmTeam(name="Routing", is_active=True)
-    db_session.add(team)
-    db_session.commit()
-    _make_agent(db_session, team, label="Assigned", status=AgentPresenceStatus.online)
-    config = AiIntakeConfig(
-        scope_key=f"widget:{widget_id}",
-        channel_type=ChannelType.chat_widget,
-        is_enabled=True,
-        confidence_threshold=0.75,
-        allow_followup_questions=True,
-        max_clarification_turns=1,
-        escalate_after_minutes=5,
-        exclude_campaign_attribution=True,
-        fallback_team_id=team.id,
-        department_mappings=[
-            {
-                "key": key,
-                "label": key.replace("_", " ").title(),
-                "team_id": str(team.id),
-                "tags": [key],
-                "priority": "medium",
-                "notify_email": "",
-            }
-            for key in ("support", "sales", "billing_adjustment", "billing_general")
-        ],
+    _, _, sent = _enable_confident_intake(
+        db_session,
+        monkeypatch,
+        widget_id=widget_id,
+        department=department,
     )
-    db_session.add(config)
-    db_session.commit()
-
-    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
-    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
-    monkeypatch.setattr(
-        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
-        lambda db, **kwargs: (
-            SimpleNamespace(
-                content=(
-                    f'{{"department":"{department}","confidence":{confidence},'
-                    '"reason":"not eligible for inline profile collection",'
-                    '"needs_followup":false,"followup_question":""}'
-                )
-            ),
-            {"endpoint": "primary", "fallback_used": False},
-        ),
-    )
-    sent = []
-
-    def _fake_send_message(db, payload, author_id=None, trace_id=None):
-        sent.append(payload)
-        outbound = Message(
-            conversation_id=payload.conversation_id,
-            channel_type=payload.channel_type,
-            direction=MessageDirection.outbound,
-            status=MessageStatus.sent,
-            body=payload.body,
-            metadata_=payload.metadata,
-        )
-        db.add(outbound)
-        db.commit()
-        db.refresh(outbound)
-        return outbound
-
-    monkeypatch.setattr("app.services.crm.ai_intake.send_message", _fake_send_message)
 
     result = process_pending_intake(
         db_session,
@@ -943,10 +913,119 @@ def test_process_pending_intake_only_collects_profile_for_hardened_departments(
     state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
 
     assert result.handled is True
-    assert state["status"] == expected_status
+    assert result.waiting_for_customer is True
+    assert state["status"] == "awaiting_profile"
+    assert state["ncc_identity_resolution"]["reason"] == "eligible_party_status"
+    assert state["profile_collection"]["requested_fields"] == ["date_of_birth", "gender"]
+    assert sent[-1].metadata["ai_intake_message_kind"] == "profile_request"
+
+
+@pytest.mark.parametrize("department", CANONICAL_AI_INTAKE_DEPARTMENTS)
+def test_process_pending_intake_skips_unlinked_lead_for_every_confident_department(
+    db_session,
+    monkeypatch,
+    department,
+):
+    person = _make_person(db_session)
+    person.party_status = PartyStatus.lead
+    person.date_of_birth = None
+    person.gender = Gender.unknown
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+    _, _, sent = _enable_confident_intake(
+        db_session,
+        monkeypatch,
+        widget_id=widget_id,
+        department=department,
+    )
+
+    result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    db_session.refresh(conversation)
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    assert result.resolved is True
+    assert state["status"] == "resolved"
+    assert state["profile_collection_skipped"] is True
+    assert state["profile_collection_skip_reason"] == "not_customer"
+    assert state["ncc_identity_resolution"]["reason"] == "not_customer"
     assert "profile_collection" not in state
     assert all(payload.metadata["ai_intake_message_kind"] != "profile_request" for payload in sent)
-    assert all("Date of birth: YYYY-MM-DD" not in payload.body for payload in sent)
+
+
+@pytest.mark.parametrize("party_status", [PartyStatus.lead, PartyStatus.contact])
+def test_sales_prospect_without_subscriber_is_not_asked_for_profile(
+    db_session,
+    monkeypatch,
+    party_status,
+):
+    person = _make_person(db_session)
+    person.party_status = party_status
+    person.date_of_birth = None
+    person.gender = Gender.unknown
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(
+        db_session, conversation, body="What packages do you offer?", metadata={"widget_config_id": widget_id}
+    )
+    _, _, sent = _enable_confident_intake(
+        db_session,
+        monkeypatch,
+        widget_id=widget_id,
+        department="sales",
+    )
+
+    result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    db_session.refresh(conversation)
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    assert result.resolved is True
+    assert state["profile_collection_skip_reason"] == "not_customer"
+    assert all(payload.metadata["ai_intake_message_kind"] != "profile_request" for payload in sent)
+
+
+def test_process_pending_intake_does_not_collect_profile_for_low_confidence_match(db_session, monkeypatch):
+    person = _make_person(db_session)
+    person.date_of_birth = None
+    person.gender = Gender.unknown
+    conversation = _make_conversation(db_session, person)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+    _, _, sent = _enable_confident_intake(
+        db_session,
+        monkeypatch,
+        widget_id=widget_id,
+        department="support",
+        confidence=0.70,
+    )
+
+    result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    db_session.refresh(conversation)
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    assert result.handled is True
+    assert state["status"] == "awaiting_timeout"
+    assert "ncc_identity_resolution" not in state
+    assert "profile_collection" not in state
+    assert all(payload.metadata["ai_intake_message_kind"] != "profile_request" for payload in sent)
 
 
 def test_process_pending_intake_profile_reply_updates_person_and_finalizes_handoff(db_session, monkeypatch):
