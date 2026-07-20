@@ -7,6 +7,8 @@ hook in ``assign_conversation`` (app/services/crm/conversations/service.py).
 import uuid
 from datetime import UTC, datetime
 
+import pytest
+
 from app.models.crm.chat_widget import ChatWidgetConfig, WidgetVisitorSession
 from app.models.crm.conversation import Message
 from app.models.crm.enums import (
@@ -20,6 +22,12 @@ from app.models.crm.team import CrmAgent
 from app.models.person import Person
 from app.schemas.crm.conversation import ConversationCreate
 from app.services.crm import conversation as conversation_service
+
+
+@pytest.fixture(autouse=True)
+def _disable_websocket_broadcasts(monkeypatch):
+    monkeypatch.setattr("app.websocket.broadcaster.broadcast_new_message", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.websocket.broadcaster.broadcast_to_widget_visitor", lambda *args, **kwargs: None)
 
 
 def _online(db_session, agent):
@@ -39,12 +47,6 @@ def _widget_conversation(db_session, crm_contact, *, greeting_enabled=True):
         db_session,
         ConversationCreate(person_id=crm_contact.id),
     )
-    # Pre-set first_response_at so Messages.create skips its first-response-time
-    # subtraction, which trips over SQLite's naive datetimes in tests (the real
-    # Postgres columns are timezone-aware). Unrelated to greeting behaviour.
-    conversation.first_response_at = datetime.now(UTC)
-    db_session.commit()
-
     config = ChatWidgetConfig(name="Web", agent_greeting_enabled=greeting_enabled)
     db_session.add(config)
     db_session.commit()
@@ -75,7 +77,7 @@ def test_greeting_sent_when_agent_picks_up_widget_chat(
     conversation = _widget_conversation(db_session, crm_contact)
     _online(db_session, crm_agent)
 
-    conversation_service.assign_conversation(
+    assignment = conversation_service.assign_conversation(
         db_session,
         conversation_id=str(conversation.id),
         agent_id=str(crm_agent.id),
@@ -88,6 +90,10 @@ def test_greeting_sent_when_agent_picks_up_widget_chat(
     assert messages[0].author_id == person.id
     assert messages[0].channel_type == ChannelType.chat_widget
     assert "assisting you today" in messages[0].body
+    assert assignment is not None
+    db_session.refresh(assignment)
+    assert assignment.first_response_message_id == messages[0].id
+    assert assignment.response_time_seconds is not None
 
 
 def test_greeting_skipped_when_disabled_on_widget(db_session, crm_contact, crm_agent, crm_team, crm_agent_team, person):

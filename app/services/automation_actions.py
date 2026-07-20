@@ -173,11 +173,26 @@ def _resolve_entity(db: Session, entity_type: str, event: Event) -> Any:
     return resolver(db, event)
 
 
+def _ai_owns_or_will_claim_conversation(db: Session, conversation: Conversation, event: Event) -> bool:
+    from app.models.crm.conversation import Message
+    from app.services.crm.ai_intake import claims_inbound_message
+    from app.services.crm.metrics import ai_intake_owns_conversation
+
+    if ai_intake_owns_conversation(conversation):
+        return True
+    if event.event_type != EventType.message_inbound or not event.payload.get("message_id"):
+        return False
+    message = db.get(Message, coerce_uuid(str(event.payload["message_id"])))
+    return bool(message and claims_inbound_message(db, conversation=conversation, message=message))
+
+
 def _execute_assign_conversation(db: Session, params: dict, event: Event) -> None:
     """Assign a conversation to an agent."""
     conversation = _resolve_entity(db, "conversation", event)
     if not conversation:
         raise ValueError("Cannot resolve conversation from event context")
+    if _ai_owns_or_will_claim_conversation(db, conversation, event):
+        return
 
     agent_id = params.get("agent_id")
     if not agent_id:
@@ -214,6 +229,8 @@ def _execute_assign_conversation_auto(db: Session, params: dict, event: Event) -
     conversation = _resolve_entity(db, "conversation", event)
     if not conversation:
         raise ValueError("Cannot resolve conversation from event context")
+    if _ai_owns_or_will_claim_conversation(db, conversation, event):
+        return
 
     existing_assignment = (
         db.query(ConversationAssignment)

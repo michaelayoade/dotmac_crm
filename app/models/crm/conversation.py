@@ -54,6 +54,8 @@ class Conversation(Base):
     # waiting for an available agent; first_assigned_at is historical.
     queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     first_assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Canonical boundary between AI ownership and the human support workflow.
+    human_handoff_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_queue_assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_queue_wait_seconds: Mapped[int | None] = mapped_column(Integer)
@@ -91,12 +93,8 @@ class ConversationAssignment(Base):
             sqlite_where=text("is_active IS TRUE"),
             postgresql_where=text("is_active IS TRUE"),
         ),
-        UniqueConstraint(
-            "conversation_id",
-            "team_id",
-            "agent_id",
-            name="uq_crm_conversation_assignments",
-        ),
+        Index("ix_crm_assignments_agent_assigned_at", "agent_id", "assigned_at"),
+        Index("ix_crm_assignments_conversation_assigned_at", "conversation_id", "assigned_at"),
         CheckConstraint(
             "team_id IS NOT NULL OR agent_id IS NOT NULL",
             name="ck_crm_conversation_assignments_team_or_agent",
@@ -111,6 +109,12 @@ class ConversationAssignment(Base):
     agent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("crm_agents.id"))
     assigned_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_response_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    response_time_seconds: Mapped[int | None] = mapped_column(Integer)
+    first_response_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crm_messages.id")
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

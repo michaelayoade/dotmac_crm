@@ -7,6 +7,7 @@ queue status).
 
 from datetime import UTC, datetime, timedelta
 
+from app.models.crm.conversation import ConversationAssignment
 from app.models.crm.enums import AgentPresenceStatus, ConversationStatus
 from app.models.crm.presence import AgentPresence
 from app.models.crm.team import CrmAgent, CrmAgentTeam
@@ -167,10 +168,16 @@ def test_promote_queue_skips_ai_owned(db_session, crm_contact, crm_agent, crm_te
     _online(db_session, crm_agent)
     conv = _conversation(db_session, crm_contact)
     conv.metadata_ = {"ai_intake": {"status": "pending"}}
-    conversation_service.assign_conversation(
-        db_session, conversation_id=str(conv.id), agent_id=None, team_id=str(crm_team.id)
+    db_session.add(
+        ConversationAssignment(
+            conversation_id=conv.id,
+            agent_id=None,
+            team_id=crm_team.id,
+            is_active=True,
+        )
     )
     routing.mark_conversation_queued(db_session, conv)
+    db_session.commit()
 
     result = queue_service.promote_queued_conversations(db_session)
     assert result["promoted"] == 0  # AI-owned row is skipped

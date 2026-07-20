@@ -40,6 +40,7 @@ class ConversationRead(ConversationBase):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: UUID
+    human_handoff_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -62,6 +63,7 @@ class ConversationAssignmentUpdate(BaseModel):
     agent_id: UUID | None = None
     assigned_by_id: UUID | None = None
     assigned_at: datetime | None = None
+    ended_at: datetime | None = None
     is_active: bool | None = None
 
 
@@ -69,6 +71,10 @@ class ConversationAssignmentRead(ConversationAssignmentBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    ended_at: datetime | None = None
+    first_response_at: datetime | None = None
+    response_time_seconds: int | None = None
+    first_response_message_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
 

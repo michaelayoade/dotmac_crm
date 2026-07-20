@@ -3,6 +3,34 @@
 **Date:** 2026-04-02
 **Status:** Draft
 
+## 2026-07-20 authoritative FRT correction
+
+The assignment service owns human-agent assignment state and first response
+timing. The following rules supersede the conversation-level FRT rules in
+Sections 1, 2, 7, and 8 where they conflict:
+
+1. AI has exclusive ownership while AI intake is in a pending state. Automation
+   rules must not assign a team or agent during that period.
+2. AI must persist a terminal handoff (`human_handoff_at` and terminal intake
+   state) before automatic routing may create an assignment.
+3. A manual assignment explicitly ends pending AI ownership before creating the
+   assignment.
+4. Every agent assignment is an immutable stint. Reassignment closes the active
+   stint with `ended_at` and creates a new row; an inactive row is never
+   reactivated or overwritten.
+5. Agent first response time is
+   `assignment.first_response_at - assignment.assigned_at`. Only the first
+   qualifying outbound reply authored by that assigned agent counts. AI/system
+   messages and generated resolved-closing messages do not count. An automatic
+   widget greeting authored by the assigned agent does count.
+6. Reports cohort assignment stints by `assigned_at` in the selected period and
+   publish assigned, responded, unanswered, and response coverage alongside the
+   average. Customer wait and AI intake time before assignment are excluded.
+7. Team-queue first response time is not defined by this change.
+
+`Conversation.first_response_at` and `Conversation.response_time_seconds` remain
+compatibility fields. `ConversationAssignment` is authoritative for agent FRT.
+
 ## Problem
 
 Conversation measurement gaps prevent SLA tracking and agent performance analysis:

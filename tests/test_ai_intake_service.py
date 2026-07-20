@@ -2802,12 +2802,23 @@ def test_agent_reply_immediately_transitions_handoff_state_without_waiting_for_s
     agent = _make_agent(db_session, team, label="Immediate", status=AgentPresenceStatus.online)
     person = _make_person(db_session)
     conversation = _make_conversation(db_session, person)
-    _seed_resolved_handoff_state(
+    handoff_at = _seed_resolved_handoff_state(
         db_session,
         conversation=conversation,
         department="support",
         handoff_sent_at=datetime.now(UTC) - timedelta(minutes=5),
+        handoff_state=AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT,
     )
+    db_session.add(
+        ConversationAssignment(
+            conversation_id=conversation.id,
+            team_id=team.id,
+            agent_id=agent.id,
+            assigned_at=handoff_at,
+            is_active=True,
+        )
+    )
+    db_session.commit()
     outbound_sent_at = (conversation.created_at or datetime.now(UTC).replace(tzinfo=None)) + timedelta(minutes=1)
 
     outbound = conversation_service.Messages.create(
@@ -3143,7 +3154,7 @@ def test_process_pending_intake_sends_only_handoff_after_resolution(db_session, 
     team = CrmTeam(name="Support", is_active=True)
     db_session.add(team)
     db_session.commit()
-    _make_agent(db_session, team, label="Assigned", status=AgentPresenceStatus.online)
+    assigned_agent = _make_agent(db_session, team, label="Assigned", status=AgentPresenceStatus.online)
     _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
 
     monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
@@ -3186,6 +3197,17 @@ def test_process_pending_intake_sends_only_handoff_after_resolution(db_session, 
 
     assert result.handled is True
     assert result.resolved is True
+    db_session.refresh(conversation)
+    assignment = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .filter(ConversationAssignment.agent_id == assigned_agent.id)
+        .filter(ConversationAssignment.is_active.is_(True))
+        .one()
+    )
+    assert conversation.human_handoff_at is not None
+    assert assignment.assigned_at is not None
+    assert assignment.assigned_at >= conversation.human_handoff_at
     assert sent == [
         "Thanks for reaching out to us. A member of our support team will respond to you shortly. Please wait for the next available agent.",
     ]
@@ -3796,6 +3818,7 @@ def test_escalate_expired_pending_intakes_opens_without_assigning_empty_fallback
     )
     assert result["escalated"] == 1
     assert conversation.status == ConversationStatus.open
+    assert conversation.human_handoff_at is not None
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["status"] == "escalated"
     assert assignment is None
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["routing_assignment_skipped_reason"] == "no_team_members"

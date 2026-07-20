@@ -7039,6 +7039,9 @@ def crm_performance_report(
 
     # Summary stats
     total_conversations = sum(agent["total_conversations"] for agent in agent_stats)
+    total_assignments = sum(int(agent.get("total_assignments") or 0) for agent in agent_stats)
+    total_first_responses = sum(int(agent.get("first_response_count") or 0) for agent in agent_stats)
+    total_unanswered_assignments = sum(int(agent.get("unanswered_assignments") or 0) for agent in agent_stats)
     resolved_conversations = sum(agent["resolved_conversations"] for agent in agent_stats)
     resolution_rate = resolved_conversations / total_conversations * 100 if total_conversations > 0 else 0
 
@@ -7120,6 +7123,9 @@ def crm_performance_report(
             "sidebar_stats": get_sidebar_stats(db),
             # Summary metrics
             "total_conversations": total_conversations,
+            "total_assignments": total_assignments,
+            "total_first_responses": total_first_responses,
+            "total_unanswered_assignments": total_unanswered_assignments,
             "resolved_conversations": resolved_conversations,
             "resolution_rate": resolution_rate,
             "avg_frt_minutes": avg_frt,
@@ -7195,6 +7201,10 @@ def crm_performance_report_export(
                 "Agent": agent["name"],
                 "Active Hours": agent.get("active_hours_display") or "",
                 "Total Conversations": agent["total_conversations"],
+                "Assignments Started": agent.get("total_assignments", 0),
+                "Assignments Responded": agent.get("first_response_count", 0),
+                "Assignments Unanswered": agent.get("unanswered_assignments", 0),
+                "Response Coverage (%)": agent.get("response_coverage_percent", 0),
                 "Resolved": agent["resolved_conversations"],
                 "Resolution Rate (%)": round(resolution_rate, 1),
                 "Avg First Response (min)": round(agent["avg_first_response_minutes"], 1)

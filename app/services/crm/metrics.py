@@ -10,6 +10,7 @@ from app.models.crm.team import CrmAgent
 
 AI_INTAKE_METADATA_KEY = "ai_intake"
 RESOLVED_CLOSING_METADATA_KEY = "resolved_closing_message"
+AI_INTAKE_OWNERSHIP_STATES = {"pending", "awaiting_customer", "awaiting_timeout", "awaiting_profile"}
 
 
 def ensure_aware(value: Any) -> datetime | None:
@@ -35,6 +36,11 @@ def ai_intake_state(conversation: Conversation) -> dict[str, Any]:
     metadata = metadata_value if isinstance(metadata_value, dict) else {}
     state = metadata.get(AI_INTAKE_METADATA_KEY)
     return state if isinstance(state, dict) else {}
+
+
+def ai_intake_owns_conversation(conversation: Conversation) -> bool:
+    """Return whether AI still has exclusive ownership of this conversation."""
+    return ai_intake_state(conversation).get("status") in AI_INTAKE_OWNERSHIP_STATES
 
 
 def ai_intake_engaged_customer(conversation: Conversation) -> bool:
