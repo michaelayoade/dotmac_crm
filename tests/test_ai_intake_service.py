@@ -17,8 +17,9 @@ from app.models.crm.enums import (
 )
 from app.models.crm.presence import AgentPresence
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmTeam
-from app.models.person import Gender, PartyStatus, Person
-from app.models.subscriber import Subscriber
+from app.models.person import ChannelType as PersonChannelType
+from app.models.person import Gender, PartyStatus, Person, PersonChannel
+from app.models.subscriber import Subscriber, SubscriberStatus
 from app.schemas.crm.conversation import MessageCreate
 from app.services.crm import conversation as conversation_service
 from app.services.crm.ai_intake import (
@@ -32,9 +33,7 @@ from app.services.crm.ai_intake import (
     _history,
     _normalize_department_key,
     _parse_profile_reply,
-    _profile_update_prompt_message,
     _send_handoff_message,
-    _send_profile_update_prompt,
     backfill_missing_handoff_states,
     escalate_expired_pending_intakes,
     make_scope_key,
@@ -46,6 +45,7 @@ from app.services.crm.ai_intake import (
     send_due_handoff_reassurance_followups,
     send_due_profile_collection_nudges,
 )
+from app.services.crm.ncc_profile import NCC_IDENTITY_AMBIGUOUS_TAG, resolve_ncc_profile_subject
 
 
 def _make_person(db_session):
@@ -60,6 +60,28 @@ def _make_person(db_session):
     db_session.add(person)
     db_session.flush()
     return person
+
+
+def _make_ncc_subscriber(
+    db_session,
+    person,
+    *,
+    status=SubscriberStatus.active,
+    is_active=True,
+    external_id=None,
+    sync_metadata=None,
+):
+    subscriber = Subscriber(
+        person_id=person.id,
+        external_system="selfcare",
+        external_id=external_id or f"sc-{uuid.uuid4()}",
+        status=status,
+        is_active=is_active,
+        sync_metadata=sync_metadata,
+    )
+    db_session.add(subscriber)
+    db_session.flush()
+    return subscriber
 
 
 def _make_conversation(db_session, person):
@@ -148,6 +170,45 @@ def _make_config(db_session, *, scope_key, team_id=None, exclude_campaign_attrib
     db_session.add(config)
     db_session.commit()
     return config
+
+
+def _enable_confident_support_intake(db_session, monkeypatch, *, widget_id):
+    team = CrmTeam(name=f"NCC Support {uuid.uuid4().hex[:8]}", is_active=True)
+    db_session.add(team)
+    db_session.commit()
+    agent = _make_agent(db_session, team, label=f"NCC-{uuid.uuid4().hex[:6]}", status=AgentPresenceStatus.online)
+    _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
+
+    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
+    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
+    monkeypatch.setattr(
+        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
+        lambda db, **kwargs: (
+            SimpleNamespace(
+                content='{"department":"support","confidence":0.93,"reason":"service issue","needs_followup":false,"followup_question":""}'
+            ),
+            {"endpoint": "primary", "fallback_used": False},
+        ),
+    )
+    sent = []
+
+    def _fake_send_message(db, payload, author_id=None, trace_id=None):
+        sent.append(payload)
+        outbound = Message(
+            conversation_id=payload.conversation_id,
+            channel_type=payload.channel_type,
+            direction=MessageDirection.outbound,
+            status=MessageStatus.sent,
+            body=payload.body,
+            metadata_=payload.metadata,
+        )
+        db.add(outbound)
+        db.commit()
+        db.refresh(outbound)
+        return outbound
+
+    monkeypatch.setattr("app.services.crm.ai_intake.send_message", _fake_send_message)
+    return team, agent, sent
 
 
 def _make_split_billing_config(
@@ -346,7 +407,6 @@ def test_process_pending_intake_resolves_and_assigns_team(db_session, monkeypatc
     assert {tag.tag for tag in conversation.tags} == {"support"}
     assert sent == [
         "Thanks for reaching out to us. A member of our support team will respond to you shortly. Please wait for the next available agent.",
-        _profile_update_prompt_message(),
     ]
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["handoff_sent"] is True
     assert conversation.metadata_[AI_INTAKE_METADATA_KEY]["handoff_sent_at"] is not None
@@ -429,11 +489,20 @@ def test_process_pending_intake_requests_missing_profile_before_assignment(db_se
 
 
 @pytest.mark.parametrize("party_status", [PartyStatus.contact, PartyStatus.lead])
-def test_process_pending_intake_requests_missing_profile_for_any_linked_person(db_session, monkeypatch, party_status):
+def test_process_pending_intake_requests_missing_profile_for_current_subscriber(db_session, monkeypatch, party_status):
     person = _make_person(db_session)
     person.party_status = party_status
     person.date_of_birth = None
     person.gender = Gender.unknown
+    db_session.add(
+        Subscriber(
+            person_id=person.id,
+            external_system="selfcare",
+            external_id=f"sc-{uuid.uuid4()}",
+            status=SubscriberStatus.active,
+            is_active=True,
+        )
+    )
     conversation = _make_conversation(db_session, person)
     widget_id = str(uuid.uuid4())
     message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
@@ -500,6 +569,221 @@ def test_process_pending_intake_requests_missing_profile_for_any_linked_person(d
     assert sent[-1].metadata["ai_intake_message_kind"] == "profile_request"
     assert "Date of birth: YYYY-MM-DD" in sent[-1].body
     assert "Gender: Male/Female/Non-binary/Other" in sent[-1].body
+
+
+def test_resolve_ncc_profile_subject_accepts_customer_without_subscriber(db_session):
+    person = _make_person(db_session)
+    person.party_status = PartyStatus.customer
+    conversation = _make_conversation(db_session, person)
+
+    resolution = resolve_ncc_profile_subject(db_session, conversation=conversation)
+
+    assert resolution.eligible is True
+    assert resolution.person is person
+    assert resolution.reason == "eligible_party_status"
+    assert resolution.repointed is False
+
+
+def test_resolve_ncc_profile_subject_accepts_lead_with_current_subscriber(db_session):
+    person = _make_person(db_session)
+    person.party_status = PartyStatus.lead
+    _make_ncc_subscriber(db_session, person, status=SubscriberStatus.active)
+    conversation = _make_conversation(db_session, person)
+
+    resolution = resolve_ncc_profile_subject(db_session, conversation=conversation)
+
+    assert resolution.eligible is True
+    assert resolution.person is person
+    assert resolution.reason == "direct_current_subscriber"
+
+
+@pytest.mark.parametrize("party_status", [PartyStatus.lead, PartyStatus.contact])
+def test_resolve_ncc_profile_subject_rejects_unlinked_non_customer(db_session, party_status):
+    person = _make_person(db_session)
+    person.party_status = party_status
+    conversation = _make_conversation(db_session, person)
+
+    resolution = resolve_ncc_profile_subject(db_session, conversation=conversation)
+
+    assert resolution.eligible is False
+    assert resolution.reason == "not_customer"
+    assert resolution.ambiguous is False
+
+
+def test_resolve_ncc_profile_subject_accepts_pending_subscriber(db_session):
+    person = _make_person(db_session)
+    person.party_status = PartyStatus.lead
+    _make_ncc_subscriber(db_session, person, status=SubscriberStatus.pending)
+    conversation = _make_conversation(db_session, person)
+
+    resolution = resolve_ncc_profile_subject(db_session, conversation=conversation)
+
+    assert resolution.eligible is True
+    assert resolution.reason == "direct_current_subscriber"
+
+
+def test_resolve_ncc_profile_subject_rejects_terminated_only_subscriber(db_session):
+    person = _make_person(db_session)
+    person.party_status = PartyStatus.contact
+    _make_ncc_subscriber(db_session, person, status=SubscriberStatus.terminated, is_active=True)
+    conversation = _make_conversation(db_session, person)
+
+    resolution = resolve_ncc_profile_subject(db_session, conversation=conversation)
+
+    assert resolution.eligible is False
+    assert resolution.reason == "not_customer"
+
+
+def test_resolve_ncc_profile_subject_redirects_unique_selfcare_external_id(db_session):
+    shadow = _make_person(db_session)
+    shadow.party_status = PartyStatus.lead
+    shadow.metadata_ = {"selfcare_id": "selfcare-canonical-1"}
+    canonical = _make_person(db_session)
+    canonical.party_status = PartyStatus.contact
+    _make_ncc_subscriber(
+        db_session,
+        canonical,
+        status=SubscriberStatus.active,
+        external_id="selfcare-canonical-1",
+    )
+    conversation = _make_conversation(db_session, shadow)
+
+    resolution = resolve_ncc_profile_subject(db_session, conversation=conversation)
+
+    assert resolution.eligible is True
+    assert resolution.person is canonical
+    assert resolution.reason == "strong_identifier_redirect"
+    assert resolution.repointed is True
+    assert conversation.person_id == canonical.id
+
+
+def test_process_pending_intake_tags_and_skips_ambiguous_ncc_identity(db_session, monkeypatch):
+    shadow = _make_person(db_session)
+    shadow.party_status = PartyStatus.lead
+    shadow.date_of_birth = None
+    shadow.gender = Gender.unknown
+    first_candidate = _make_person(db_session)
+    first_candidate.party_status = PartyStatus.contact
+    first_candidate.date_of_birth = None
+    first_candidate.gender = Gender.unknown
+    second_candidate = _make_person(db_session)
+    second_candidate.party_status = PartyStatus.contact
+    second_candidate.date_of_birth = None
+    second_candidate.gender = Gender.unknown
+    shared_phone = "+2348000001000"
+    for person in (shadow, first_candidate, second_candidate):
+        db_session.add(
+            PersonChannel(
+                person_id=person.id,
+                channel_type=PersonChannelType.phone,
+                address=shared_phone,
+                is_verified=True,
+            )
+        )
+    _make_ncc_subscriber(db_session, first_candidate)
+    _make_ncc_subscriber(db_session, second_candidate, status=SubscriberStatus.pending)
+    conversation = _make_conversation(db_session, shadow)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+    _, _, sent = _enable_confident_support_intake(db_session, monkeypatch, widget_id=widget_id)
+
+    result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    db_session.refresh(conversation)
+    state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    assert result.resolved is True
+    assert conversation.person_id == shadow.id
+    assert state["profile_collection_skipped"] is True
+    assert state["profile_collection_skip_reason"] == "ambiguous_identity"
+    assert state["ncc_identity_resolution"]["repointed"] is False
+    assert set(state["ncc_identity_resolution"]["candidate_person_ids"]) == {
+        str(first_candidate.id),
+        str(second_candidate.id),
+    }
+    assert {tag.tag for tag in conversation.tags} == {"support", NCC_IDENTITY_AMBIGUOUS_TAG}
+    assert all(payload.metadata["ai_intake_message_kind"] != "profile_request" for payload in sent)
+
+
+def test_process_pending_intake_redirects_then_writes_profile_to_canonical_person(db_session, monkeypatch):
+    shadow = _make_person(db_session)
+    shadow.party_status = PartyStatus.lead
+    canonical = _make_person(db_session)
+    canonical.party_status = PartyStatus.contact
+    canonical.date_of_birth = None
+    canonical.gender = Gender.unknown
+    shared_phone = "+2348000002000"
+    for person in (shadow, canonical):
+        db_session.add(
+            PersonChannel(
+                person_id=person.id,
+                channel_type=PersonChannelType.whatsapp,
+                address=shared_phone,
+                is_verified=True,
+            )
+        )
+    _make_ncc_subscriber(db_session, canonical, status=SubscriberStatus.pending)
+    conversation = _make_conversation(db_session, shadow)
+    widget_id = str(uuid.uuid4())
+    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
+    _, _, sent = _enable_confident_support_intake(db_session, monkeypatch, widget_id=widget_id)
+
+    first_result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=message,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=True,
+    )
+
+    db_session.refresh(conversation)
+    first_state = conversation.metadata_[AI_INTAKE_METADATA_KEY]
+    assert first_result.waiting_for_customer is True
+    assert conversation.person_id == canonical.id
+    assert first_state["status"] == "awaiting_profile"
+    assert first_state["ncc_identity_resolution"] == {
+        "reason": "strong_identifier_redirect",
+        "original_person_id": str(shadow.id),
+        "canonical_person_id": str(canonical.id),
+        "candidate_person_ids": [str(canonical.id)],
+        "repointed": True,
+    }
+    assert sent[-1].metadata["ai_intake_message_kind"] == "profile_request"
+
+    resync_calls = []
+    monkeypatch.setattr(
+        "app.services.events.handlers.selfcare_customer.enqueue_person_contact_resync",
+        lambda db, person_id, changed_fields: resync_calls.append((person_id, changed_fields)),
+    )
+    reply = _make_message(
+        db_session,
+        conversation,
+        body="Date of birth: 1992-08-17\nGender: Female",
+        metadata={"widget_config_id": widget_id},
+    )
+    second_result = process_pending_intake(
+        db_session,
+        conversation=conversation,
+        message=reply,
+        scope_key=f"widget:{widget_id}",
+        is_new_conversation=False,
+    )
+
+    db_session.refresh(shadow)
+    db_session.refresh(canonical)
+    db_session.refresh(conversation)
+    assert second_result.resolved is True
+    assert conversation.person_id == canonical.id
+    assert canonical.date_of_birth == date(1992, 8, 17)
+    assert canonical.gender == Gender.female
+    assert shadow.date_of_birth == date(1990, 1, 1)
+    assert shadow.gender == Gender.male
+    assert resync_calls == [(str(canonical.id), {"date_of_birth", "gender"})]
 
 
 def test_process_pending_intake_requests_missing_profile_for_selfcare_managed_person(db_session, monkeypatch):
@@ -1449,7 +1733,6 @@ def test_process_pending_intake_routes_billing_payment_to_sales_call_center(db_s
     assert assignment.agent_id is not None
     assert sent == [
         "Thanks for reaching out to us. A member of our billing team will respond to you shortly. Please wait for the next available agent.",
-        _profile_update_prompt_message(),
     ]
 
 
@@ -1518,7 +1801,6 @@ def test_process_pending_intake_routes_billing_renewal_to_sales(db_session, monk
     assert assignment.agent_id is not None
     assert sent == [
         "Thanks for reaching out to us. A member of our billing team will respond to you shortly. Please wait for the next available agent.",
-        _profile_update_prompt_message(),
     ]
 
 
@@ -1707,14 +1989,6 @@ def test_coerce_ai_bool_variants(raw_value, expected):
 def test_handoff_copy_is_department_specific(department, handoff_message, reassurance_message):
     assert _handoff_message_for_department(department) == handoff_message
     assert _handoff_reassurance_message_for_department(department) == reassurance_message
-
-
-def test_profile_update_prompt_copy():
-    assert _profile_update_prompt_message() == (
-        "Thanks for reaching out to us. In the meantime, please take a moment to update your profile details so we can serve you better.\n\n"
-        "You can update your information here: https://selfcare.dotmac.io/portal/profile\n\n"
-        "Please remember to save your changes when you're done."
-    )
 
 
 def test_process_pending_intake_ignores_offline_agents_for_round_robin(db_session, monkeypatch):
@@ -2861,89 +3135,7 @@ def test_send_handoff_message_reconciles_existing_message_without_resend(db_sess
     assert state["handoff_message"] == outbound.body
 
 
-def test_send_profile_update_prompt_reconciles_existing_message_without_resend(db_session, monkeypatch):
-    person = _make_person(db_session)
-    conversation = _make_conversation(db_session, person)
-    inbound = _make_message(db_session, conversation, body="Need help")
-    outbound = Message(
-        conversation_id=conversation.id,
-        channel_type=inbound.channel_type,
-        direction=MessageDirection.outbound,
-        status=MessageStatus.sent,
-        body=_profile_update_prompt_message(),
-        sent_at=datetime.now(UTC),
-        metadata_={
-            "ai_intake_generated": True,
-            "ai_intake_message_kind": "profile_update_prompt",
-        },
-    )
-    db_session.add(outbound)
-    db_session.commit()
-
-    monkeypatch.setattr(
-        "app.services.crm.ai_intake.send_message",
-        lambda db, payload, author_id=None, trace_id=None: pytest.fail(
-            "existing profile update prompt should be reconciled"
-        ),
-    )
-
-    result = _send_profile_update_prompt(
-        db_session,
-        conversation=conversation,
-        message=inbound,
-    )
-
-    assert result is False
-
-
-def test_process_pending_intake_does_not_send_profile_update_prompt_when_handoff_is_suppressed(db_session, monkeypatch):
-    person = _make_person(db_session)
-    conversation = _make_conversation(db_session, person)
-    widget_id = str(uuid.uuid4())
-    message = _make_message(db_session, conversation, metadata={"widget_config_id": widget_id})
-    team = CrmTeam(name="Support", is_active=True)
-    db_session.add(team)
-    db_session.commit()
-    _make_agent(db_session, team, label="Assigned", status=AgentPresenceStatus.online)
-    _make_config(db_session, scope_key=f"widget:{widget_id}", team_id=team.id)
-
-    monkeypatch.setenv("CRM_AI_PENDING_INTAKE_ENABLED", "1")
-    monkeypatch.setattr("app.services.crm.ai_intake.ai_gateway.enabled", lambda db: True)
-    monkeypatch.setattr(
-        "app.services.crm.ai_intake.ai_gateway.generate_with_fallback",
-        lambda db, **kwargs: (
-            SimpleNamespace(
-                content='{"department":"support","confidence":0.93,"reason":"service issue","needs_followup":false,"followup_question":""}'
-            ),
-            {"endpoint": "primary", "fallback_used": False},
-        ),
-    )
-    sent: list[str] = []
-
-    def _fake_send_handoff_message(db, *, conversation, message, department):
-        return False
-
-    def _fake_send_profile_update_prompt(db, *, conversation, message):
-        sent.append("profile")
-        return True
-
-    monkeypatch.setattr("app.services.crm.ai_intake._send_handoff_message", _fake_send_handoff_message)
-    monkeypatch.setattr("app.services.crm.ai_intake._send_profile_update_prompt", _fake_send_profile_update_prompt)
-
-    result = process_pending_intake(
-        db_session,
-        conversation=conversation,
-        message=message,
-        scope_key=f"widget:{widget_id}",
-        is_new_conversation=True,
-    )
-
-    assert result.handled is True
-    assert result.resolved is True
-    assert sent == []
-
-
-def test_process_pending_intake_sends_profile_update_prompt_after_handoff(db_session, monkeypatch):
+def test_process_pending_intake_sends_only_handoff_after_resolution(db_session, monkeypatch):
     person = _make_person(db_session)
     conversation = _make_conversation(db_session, person)
     widget_id = str(uuid.uuid4())
@@ -2996,7 +3188,6 @@ def test_process_pending_intake_sends_profile_update_prompt_after_handoff(db_ses
     assert result.resolved is True
     assert sent == [
         "Thanks for reaching out to us. A member of our support team will respond to you shortly. Please wait for the next available agent.",
-        _profile_update_prompt_message(),
     ]
 
 

@@ -55,7 +55,7 @@ dotmac_sub `/api/v1/crm/*` bearer API + a signed customer-create webhook).
 - The active event handler is `events/handlers/selfcare_customer.py` (`SelfcareCustomerHandler`).
 - Identity: `person.selfcare_id` (legacy `person.splynx_id` is a deprecated read-alias).
 - Settings live under the `integration` domain as `selfcare_*` (base_url, api_token, customer webhook).
-- Exception: AI intake may collect missing NCC `date_of_birth`/`gender` for linked people in internet-support, payment, or renewal conversations, write those fields to CRM, then request selfcare contact resync.
+- Exception: AI intake may collect missing NCC `date_of_birth`/`gender` in internet-support, payment, or renewal conversations only after `resolve_ncc_profile_subject()` establishes one canonical eligible Person. Eligibility is `party_status` customer/subscriber or a direct active Subscriber in active/suspended/pending status; terminated-only links do not qualify. A unique strong identity may repoint the conversation before collection, while ambiguous identities are tagged and handed off without profile collection.
 
 ## Common Utilities (`app/services/common.py`)
 | Function | Purpose |
