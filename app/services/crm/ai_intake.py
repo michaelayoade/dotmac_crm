@@ -59,7 +59,18 @@ AI_INTAKE_PROFILE_FAILED_TAG = "ncc-profile-failed"
 AI_INTAKE_BACKGROUND_CAPTURE_METADATA_KEY = "ncc_profile_background_capture"
 AI_INTAKE_BACKGROUND_CAPTURE_REVIEW_TAG = "ncc-profile-review"
 AI_INTAKE_BACKGROUND_CAPTURE_CONFIDENCE_THRESHOLD = 0.98
-AI_INTAKE_PROFILE_COLLECTION_DEPARTMENTS = frozenset({"support", "billing_payment", "billing_renewal"})
+AI_INTAKE_PROFILE_COLLECTION_DEPARTMENTS = frozenset(
+    {
+        "support",
+        "billing_payment",
+        "billing_renewal",
+        "billing_reactivation",
+        "billing_adjustment",
+        "billing_general",
+        "sales",
+        "billing",
+    }
+)
 AI_INTAKE_PROFILE_NUDGE_MINUTES = 20
 AI_INTAKE_SEND_CLAIM_TTL_SECONDS = 300
 AI_INTAKE_PENDING_STATES = {"pending", "awaiting_customer", "awaiting_timeout", AI_INTAKE_PROFILE_STATUS}
