@@ -1773,6 +1773,14 @@ def _finalize_confident_match_handoff(
     mapping: AiIntakeDepartmentMapping,
     source: str = "ai_intake_resolution",
 ) -> AiIntakeResult:
+    now = _now()
+    conversation.status = ConversationStatus.open
+    conversation.human_handoff_at = now
+    state["status"] = "resolved"
+    state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT
+    state["resolved_at"] = _serialize_timestamp(now)
+    _set_state(conversation, state)
+    db.commit()
     _apply_department_assignment(
         db,
         conversation=conversation,
@@ -1782,11 +1790,6 @@ def _finalize_confident_match_handoff(
         fallback_team_id=coerce_uuid(config.fallback_team_id) if config.fallback_team_id else None,
         block_fallback=True,
     )
-    now = _now()
-    conversation.status = ConversationStatus.open
-    state["status"] = "resolved"
-    state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT
-    state["resolved_at"] = _serialize_timestamp(now)
     _set_state(conversation, state)
     db.commit()
     conversation_id_str = str(conversation.id)
@@ -2123,6 +2126,8 @@ def mark_handoff_assigned_for_manual_assignment(
         return False
 
     now = _now()
+    conversation.status = ConversationStatus.open
+    conversation.human_handoff_at = now
     state["status"] = "human_assigned"
     state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_ASSIGNED
     state["human_assigned_at"] = _serialize_timestamp(now)
@@ -2611,6 +2616,38 @@ def _is_new_conversation(db: Session, conversation: Conversation, message: Messa
     return count <= 1 and message.direction == MessageDirection.inbound
 
 
+def claims_inbound_message(db: Session, *, conversation: Conversation, message: Message) -> bool:
+    """Whether configured AI intake has first right of refusal on this message.
+
+    Message automation runs before channel handlers call ``process_pending_intake``.
+    This pre-claim check closes that ordering window without persisting a fake
+    intake state. If intake later declines, the channel handler applies ordinary
+    routing itself.
+    """
+    current_state = _state(conversation)
+    if current_state.get("status") in AI_INTAKE_PENDING_STATES:
+        return True
+    if current_state.get("status") in AI_INTAKE_TERMINAL_STATES:
+        return False
+    if not _enabled_by_env() or not _eligible_channel(message):
+        return False
+
+    metadata = message.metadata_ if isinstance(message.metadata_, dict) else {}
+    scope_key = make_scope_key(
+        channel_type=message.channel_type,
+        target_id=str(message.channel_target_id) if message.channel_target_id else None,
+        widget_config_id=str(metadata.get("widget_config_id")) if metadata.get("widget_config_id") else None,
+    )
+    config = get_config_for_scope(db, scope_key)
+    if not config or not config.is_enabled:
+        return False
+    if config.exclude_campaign_attribution and _campaign_attribution(_merge_metadata(conversation, message)):
+        return False
+    if not _mapping_objects(config):
+        return False
+    return _is_new_conversation(db, conversation, message)
+
+
 def _base_state(
     *,
     conversation: Conversation,
@@ -2811,6 +2848,19 @@ def _escalate_pending_intake(
     mapping_by_key = {item.key: item for item in _mapping_objects(config)} if config else {}
     selected_mapping = mapping_by_key.get(department) if department else None
 
+    now = _now()
+    conversation.status = ConversationStatus.open
+    conversation.human_handoff_at = now
+    state["status"] = "escalated"
+    state["handoff_state"] = AI_INTAKE_HANDOFF_STATE_AWAITING_AGENT
+    state["escalated_reason"] = reason
+    state["escalated_at"] = _serialize_timestamp(now)
+    if config:
+        state["config_id"] = str(config.id)
+        state["fallback_used"] = bool(config.fallback_team_id and not selected_mapping)
+    _set_state(conversation, state)
+    db.commit()
+
     if selected_mapping:
         _apply_department_assignment(
             db,
@@ -2837,13 +2887,6 @@ def _escalate_pending_intake(
             state=state,
             source=f"ai_intake_escalation:{reason}",
         )
-    conversation.status = ConversationStatus.open
-    state["status"] = "escalated"
-    state["escalated_reason"] = reason
-    state["escalated_at"] = _serialize_timestamp(_now())
-    if config:
-        state["config_id"] = str(config.id)
-        state["fallback_used"] = bool(config.fallback_team_id and not selected_mapping)
     _set_state(conversation, state)
     db.commit()
     inbox_cache.invalidate_inbox_list()

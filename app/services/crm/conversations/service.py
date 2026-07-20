@@ -227,21 +227,41 @@ class ConversationAssignments(ListResponseMixin):
                 status_code=400,
                 detail="Conversation assignment requires team_id or agent_id",
             )
-        assigned_at_value = payload.assigned_at or _now()
+        from app.services.crm.metrics import ai_intake_owns_conversation
+
+        manual_handoff_completed = False
+        if ai_intake_owns_conversation(conversation):
+            if payload.assigned_by_id is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="AI must relinquish conversation ownership before automatic assignment",
+                )
+            try:
+                from app.services.crm.ai_intake import mark_handoff_assigned_for_manual_assignment
+
+                manual_handoff_completed = mark_handoff_assigned_for_manual_assignment(
+                    db,
+                    conversation=conversation,
+                    assigned_agent_id=str(payload.agent_id) if payload.agent_id else None,
+                    assigned_by_id=str(payload.assigned_by_id),
+                )
+            except Exception:
+                logger.exception("ai_intake_manual_assignment_handoff_mark_failed conversation_id=%s", conversation.id)
+                raise
+        assigned_at_value = _now() if manual_handoff_completed else (payload.assigned_at or _now())
         try:
             existing = (
                 db.query(ConversationAssignment)
                 .filter(ConversationAssignment.conversation_id == payload.conversation_id)
                 .filter(ConversationAssignment.team_id == payload.team_id)
                 .filter(ConversationAssignment.agent_id == payload.agent_id)
+                .filter(ConversationAssignment.is_active.is_(True))
                 .first()
             )
 
-            if existing and existing.is_active:
+            if existing:
                 if payload.assigned_by_id is not None:
                     existing.assigned_by_id = payload.assigned_by_id
-                if payload.assigned_at is not None:
-                    existing.assigned_at = assigned_at_value
                 from app.services.crm.inbox.summaries import recompute_conversation_summary_and_invalidate_cache
 
                 recompute_conversation_summary_and_invalidate_cache(db, str(payload.conversation_id))
@@ -253,24 +273,14 @@ class ConversationAssignments(ListResponseMixin):
                 ConversationAssignment.conversation_id == payload.conversation_id,
                 ConversationAssignment.is_active.is_(True),
             )
-            if existing:
-                deactivate_query = deactivate_query.filter(ConversationAssignment.id != existing.id)
-            deactivate_query.update({"is_active": False, "updated_at": _now()})
+            deactivate_query.update(
+                {"is_active": False, "ended_at": assigned_at_value, "updated_at": assigned_at_value},
+                synchronize_session=False,
+            )
 
-            if existing:
-                existing.is_active = True
-                existing.assigned_at = assigned_at_value
-                existing.assigned_by_id = payload.assigned_by_id
-                from app.services.crm.inbox.summaries import recompute_conversation_summary_and_invalidate_cache
-
-                recompute_conversation_summary_and_invalidate_cache(db, str(payload.conversation_id))
-                db.commit()
-                db.refresh(existing)
-                return existing
-
-            assignment = ConversationAssignment(**payload.model_dump())
-            if assignment.assigned_at is None:
-                assignment.assigned_at = assigned_at_value
+            assignment_data = payload.model_dump()
+            assignment_data["assigned_at"] = assigned_at_value
+            assignment = ConversationAssignment(**assignment_data)
             db.add(assignment)
             from app.services.crm.inbox.summaries import recompute_conversation_summary_and_invalidate_cache
 
@@ -375,62 +385,47 @@ class Messages(ListResponseMixin):
         conversation.last_message_at = timestamp
         conversation.updated_at = timestamp
 
-        # Populate first_response_at for the first agent-authored outbound message.
-        if (
-            message.direction == MessageDirection.outbound
-            and conversation.first_response_at is None
-            and message.author_id
-        ):
+        # Capture first response on the assignment stint that actually owns it.
+        if message.direction == MessageDirection.outbound and message.author_id:
             from app.services.crm.metrics import (
-                active_agent_assignment_for_conversation,
                 active_assignment_for_agent,
                 agent_for_person,
-                effective_first_response_start_at,
                 ensure_aware,
                 is_resolved_closing_message,
             )
 
-            assignment = None
-            is_first_response_owner = False
             agent = agent_for_person(db, message.author_id)
+            assignment = None
             if agent:
                 assignment = active_assignment_for_agent(db, conversation_id=conversation.id, agent_id=agent.id)
-                has_other_active_agent = (
-                    assignment is None
-                    and active_agent_assignment_for_conversation(db, conversation_id=conversation.id) is not None
-                )
-                if has_other_active_agent:
-                    is_first_response_owner = False
-                else:
-                    # Preserve metric capture for legacy/unassigned conversations while
-                    # avoiding credit when another agent owns the active assignment.
-                    is_first_response_owner = True
-
-            if is_first_response_owner and not is_resolved_closing_message(message, conversation=conversation):
-                first_inbound_at = (
-                    db.query(func.coalesce(Message.received_at, Message.sent_at, Message.created_at))
-                    .filter(Message.conversation_id == conversation.id)
-                    .filter(Message.direction == MessageDirection.inbound)
-                    .order_by(func.coalesce(Message.received_at, Message.sent_at, Message.created_at).asc())
-                    .first()
-                )
-                response_start = effective_first_response_start_at(
-                    conversation,
-                    assignment=assignment,
-                    first_inbound_at=first_inbound_at[0] if first_inbound_at else None,
-                    response_at=timestamp,
-                )
+            metadata_map = message.metadata_ if isinstance(message.metadata_, dict) else {}
+            if (
+                assignment is not None
+                and assignment.first_response_at is None
+                and not metadata_map.get("ai_intake_generated")
+                and not is_resolved_closing_message(message, conversation=conversation)
+            ):
                 timestamp = ensure_aware(timestamp) or timestamp
-                response_start = ensure_aware(response_start) or ensure_aware(conversation.created_at) or timestamp
-                conversation.first_response_at = timestamp
-                conversation.response_time_seconds = max(0, int((timestamp - response_start).total_seconds()))
-                from app.services.crm.ai_intake import mark_handoff_in_progress_for_human_reply
-
-                mark_handoff_in_progress_for_human_reply(
-                    db,
-                    conversation=conversation,
-                    message=message,
+                response_start = (
+                    ensure_aware(assignment.assigned_at) or ensure_aware(assignment.created_at) or timestamp
                 )
+                if timestamp >= response_start:
+                    if message.id is None:
+                        db.flush()
+                    response_seconds = max(0, int((timestamp - response_start).total_seconds()))
+                    assignment.first_response_at = timestamp
+                    assignment.response_time_seconds = response_seconds
+                    assignment.first_response_message_id = message.id
+                    if conversation.first_response_at is None:
+                        conversation.first_response_at = timestamp
+                        conversation.response_time_seconds = response_seconds
+                    from app.services.crm.ai_intake import mark_handoff_in_progress_for_human_reply
+
+                    mark_handoff_in_progress_for_human_reply(
+                        db,
+                        conversation=conversation,
+                        message=message,
+                    )
 
         from app.services.crm.inbox.summaries import recompute_conversation_summary
 
@@ -879,21 +874,6 @@ def assign_conversation(
         )
         assignment = ConversationAssignments.create(db, payload)
 
-        if assigned_by_id is not None and agent_uuid is not None:
-            if conversation.status == ConversationStatus.pending:
-                conversation.status = ConversationStatus.open
-            try:
-                from app.services.crm.ai_intake import mark_handoff_assigned_for_manual_assignment
-
-                mark_handoff_assigned_for_manual_assignment(
-                    db,
-                    conversation=conversation,
-                    assigned_agent_id=str(agent_uuid),
-                    assigned_by_id=str(coerce_uuid(assigned_by_id)),
-                )
-            except Exception:
-                logger.exception("ai_intake_manual_assignment_handoff_mark_failed conversation_id=%s", conversation.id)
-
         # Stamp the first time an agent (not a team-only queue) takes the chat —
         # historical and idempotent.
         assigned_now = _now()
@@ -927,10 +907,11 @@ def assign_conversation(
 
         return assignment
     else:
+        ended_at = _now()
         db.query(ConversationAssignment).filter(
             ConversationAssignment.conversation_id == conversation.id,
             ConversationAssignment.is_active.is_(True),
-        ).update({"is_active": False, "updated_at": _now()})
+        ).update({"is_active": False, "ended_at": ended_at, "updated_at": ended_at})
         from app.services.crm.inbox.summaries import recompute_conversation_summary_and_invalidate_cache
 
         recompute_conversation_summary_and_invalidate_cache(db, str(conversation.id))
@@ -967,10 +948,11 @@ def unassign_conversation(
     conversation_id: str,
 ) -> None:
     """Remove active assignment from a conversation."""
+    ended_at = _now()
     db.query(ConversationAssignment).filter(
         ConversationAssignment.conversation_id == coerce_uuid(conversation_id),
         ConversationAssignment.is_active.is_(True),
-    ).update({"is_active": False, "updated_at": _now()})
+    ).update({"is_active": False, "ended_at": ended_at, "updated_at": ended_at})
     from app.services.crm.inbox.summaries import recompute_conversation_summary_and_invalidate_cache
 
     recompute_conversation_summary_and_invalidate_cache(db, conversation_id)

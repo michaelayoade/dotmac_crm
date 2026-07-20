@@ -283,7 +283,7 @@ def test_agent_performance_starts_response_and_resolution_at_ai_handoff(db_sessi
     assert rows[0]["resolution_time_count"] == 1
 
 
-def test_agent_performance_counts_agent_reply_before_late_assignment(db_session, monkeypatch):
+def test_agent_performance_uses_assignment_start_not_old_customer_inbound(db_session, monkeypatch):
     now = datetime.now(UTC)
     start_at = now - timedelta(days=1)
 
@@ -296,9 +296,9 @@ def test_agent_performance_counts_agent_reply_before_late_assignment(db_session,
     db_session.add(agent)
     db_session.flush()
 
-    inbound_at = now - timedelta(minutes=50)
+    inbound_at = now - timedelta(days=2)
     first_reply_at = now - timedelta(minutes=2)
-    assigned_at = now
+    assigned_at = first_reply_at - timedelta(minutes=2, seconds=12)
     conversation = Conversation(
         person_id=contact.id,
         status=ConversationStatus.resolved,
@@ -372,7 +372,11 @@ def test_agent_performance_counts_agent_reply_before_late_assignment(db_session,
     )
 
     assert len(rows) == 1
-    assert rows[0]["avg_first_response_minutes"] == 48.0
+    assert rows[0]["avg_first_response_minutes"] == 2.2
+    assert rows[0]["total_assignments"] == 1
+    assert rows[0]["first_response_count"] == 1
+    assert rows[0]["unanswered_assignments"] == 0
+    assert rows[0]["response_coverage_percent"] == 100.0
 
 
 def test_agent_performance_ignores_resolved_closing_message_as_first_response(db_session, monkeypatch):

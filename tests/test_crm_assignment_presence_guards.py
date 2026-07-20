@@ -336,6 +336,84 @@ def test_manual_assignment_reopens_snoozed_conversation(
     assert conversation.metadata_ == {}
 
 
+def test_manual_assignment_relinquishes_ai_before_starting_agent_stint(
+    db_session, crm_contact, crm_agent, crm_team, crm_agent_team, person
+):
+    conversation = conversation_service.Conversations.create(
+        db_session,
+        ConversationCreate(person_id=crm_contact.id),
+    )
+    conversation.status = ConversationStatus.pending
+    conversation.metadata_ = {
+        "ai_intake": {
+            "status": "awaiting_customer",
+            "handoff_state": None,
+        }
+    }
+    db_session.add(
+        AgentPresence(
+            agent_id=crm_agent.id,
+            status=AgentPresenceStatus.online,
+            manual_override_status=None,
+            last_seen_at=datetime.now(UTC),
+        )
+    )
+    db_session.commit()
+
+    assignment = conversation_service.assign_conversation(
+        db_session,
+        conversation_id=str(conversation.id),
+        agent_id=str(crm_agent.id),
+        team_id=str(crm_team.id),
+        assigned_by_id=str(person.id),
+    )
+
+    db_session.refresh(conversation)
+    assert assignment is not None
+    assert conversation.status == ConversationStatus.open
+    assert conversation.human_handoff_at is not None
+    assert assignment.assigned_at is not None
+    assert assignment.assigned_at >= conversation.human_handoff_at
+    assert conversation.metadata_["ai_intake"]["status"] == "human_assigned"
+
+
+def test_automatic_assignment_is_rejected_while_ai_owns_conversation(
+    db_session, crm_contact, crm_agent, crm_team, crm_agent_team
+):
+    conversation = conversation_service.Conversations.create(
+        db_session,
+        ConversationCreate(person_id=crm_contact.id),
+    )
+    conversation.status = ConversationStatus.pending
+    conversation.metadata_ = {"ai_intake": {"status": "awaiting_customer"}}
+    db_session.add(
+        AgentPresence(
+            agent_id=crm_agent.id,
+            status=AgentPresenceStatus.online,
+            manual_override_status=None,
+            last_seen_at=datetime.now(UTC),
+        )
+    )
+    db_session.commit()
+
+    with pytest.raises(HTTPException, match="AI must relinquish") as exc:
+        conversation_service.assign_conversation(
+            db_session,
+            conversation_id=str(conversation.id),
+            agent_id=str(crm_agent.id),
+            team_id=str(crm_team.id),
+            assigned_by_id=None,
+        )
+
+    assert exc.value.status_code == 409
+    assert (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .count()
+        == 0
+    )
+
+
 def _create_inbound_message(db_session, conversation):
     message = Message(
         conversation_id=conversation.id,
@@ -501,7 +579,7 @@ def test_manual_assignment_same_target_is_idempotent(
     assert assignments[0].is_active is True
 
 
-def test_manual_assignment_reactivates_existing_inactive_tuple(
+def test_manual_reassignment_creates_new_stint_and_preserves_old_one(
     db_session, crm_contact, crm_agent, crm_team, crm_agent_team, person
 ):
     conversation = conversation_service.Conversations.create(
@@ -539,7 +617,10 @@ def test_manual_assignment_reactivates_existing_inactive_tuple(
 
     assert original is not None
     assert reassigned is not None
-    assert reassigned.id == original.id
+    assert reassigned.id != original.id
+    db_session.refresh(original)
+    assert original.is_active is False
+    assert original.ended_at is not None
     active = (
         db_session.query(ConversationAssignment)
         .filter(ConversationAssignment.conversation_id == conversation.id)
@@ -547,4 +628,11 @@ def test_manual_assignment_reactivates_existing_inactive_tuple(
         .all()
     )
     assert len(active) == 1
-    assert active[0].id == original.id
+    assert active[0].id == reassigned.id
+    all_assignments = (
+        db_session.query(ConversationAssignment)
+        .filter(ConversationAssignment.conversation_id == conversation.id)
+        .order_by(ConversationAssignment.assigned_at.asc())
+        .all()
+    )
+    assert [assignment.id for assignment in all_assignments] == [original.id, reassigned.id]

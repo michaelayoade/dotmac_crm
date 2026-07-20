@@ -48,8 +48,16 @@ class TestFirstResponseAt:
     def test_set_on_first_agent_outbound_message(self, db_session):
         person = _make_person(db_session)
         agent_person = _make_person(db_session)
-        _make_agent(db_session, agent_person.id)
+        agent = _make_agent(db_session, agent_person.id)
         conv = _make_conversation(db_session, person.id)
+        assignment = ConversationAssignment(
+            conversation_id=conv.id,
+            agent_id=agent.id,
+            assigned_at=datetime.now(UTC) - timedelta(minutes=1),
+            is_active=True,
+        )
+        db_session.add(assignment)
+        db_session.commit()
 
         payload = MessageCreate(
             conversation_id=conv.id,
@@ -65,6 +73,10 @@ class TestFirstResponseAt:
         assert conv.first_response_at is not None
         assert conv.response_time_seconds is not None
         assert conv.response_time_seconds >= 0
+        db_session.refresh(assignment)
+        assert assignment.first_response_at is not None
+        assert assignment.response_time_seconds == conv.response_time_seconds
+        assert assignment.first_response_message_id is not None
 
     def test_not_set_on_inbound_message(self, db_session):
         person = _make_person(db_session)
@@ -106,8 +118,16 @@ class TestFirstResponseAt:
     def test_not_overwritten_on_second_outbound(self, db_session):
         person = _make_person(db_session)
         agent_person = _make_person(db_session)
-        _make_agent(db_session, agent_person.id)
+        agent = _make_agent(db_session, agent_person.id)
         conv = _make_conversation(db_session, person.id)
+        assignment = ConversationAssignment(
+            conversation_id=conv.id,
+            agent_id=agent.id,
+            assigned_at=datetime.now(UTC) - timedelta(minutes=1),
+            is_active=True,
+        )
+        db_session.add(assignment)
+        db_session.commit()
 
         payload1 = MessageCreate(
             conversation_id=conv.id,
@@ -227,13 +247,13 @@ class TestFirstResponseAt:
         assert conv.first_response_at is None
         assert conv.response_time_seconds is None
 
-    def test_first_response_seconds_uses_customer_wait_when_assignment_is_late(self, db_session):
+    def test_first_response_seconds_excludes_customer_wait_before_assignment(self, db_session):
         person = _make_person(db_session)
         agent_person = _make_person(db_session)
         agent = _make_agent(db_session, agent_person.id)
         conv = _make_conversation(db_session, person.id)
         inbound_at = datetime.now(UTC) - timedelta(minutes=48)
-        assigned_at = datetime.now(UTC) + timedelta(minutes=2)
+        assigned_at = datetime.now(UTC) - timedelta(minutes=2)
         conv.created_at = inbound_at
         conv.first_assigned_at = assigned_at
         conv.metadata_ = {
@@ -278,7 +298,7 @@ class TestFirstResponseAt:
 
         assert conv.first_response_at is not None
         assert conv.response_time_seconds is not None
-        assert 47 * 60 <= conv.response_time_seconds <= 49 * 60
+        assert 60 <= conv.response_time_seconds <= 3 * 60
 
     def test_resolved_closing_message_does_not_set_first_response(self, db_session):
         person = _make_person(db_session)
