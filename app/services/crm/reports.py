@@ -503,19 +503,14 @@ def project_metrics(
     }
 
 
-def agent_performance_metrics(
+def _scoped_agent_performance_cohort(
     db: Session,
     start_at: datetime | None,
     end_at: datetime | None,
     agent_id: str | None,
     team_id: str | None,
     channel_type: str | None,
-) -> list[dict]:
-    """Get per-agent metrics from assignment stints started in the period.
-
-    Agent FRT is always the stint's assigned_at to that same agent's first
-    qualifying reply. Customer and AI time before assignment is not included.
-    """
+) -> dict[str, Any]:
     from app.models.person import Person
 
     agents_query = db.query(CrmAgent).filter(CrmAgent.is_active.is_(True))
@@ -529,7 +524,15 @@ def agent_performance_metrics(
         )
     agents = agents_query.limit(100).all()
     if not agents:
-        return []
+        return {
+            "agents": [],
+            "person_map": {},
+            "presence_seconds_by_agent": {},
+            "assignments_by_agent": {},
+            "filtered_assignments": [],
+            "conversations_by_id": {},
+            "outbound_candidates": {},
+        }
 
     person_ids = [agent.person_id for agent in agents if agent.person_id]
     persons = db.query(Person).filter(Person.id.in_(person_ids)).all() if person_ids else []
@@ -546,7 +549,6 @@ def agent_performance_metrics(
             end_at=end_at,
         )
 
-    # Assignment start is the report cohort and the authoritative FRT start.
     agent_ids = [agent.id for agent in agents]
     assignment_query = (
         db.query(ConversationAssignment)
@@ -570,9 +572,6 @@ def agent_performance_metrics(
     )
     conversations_by_id = {conversation.id: conversation for conversation in conversations}
 
-    # Channel activity determines which assignment stints belong to a filtered
-    # report. Outbound candidates are also the safe fallback for pre-migration
-    # rows whose per-stint result has not yet been captured.
     channel_conversation_ids: set[Any] = set(all_conversation_ids) if not channel_value else set()
     outbound_candidates: dict[tuple[str, str], list[tuple[Any, Message]]] = {}
     if all_conversation_ids:
@@ -608,6 +607,56 @@ def agent_performance_metrics(
                 continue
             outbound_candidates.setdefault((str(conversation_id), str(author_id)), []).append((msg_time, message))
 
+    filtered_assignments_by_agent: dict[Any, list[ConversationAssignment]] = {}
+    filtered_assignments: list[ConversationAssignment] = []
+    for current_agent_id, agent_assignments in assignments_by_agent.items():
+        matching_assignments = [
+            assignment for assignment in agent_assignments if assignment.conversation_id in channel_conversation_ids
+        ]
+        filtered_assignments_by_agent[current_agent_id] = matching_assignments
+        filtered_assignments.extend(matching_assignments)
+
+    return {
+        "agents": agents,
+        "person_map": person_map,
+        "presence_seconds_by_agent": presence_seconds_by_agent,
+        "assignments_by_agent": filtered_assignments_by_agent,
+        "filtered_assignments": filtered_assignments,
+        "conversations_by_id": conversations_by_id,
+        "outbound_candidates": outbound_candidates,
+    }
+
+
+def agent_performance_metrics(
+    db: Session,
+    start_at: datetime | None,
+    end_at: datetime | None,
+    agent_id: str | None,
+    team_id: str | None,
+    channel_type: str | None,
+) -> list[dict]:
+    """Get per-agent metrics from assignment stints started in the period.
+
+    Agent FRT is always the stint's assigned_at to that same agent's first
+    qualifying reply. Customer and AI time before assignment is not included.
+    """
+    cohort = _scoped_agent_performance_cohort(
+        db=db,
+        start_at=start_at,
+        end_at=end_at,
+        agent_id=agent_id,
+        team_id=team_id,
+        channel_type=channel_type,
+    )
+    agents = cohort["agents"]
+    if not agents:
+        return []
+    person_map = cohort["person_map"]
+    presence_seconds_by_agent = cohort["presence_seconds_by_agent"]
+    assignments_by_agent = cohort["assignments_by_agent"]
+    conversations_by_id = cohort["conversations_by_id"]
+    outbound_candidates = cohort["outbound_candidates"]
+
     agent_stats: list[dict[str, Any]] = []
     for agent in agents:
         by_status = presence_seconds_by_agent.get(str(agent.id), {})
@@ -622,11 +671,7 @@ def agent_performance_metrics(
         else:
             active_hours_display = None
 
-        agent_assignments = [
-            assignment
-            for assignment in assignments_by_agent.get(agent.id, [])
-            if assignment.conversation_id in channel_conversation_ids
-        ]
+        agent_assignments = assignments_by_agent.get(agent.id, [])
         conversation_ids = {assignment.conversation_id for assignment in agent_assignments}
         agent_conversations = [
             conversations_by_id[conversation_id]
@@ -723,6 +768,46 @@ def agent_performance_metrics(
         reverse=True,
     )
     return agent_stats
+
+
+def crm_performance_summary(
+    db: Session,
+    start_at: datetime | None,
+    end_at: datetime | None,
+    agent_id: str | None,
+    team_id: str | None,
+    channel_type: str | None,
+) -> dict[str, Any]:
+    """Get overall CRM performance totals from the scoped assignment cohort.
+
+    Distinct conversation IDs are counted once across agents, while per-agent
+    metrics continue to count unique conversations handled by each agent and
+    assignment stints independently.
+    """
+    cohort = _scoped_agent_performance_cohort(
+        db=db,
+        start_at=start_at,
+        end_at=end_at,
+        agent_id=agent_id,
+        team_id=team_id,
+        channel_type=channel_type,
+    )
+    conversations_by_id = cohort["conversations_by_id"]
+    unique_conversation_ids = {assignment.conversation_id for assignment in cohort["filtered_assignments"]}
+    resolved_conversation_ids = {
+        conversation_id
+        for conversation_id in unique_conversation_ids
+        if conversation_id in conversations_by_id
+        and _is_resolved_in_window(conversations_by_id[conversation_id], start_at, end_at)
+    }
+    total_conversations = len(unique_conversation_ids)
+    resolved_conversations = len(resolved_conversation_ids)
+    resolution_rate = (resolved_conversations / total_conversations * 100) if total_conversations > 0 else 0.0
+    return {
+        "total_conversations": total_conversations,
+        "resolved_conversations": resolved_conversations,
+        "resolution_rate": resolution_rate,
+    }
 
 
 def conversation_trend(

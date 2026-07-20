@@ -1,10 +1,12 @@
 from datetime import UTC, datetime, timedelta
 
+from starlette.requests import Request
+
 from app.models.crm.conversation import Conversation, ConversationAssignment, Message
 from app.models.crm.enums import ChannelType, ConversationStatus, MessageDirection
 from app.models.crm.team import CrmAgent
 from app.models.person import Person
-from app.services.crm.reports import agent_performance_metrics
+from app.services.crm.reports import agent_performance_metrics, crm_performance_summary
 
 
 def test_agent_performance_metrics_computes_metrics_from_batched_message_queries(db_session):
@@ -527,3 +529,424 @@ def test_agent_performance_ignores_outbound_from_non_assigned_agent(db_session, 
     assert rows[0]["total_conversations"] == 1
     assert rows[0]["avg_first_response_minutes"] is None
     assert rows[0]["first_response_count"] == 0
+
+
+def test_crm_performance_summary_counts_reassigned_conversation_once(db_session):
+    now = datetime.now(UTC)
+    start_at = now - timedelta(days=1)
+
+    contact = Person(first_name="Shared", last_name="Contact", email="shared-contact@example.com")
+    agent_a_person = Person(first_name="Agent", last_name="A", email="agent-a@example.com")
+    agent_b_person = Person(first_name="Agent", last_name="B", email="agent-b@example.com")
+    db_session.add_all([contact, agent_a_person, agent_b_person])
+    db_session.flush()
+
+    agent_a = CrmAgent(person_id=agent_a_person.id, is_active=True)
+    agent_b = CrmAgent(person_id=agent_b_person.id, is_active=True)
+    db_session.add_all([agent_a, agent_b])
+    db_session.flush()
+
+    conversation = Conversation(
+        person_id=contact.id,
+        status=ConversationStatus.open,
+        created_at=now - timedelta(hours=4),
+        updated_at=now - timedelta(minutes=5),
+    )
+    db_session.add(conversation)
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            ConversationAssignment(
+                agent_id=agent_a.id,
+                conversation_id=conversation.id,
+                assigned_at=now - timedelta(hours=3),
+                ended_at=now - timedelta(hours=2),
+                is_active=False,
+            ),
+            ConversationAssignment(
+                agent_id=agent_b.id,
+                conversation_id=conversation.id,
+                assigned_at=now - timedelta(hours=1),
+                is_active=True,
+            ),
+            Message(
+                conversation_id=conversation.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.inbound,
+                body="Need support",
+                received_at=now - timedelta(hours=3),
+                created_at=now - timedelta(hours=3),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    summary = crm_performance_summary(
+        db=db_session,
+        start_at=start_at,
+        end_at=now,
+        agent_id=None,
+        team_id=None,
+        channel_type="whatsapp",
+    )
+    rows = agent_performance_metrics(
+        db=db_session,
+        start_at=start_at,
+        end_at=now,
+        agent_id=None,
+        team_id=None,
+        channel_type="whatsapp",
+    )
+
+    assert summary["total_conversations"] == 1
+    assert summary["resolved_conversations"] == 0
+    assert sum(row["total_conversations"] for row in rows) == 2
+    assert sum(int(row["total_assignments"]) for row in rows) == 2
+    assert sorted(row["total_conversations"] for row in rows) == [1, 1]
+
+
+def test_crm_performance_summary_counts_resolved_conversation_once_across_agents(db_session):
+    now = datetime.now(UTC)
+    start_at = now - timedelta(days=1)
+
+    contact = Person(first_name="Resolved", last_name="Contact", email="resolved-contact@example.com")
+    agent_a_person = Person(first_name="Resolved", last_name="A", email="resolved-a@example.com")
+    agent_b_person = Person(first_name="Resolved", last_name="B", email="resolved-b@example.com")
+    db_session.add_all([contact, agent_a_person, agent_b_person])
+    db_session.flush()
+
+    agent_a = CrmAgent(person_id=agent_a_person.id, is_active=True)
+    agent_b = CrmAgent(person_id=agent_b_person.id, is_active=True)
+    db_session.add_all([agent_a, agent_b])
+    db_session.flush()
+
+    resolved_at = now - timedelta(minutes=10)
+    conversation = Conversation(
+        person_id=contact.id,
+        status=ConversationStatus.resolved,
+        created_at=now - timedelta(hours=5),
+        resolved_at=resolved_at,
+        updated_at=resolved_at,
+    )
+    db_session.add(conversation)
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            ConversationAssignment(
+                agent_id=agent_a.id,
+                conversation_id=conversation.id,
+                assigned_at=now - timedelta(hours=4),
+                ended_at=now - timedelta(hours=2),
+                is_active=False,
+            ),
+            ConversationAssignment(
+                agent_id=agent_b.id,
+                conversation_id=conversation.id,
+                assigned_at=now - timedelta(hours=1),
+                is_active=True,
+            ),
+            Message(
+                conversation_id=conversation.id,
+                channel_type=ChannelType.email,
+                direction=MessageDirection.inbound,
+                body="Resolved case",
+                received_at=now - timedelta(hours=4),
+                created_at=now - timedelta(hours=4),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    summary = crm_performance_summary(
+        db=db_session,
+        start_at=start_at,
+        end_at=now,
+        agent_id=None,
+        team_id=None,
+        channel_type="email",
+    )
+    rows = agent_performance_metrics(
+        db=db_session,
+        start_at=start_at,
+        end_at=now,
+        agent_id=None,
+        team_id=None,
+        channel_type="email",
+    )
+
+    assert summary["total_conversations"] == 1
+    assert summary["resolved_conversations"] == 1
+    assert summary["resolution_rate"] == 100.0
+    assert sum(row["resolved_conversations"] for row in rows) == 2
+
+
+def test_crm_performance_summary_counts_multiple_stints_same_agent_once(db_session):
+    now = datetime.now(UTC)
+    start_at = now - timedelta(days=1)
+
+    contact = Person(first_name="Repeat", last_name="Contact", email="repeat-contact@example.com")
+    agent_person = Person(first_name="Repeat", last_name="Agent", email="repeat-agent@example.com")
+    db_session.add_all([contact, agent_person])
+    db_session.flush()
+
+    agent = CrmAgent(person_id=agent_person.id, is_active=True)
+    db_session.add(agent)
+    db_session.flush()
+
+    conversation = Conversation(
+        person_id=contact.id,
+        status=ConversationStatus.open,
+        created_at=now - timedelta(hours=6),
+        updated_at=now - timedelta(minutes=20),
+    )
+    db_session.add(conversation)
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            ConversationAssignment(
+                agent_id=agent.id,
+                conversation_id=conversation.id,
+                assigned_at=now - timedelta(hours=5),
+                ended_at=now - timedelta(hours=4),
+                is_active=False,
+            ),
+            ConversationAssignment(
+                agent_id=agent.id,
+                conversation_id=conversation.id,
+                assigned_at=now - timedelta(hours=2),
+                is_active=True,
+            ),
+            Message(
+                conversation_id=conversation.id,
+                channel_type=ChannelType.email,
+                direction=MessageDirection.inbound,
+                body="Same agent twice",
+                received_at=now - timedelta(hours=5),
+                created_at=now - timedelta(hours=5),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    summary = crm_performance_summary(
+        db=db_session,
+        start_at=start_at,
+        end_at=now,
+        agent_id=str(agent.id),
+        team_id=None,
+        channel_type="email",
+    )
+    rows = agent_performance_metrics(
+        db=db_session,
+        start_at=start_at,
+        end_at=now,
+        agent_id=str(agent.id),
+        team_id=None,
+        channel_type="email",
+    )
+
+    assert summary["total_conversations"] == 1
+    assert rows[0]["total_conversations"] == 1
+    assert rows[0]["total_assignments"] == 2
+
+
+def test_crm_performance_summary_preserves_agent_team_date_and_channel_filters(db_session):
+    now = datetime.now(UTC)
+    start_at = now - timedelta(days=1)
+
+    from app.models.crm.team import CrmAgentTeam, CrmTeam
+
+    contact = Person(first_name="Scoped", last_name="Contact", email="scoped-contact@example.com")
+    agent_person = Person(first_name="Scoped", last_name="Agent", email="scoped-agent@example.com")
+    other_person = Person(first_name="Other", last_name="Agent", email="other-scoped-agent@example.com")
+    db_session.add_all([contact, agent_person, other_person])
+    db_session.flush()
+
+    scoped_agent = CrmAgent(person_id=agent_person.id, is_active=True)
+    other_agent = CrmAgent(person_id=other_person.id, is_active=True)
+    team_a = CrmTeam(name="Team A", is_active=True)
+    team_b = CrmTeam(name="Team B", is_active=True)
+    db_session.add_all([scoped_agent, other_agent, team_a, team_b])
+    db_session.flush()
+    db_session.add_all(
+        [
+            CrmAgentTeam(agent_id=scoped_agent.id, team_id=team_a.id, is_active=True),
+            CrmAgentTeam(agent_id=other_agent.id, team_id=team_b.id, is_active=True),
+        ]
+    )
+
+    included = Conversation(
+        person_id=contact.id,
+        status=ConversationStatus.resolved,
+        created_at=now - timedelta(hours=12),
+        resolved_at=now - timedelta(hours=1),
+        updated_at=now - timedelta(hours=1),
+    )
+    wrong_channel = Conversation(
+        person_id=contact.id,
+        status=ConversationStatus.resolved,
+        created_at=now - timedelta(hours=12),
+        resolved_at=now - timedelta(hours=2),
+        updated_at=now - timedelta(hours=2),
+    )
+    wrong_team = Conversation(
+        person_id=contact.id,
+        status=ConversationStatus.resolved,
+        created_at=now - timedelta(hours=12),
+        resolved_at=now - timedelta(hours=3),
+        updated_at=now - timedelta(hours=3),
+    )
+    outside_range = Conversation(
+        person_id=contact.id,
+        status=ConversationStatus.resolved,
+        created_at=now - timedelta(days=3),
+        resolved_at=now - timedelta(days=2),
+        updated_at=now - timedelta(days=2),
+    )
+    db_session.add_all([included, wrong_channel, wrong_team, outside_range])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            ConversationAssignment(
+                agent_id=scoped_agent.id,
+                conversation_id=included.id,
+                assigned_at=now - timedelta(hours=6),
+                is_active=True,
+            ),
+            ConversationAssignment(
+                agent_id=scoped_agent.id,
+                conversation_id=wrong_channel.id,
+                assigned_at=now - timedelta(hours=5),
+                is_active=True,
+            ),
+            ConversationAssignment(
+                agent_id=other_agent.id,
+                conversation_id=wrong_team.id,
+                assigned_at=now - timedelta(hours=4),
+                is_active=True,
+            ),
+            ConversationAssignment(
+                agent_id=scoped_agent.id,
+                conversation_id=outside_range.id,
+                assigned_at=now - timedelta(days=2),
+                is_active=True,
+            ),
+            Message(
+                conversation_id=included.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.inbound,
+                body="Included",
+                received_at=now - timedelta(hours=6),
+                created_at=now - timedelta(hours=6),
+            ),
+            Message(
+                conversation_id=wrong_channel.id,
+                channel_type=ChannelType.email,
+                direction=MessageDirection.inbound,
+                body="Wrong channel",
+                received_at=now - timedelta(hours=5),
+                created_at=now - timedelta(hours=5),
+            ),
+            Message(
+                conversation_id=wrong_team.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.inbound,
+                body="Wrong team",
+                received_at=now - timedelta(hours=4),
+                created_at=now - timedelta(hours=4),
+            ),
+            Message(
+                conversation_id=outside_range.id,
+                channel_type=ChannelType.whatsapp,
+                direction=MessageDirection.inbound,
+                body="Outside range",
+                received_at=now - timedelta(days=2),
+                created_at=now - timedelta(days=2),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    summary = crm_performance_summary(
+        db=db_session,
+        start_at=start_at,
+        end_at=now,
+        agent_id=str(scoped_agent.id),
+        team_id=str(team_a.id),
+        channel_type="whatsapp",
+    )
+
+    assert summary["total_conversations"] == 1
+    assert summary["resolved_conversations"] == 1
+    assert summary["resolution_rate"] == 100.0
+
+
+def test_crm_performance_report_uses_unique_summary_totals(db_session, monkeypatch):
+    from app.web.admin import reports as reports_web
+
+    monkeypatch.setattr(reports_web, "get_current_user", lambda _request: {"id": "test-user"})
+    monkeypatch.setattr(reports_web, "get_sidebar_stats", lambda _db: {})
+    monkeypatch.setattr(reports_web.crm_team_service.Teams, "list", lambda **_kwargs: [])
+    monkeypatch.setattr(reports_web.crm_team_service.Agents, "list", lambda **_kwargs: [])
+    monkeypatch.setattr(reports_web.crm_team_service, "get_agent_labels", lambda _db, _agents: {})
+    monkeypatch.setattr(
+        reports_web.crm_reports_service,
+        "inbox_kpis",
+        lambda **_kwargs: {"messages": {"total": 0, "inbound": 0, "outbound": 0, "by_channel": {}}},
+    )
+    monkeypatch.setattr(
+        reports_web.crm_reports_service,
+        "agent_performance_metrics",
+        lambda **_kwargs: [
+            {
+                "agent_id": "a",
+                "name": "Agent A",
+                "total_conversations": 1,
+                "total_assignments": 1,
+                "first_response_count": 1,
+                "unanswered_assignments": 0,
+                "response_coverage_percent": 100.0,
+                "resolved_conversations": 1,
+                "avg_first_response_minutes": 5.0,
+                "avg_resolution_minutes": 20.0,
+                "resolution_time_count": 1,
+                "active_hours_display": "1h 00m",
+            },
+            {
+                "agent_id": "b",
+                "name": "Agent B",
+                "total_conversations": 1,
+                "total_assignments": 1,
+                "first_response_count": 1,
+                "unanswered_assignments": 0,
+                "response_coverage_percent": 100.0,
+                "resolved_conversations": 1,
+                "avg_first_response_minutes": 10.0,
+                "avg_resolution_minutes": 25.0,
+                "resolution_time_count": 1,
+                "active_hours_display": "1h 00m",
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        reports_web.crm_reports_service,
+        "crm_performance_summary",
+        lambda **_kwargs: {
+            "total_conversations": 1,
+            "resolved_conversations": 1,
+            "resolution_rate": 100.0,
+        },
+    )
+    monkeypatch.setattr(reports_web.crm_reports_service, "conversation_trend", lambda **_kwargs: [])
+
+    request = Request({"type": "http", "method": "GET", "path": "/admin/reports/crm-performance", "headers": []})
+    response = reports_web.crm_performance_report(request=request, db=db_session)
+
+    assert response.context["total_conversations"] == 1
+    assert response.context["resolved_conversations"] == 1
+    assert response.context["resolution_rate"] == 100.0
+    assert response.context["total_assignments"] == 2
