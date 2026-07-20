@@ -1,6 +1,9 @@
 import logging
 import os
-from datetime import timedelta
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from celery.schedules import crontab
 
 from app.db import SessionLocal
 from app.models.domain_settings import DomainSetting, SettingDomain
@@ -9,6 +12,16 @@ from app.services import integration as integration_service
 from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
+
+_WEEKDAY_INDEX = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
 
 
 def _env_value(name: str) -> str | None:
@@ -100,6 +113,43 @@ def _coerce_int(value: object | None, default: int) -> int:
     if isinstance(value, float):
         return int(value)
     return default
+
+
+def _weekly_reporting_crontab(db, *, now_utc: datetime | None = None) -> crontab:
+    day = (
+        str(resolve_value(db, SettingDomain.notification, "weekly_reporting_schedule_day") or "monday").strip().lower()
+    )
+    if day not in _WEEKDAY_INDEX:
+        day = "monday"
+    time_value = str(resolve_value(db, SettingDomain.notification, "weekly_reporting_schedule_time") or "08:00").strip()
+    try:
+        local_time = datetime.strptime(time_value, "%H:%M").time()
+    except ValueError:
+        local_time = time(hour=8)
+    timezone_value = str(
+        resolve_value(db, SettingDomain.notification, "weekly_reporting_timezone") or "Africa/Lagos"
+    ).strip()
+    try:
+        zone = ZoneInfo(timezone_value)
+    except ZoneInfoNotFoundError:
+        zone = ZoneInfo("Africa/Lagos")
+
+    now = now_utc or datetime.now(UTC)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    local_now = now.astimezone(zone)
+    days_ahead = (_WEEKDAY_INDEX[day] - local_now.weekday()) % 7
+    occurrence_date = local_now.date() + timedelta(days=days_ahead)
+    local_occurrence = datetime.combine(occurrence_date, local_time, tzinfo=zone)
+    if local_occurrence <= local_now:
+        local_occurrence += timedelta(days=7)
+    utc_occurrence = local_occurrence.astimezone(UTC)
+    utc_day = utc_occurrence.strftime("%A").lower()
+    return crontab(
+        minute=str(utc_occurrence.minute),
+        hour=str(utc_occurrence.hour),
+        day_of_week=utc_day,
+    )
 
 
 def _sync_scheduled_task(
@@ -314,6 +364,11 @@ def build_beat_schedule() -> dict:
             enabled=ncc_report_email_enabled,
             interval_seconds=300,
         )
+
+        schedule["weekly_reporting"] = {
+            "task": "app.tasks.reports.run_weekly_inbound_reporting",
+            "schedule": _weekly_reporting_crontab(session),
+        }
 
         billing_risk_cache_enabled = _effective_bool(
             session,
