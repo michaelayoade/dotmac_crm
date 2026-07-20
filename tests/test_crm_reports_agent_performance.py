@@ -531,9 +531,13 @@ def test_agent_performance_ignores_outbound_from_non_assigned_agent(db_session, 
     assert rows[0]["first_response_count"] == 0
 
 
-def test_crm_performance_summary_counts_reassigned_conversation_once(db_session):
+def test_crm_performance_summary_counts_reassigned_conversation_once(db_session, monkeypatch):
     now = datetime.now(UTC)
     start_at = now - timedelta(days=1)
+    monkeypatch.setattr(
+        "app.services.crm.presence.agent_presence.seconds_by_status_bulk",
+        lambda *args, **kwargs: {},
+    )
 
     contact = Person(first_name="Shared", last_name="Contact", email="shared-contact@example.com")
     agent_a_person = Person(first_name="Agent", last_name="A", email="agent-a@example.com")
@@ -606,9 +610,13 @@ def test_crm_performance_summary_counts_reassigned_conversation_once(db_session)
     assert sorted(row["total_conversations"] for row in rows) == [1, 1]
 
 
-def test_crm_performance_summary_counts_resolved_conversation_once_across_agents(db_session):
+def test_crm_performance_summary_counts_resolved_conversation_once_across_agents(db_session, monkeypatch):
     now = datetime.now(UTC)
     start_at = now - timedelta(days=1)
+    monkeypatch.setattr(
+        "app.services.crm.presence.agent_presence.seconds_by_status_bulk",
+        lambda *args, **kwargs: {},
+    )
 
     contact = Person(first_name="Resolved", last_name="Contact", email="resolved-contact@example.com")
     agent_a_person = Person(first_name="Resolved", last_name="A", email="resolved-a@example.com")
@@ -682,9 +690,13 @@ def test_crm_performance_summary_counts_resolved_conversation_once_across_agents
     assert sum(row["resolved_conversations"] for row in rows) == 2
 
 
-def test_crm_performance_summary_counts_multiple_stints_same_agent_once(db_session):
+def test_crm_performance_summary_counts_multiple_stints_same_agent_once(db_session, monkeypatch):
     now = datetime.now(UTC)
     start_at = now - timedelta(days=1)
+    monkeypatch.setattr(
+        "app.services.crm.presence.agent_presence.seconds_by_status_bulk",
+        lambda *args, **kwargs: {},
+    )
 
     contact = Person(first_name="Repeat", last_name="Contact", email="repeat-contact@example.com")
     agent_person = Person(first_name="Repeat", last_name="Agent", email="repeat-agent@example.com")
@@ -753,9 +765,13 @@ def test_crm_performance_summary_counts_multiple_stints_same_agent_once(db_sessi
     assert rows[0]["total_assignments"] == 2
 
 
-def test_crm_performance_summary_preserves_agent_team_date_and_channel_filters(db_session):
+def test_crm_performance_summary_preserves_agent_team_date_and_channel_filters(db_session, monkeypatch):
     now = datetime.now(UTC)
     start_at = now - timedelta(days=1)
+    monkeypatch.setattr(
+        "app.services.crm.presence.agent_presence.seconds_by_status_bulk",
+        lambda *args, **kwargs: {},
+    )
 
     from app.models.crm.team import CrmAgentTeam, CrmTeam
 
@@ -890,8 +906,8 @@ def test_crm_performance_report_uses_unique_summary_totals(db_session, monkeypat
 
     monkeypatch.setattr(reports_web, "get_current_user", lambda _request: {"id": "test-user"})
     monkeypatch.setattr(reports_web, "get_sidebar_stats", lambda _db: {})
-    monkeypatch.setattr(reports_web.crm_team_service.Teams, "list", lambda **_kwargs: [])
-    monkeypatch.setattr(reports_web.crm_team_service.Agents, "list", lambda **_kwargs: [])
+    monkeypatch.setattr(reports_web.crm_team_service.Teams, "list", lambda *args, **_kwargs: [])
+    monkeypatch.setattr(reports_web.crm_team_service.Agents, "list", lambda *args, **_kwargs: [])
     monkeypatch.setattr(reports_web.crm_team_service, "get_agent_labels", lambda _db, _agents: {})
     monkeypatch.setattr(
         reports_web.crm_reports_service,
