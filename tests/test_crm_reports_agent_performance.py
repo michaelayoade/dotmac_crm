@@ -960,7 +960,16 @@ def test_crm_performance_report_uses_unique_summary_totals(db_session, monkeypat
     monkeypatch.setattr(reports_web.crm_reports_service, "conversation_trend", lambda **_kwargs: [])
 
     request = Request({"type": "http", "method": "GET", "path": "/admin/reports/crm-performance", "headers": []})
-    response = reports_web.crm_performance_report(request=request, db=db_session)
+    response = reports_web.crm_performance_report(
+        request=request,
+        db=db_session,
+        days=30,
+        start_date=None,
+        end_date=None,
+        agent_id=None,
+        team_id=None,
+        channel_type=None,
+    )
 
     assert response.context["total_conversations"] == 1
     assert response.context["resolved_conversations"] == 1
