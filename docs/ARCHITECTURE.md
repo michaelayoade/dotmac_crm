@@ -395,6 +395,11 @@ example = ExampleManager()
 | **Person** | `services/person.py` | People (unified party model) |
 | **Subscriber** | `services/subscriber.py` | External system sync |
 
+CRM customer-response ownership is defined in
+[`crm-response-obligations.md`](crm-response-obligations.md). Inbox adapters,
+workqueue providers, scheduled jobs, and reports must consume that decision
+instead of deriving competing "awaiting response" rules.
+
 ### Cross-Service Dependencies
 
 ```

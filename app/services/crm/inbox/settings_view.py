@@ -116,11 +116,15 @@ def build_inbox_settings_context(
         ai_intake_configs_by_scope = {}
 
     reminder_delay_seconds = resolve_value(db, SettingDomain.notification, "crm_inbox_reply_reminder_delay_seconds")
-    reminder_repeat_enabled = resolve_value(db, SettingDomain.notification, "crm_inbox_reply_reminder_repeat_enabled")
-    reminder_repeat_interval_seconds = resolve_value(
+    response_escalation_team_seconds = resolve_value(
         db,
         SettingDomain.notification,
-        "crm_inbox_reply_reminder_repeat_interval_seconds",
+        "crm_inbox_response_escalation_team_seconds",
+    )
+    response_escalation_operations_seconds = resolve_value(
+        db,
+        SettingDomain.notification,
+        "crm_inbox_response_escalation_operations_seconds",
     )
     notification_auto_dismiss_seconds = resolve_value(
         db, SettingDomain.notification, "crm_inbox_notification_auto_dismiss_seconds"
@@ -289,8 +293,8 @@ def build_inbox_settings_context(
         "meta_instagram": meta_instagram,
         "meta_status": meta_status,
         "reminder_delay_seconds": reminder_delay_seconds,
-        "reminder_repeat_enabled": reminder_repeat_enabled,
-        "reminder_repeat_interval_seconds": reminder_repeat_interval_seconds,
+        "response_escalation_team_seconds": response_escalation_team_seconds,
+        "response_escalation_operations_seconds": response_escalation_operations_seconds,
         "notification_auto_dismiss_seconds": notification_auto_dismiss_seconds,
         "ai_assignment_retry_interval_seconds": ai_assignment_retry_interval_seconds,
         "auto_resolve_enabled": auto_resolve_enabled,

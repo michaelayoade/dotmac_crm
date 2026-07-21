@@ -7,6 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **CRM response obligations**: Authoritative per-conversation response state, indexed reminder queue, bounded drift reconciler, and agent → team lead → operations escalation.
+
+### Changed
+- **CRM inbox accountability**: Inbox attention flags, response-SLA reads, workqueue urgency, and reminder notifications now consume the same response-obligation decision; AI acknowledgements and failed outbound deliveries do not clear customer response obligations.
+- **CRM inbox settings**: Reply notification controls now configure initial reminder, team-lead escalation, and operations escalation timing.
+
+### Fixed
+- **CRM reply reminders**: Replaced the disabled no-op Celery task and retired the heavy message-table reminder scan.
+
 ---
 
 ## [2026-02-28]

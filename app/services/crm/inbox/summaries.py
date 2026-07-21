@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.crm.conversation import Conversation, ConversationAssignment, ConversationSummary, Message
-from app.models.crm.enums import ConversationStatus, MessageDirection, MessageStatus
+from app.models.crm.conversation import Conversation, ConversationSummary, Message
+from app.models.crm.enums import ConversationStatus, MessageDirection, MessageStatus, ResponseObligationState
 from app.models.crm.outbox import OutboxMessage
 from app.services.common import coerce_uuid
 
@@ -33,6 +33,12 @@ def recompute_conversation_summary(db: Session, conversation_id: str) -> Convers
         if summary:
             db.delete(summary)
         return None
+
+    # Transitional write gateway: every existing conversation projection update
+    # first asks the response-policy owner to derive the canonical decision.
+    from app.services.crm.inbox.response_obligations import reconcile_response_obligation
+
+    obligation = reconcile_response_obligation(db, str(conversation_uuid))
 
     latest = (
         db.query(Message.id, Message.channel_type, _message_activity_ts().label("activity_at"))
@@ -61,21 +67,8 @@ def recompute_conversation_summary(db: Session, conversation_id: str) -> Convers
         .scalar()
         or 0
     )
-    has_inbound = latest_inbound_at is not None
-    has_outbound = latest_outbound_at is not None
-    needs_attention = bool(
-        conversation.status not in RESOLVED_STATUSES
-        and latest_inbound_at is not None
-        and latest_outbound_at is not None
-        and latest_inbound_at > latest_outbound_at
-    )
-    unreplied = bool(conversation.status not in RESOLVED_STATUSES and has_inbound and not has_outbound)
-    assignment = (
-        db.query(ConversationAssignment.agent_id, ConversationAssignment.team_id)
-        .filter(ConversationAssignment.conversation_id == conversation_uuid)
-        .filter(ConversationAssignment.is_active.is_(True))
-        .first()
-    )
+    needs_attention = bool(obligation and obligation.state == ResponseObligationState.awaiting_follow_up)
+    unreplied = bool(obligation and obligation.state == ResponseObligationState.awaiting_first_response)
     has_failed_outbox = bool(
         db.query(OutboxMessage.id)
         .filter(OutboxMessage.conversation_id == conversation_uuid)
@@ -96,8 +89,8 @@ def recompute_conversation_summary(db: Session, conversation_id: str) -> Convers
     summary.unread_count = int(unread_count)
     summary.has_failed_outbox = has_failed_outbox
     summary.primary_channel_type = latest.channel_type if latest else None
-    summary.active_assignment_agent_id = assignment.agent_id if assignment else None
-    summary.active_assignment_team_id = assignment.team_id if assignment else None
+    summary.active_assignment_agent_id = obligation.owner_agent_id if obligation else None
+    summary.active_assignment_team_id = obligation.owner_team_id if obligation else None
     summary.needs_attention = needs_attention
     summary.unreplied = unreplied
     summary.status = conversation.status

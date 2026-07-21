@@ -711,13 +711,23 @@ def build_beat_schedule() -> dict:
         )
 
         # CRM inbox reply reminders - checks for unreplied inbound messages
-        reminder_interval_seconds = 300
+        reminder_interval_seconds = 60
+        response_obligations_enabled = bool(
+            resolve_value(session, SettingDomain.notification, "crm_inbox_response_obligations_enabled")
+        )
         _sync_scheduled_task(
             session,
             name="crm_inbox_reply_reminders",
             task_name="app.tasks.crm_inbox.send_reply_reminders",
-            enabled=False,
+            enabled=response_obligations_enabled,
             interval_seconds=reminder_interval_seconds,
+        )
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_response_obligation_reconcile",
+            task_name="app.tasks.crm_inbox.reconcile_response_obligations",
+            enabled=response_obligations_enabled,
+            interval_seconds=60,
         )
         _sync_scheduled_task(
             session,

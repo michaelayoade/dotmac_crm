@@ -87,6 +87,15 @@ class ConversationPriority(enum.Enum):
     urgent = "urgent"
 
 
+class ResponseObligationState(enum.Enum):
+    no_customer_message = "no_customer_message"
+    awaiting_first_response = "awaiting_first_response"
+    awaiting_follow_up = "awaiting_follow_up"
+    responded = "responded"
+    snoozed = "snoozed"
+    resolved = "resolved"
+
+
 class AgentPresenceStatus(enum.Enum):
     online = "online"
     away = "away"
