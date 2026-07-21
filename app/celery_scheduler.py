@@ -30,4 +30,10 @@ class DbScheduler(Scheduler):
             for key in missing:
                 self.schedule.pop(key, None)
             self.merge_inplace(schedule)
+            # ``merge_inplace`` mutates existing ScheduleEntry objects. Celery's
+            # heap still contains timestamps calculated from their previous
+            # schedules, so a newly edited cron time can remain queued until the
+            # old due time. Force the next tick to rebuild the heap from the
+            # refreshed entries while preserving each entry's last_run_at.
+            self._heap = None
         self._last_refresh_at = now

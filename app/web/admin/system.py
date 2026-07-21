@@ -4106,6 +4106,12 @@ def _weekly_reporting_settings_redirect(*, saved: str | None = None, error: str 
     return RedirectResponse(url=f"/admin/system/settings?{urlencode(query)}", status_code=303)
 
 
+def _enqueue_weekly_reporting():
+    from app.tasks.reports import run_weekly_inbound_reporting
+
+    return run_weekly_inbound_reporting.delay()
+
+
 @router.post(
     "/settings/weekly-reporting",
     response_class=HTMLResponse,
@@ -4129,6 +4135,21 @@ def weekly_reporting_save_schedule(
     except ValueError as exc:
         return _weekly_reporting_settings_redirect(error=str(exc))
     return _weekly_reporting_settings_redirect(saved="schedule")
+
+
+@router.post(
+    "/settings/weekly-reporting/run",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+def weekly_reporting_run():
+    """Queue the existing Weekly Reporting workflow for asynchronous execution."""
+    try:
+        _enqueue_weekly_reporting()
+    except Exception:
+        logger.exception("weekly_reporting_manual_enqueue_failed")
+        return _weekly_reporting_settings_redirect(error="Unable to queue Weekly Reporting. Please try again.")
+    return _weekly_reporting_settings_redirect(saved="run-requested")
 
 
 @router.post(
