@@ -655,9 +655,8 @@ def crm_agent_team(db_session, crm_agent, crm_team):
 def crm_conversation_factory(db_session):
     """Factory for building CRM conversations in workqueue tests.
 
-    The CRM `Conversation` model has no `sla_due_at` / `last_inbound_at`
-    columns; we stash them in `metadata_` (JSON) since that is exactly how the
-    Workqueue conversations provider reads them.
+    Response urgency is represented by the same authoritative obligation row
+    consumed by the production Workqueue provider.
 
     `assignee_person_id` may be:
       * ``None`` — leave the conversation unassigned.
@@ -698,18 +697,11 @@ def crm_conversation_factory(db_session):
         if effective_last_inbound is None and sla_due_at is None:
             effective_last_inbound = _dt.now(_UTC) - _td(hours=5)
 
-        meta: dict = {}
-        if sla_due_at is not None:
-            meta["sla_due_at"] = sla_due_at.isoformat()
-        if effective_last_inbound is not None:
-            meta["last_inbound_at"] = effective_last_inbound.isoformat()
-
         conv = Conversation(
             person_id=contact.id,
             status=status,
             subject=subject or "Workqueue test conversation",
             last_message_at=effective_last_inbound,
-            metadata_=meta or None,
         )
         db_session.add(conv)
         db_session.flush()
@@ -751,6 +743,31 @@ def crm_conversation_factory(db_session):
             )
             db_session.add(assignment)
             db_session.flush()
+
+        from app.models.crm.enums import ResponseObligationState
+        from app.models.crm.response_obligation import ResponseObligation
+
+        obligation_inbound_at = effective_last_inbound or (_dt.now(_UTC) if sla_due_at is not None else None)
+        if obligation_inbound_at is not None:
+            owner_scope = "unassigned"
+            owner_agent_id = None
+            if assignee_person_id is not None:
+                owner_scope = f"agent:{agent.id}"
+                owner_agent_id = agent.id
+            elif assignment_team_id is not None:
+                owner_scope = f"team:{assignment_team_id}"
+            db_session.add(
+                ResponseObligation(
+                    conversation_id=conv.id,
+                    state=ResponseObligationState.awaiting_first_response,
+                    latest_inbound_at=obligation_inbound_at,
+                    response_due_at=sla_due_at,
+                    next_escalation_at=sla_due_at,
+                    owner_agent_id=owner_agent_id,
+                    owner_team_id=assignment_team_id,
+                    owner_scope=owner_scope,
+                )
+            )
 
         db_session.commit()
         db_session.refresh(conv)

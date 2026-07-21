@@ -1,13 +1,11 @@
 """Conversation provider for the Workqueue.
 
-The CRM `Conversation` model has no `sla_due_at`, `last_inbound_at`, or
-`is_assigned_unread` columns and `ConversationAssignment.agent_id` references
-`crm_agents`, not a person directly.  Per the implementation plan we derive
-what we need without altering the schema:
+Response urgency comes from the authoritative response-obligation decision;
+the workqueue never derives a parallel answer from conversation metadata.
 
-* SLA due time and the latest inbound message timestamp are read from
-  `Conversation.metadata_` (JSON).  Producers (webhooks, services, fixtures)
-  populate these alongside other conversation metadata.
+`ConversationAssignment.agent_id` references `crm_agents`, not a person
+directly:
+
 * Assignment to the current user is resolved via a join through
   `ConversationAssignment` and `CrmAgent` on ``person_id``.
 * Conversations assigned to the current user are included even when they do
@@ -25,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.crm.conversation import Conversation, ConversationAssignment
-from app.models.crm.enums import ConversationStatus
+from app.models.crm.enums import ConversationStatus, ResponseObligationState
 from app.services.workqueue.providers import register
 from app.services.workqueue.scope import WorkqueueScope, apply_conversation_scope
 from app.services.workqueue.scoring_config import (
@@ -46,35 +44,30 @@ _OPEN_STATUSES = (ConversationStatus.open, ConversationStatus.pending)
 logger = logging.getLogger(__name__)
 
 
-def _parse_dt(value) -> datetime | None:
-    """Parse a datetime stored in JSON metadata.
-
-    Accepts ``datetime`` instances or ISO-8601 strings.  Returns timezone-aware
-    UTC datetimes; naive values are assumed to be UTC.
-    """
+def _as_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
-    if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=UTC)
-    if isinstance(value, str):
-        try:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
-    return None
-
-
-def _meta(conv: Conversation) -> dict:
-    return conv.metadata_ or {}
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
 def _sla_due_at(conv: Conversation) -> datetime | None:
-    return _parse_dt(_meta(conv).get("sla_due_at"))
+    obligation = conv.response_obligation
+    if not obligation or obligation.state not in {
+        ResponseObligationState.awaiting_first_response,
+        ResponseObligationState.awaiting_follow_up,
+    }:
+        return None
+    return _as_utc(obligation.response_due_at)
 
 
 def _last_inbound_at(conv: Conversation) -> datetime | None:
-    return _parse_dt(_meta(conv).get("last_inbound_at"))
+    obligation = conv.response_obligation
+    if not obligation or obligation.state not in {
+        ResponseObligationState.awaiting_first_response,
+        ResponseObligationState.awaiting_follow_up,
+    }:
+        return None
+    return _as_utc(obligation.latest_inbound_at)
 
 
 def _active_assignee_person_id(conv: Conversation) -> UUID | None:
@@ -176,7 +169,10 @@ class ConversationsProvider:
 
         stmt = (
             select(Conversation)
-            .options(selectinload(Conversation.assignments).selectinload(ConversationAssignment.agent))
+            .options(
+                selectinload(Conversation.assignments).selectinload(ConversationAssignment.agent),
+                selectinload(Conversation.response_obligation),
+            )
             .where(Conversation.status.in_(_OPEN_STATUSES))
             .where(Conversation.is_active.is_(True))
         )

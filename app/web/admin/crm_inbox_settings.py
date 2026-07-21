@@ -99,8 +99,8 @@ async def update_inbox_introduction_template(
 async def update_inbox_notification_settings(
     request: Request,
     reminder_delay_seconds: str = Form(""),
-    reminder_repeat_enabled: str | None = Form(None),
-    reminder_repeat_interval_seconds: str = Form(""),
+    response_escalation_team_seconds: str = Form("900"),
+    response_escalation_operations_seconds: str = Form("3600"),
     notification_auto_dismiss_seconds: str = Form(""),
     ai_assignment_retry_interval_seconds: str = Form("60"),
     auto_resolve_enabled: str | None = Form(None),
@@ -111,8 +111,8 @@ async def update_inbox_notification_settings(
     result = update_notification_settings(
         db,
         reminder_delay_seconds=reminder_delay_seconds,
-        reminder_repeat_enabled=reminder_repeat_enabled,
-        reminder_repeat_interval_seconds=reminder_repeat_interval_seconds,
+        response_escalation_team_seconds=response_escalation_team_seconds,
+        response_escalation_operations_seconds=response_escalation_operations_seconds,
         notification_auto_dismiss_seconds=notification_auto_dismiss_seconds,
         ai_assignment_retry_interval_seconds=ai_assignment_retry_interval_seconds,
         auto_resolve_enabled=auto_resolve_enabled,

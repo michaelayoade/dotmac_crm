@@ -73,6 +73,12 @@ class Conversation(Base):
     messages = relationship("Message", back_populates="conversation")
     assignments = relationship("ConversationAssignment", back_populates="conversation")
     tags = relationship("ConversationTag", back_populates="conversation")
+    response_obligation = relationship(
+        "ResponseObligation",
+        back_populates="conversation",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     @hybrid_property
     def contact_id(self):
