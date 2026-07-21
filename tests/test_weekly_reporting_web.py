@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from urllib.parse import parse_qs, urlparse
+
 from app.models.domain_settings import SettingDomain
 from app.services import scheduler_config
 from app.services.weekly_reporting import configuration
+from app.tasks import reports as report_tasks
 from app.web.admin import system as system_web
 
 
@@ -28,6 +31,37 @@ def test_weekly_reporting_routes_manage_recipients(db_session):
     removed = system_web.weekly_reporting_remove_recipient(0, db_session)
     assert removed.status_code == 303
     assert configuration.get_settings_snapshot(db_session)["recipients"] == []
+
+
+def test_weekly_reporting_run_queues_existing_task(monkeypatch):
+    queued = []
+    monkeypatch.setattr(system_web, "_enqueue_weekly_reporting", lambda: queued.append(True))
+
+    response = system_web.weekly_reporting_run()
+
+    assert response.status_code == 303
+    assert queued == [True]
+    assert parse_qs(urlparse(response.headers["location"]).query)["weekly_reporting_saved"] == ["run-requested"]
+
+
+def test_weekly_reporting_enqueue_uses_registered_celery_task(monkeypatch):
+    task_result = object()
+    monkeypatch.setattr(report_tasks.run_weekly_inbound_reporting, "delay", lambda: task_result)
+
+    assert system_web._enqueue_weekly_reporting() is task_result
+
+
+def test_weekly_reporting_run_reports_enqueue_failure(monkeypatch):
+    def fail_enqueue():
+        raise RuntimeError("broker unavailable")
+
+    monkeypatch.setattr(system_web, "_enqueue_weekly_reporting", fail_enqueue)
+
+    response = system_web.weekly_reporting_run()
+
+    assert response.status_code == 303
+    query = parse_qs(urlparse(response.headers["location"]).query)
+    assert query["weekly_reporting_error"] == ["Unable to queue Weekly Reporting. Please try again."]
 
 
 def test_weekly_reporting_schedule_defaults_to_monday_0800_lagos(db_session):

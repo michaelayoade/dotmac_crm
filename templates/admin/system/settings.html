@@ -818,14 +818,24 @@
                     <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Automatically generate and email the approved Weekly Sales and Support inbound experience reports.</p>
                 </div>
             </div>
-            <span class="inline-flex w-fit items-center rounded-lg px-2.5 py-1 text-xs font-semibold {% if weekly_reporting.enabled %}bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400{% else %}bg-slate-500/10 text-slate-600 dark:bg-slate-500/20 dark:text-slate-400{% endif %}">
-                {{ "Enabled" if weekly_reporting.enabled else "Disabled" }}
-            </span>
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex w-fit items-center rounded-lg px-2.5 py-1 text-xs font-semibold {% if weekly_reporting.enabled %}bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400{% else %}bg-slate-500/10 text-slate-600 dark:bg-slate-500/20 dark:text-slate-400{% endif %}">
+                    {{ "Enabled" if weekly_reporting.enabled else "Disabled" }}
+                </span>
+                <form method="POST" action="/admin/system/settings/weekly-reporting/run">
+                    {% include "components/forms/csrf_input.html" %}
+                    {{ submit_button("Generate & Email Now", loading_label="Queueing...", size="sm") }}
+                </form>
+            </div>
         </div>
 
         {% if request.query_params.get('weekly_reporting_error') %}
         <div class="mt-5 rounded-xl border border-red-200/60 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-900/20 dark:text-red-300">
             {{ request.query_params.get('weekly_reporting_error') }}
+        </div>
+        {% elif request.query_params.get('weekly_reporting_saved') == 'run-requested' %}
+        <div class="mt-5 rounded-xl border border-emerald-200/60 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:text-emerald-300">
+            Weekly Reporting was queued and will run asynchronously using the current configuration.
         </div>
         {% elif request.query_params.get('weekly_reporting_saved') %}
         <div class="mt-5 rounded-xl border border-emerald-200/60 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:text-emerald-300">
