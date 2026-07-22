@@ -712,7 +712,7 @@ def _postpaid_latest_payments_by_customer(db: Session, rows: list[dict]) -> dict
     if not customer_ids:
         return {}
     try:
-        latest_payments = _latest_payment_by_customer(selfcare.fetch_payments(db, limit=10000))
+        latest_payments = _latest_payment_by_customer(selfcare.fetch_payments(db, max_rows=10000))
     except Exception:
         logger.exception("Failed to load latest payment dates for postpaid customers dashboard")
         latest_payments = {}
