@@ -29,6 +29,7 @@ from app.schemas.crm.chat_widget import WidgetSessionCreate, WidgetSessionRead
 from app.services.auth_dependencies import require_user_auth
 from app.services.common import coerce_uuid
 from app.services.crm.chat_widget import widget_visitors
+from app.services.crm.widget.service import CUSTOMER_SURFACE
 from app.services.field import chat as field_chat
 
 logger = get_logger(__name__)
@@ -73,6 +74,39 @@ class WidgetInternalSessionCreate(BaseModel):
     metadata: dict | None = None
 
 
+def build_session_metadata(
+    existing: dict | None,
+    payload: WidgetInternalSessionCreate,
+) -> dict:
+    """Resolve the session metadata for a trusted-caller mint.
+
+    ``surface`` is the routing key the outbound-reply push to dotmac_sub
+    branches on, so every mint has to declare one:
+
+    * a field-visit session is ``field_service``;
+    * any other subscriber-identified session is the customer self-care
+      surface — without this tag the push never fires and the subscriber's
+      mobile app is never woken;
+    * a caller that states its own surface (e.g. ``reseller_portal``, passed
+      through ``payload.metadata``) always wins.
+    """
+    metadata = dict(existing or {})
+    if payload.metadata:
+        metadata.update(payload.metadata)
+
+    if payload.crm_subscriber_id:
+        metadata["crm_subscriber_id"] = str(payload.crm_subscriber_id)
+        metadata.setdefault("subscriber_id", str(payload.crm_subscriber_id))
+
+    if payload.field_work_order_id:
+        metadata["field_work_order_id"] = str(payload.field_work_order_id)
+        metadata.setdefault("surface", field_chat.FIELD_CHAT_SURFACE)
+    elif payload.crm_subscriber_id:
+        metadata.setdefault("surface", CUSTOMER_SURFACE)
+
+    return metadata
+
+
 @router.post("/session", response_model=WidgetSessionRead)
 def mint_internal_session(
     payload: WidgetInternalSessionCreate,
@@ -106,16 +140,8 @@ def mint_internal_session(
 
     # Tag session metadata so agents see the originating surface and downstream
     # notifications (mobile push) can resolve the subscriber.
-    metadata = dict(session.metadata_ or {})
-    if payload.metadata:
-        metadata.update(payload.metadata)
-    if payload.crm_subscriber_id:
-        metadata["crm_subscriber_id"] = str(payload.crm_subscriber_id)
-        metadata.setdefault("subscriber_id", str(payload.crm_subscriber_id))
+    metadata = build_session_metadata(session.metadata_, payload)
     if payload.field_work_order_id:
-        metadata["field_work_order_id"] = str(payload.field_work_order_id)
-        metadata.setdefault("surface", field_chat.FIELD_CHAT_SURFACE)
-
         work_order = db.get(WorkOrder, payload.field_work_order_id)
         if (
             work_order is None

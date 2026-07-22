@@ -38,6 +38,13 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# Conversation ``metadata.surface`` values. The outbound-reply push to
+# dotmac_sub branches on these, so the code that mints a session and the code
+# that reads it must agree on the literal — import these rather than retyping
+# the string.
+CUSTOMER_SURFACE = "customer"
+RESELLER_PORTAL_SURFACE = "reseller_portal"
+
 
 def is_within_business_hours(business_hours: BusinessHours | dict | None) -> bool:
     """
@@ -879,7 +886,7 @@ def send_widget_message(
     try:
         _md = session.metadata_ or {}
         _surface = _md.get("surface")
-        if _surface in ("customer", "reseller_portal"):
+        if _surface in (CUSTOMER_SURFACE, RESELLER_PORTAL_SURFACE):
             from app.services.events import emit_event
             from app.services.events.types import EventType
 
@@ -899,7 +906,7 @@ def send_widget_message(
             # webhook (no manually-registered webhook subscription needed).
             _sub_id = _md.get("subscriber_id")
             _res_id = _md.get("reseller_id")
-            if _surface == "customer" and _sub_id:
+            if _surface == CUSTOMER_SURFACE and _sub_id:
                 from app.services import selfcare
 
                 selfcare.notify_chat_message(
@@ -908,7 +915,7 @@ def send_widget_message(
                     conversation_id=str(conversation.id),
                     preview=(body or "")[:140],
                 )
-            elif _surface == "reseller_portal" and _res_id:
+            elif _surface == RESELLER_PORTAL_SURFACE and _res_id:
                 # The sub resolves reseller_id to the reseller's portal users'
                 # devices (best-effort; no-op if none have registered).
                 from app.services import selfcare
