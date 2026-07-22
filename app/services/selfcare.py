@@ -687,6 +687,10 @@ def create_account_credit(
 
 _PAGINATION_MAX_PAGES = 500
 _PAGINATION_MAX_ROWS = 200_000
+# Finance scans are bounded: sub holds >120k transactions and >95k payments, and
+# unbounded bulk listing there is a known pool-starvation trigger. This keeps the
+# volume the offset/limit call shape used to request before sub capped per_page.
+_FINANCE_SCAN_MAX_ROWS = 5_000
 # sub clamps per_page to 500 (dotmac_sub app/api/crm.py). Requesting more means
 # the effective page size (<=500) is smaller than requested, so a full page
 # reads as "short" and the short-page heuristic stops early — silently dropping
@@ -694,7 +698,13 @@ _PAGINATION_MAX_ROWS = 200_000
 _SUB_MAX_PER_PAGE = 500
 
 
-def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def _list_paginated(
+    db: Session,
+    path: str,
+    params: dict[str, Any] | None = None,
+    *,
+    max_rows: int | None = None,
+) -> list[dict[str, Any]]:
     """Page through a Selfcare list endpoint.
 
     Termination is driven off response metadata (``meta.total`` / ``meta.last_page``)
@@ -737,6 +747,9 @@ def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None
                 raise SelfcareProviderError(f"Selfcare pagination repeated data on page {page} for {path}")
             seen_page_fingerprints.add(fingerprint)
         rows.extend(batch)
+        if max_rows is not None and len(rows) >= max_rows:
+            logger.info("SELFCARE_API_PAGE_BOUND_REACHED path=%s rows=%d bound=%d", path, len(rows), max_rows)
+            return rows[:max_rows]
         logger.info(
             "SELFCARE_API_PAGE path=%s page=%d batch=%d accumulated=%d total=%d last_page=%s",
             path,
@@ -911,14 +924,20 @@ def fetch_ncc_subscriber_report(
     return data if isinstance(data, dict) else {}
 
 
-def fetch_transactions(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
-    rows = _rows(_request_json(db, "GET", "/finance/transactions", params={"offset": offset, "limit": limit}))
-    return _warn_if_truncated(rows, limit, "/finance/transactions")
+def fetch_transactions(db: Session, *, max_rows: int = _FINANCE_SCAN_MAX_ROWS) -> list[dict[str, Any]]:
+    """Every finance transaction, paged.
+
+    Sub caps ``per_page`` at 500 and does not read ``offset`` at all, so the
+    previous ``offset``/``limit`` call shape both 400'd on the cap and, had it
+    passed, would have re-read page 1 forever. ``_list_paginated`` owns the
+    clamp, the page walk and the repeated-page guard.
+    """
+    return _list_paginated(db, "/finance/transactions", max_rows=max_rows)
 
 
-def fetch_payments(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
-    rows = _rows(_request_json(db, "GET", "/finance/payments", params={"offset": offset, "limit": limit}))
-    return _warn_if_truncated(rows, limit, "/finance/payments")
+def fetch_payments(db: Session, *, max_rows: int = _FINANCE_SCAN_MAX_ROWS) -> list[dict[str, Any]]:
+    """Every finance payment, paged. See :func:`fetch_transactions`."""
+    return _list_paginated(db, "/finance/payments", max_rows=max_rows)
 
 
 def fetch_customer_payments(
