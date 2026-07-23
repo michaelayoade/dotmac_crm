@@ -995,6 +995,38 @@ def _coalesce_str(*values: object) -> str | None:
     return None
 
 
+_EMPTY_ADDRESS_PARTS = frozenset({"-", "n/a", "na", "nil", "none", "null", "unknown"})
+
+
+def _normalize_selfcare_address(value: object) -> str | None:
+    """Clean placeholder components from Sub's formatted address projection."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parts: list[str] = []
+    seen: set[str] = set()
+    for raw_part in text.split(","):
+        part = " ".join(raw_part.split()).strip()
+        normalized = part.casefold()
+        if not part or normalized in _EMPTY_ADDRESS_PARTS or normalized in seen:
+            continue
+        seen.add(normalized)
+        parts.append(part)
+    return ", ".join(parts) or None
+
+
+def _split_service_address(value: str | None) -> tuple[str | None, str | None]:
+    """Fit a formatted provider address into the two CRM varchar columns."""
+    if not value:
+        return None, None
+    if len(value) <= 120:
+        return value, None
+    split_at = value.rfind(",", 0, 121)
+    if split_at < 1:
+        split_at = 120
+    return value[:split_at].rstrip(", ") or None, value[split_at:].lstrip(", ")[:120] or None
+
+
 def _parse_selfcare_datetime(value: object) -> datetime | None:
     text = str(value or "").strip()
     if not text or text == "0000-00-00":
@@ -1449,11 +1481,17 @@ def map_customer_to_subscriber_data(
         or (primary_service or {}).get("end_date")
     )
     metadata = dict(existing_sync_metadata or {})
+    authoritative_name = _coalesce_str(customer.get("name"), customer.get("full_name"), customer.get("display_name"))
+    authoritative_address = _normalize_selfcare_address(customer.get("address"))
+    authoritative_location = _coalesce_str(customer.get("location"))
     selfcare_metadata = {
         "selfcare_id": external_id or None,
         "selfcare_subscriber_number": _coalesce_str(
             customer.get("subscriber_number"), customer.get("login"), customer.get("account_number")
         ),
+        "selfcare_name": authoritative_name,
+        "selfcare_address": authoritative_address,
+        "selfcare_location": authoritative_location,
         "invoiced_until": _coalesce_str(customer.get("invoiced_until"), (billing or {}).get("invoiced_until")),
         "total_paid": _normalize_decimal_str(customer.get("total_paid") or (billing or {}).get("total_paid")),
         "last_transaction_date": _coalesce_str(
@@ -1469,6 +1507,10 @@ def map_customer_to_subscriber_data(
         "source": "selfcare",
     }
     metadata.update({key: value for key, value in selfcare_metadata.items() if value is not None and value != ""})
+    explicit_address_line1 = _coalesce_str(
+        customer.get("street"), customer.get("street_1"), customer.get("address_line1")
+    )
+    authoritative_line1, authoritative_line2 = _split_service_address(authoritative_address)
 
     data: dict[str, Any] = {
         "subscriber_number": _coalesce_str(customer.get("subscriber_number"), customer.get("login")),
@@ -1479,10 +1521,9 @@ def map_customer_to_subscriber_data(
         "service_speed": _extract_speed(primary_service or customer, description),
         "balance": balance,
         "currency": _coalesce_str(customer.get("currency"), customer.get("currency_code")) or "NGN",
-        "service_address_line1": _coalesce_str(
-            customer.get("street"), customer.get("street_1"), customer.get("address_line1")
-        ),
-        "service_address_line2": _coalesce_str(customer.get("address_line2")),
+        "service_address_line1": explicit_address_line1 or authoritative_line1,
+        "service_address_line2": _coalesce_str(customer.get("address_line2"))
+        or (authoritative_line2 if not explicit_address_line1 else None),
         "service_city": _coalesce_str(customer.get("city"), customer.get("service_city")),
         "service_region": _coalesce_str(
             customer.get("state"),
@@ -1504,6 +1545,44 @@ def map_customer_to_subscriber_data(
         "sync_metadata": metadata,
     }
     return {key: value for key, value in data.items() if value is not None and value != ""}
+
+
+def stage_authoritative_subscriber_projection(db: Session, subscriber: Subscriber) -> dict[str, int]:
+    """Stage one live Sub name/address projection without committing it."""
+    if str(subscriber.external_system or "").lower() != "selfcare" or not subscriber.external_id:
+        raise ValueError("subscriber must be owned by selfcare and have an external id")
+    customer = fetch_customer(db, str(subscriber.external_id))
+    if not customer:
+        raise SelfcareProviderError("authoritative Selfcare subscriber was not found")
+    remote_number = _coalesce_str(customer.get("subscriber_number"), customer.get("login"))
+    if remote_number and subscriber.subscriber_number and remote_number != subscriber.subscriber_number:
+        raise ValueError("authoritative subscriber number does not match the requested CRM subscriber")
+
+    mapped = map_customer_to_subscriber_data(
+        db,
+        customer,
+        include_remote_details=False,
+        existing_sync_metadata=dict(subscriber.sync_metadata or {}),
+    )
+    projection_fields = (
+        "service_address_line1",
+        "service_address_line2",
+        "service_city",
+        "service_region",
+        "service_postal_code",
+        "service_country_code",
+        "sync_metadata",
+        "last_synced_at",
+    )
+    changed = 0
+    for field_name in projection_fields:
+        if field_name not in mapped:
+            continue
+        value = mapped[field_name]
+        if getattr(subscriber, field_name) != value:
+            setattr(subscriber, field_name, value)
+            changed += 1
+    return {"authoritative_projection_fields_updated": changed}
 
 
 def sync_subscribers_from_selfcare_data(

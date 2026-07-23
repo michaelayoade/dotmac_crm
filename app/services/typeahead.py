@@ -59,6 +59,14 @@ def _person_label(person: Person) -> str:
     return label
 
 
+def _normalized_identity_name(value: object) -> str:
+    return " ".join("".join(char if char.isalnum() else " " for char in str(value or "").casefold()).split())
+
+
+def _person_identity_name(person: Person) -> str:
+    return person.display_name or " ".join(part for part in [person.first_name, person.last_name] if part)
+
+
 def ticket_people(db: Session, query: str, limit: int) -> list[dict]:
     """Search current ticket customers using person and authoritative subscriber identities."""
     term = (query or "").strip()
@@ -81,7 +89,6 @@ def ticket_people(db: Session, query: str, limit: int) -> list[dict]:
                 Person.email.ilike(like_term),
                 Person.phone.ilike(like_term),
                 Person.metadata_["selfcare_id"].as_string() == term,
-                Person.metadata_["splynx_id"].as_string() == term,
             )
         )
         .limit(max(limit * 4, limit))
@@ -114,6 +121,10 @@ def ticket_people(db: Session, query: str, limit: int) -> list[dict]:
     for subscriber in subscriber_rows:
         if subscriber.person is None:
             continue
+        if subscriber.authoritative_name and _normalized_identity_name(
+            subscriber.authoritative_name
+        ) != _normalized_identity_name(_person_identity_name(subscriber.person)):
+            continue
         people_by_id.setdefault(subscriber.person.id, subscriber.person)
         subscribers_by_person.setdefault(subscriber.person.id, []).append(subscriber)
 
@@ -121,10 +132,7 @@ def ticket_people(db: Session, query: str, limit: int) -> list[dict]:
 
     def rank(person: Person) -> tuple[int, str]:
         metadata = person.metadata_ if isinstance(person.metadata_, dict) else {}
-        if normalized in {
-            str(metadata.get("selfcare_id") or "").casefold(),
-            str(metadata.get("splynx_id") or "").casefold(),
-        }:
+        if normalized == str(metadata.get("selfcare_id") or "").casefold():
             return (0, _person_label(person).casefold())
         for subscriber in subscribers_by_person.get(person.id, []):
             identifiers = {
@@ -166,10 +174,7 @@ def ticket_people(db: Session, query: str, limit: int) -> list[dict]:
         metadata = person.metadata_ if isinstance(person.metadata_, dict) else {}
         if matching_number:
             label = f"{label} · {matching_number}"
-        elif normalized in {
-            str(metadata.get("selfcare_id") or "").casefold(),
-            str(metadata.get("splynx_id") or "").casefold(),
-        }:
+        elif normalized == str(metadata.get("selfcare_id") or "").casefold():
             label = f"{label} · ID {term}"
         items.append({"id": person.id, "label": label})
     return items
@@ -289,6 +294,7 @@ def ticket_subscribers(db: Session, query: str, limit: int) -> list[dict]:
             Person.display_name.ilike(like_term),
             Person.email.ilike(like_term),
             Organization.name.ilike(like_term),
+            Subscriber.sync_metadata["selfcare_name"].as_string().ilike(like_term),
         ]
         if expected_number:
             filters.append(Subscriber.subscriber_number == expected_number)
@@ -310,17 +316,7 @@ def ticket_subscribers(db: Session, query: str, limit: int) -> list[dict]:
 
     items = []
     for subscriber in results:
-        current_person = (
-            subscriber.person
-            if subscriber.person and subscriber.person.is_active and subscriber.person.status != PersonStatus.archived
-            else None
-        )
-        if current_person:
-            label = " ".join(part for part in [current_person.first_name, current_person.last_name] if part)
-        elif subscriber.organization:
-            label = subscriber.organization.name
-        else:
-            label = "Subscriber"
+        label = subscriber.display_name
         identifier = subscriber.subscriber_number or subscriber.account_number or subscriber.external_id
         if identifier:
             label = f"{label} ({identifier})"

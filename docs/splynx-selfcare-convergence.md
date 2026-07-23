@@ -29,9 +29,10 @@ The identity reconciler may repair `Subscriber.person_id` only from a strong,
 unique identity:
 
 1. an active Person whose `metadata.selfcare_id` equals the dotmac_sub UUID; or
-2. for migrated subscribers, exactly one active Person whose legacy
-   `metadata.splynx_id` round-trips to the canonical dotmac_sub subscriber
-   number (`100` + zero-padded Splynx customer id).
+2. for migrated subscribers, an operator-supplied current Person from
+   `--target-person-id` whose normalized name exactly matches the canonical
+   name projected from dotmac_sub and whose existing `metadata.selfcare_id`
+   is either empty or already equals the dotmac_sub UUID.
 
 Archived people are never selected. The legacy bridge may replace an existing
 link only when the current Person is archived/inactive **and** is recorded as a
@@ -40,14 +41,37 @@ incident. Unlinked subscribers, ordinary manual links, archived rows without
 merge evidence, and ambiguous legacy matches remain unchanged. Shared email and
 phone values are not ownership keys.
 
+Before evaluating the legacy bridge, the targeted command fetches the one live
+dotmac_sub subscriber and stages its canonical `name`, `address`, and `location`
+in the CRM Subscriber projection. Legacy `splynx_id` metadata is diagnostic
+evidence only and never auto-transfers Person ownership. Without an explicit
+target, or when its name/UUID conflicts with Sub, the command fails closed,
+increments `conflicting_legacy_identity_matches`, and leaves the Person link
+unchanged. The safe projection may still be committed so ticket screens show
+the Sub-owned name and service address while the explicit Person correction is
+reviewed.
+
+Ticket customer search does not treat deprecated `Person.metadata.splynx_id` as
+sufficient ownership evidence. Ticket subscriber search and detail display use
+the canonical Sub name/address projection when present. The API transport and
+sync direction do not change: Sub remains authoritative and CRM only consumes
+the existing subscriber payload fields.
+
 Before applying a repair, review the dry-run output:
 
 ```bash
 poetry run python scripts/reconcile_subscriber_identity.py --subscriber-number 100009541
-poetry run python scripts/reconcile_subscriber_identity.py --subscriber-number 100009541 --apply
+poetry run python scripts/reconcile_subscriber_identity.py \
+  --subscriber-number 100009541 \
+  --apply  # safe name/address projection only when no target Person is supplied
+poetry run python scripts/reconcile_subscriber_identity.py \
+  --subscriber-number 100009541 \
+  --target-person-id <verified-current-person-uuid> \
+  --apply
 ```
 
-`--apply` requires one explicit subscriber number. The scheduled identity
+The subscriber number is always required; a Person relink additionally requires
+the explicit target Person ID. The scheduled identity
 reconciler never enables this legacy merge-source repair mode, so routine
 Sub↔CRM sync cannot turn it into a bulk relinking pass.
 
