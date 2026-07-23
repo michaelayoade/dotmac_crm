@@ -15,6 +15,9 @@ Sections 1, 2, 7, and 8 where they conflict:
    state) before automatic routing may create an assignment.
 3. A manual assignment explicitly ends pending AI ownership before creating the
    assignment.
+   Manual assignments have no automatic expiry and cannot be superseded by AI
+   routing. This includes deliberate cross-team assignments: the assignment's
+   recorded team remains explicit and is never inferred from its selected agent.
 4. Every agent assignment is an immutable stint. Reassignment closes the active
    stint with `ended_at` and creates a new row; an inactive row is never
    reactivated or overwritten.
