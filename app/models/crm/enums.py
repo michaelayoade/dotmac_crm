@@ -18,6 +18,23 @@ class ConversationStatus(enum.Enum):
     resolved = "resolved"
 
 
+class ConversationQueueType(enum.Enum):
+    """The two logical queues used by the chat dispatcher."""
+
+    support = "support"
+    sales = "sales"
+
+
+class ConversationQueueState(enum.Enum):
+    """Lifecycle of one customer waiting/assignment cycle."""
+
+    classifying = "classifying"
+    waiting = "waiting"
+    assigned = "assigned"
+    completed = "completed"
+    cancelled = "cancelled"
+
+
 class MessageDirection(enum.Enum):
     inbound = "inbound"
     outbound = "outbound"

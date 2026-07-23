@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.logging import get_logger
+from app.models.crm.enums import ConversationQueueType
 from app.models.person import Person
 from app.services.common import coerce_uuid
 from app.services.crm import contact as contact_service
@@ -417,4 +418,36 @@ def inbox_conversation_resolve(
             "agent_availability": assignment_options.get("agent_availability"),
             "private_note_enabled": private_note_logic.USE_PRIVATE_NOTE_LOGIC_SERVICE,
         },
+    )
+
+
+@router.post("/inbox/conversation/{conversation_id}/queue-transfer")
+def inbox_conversation_queue_transfer(
+    request: Request,
+    conversation_id: str,
+    queue_type: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Manager-only transfer between the authoritative Support/Sales queues."""
+    from app.services.crm.inbox import dispatch as queue_dispatch
+    from app.web.admin._auth_helpers import get_current_user
+
+    if not can_view_manager_dashboard(_get_current_roles(request), _get_current_scopes(request)):
+        return JSONResponse({"ok": False, "error": "Manager dashboard access is required."}, status_code=403)
+    if not queue_dispatch.enabled(db):
+        return JSONResponse({"ok": False, "error": "Two-queue dispatch is disabled."}, status_code=409)
+    try:
+        target = ConversationQueueType(queue_type.strip().lower())
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "Queue must be Support or Sales."}, status_code=400)
+    actor_id = (get_current_user(request) or {}).get("person_id")
+    if not actor_id:
+        return JSONResponse({"ok": False, "error": "Manager identity is required."}, status_code=403)
+    try:
+        entry = queue_dispatch.transfer(db, conversation_id=conversation_id, queue_type=target, actor_id=str(actor_id))
+    except Exception as exc:
+        db.rollback()
+        return JSONResponse({"ok": False, "error": str(getattr(exc, "detail", exc))}, status_code=409)
+    return JSONResponse(
+        {"ok": True, "queue": entry.queue_type.value, "position": queue_dispatch.position_for_entry(db, entry)}
     )

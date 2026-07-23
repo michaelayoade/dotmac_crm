@@ -21,6 +21,8 @@ from app.models.crm.enums import (
     CampaignType,
     ChannelType,
     ConversationPriority,
+    ConversationQueueState,
+    ConversationQueueType,
     ConversationStatus,
     LeadStatus,
     MacroActionType,
@@ -34,6 +36,7 @@ from app.models.crm.macro import CrmConversationMacro
 from app.models.crm.message_template import CrmMessageTemplate
 from app.models.crm.outbox import OutboxMessage
 from app.models.crm.presence import AgentLocationPing, AgentPresence, AgentPresenceEvent
+from app.models.crm.queue import ConversationQueueEntry, ConversationQueueEvent
 from app.models.crm.referral import (
     Referral,
     ReferralCode,
@@ -65,6 +68,10 @@ __all__ = [
     "ConversationAssignment",
     "ConversationLabel",
     "ConversationPriority",
+    "ConversationQueueEntry",
+    "ConversationQueueEvent",
+    "ConversationQueueState",
+    "ConversationQueueType",
     "ConversationStatus",
     "ConversationSummary",
     "ConversationTag",

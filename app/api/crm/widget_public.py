@@ -604,11 +604,14 @@ def _queue_payload(db: Session, conversation_id: UUID | None) -> dict | None:
         return None
     try:
         from app.models.crm.conversation import Conversation
+        from app.services.crm.inbox import dispatch as queue_dispatch
         from app.services.crm.inbox.queue import queue_status_for_conversation
 
         conversation = db.get(Conversation, conversation_id)
         if conversation is None:
             return None
+        if queue_dispatch.enabled(db):
+            return queue_dispatch.queue_payload(db, conversation)
         return queue_status_for_conversation(db, conversation)
     except Exception:
         logger.warning("widget_queue_payload_failed conversation_id=%s", conversation_id)

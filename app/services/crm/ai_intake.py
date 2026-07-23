@@ -821,6 +821,43 @@ def _apply_department_assignment(
     block_fallback: bool = False,
 ) -> DepartmentRoutingSelection:
     _apply_mapping_metadata(db, conversation, mapping)
+    # The two-queue dispatcher owns all automatic agent selection.  AI retains
+    # intake and classification only, and contributes a durable logical queue
+    # entry for the dispatcher to work from.
+    from app.services.crm.inbox import dispatch as queue_dispatch
+
+    if queue_dispatch.enabled(db):
+        entry = queue_dispatch.enqueue_classified(
+            db,
+            conversation=conversation,
+            queue_type=queue_dispatch.queue_for_department(mapping.key),
+            source=source,
+        )
+        _set_routing_state(
+            state,
+            department=mapping.key,
+            selected_team_id=mapping.team_id,
+            assigned_team_id=None,
+            assigned_agent_id=None,
+            routing_state="waiting_for_agent",
+            skipped_reason="two_queue_dispatch",
+            fallback_blocked=bool(block_fallback),
+        )
+        logger.info(
+            "two_queue_ai_enqueued conversation_id=%s queue=%s entry_id=%s department=%s",
+            conversation.id,
+            entry.queue_type.value,
+            entry.id,
+            mapping.key,
+        )
+        return DepartmentRoutingSelection(
+            team_id=mapping.team_id,
+            agent_id=None,
+            configured_agent_ids=(),
+            active_agent_ids=(),
+            reason="two_queue_dispatch",
+            routing_state="waiting_for_agent",
+        )
     selection = _select_department_assignment(db, team_id=mapping.team_id)
     logger.info(
         "routing_department_selected conversation_id=%s source=%s department=%s team_id=%s fallback_team_id=%s",
@@ -3342,6 +3379,10 @@ def escalate_expired_pending_intakes(db: Session, *, limit: int = 200) -> dict[s
 
 def retry_team_only_ai_assignments(db: Session, *, limit: int = 200) -> dict[str, Any]:
     """Retry agent assignment for AI-routed conversations left on team queue only."""
+    from app.services.crm.inbox import dispatch as queue_dispatch
+
+    if queue_dispatch.enabled(db):
+        return {"skipped": True, "reason": "two_queue_dispatch_enabled"}
     if not _enabled_by_env():
         return {"skipped": True, "reason": "disabled"}
 
@@ -3507,6 +3548,10 @@ def _ai_handoff_reassignment_timeout_minutes(db: Session) -> int:
 
 def reassign_stale_ai_handoffs(db: Session, *, limit: int = 200) -> dict[str, Any]:
     """Reassign AI handoffs when the first assigned agent has not replied in time."""
+    from app.services.crm.inbox import dispatch as queue_dispatch
+
+    if queue_dispatch.enabled(db):
+        return {"skipped": True, "reason": "two_queue_dispatch_enabled"}
     timeout_minutes = _ai_handoff_reassignment_timeout_minutes(db)
     cutoff = _now() - timedelta(minutes=timeout_minutes)
     rows = (

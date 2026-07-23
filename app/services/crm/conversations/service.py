@@ -846,6 +846,8 @@ def assign_conversation(
         # Defense-in-depth: never assign directly to an unavailable agent.
         if agent_uuid is not None:
             from app.models.crm.presence import AgentPresence
+            from app.models.crm.team import CrmAgent
+            from app.services.crm.inbox import routing as inbox_routing
             from app.services.crm.presence import agent_presence as presence_service
 
             presence = db.query(AgentPresence).filter(AgentPresence.agent_id == agent_uuid).first()
@@ -859,6 +861,14 @@ def assign_conversation(
                     )
                 # Keep team assignment, but drop the agent assignment.
                 agent_uuid = None
+            if agent_uuid is not None:
+                agent = db.get(CrmAgent, agent_uuid)
+                if agent is not None:
+                    active_chats = inbox_routing._agent_active_chat_counts(db, [agent.id]).get(agent.id, 0)
+                    if active_chats >= inbox_routing._agent_cap(agent, inbox_routing._global_max_concurrent(db)):
+                        if assigned_by_id is not None:
+                            raise HTTPException(status_code=409, detail="Agent is at the 20-chat capacity limit")
+                        agent_uuid = None
         if assigned_by_id is not None and conversation.status == ConversationStatus.snoozed:
             from app.services.crm.inbox.conversation_status import _clear_snooze_metadata
 

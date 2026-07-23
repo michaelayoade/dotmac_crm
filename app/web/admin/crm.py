@@ -340,3 +340,23 @@ async def inbox(
             **context,
         },
     )
+
+
+@router.get("/inbox/queues", response_class=HTMLResponse)
+async def inbox_queues(request: Request, db: Session = Depends(get_db)):
+    """Manager read view for the authoritative Support/Sales queues."""
+    from app.services.crm.inbox import dispatch as queue_dispatch
+    from app.services.crm.inbox.permissions import can_view_manager_dashboard
+    from app.web.admin._auth_helpers import get_current_user
+
+    current_user = get_current_user(request) or {}
+    roles = current_user.get("roles") or []
+    scopes = current_user.get("permissions") or current_user.get("scopes") or []
+    if not can_view_manager_dashboard(roles, scopes):
+        return HTMLResponse("<div class='p-6'>Forbidden</div>", status_code=403)
+    if not queue_dispatch.enabled(db):
+        return HTMLResponse("<div class='p-6'>Two-queue dispatch is disabled.</div>", status_code=404)
+    return templates.TemplateResponse(
+        "admin/crm/queue_dashboard.html",
+        {"request": request, **queue_dispatch.dashboard_snapshot(db)},
+    )

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mx-auto max-w-7xl space-y-6 p-4 lg:p-6">
+  <div>
+    <h1 class="text-2xl font-semibold text-slate-900 dark:text-white">Chat queues</h1>
+    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Live FIFO order for Support and Sales.</p>
+  </div>
+  <div class="grid gap-4 lg:grid-cols-2">
+    {% for queue in queues %}
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-slate-900 dark:text-white">{{ queue.type | title }}</h2>
+        <span class="rounded-lg bg-slate-100 px-2.5 py-1 text-sm font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-200">{{ queue.depth }} waiting</span>
+      </div>
+      <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Oldest wait: {{ queue.oldest_wait_seconds // 60 }} min</p>
+      <ol class="mt-4 divide-y divide-slate-100 dark:divide-slate-700">
+        {% for entry in queue.entries %}
+        <li class="flex items-center justify-between py-2 text-sm text-slate-700 dark:text-slate-200">
+          <a class="font-medium hover:text-rose-600 dark:hover:text-rose-400" href="/admin/crm/inbox?conversation_id={{ entry.conversation_id }}">Position {{ entry.position }}</a>
+          <span class="text-xs text-slate-500 dark:text-slate-400">{{ entry.arrival_at.strftime('%H:%M') }}</span>
+        </li>
+        {% else %}
+        <li class="py-5 text-sm text-slate-500 dark:text-slate-400">No customers waiting.</li>
+        {% endfor %}
+      </ol>
+    </section>
+    {% endfor %}
+  </div>
+  <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Agent load</h2>
+    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{ classification_holds }} chats awaiting classification.</p>
+    <div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      {% for agent in agents %}
+      <div class="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:bg-slate-700 dark:text-slate-200">{{ agent.queue | title }} agent — {{ agent.load }}/{{ agent.cap }}</div>
+      {% else %}
+      <p class="text-sm text-slate-500 dark:text-slate-400">No available automatic agents.</p>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

@@ -65,20 +65,41 @@ def assign_conversation(
 
     agent_value = (agent_id or "").strip() or None
     team_value = (team_id or "").strip() or None
-    try:
-        if agent_value:
-            agent_value = str(coerce_uuid(agent_value))
-        if team_value:
-            team_value = str(coerce_uuid(team_value))
-    except Exception:
-        return AssignConversationResult(kind="invalid_input", error_detail="Invalid agent or team selection.")
-
     assigned_by_value = (assigned_by_id or "").strip() or None
     try:
         if assigned_by_value:
             assigned_by_value = str(coerce_uuid(assigned_by_value))
     except Exception:
         assigned_by_value = None
+    try:
+        from app.services.crm.inbox import dispatch as queue_dispatch
+
+        if queue_dispatch.enabled(db):
+            entry = queue_dispatch.active_entry(db, conversation_id)
+            if entry is not None:
+                if not agent_value:
+                    return AssignConversationResult(
+                        kind="invalid_input",
+                        conversation=conversation,
+                        error_detail="Use the queue transfer action to move a queued conversation.",
+                    )
+                if not assigned_by_value:
+                    return AssignConversationResult(
+                        kind="forbidden", conversation=conversation, error_detail="A manager identity is required."
+                    )
+                queue_dispatch.manager_assign_head(
+                    db,
+                    conversation_id=conversation_id,
+                    agent_id=agent_value,
+                    actor_id=assigned_by_value,
+                )
+                return AssignConversationResult(kind="success", conversation=conversation)
+        if agent_value:
+            agent_value = str(coerce_uuid(agent_value))
+        if team_value:
+            team_value = str(coerce_uuid(team_value))
+    except Exception:
+        return AssignConversationResult(kind="invalid_input", error_detail="Invalid agent or team selection.")
 
     try:
         if agent_value:

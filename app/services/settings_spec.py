@@ -446,6 +446,13 @@ SETTINGS_SPECS: list[SettingSpec] = [
     ),
     SettingSpec(
         domain=SettingDomain.notification,
+        key="crm_two_queue_dispatch_enabled",
+        env_var="CRM_TWO_QUEUE_DISPATCH_ENABLED",
+        value_type=SettingValueType.boolean,
+        default=False,
+    ),
+    SettingSpec(
+        domain=SettingDomain.notification,
         key="crm_inbox_ai_assignment_retry_interval_seconds",
         env_var="CRM_INBOX_AI_ASSIGNMENT_RETRY_INTERVAL_SECONDS",
         value_type=SettingValueType.integer,
@@ -476,9 +483,9 @@ SETTINGS_SPECS: list[SettingSpec] = [
         key="crm_chat_max_concurrent_per_agent",
         env_var="CRM_CHAT_MAX_CONCURRENT_PER_AGENT",
         value_type=SettingValueType.integer,
-        default=3,
+        default=20,
         min_value=1,
-        max_value=50,
+        max_value=20,
     ),
     SettingSpec(
         domain=SettingDomain.notification,

@@ -282,6 +282,10 @@ def promote_queued_conversations_task(limit: int = 200):
     session = SessionLocal()
     logger.info("CHAT_QUEUE_PROMOTION_START")
     try:
+        from app.services.crm.inbox import dispatch as queue_dispatch
+
+        if queue_dispatch.enabled(session):
+            return {"skipped": True, "reason": "two_queue_dispatch_enabled"}
         from app.services.crm.inbox.queue import promote_queued_conversations
 
         result = promote_queued_conversations(session, limit=limit)
@@ -300,6 +304,48 @@ def promote_queued_conversations_task(limit: int = 200):
     finally:
         session.close()
         observe_job("crm_inbox_promote_queue", status, time.monotonic() - start)
+
+
+@celery_app.task(name="app.tasks.crm_inbox.run_two_queue_dispatch")
+def run_two_queue_dispatch_task(limit: int = 200):
+    """Single scheduled owner for FIFO assignment and recovery."""
+    import time
+
+    from app.metrics import observe_job
+    from app.services.crm.inbox import dispatch as queue_dispatch
+
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    try:
+        if not queue_dispatch.enabled(session):
+            return {"skipped": True, "reason": "disabled"}
+        recovery = queue_dispatch.recover_unavailable_and_missed(session, limit=limit)
+        dispatched = queue_dispatch.dispatch_waiting(session, limit=limit)
+        notices = queue_dispatch.emit_position_notices(session, limit=limit)
+        return {**recovery, **dispatched, "position_notices": notices}
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("crm_inbox_two_queue_dispatch", status, time.monotonic() - start)
+
+
+@celery_app.task(name="app.tasks.crm_inbox.backfill_two_queue_dispatch")
+def backfill_two_queue_dispatch_task(limit: int = 500):
+    """Idempotent cutover backfill; invoke once before enabling customer notices."""
+    from app.services.crm.inbox import dispatch as queue_dispatch
+
+    session = SessionLocal()
+    try:
+        return queue_dispatch.backfill_unresolved(session, limit=limit)
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 @celery_app.task(

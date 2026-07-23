@@ -300,7 +300,20 @@ def post_process_inbound_message(
                     intake_result=intake_result,
                 )
                 if not intake_result or not intake_result.handled:
-                    apply_routing_rules(db, conversation=conversation, message=message)
+                    from app.services.crm.inbox import dispatch as queue_dispatch
+
+                    if queue_dispatch.enabled(db) and message.channel_type in queue_dispatch.SUPPORTED_CHANNELS:
+                        # Never let the legacy team router bypass the logical
+                        # queue while the two-queue dispatcher is active.
+                        queue_dispatch.enqueue_classified(
+                            db,
+                            conversation=conversation,
+                            queue_type=queue_dispatch.ConversationQueueType.support,
+                            source="classification_fallback",
+                        )
+                        db.commit()
+                    else:
+                        apply_routing_rules(db, conversation=conversation, message=message)
         broadcast_new_message(message, conversation)
         pending_ai_intake = bool(
             intake_result and intake_result.handled and conversation.status == ConversationStatus.pending
