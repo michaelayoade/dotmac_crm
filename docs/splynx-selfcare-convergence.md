@@ -23,6 +23,34 @@ migration `sc2026062700` deliberately relabelled only cosmetic source strings
 (`splynx_polling` → `selfcare_polling`) and left `external_id` remapping to this
 live bridge.
 
+### Person-link repair
+
+The identity reconciler may repair `Subscriber.person_id` only from a strong,
+unique identity:
+
+1. an active Person whose `metadata.selfcare_id` equals the dotmac_sub UUID; or
+2. for migrated subscribers, exactly one active Person whose legacy
+   `metadata.splynx_id` round-trips to the canonical dotmac_sub subscriber
+   number (`100` + zero-padded Splynx customer id).
+
+Archived people are never selected. The legacy bridge may replace an existing
+link only when the current Person is archived/inactive **and** is recorded as a
+`PersonMergeLog` source—the exact signature left by the June 2026 email-match
+incident. Unlinked subscribers, ordinary manual links, archived rows without
+merge evidence, and ambiguous legacy matches remain unchanged. Shared email and
+phone values are not ownership keys.
+
+Before applying a repair, review the dry-run output:
+
+```bash
+poetry run python scripts/reconcile_subscriber_identity.py --subscriber-number 100009541
+poetry run python scripts/reconcile_subscriber_identity.py --subscriber-number 100009541 --apply
+```
+
+`--apply` requires one explicit subscriber number. The scheduled identity
+reconciler never enables this legacy merge-source repair mode, so routine
+Sub↔CRM sync cannot turn it into a bulk relinking pass.
+
 ## Gate: measure before retiring code
 
 `scripts/splynx_convergence_status.py` (→ `app/services/splynx_convergence.py`,

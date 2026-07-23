@@ -17,12 +17,22 @@ from typing import Any, ClassVar
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.person import ChannelType, PartyStatus, Person, PersonChannel
+from app.models.person import (
+    ChannelType,
+    PartyStatus,
+    Person,
+    PersonChannel,
+    PersonMergeLog,
+    PersonStatus,
+)
 from app.models.subscriber import Organization, Subscriber, SubscriberStatus
 from app.services.common import apply_ordering
 from app.services.events import emit_event
 from app.services.events.types import EventType
-from app.services.external_systems import SELFCARE_EXTERNAL_SYSTEM
+from app.services.external_systems import (
+    SELFCARE_EXTERNAL_SYSTEM,
+    splynx_id_from_selfcare_subscriber_number,
+)
 
 
 class SubscriberManager:
@@ -350,6 +360,8 @@ class SubscriberManager:
         external_system: str = SELFCARE_EXTERNAL_SYSTEM,
         clear_duplicate_metadata: bool = True,
         dry_run: bool = False,
+        repair_legacy_merge_sources: bool = False,
+        subscriber_number: str | None = None,
     ) -> dict[str, int]:
         """
         Reconcile subscriber->person links for one external system.
@@ -364,6 +376,8 @@ class SubscriberManager:
             "scanned_subscribers": 0,
             "matched_subscribers": 0,
             "linked_subscribers": 0,
+            "legacy_identity_matches": 0,
+            "ambiguous_legacy_identity_matches": 0,
             "organization_backfilled": 0,
             "person_metadata_updated": 0,
             "duplicate_metadata_groups": 0,
@@ -371,15 +385,14 @@ class SubscriberManager:
             "unmatched_subscribers": 0,
         }
 
-        subscribers = (
-            db.query(Subscriber)
-            .filter(
-                Subscriber.external_system == external_system,
-                Subscriber.external_id.isnot(None),
-                Subscriber.is_active.is_(True),
-            )
-            .all()
+        subscriber_query = db.query(Subscriber).filter(
+            Subscriber.external_system == external_system,
+            Subscriber.external_id.isnot(None),
+            Subscriber.is_active.is_(True),
         )
+        if subscriber_number:
+            subscriber_query = subscriber_query.filter(Subscriber.subscriber_number == subscriber_number)
+        subscribers = subscriber_query.all()
         results["scanned_subscribers"] = len(subscribers)
         if not subscribers:
             return results
@@ -389,6 +402,26 @@ class SubscriberManager:
             return results
 
         metadata_key = "selfcare_id" if external_system == "selfcare" else "splynx_id"
+        legacy_id_by_subscriber_id: dict[uuid.UUID, str] = {}
+        if external_system == SELFCARE_EXTERNAL_SYSTEM and repair_legacy_merge_sources:
+            legacy_id_by_subscriber_id = {
+                subscriber.id: legacy_id
+                for subscriber in subscribers
+                if (legacy_id := splynx_id_from_selfcare_subscriber_number(subscriber.subscriber_number)) is not None
+            }
+        legacy_ids = set(legacy_id_by_subscriber_id.values())
+        merge_source_ids: set[uuid.UUID] = set()
+        if repair_legacy_merge_sources:
+            linked_person_ids = {subscriber.person_id for subscriber in subscribers if subscriber.person_id}
+            merge_source_ids = {
+                source_person_id
+                for (source_person_id,) in (
+                    db.query(PersonMergeLog.source_person_id)
+                    .filter(PersonMergeLog.source_person_id.in_(linked_person_ids))
+                    .all()
+                )
+            }
+
         # External IDs are stored in people.metadata by provider-specific keys.
         bind = db.get_bind()
         if bind is not None and bind.dialect.name == "sqlite":
@@ -396,27 +429,43 @@ class SubscriberManager:
                 person
                 for person in db.query(Person).all()
                 if isinstance(person.metadata_, dict)
-                and str(person.metadata_.get(metadata_key) or "").strip() in external_ids
+                and (
+                    str(person.metadata_.get(metadata_key) or "").strip() in external_ids
+                    or (
+                        person.is_active
+                        and person.status != PersonStatus.archived
+                        and str(person.metadata_.get("splynx_id") or "").strip() in legacy_ids
+                    )
+                )
             ]
         else:
-            people = (
-                db.query(Person)
-                .filter(func.json_extract_path_text(Person.metadata_, metadata_key).in_(external_ids))
-                .all()
-            )
+            identity_filters: list[Any] = [
+                func.json_extract_path_text(Person.metadata_, metadata_key).in_(external_ids)
+            ]
+            if legacy_ids:
+                identity_filters.append(
+                    Person.is_active.is_(True)
+                    & (Person.status != PersonStatus.archived)
+                    & func.json_extract_path_text(Person.metadata_, "splynx_id").in_(legacy_ids)
+                )
+            people = db.query(Person).filter(or_(*identity_filters)).all()
 
         people_by_external_id: dict[str, list[Person]] = {}
+        people_by_legacy_id: dict[str, list[Person]] = {}
         people_by_id = {p.id: p for p in people}
         for person in people:
             if not isinstance(person.metadata_, dict):
                 continue
             external_id_value = person.metadata_.get(metadata_key)
-            if not external_id_value:
-                continue
-            key = str(external_id_value).strip()
-            if not key:
-                continue
-            people_by_external_id.setdefault(key, []).append(person)
+            if external_id_value:
+                key = str(external_id_value).strip()
+                if key:
+                    people_by_external_id.setdefault(key, []).append(person)
+            legacy_id_value = person.metadata_.get("splynx_id")
+            if legacy_id_value and person.is_active and person.status != PersonStatus.archived:
+                legacy_key = str(legacy_id_value).strip()
+                if legacy_key:
+                    people_by_legacy_id.setdefault(legacy_key, []).append(person)
 
         candidate_ids = [p.id for p in people]
         active_link_counts: dict[uuid.UUID, int] = {}
@@ -462,6 +511,24 @@ class SubscriberManager:
                 continue
 
             candidates = people_by_external_id.get(external_id, [])
+            used_legacy_identity = False
+            current_person = db.get(Person, subscriber.person_id) if subscriber.person_id else None
+            legacy_repair_allowed = bool(
+                repair_legacy_merge_sources
+                and current_person
+                and (not current_person.is_active or current_person.status == PersonStatus.archived)
+                and current_person.id in merge_source_ids
+            )
+            if not candidates and legacy_repair_allowed:
+                legacy_id = legacy_id_by_subscriber_id.get(subscriber.id)
+                legacy_candidates = people_by_legacy_id.get(legacy_id, []) if legacy_id else []
+                if len(legacy_candidates) == 1:
+                    candidates = legacy_candidates
+                    used_legacy_identity = True
+                elif len(legacy_candidates) > 1:
+                    results["ambiguous_legacy_identity_matches"] += 1
+                    results["unmatched_subscribers"] += 1
+                    continue
             preferred_person = people_by_id.get(subscriber.person_id) if subscriber.person_id else None
 
             if len(candidates) > 1:
@@ -471,6 +538,8 @@ class SubscriberManager:
             if candidates:
                 selected = choose_best_person(candidates, subscriber.person_id)
                 results["matched_subscribers"] += 1
+                if used_legacy_identity:
+                    results["legacy_identity_matches"] += 1
             elif preferred_person:
                 selected = preferred_person
             else:

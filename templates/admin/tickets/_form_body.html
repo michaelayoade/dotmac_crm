@@ -80,7 +80,7 @@
                 {% else %}
                     {% set customer_label = prefill.customer_label or '' %}
                 {% endif %}
-                {{ typeahead_input("customer_person_id", "/api/v1/search/people", value=(ticket.customer_person_id if ticket else (prefill.customer_person_id or '')), display_value=customer_label, placeholder="Search contacts...", min_chars=0, id="customer_search") }}
+                {{ typeahead_input("customer_person_id", "/api/v1/search/ticket-customers", value=(ticket.customer_person_id if ticket else (prefill.customer_person_id or '')), display_value=customer_label, placeholder="Search name, phone or subscriber ID...", min_chars=0, id="customer_search") }}
             </div>
 
             <div class="sm:col-span-2">
@@ -111,7 +111,7 @@
                 {% else %}
                     {% set subscriber_label = prefill.subscriber_label or '' %}
                 {% endif %}
-                {{ typeahead_input("subscriber_id", "/api/v1/search/subscribers", value=(ticket.subscriber_id if ticket else (prefill.subscriber_id or '')), display_value=subscriber_label, placeholder="Search subscribers...", min_chars=0, id="subscriber_search") }}
+                {{ typeahead_input("subscriber_id", "/api/v1/search/ticket-subscribers", value=(ticket.subscriber_id if ticket else (prefill.subscriber_id or '')), display_value=subscriber_label, placeholder="Search subscriber number or customer...", min_chars=0, id="subscriber_search") }}
                 <p id="ticket-subscriber-required-help" class="mt-1 hidden text-xs text-red-600 dark:text-red-400">
                     Subscriber details are required for the selected ticket type.
                 </p>

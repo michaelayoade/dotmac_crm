@@ -1,11 +1,13 @@
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.dispatch import TechnicianProfile
 from app.models.inventory import InventoryItem
-from app.models.person import Person
+from app.models.person import Person, PersonStatus
 from app.models.subscriber import Organization, Subscriber
 from app.models.vendor import Vendor
+from app.services.external_systems import selfcare_subscriber_number_for_splynx_id
 from app.services.response import list_response
 
 
@@ -44,6 +46,137 @@ def people(db: Session, query: str, limit: int) -> list[dict]:
 
 def people_response(db: Session, query: str, limit: int) -> dict:
     return list_response(people(db, query, limit), limit, 0)
+
+
+def _person_label(person: Person) -> str:
+    label = " ".join(part for part in [person.first_name, person.last_name] if part)
+    if not label and person.display_name:
+        label = person.display_name
+    if person.email:
+        return f"{label} ({person.email})"
+    if person.phone:
+        return f"{label} ({person.phone})"
+    return label
+
+
+def ticket_people(db: Session, query: str, limit: int) -> list[dict]:
+    """Search current ticket customers using person and authoritative subscriber identities."""
+    term = (query or "").strip()
+    current_people = db.query(Person).filter(
+        Person.is_active.is_(True),
+        Person.status != PersonStatus.archived,
+    )
+    if not term:
+        people_rows = current_people.order_by(Person.created_at.desc()).limit(limit).all()
+        return [{"id": person.id, "label": _person_label(person)} for person in people_rows]
+
+    like_term = f"%{term}%"
+    expected_number = selfcare_subscriber_number_for_splynx_id(term)
+    people_rows = (
+        current_people.filter(
+            or_(
+                Person.first_name.ilike(like_term),
+                Person.last_name.ilike(like_term),
+                Person.display_name.ilike(like_term),
+                Person.email.ilike(like_term),
+                Person.phone.ilike(like_term),
+                Person.metadata_["selfcare_id"].as_string() == term,
+                Person.metadata_["splynx_id"].as_string() == term,
+            )
+        )
+        .limit(max(limit * 4, limit))
+        .all()
+    )
+
+    subscriber_filters: list[ColumnElement[bool]] = [
+        Subscriber.subscriber_number.ilike(like_term),
+        Subscriber.account_number.ilike(like_term),
+        Subscriber.external_id.ilike(like_term),
+    ]
+    if expected_number:
+        subscriber_filters.append(Subscriber.subscriber_number == expected_number)
+    subscriber_rows = (
+        db.query(Subscriber)
+        .join(Person, Subscriber.person_id == Person.id)
+        .options(joinedload(Subscriber.person))
+        .filter(
+            Subscriber.is_active.is_(True),
+            Person.is_active.is_(True),
+            Person.status != PersonStatus.archived,
+            or_(*subscriber_filters),
+        )
+        .limit(max(limit * 4, limit))
+        .all()
+    )
+
+    people_by_id = {person.id: person for person in people_rows}
+    subscribers_by_person: dict = {}
+    for subscriber in subscriber_rows:
+        if subscriber.person is None:
+            continue
+        people_by_id.setdefault(subscriber.person.id, subscriber.person)
+        subscribers_by_person.setdefault(subscriber.person.id, []).append(subscriber)
+
+    normalized = term.casefold()
+
+    def rank(person: Person) -> tuple[int, str]:
+        metadata = person.metadata_ if isinstance(person.metadata_, dict) else {}
+        if normalized in {
+            str(metadata.get("selfcare_id") or "").casefold(),
+            str(metadata.get("splynx_id") or "").casefold(),
+        }:
+            return (0, _person_label(person).casefold())
+        for subscriber in subscribers_by_person.get(person.id, []):
+            identifiers = {
+                str(subscriber.subscriber_number or "").casefold(),
+                str(subscriber.account_number or "").casefold(),
+                str(subscriber.external_id or "").casefold(),
+            }
+            if normalized in identifiers or (expected_number and subscriber.subscriber_number == expected_number):
+                return (0, _person_label(person).casefold())
+        fields = [
+            person.first_name,
+            person.last_name,
+            person.display_name,
+            person.email,
+            person.phone,
+        ]
+        normalized_fields = [str(value or "").casefold() for value in fields]
+        if normalized in normalized_fields:
+            return (1, _person_label(person).casefold())
+        if any(value.startswith(normalized) for value in normalized_fields):
+            return (2, _person_label(person).casefold())
+        return (3, _person_label(person).casefold())
+
+    items = []
+    for person in sorted(people_by_id.values(), key=rank)[:limit]:
+        label = _person_label(person)
+        matching_number = next(
+            (
+                subscriber.subscriber_number
+                for subscriber in subscribers_by_person.get(person.id, [])
+                if subscriber.subscriber_number
+                and (
+                    subscriber.subscriber_number == expected_number
+                    or normalized in subscriber.subscriber_number.casefold()
+                )
+            ),
+            None,
+        )
+        metadata = person.metadata_ if isinstance(person.metadata_, dict) else {}
+        if matching_number:
+            label = f"{label} · {matching_number}"
+        elif normalized in {
+            str(metadata.get("selfcare_id") or "").casefold(),
+            str(metadata.get("splynx_id") or "").casefold(),
+        }:
+            label = f"{label} · ID {term}"
+        items.append({"id": person.id, "label": label})
+    return items
+
+
+def ticket_people_response(db: Session, query: str, limit: int) -> dict:
+    return list_response(ticket_people(db, query, limit), limit, 0)
 
 
 def technicians(db: Session, query: str, limit: int) -> list[dict]:
@@ -127,6 +260,76 @@ def subscribers(db: Session, query: str, limit: int) -> list[dict]:
 
 def subscribers_response(db: Session, query: str, limit: int) -> dict:
     return list_response(subscribers(db, query, limit), limit, 0)
+
+
+def ticket_subscribers(db: Session, query: str, limit: int) -> list[dict]:
+    """Search selectable current subscribers and rank canonical migrated IDs first."""
+    term = (query or "").strip()
+    query_builder = (
+        db.query(Subscriber)
+        .outerjoin(Person, Subscriber.person_id == Person.id)
+        .outerjoin(Organization, Subscriber.organization_id == Organization.id)
+        .options(
+            joinedload(Subscriber.person),
+            joinedload(Subscriber.organization),
+        )
+        .filter(Subscriber.is_active.is_(True))
+    )
+    if not term:
+        results = query_builder.order_by(Subscriber.updated_at.desc()).limit(limit).all()
+    else:
+        like_term = f"%{term}%"
+        expected_number = selfcare_subscriber_number_for_splynx_id(term)
+        filters: list[ColumnElement[bool]] = [
+            Subscriber.subscriber_number.ilike(like_term),
+            Subscriber.account_number.ilike(like_term),
+            Subscriber.external_id.ilike(like_term),
+            Person.first_name.ilike(like_term),
+            Person.last_name.ilike(like_term),
+            Person.display_name.ilike(like_term),
+            Person.email.ilike(like_term),
+            Organization.name.ilike(like_term),
+        ]
+        if expected_number:
+            filters.append(Subscriber.subscriber_number == expected_number)
+        results = query_builder.filter(or_(*filters)).limit(max(limit * 4, limit)).all()
+        normalized = term.casefold()
+
+        def rank(subscriber: Subscriber) -> tuple[int, str]:
+            identifiers = {
+                str(subscriber.subscriber_number or "").casefold(),
+                str(subscriber.account_number or "").casefold(),
+                str(subscriber.external_id or "").casefold(),
+            }
+            exact = normalized in identifiers or (
+                expected_number is not None and subscriber.subscriber_number == expected_number
+            )
+            return (0 if exact else 1, str(subscriber.subscriber_number or subscriber.external_id or subscriber.id))
+
+        results = sorted(results, key=rank)[:limit]
+
+    items = []
+    for subscriber in results:
+        current_person = (
+            subscriber.person
+            if subscriber.person and subscriber.person.is_active and subscriber.person.status != PersonStatus.archived
+            else None
+        )
+        if current_person:
+            label = " ".join(part for part in [current_person.first_name, current_person.last_name] if part)
+        elif subscriber.organization:
+            label = subscriber.organization.name
+        else:
+            label = "Subscriber"
+        identifier = subscriber.subscriber_number or subscriber.account_number or subscriber.external_id
+        if identifier:
+            label = f"{label} ({identifier})"
+        items.append({"id": subscriber.id, "label": label})
+    return items
+
+
+def ticket_subscribers_response(db: Session, query: str, limit: int) -> dict:
+    return list_response(ticket_subscribers(db, query, limit), limit, 0)
 
 
 def vendors(db: Session, query: str, limit: int) -> list[dict]:
