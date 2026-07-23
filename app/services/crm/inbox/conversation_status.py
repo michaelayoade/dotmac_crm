@@ -601,7 +601,17 @@ def update_conversation_status(
                 )
                 db.commit()
                 # A slot just freed for the assigned agent — pull the next queued chat.
-                if previous_status not in {ConversationStatus.resolved, ConversationStatus.resolved_to_ticket}:
+                from app.services.crm.inbox import dispatch as queue_dispatch
+
+                if queue_dispatch.enabled(db):
+                    try:
+                        queue_dispatch.complete_cycle(db, conversation_id=conversation_id)
+                    except Exception:
+                        logger.exception("two_queue_completion_failed conversation_id=%s", conversation_id)
+                if previous_status not in {
+                    ConversationStatus.resolved,
+                    ConversationStatus.resolved_to_ticket,
+                } and not queue_dispatch.enabled(db):
                     try:
                         from app.models.crm.conversation import ConversationAssignment
                         from app.services.crm.inbox.queue import promote_next_for_agent

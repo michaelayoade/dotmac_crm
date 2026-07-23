@@ -17,10 +17,12 @@ from app.tasks.campaigns import (
     process_scheduled_campaigns,
 )
 from app.tasks.crm_inbox import (
+    backfill_two_queue_dispatch_task,
     cleanup_old_outbox_task,
     process_outbox_queue_task,
     reassign_stale_ai_handoffs_task,
     reopen_due_snoozed_conversations_task,
+    run_two_queue_dispatch_task,
     send_outbound_message_task,
     send_outbox_item_task,
     send_reply_reminders_task,
@@ -84,6 +86,7 @@ from app.tasks.workflow import detect_sla_breaches, send_daily_sla_violation_rep
 
 __all__ = [
     "aggregate_bandwidth_to_metrics",
+    "backfill_two_queue_dispatch_task",
     "capture_data_health_baseline",
     "check_token_health",
     "cleanup_bandwidth_hot_data",
@@ -125,6 +128,7 @@ __all__ = [
     "run_infrastructure_health_checks",
     "run_integration_job",
     "run_scheduled_analysis",
+    "run_two_queue_dispatch_task",
     "send_daily_sla_violation_report",
     "send_outbound_message_task",
     "send_outbox_item_task",

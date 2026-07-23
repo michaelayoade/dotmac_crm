@@ -107,7 +107,8 @@ def _agent_active_chat_counts(db: Session, agent_ids: list) -> dict:
 
 
 def _agent_cap(agent: CrmAgent, default_cap: int) -> int:
-    return agent.max_concurrent_chats if agent.max_concurrent_chats is not None else default_cap
+    configured = agent.max_concurrent_chats if agent.max_concurrent_chats is not None else default_cap
+    return min(max(int(configured), 1), 20)
 
 
 def _list_available_agents(db: Session, team_id: str) -> list[CrmAgent]:
@@ -169,6 +170,12 @@ def _invalidate_unavailable_existing_assignment(
     *,
     conversation: Conversation,
 ) -> bool:
+    from app.services.crm.inbox import dispatch as queue_dispatch
+
+    if queue_dispatch.enabled(db):
+        # The dispatcher applies the policy after ten continuous offline
+        # minutes; legacy routing must not silently end it sooner.
+        return True
     existing = (
         db.query(ConversationAssignment)
         .filter(ConversationAssignment.conversation_id == conversation.id)
@@ -232,6 +239,16 @@ def assign_or_enqueue(
     """Assign to an available agent, otherwise hold the conversation in the team
     queue. When ``agent_id`` is not supplied, the least-loaded available agent is
     chosen (capacity-aware); when nobody is available the chat is enqueued."""
+    from app.services.crm.inbox import dispatch as queue_dispatch
+
+    if queue_dispatch.enabled(db):
+        queue_dispatch.enqueue_classified(
+            db,
+            conversation=conversation,
+            queue_type=queue_dispatch.ConversationQueueType.support,
+            source="legacy_assign_or_enqueue_fallback",
+        )
+        return None
     if agent_id is None:
         agent_id = _pick_least_loaded_agent(db, team_id)
     assignment = conversation_service.assign_conversation(
@@ -253,6 +270,18 @@ def apply_routing_rules(
     conversation: Conversation,
     message: Message,
 ) -> RoutingDecision | None:
+    # Feature-flag boundary: callers that still reach this legacy entry point
+    # must not perform an independent automatic assignment.
+    from app.services.crm.inbox import dispatch as queue_dispatch
+
+    if queue_dispatch.enabled(db) and message.channel_type in queue_dispatch.SUPPORTED_CHANNELS:
+        entry = queue_dispatch.enqueue_classified(
+            db,
+            conversation=conversation,
+            queue_type=queue_dispatch.ConversationQueueType.support,
+            source="legacy_routing_fallback",
+        )
+        return RoutingDecision(rule_id="two_queue_dispatch", team_id=entry.queue_type.value, agent_id=None)
     # Skip if already assigned to an agent
     if _invalidate_unavailable_existing_assignment(db, conversation=conversation):
         return None

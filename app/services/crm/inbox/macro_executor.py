@@ -36,7 +36,10 @@ def _exec_assign(
     actor_person_id: str | None,
 ) -> dict[str, Any]:
     from app.services.crm.conversations.service import assign_conversation
+    from app.services.crm.inbox import dispatch as queue_dispatch
 
+    if queue_dispatch.enabled(db) and queue_dispatch.active_entry(db, conversation_id) is not None:
+        raise ValueError("Assignment macros are disabled for dispatch-managed chats; use the FIFO manager action.")
     agent_id = params.get("agent_id")
     team_id = params.get("team_id")
     assign_conversation(

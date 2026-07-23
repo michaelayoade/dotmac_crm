@@ -730,6 +730,20 @@ def build_beat_schedule() -> dict:
             enabled=True,
             interval_seconds=max(queue_promotion_interval_seconds, 15),
         )
+        two_queue_dispatch_enabled = _effective_bool(
+            session,
+            SettingDomain.notification,
+            "crm_two_queue_dispatch_enabled",
+            "CRM_TWO_QUEUE_DISPATCH_ENABLED",
+            False,
+        )
+        _sync_scheduled_task(
+            session,
+            name="crm_inbox_two_queue_dispatch",
+            task_name="app.tasks.crm_inbox.run_two_queue_dispatch",
+            enabled=two_queue_dispatch_enabled,
+            interval_seconds=30,
+        )
 
         # CRM inbox outbox queue runner
         outbox_interval_seconds = 30

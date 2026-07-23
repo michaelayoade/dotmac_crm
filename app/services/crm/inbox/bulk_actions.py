@@ -104,8 +104,14 @@ def apply_bulk_action(
     if action_key == "assign:me":
         if not current_agent_id:
             return BulkActionResult(kind="invalid_action", detail="Current agent is required for assign:me")
+        from app.services.crm.inbox import dispatch as queue_dispatch
+
         for conversation_id in ids:
             try:
+                # Bulk claiming cannot bypass the manager FIFO-head action.
+                if queue_dispatch.enabled(db) and queue_dispatch.active_entry(db, conversation_id) is not None:
+                    skipped += 1
+                    continue
                 conversation_service.assign_conversation(
                     db,
                     conversation_id=conversation_id,
