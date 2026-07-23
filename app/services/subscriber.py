@@ -362,6 +362,7 @@ class SubscriberManager:
         dry_run: bool = False,
         repair_legacy_merge_sources: bool = False,
         subscriber_number: str | None = None,
+        target_person_id: uuid.UUID | None = None,
     ) -> dict[str, int]:
         """
         Reconcile subscriber->person links for one external system.
@@ -378,6 +379,7 @@ class SubscriberManager:
             "linked_subscribers": 0,
             "legacy_identity_matches": 0,
             "ambiguous_legacy_identity_matches": 0,
+            "conflicting_legacy_identity_matches": 0,
             "organization_backfilled": 0,
             "person_metadata_updated": 0,
             "duplicate_metadata_groups": 0,
@@ -396,6 +398,13 @@ class SubscriberManager:
         results["scanned_subscribers"] = len(subscribers)
         if not subscribers:
             return results
+        if target_person_id and (not repair_legacy_merge_sources or not subscriber_number):
+            raise ValueError("target_person_id requires targeted legacy repair mode")
+        explicit_target = db.get(Person, target_person_id) if target_person_id else None
+        if target_person_id and (
+            explicit_target is None or not explicit_target.is_active or explicit_target.status == PersonStatus.archived
+        ):
+            raise ValueError("target person must be current and active")
 
         external_ids = {str(s.external_id).strip() for s in subscribers if s.external_id}
         if not external_ids:
@@ -505,6 +514,12 @@ class SubscriberManager:
 
             return max(candidates, key=score)
 
+        def normalized_identity_name(value: object) -> str:
+            return " ".join(re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).split())
+
+        def person_identity_name(person: Person) -> str:
+            return person.display_name or " ".join(part for part in [person.first_name, person.last_name] if part)
+
         for subscriber in subscribers:
             external_id = str(subscriber.external_id).strip() if subscriber.external_id else ""
             if not external_id:
@@ -522,11 +537,29 @@ class SubscriberManager:
             if not candidates and legacy_repair_allowed:
                 legacy_id = legacy_id_by_subscriber_id.get(subscriber.id)
                 legacy_candidates = people_by_legacy_id.get(legacy_id, []) if legacy_id else []
-                if len(legacy_candidates) == 1:
-                    candidates = legacy_candidates
-                    used_legacy_identity = True
+                if explicit_target is not None:
+                    metadata = subscriber.sync_metadata if isinstance(subscriber.sync_metadata, dict) else {}
+                    authoritative_name = normalized_identity_name(metadata.get("selfcare_name"))
+                    candidate_name = normalized_identity_name(person_identity_name(explicit_target))
+                    target_metadata = explicit_target.metadata_ if isinstance(explicit_target.metadata_, dict) else {}
+                    target_selfcare_id = str(target_metadata.get("selfcare_id") or "").strip()
+                    if (
+                        authoritative_name
+                        and authoritative_name == candidate_name
+                        and (not target_selfcare_id or target_selfcare_id == external_id)
+                    ):
+                        candidates = [explicit_target]
+                        used_legacy_identity = True
+                    else:
+                        results["conflicting_legacy_identity_matches"] += 1
+                        results["unmatched_subscribers"] += 1
+                        continue
                 elif len(legacy_candidates) > 1:
                     results["ambiguous_legacy_identity_matches"] += 1
+                    results["unmatched_subscribers"] += 1
+                    continue
+                elif len(legacy_candidates) == 1:
+                    results["conflicting_legacy_identity_matches"] += 1
                     results["unmatched_subscribers"] += 1
                     continue
             preferred_person = people_by_id.get(subscriber.person_id) if subscriber.person_id else None

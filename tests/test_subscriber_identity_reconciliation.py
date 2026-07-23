@@ -48,6 +48,7 @@ def test_reconcile_repairs_archived_email_match_from_unique_legacy_identity(db_s
         external_system="selfcare",
         external_id="selfcare-uuid-9541",
         subscriber_number="100009541",
+        sync_metadata={"selfcare_name": f"{canonical_person.first_name} {canonical_person.last_name}"},
     )
     db_session.add(subscriber)
     db_session.commit()
@@ -56,6 +57,8 @@ def test_reconcile_repairs_archived_email_match_from_unique_legacy_identity(db_s
         db_session,
         external_system="selfcare",
         repair_legacy_merge_sources=True,
+        subscriber_number="100009541",
+        target_person_id=canonical_person.id,
     )
 
     db_session.refresh(subscriber)
@@ -90,6 +93,38 @@ def test_reconcile_refuses_ambiguous_legacy_identity(db_session):
     assert first.id != second.id
     assert subscriber.person_id == archived_wrong_person.id
     assert result["ambiguous_legacy_identity_matches"] == 1
+    assert result["linked_subscribers"] == 0
+
+
+def test_reconcile_refuses_legacy_person_when_authoritative_sub_name_conflicts(db_session):
+    archived_wrong_person = _person(db_session, status=PersonStatus.archived)
+    _record_merge_source(db_session, archived_wrong_person)
+    john = _person(db_session, metadata={"splynx_id": "9541"})
+    john.first_name = "2dotcom"
+    john.last_name = "Solutions (John Arikpo)"
+    john.display_name = "2dotcom Solutions (John Arikpo)"
+    subscriber = Subscriber(
+        person_id=archived_wrong_person.id,
+        external_system="selfcare",
+        external_id="selfcare-uuid-9541",
+        subscriber_number="100009541",
+        sync_metadata={"selfcare_name": "2dotcom Solutions (Harry Adetoyi)"},
+    )
+    db_session.add(subscriber)
+    db_session.commit()
+
+    result = subscriber_service.reconcile_external_people_links(
+        db_session,
+        external_system="selfcare",
+        repair_legacy_merge_sources=True,
+        subscriber_number="100009541",
+        target_person_id=john.id,
+    )
+
+    db_session.refresh(subscriber)
+    assert subscriber.person_id == archived_wrong_person.id
+    assert result["legacy_identity_matches"] == 0
+    assert result["conflicting_legacy_identity_matches"] == 1
     assert result["linked_subscribers"] == 0
 
 
@@ -167,6 +202,7 @@ def test_selfcare_sync_preserves_explicit_legacy_repair(db_session):
         external_system="selfcare",
         external_id="selfcare-uuid-9541",
         subscriber_number="100009541",
+        sync_metadata={"selfcare_name": f"{canonical_person.first_name} {canonical_person.last_name}"},
     )
     db_session.add(subscriber)
     db_session.commit()
@@ -175,6 +211,7 @@ def test_selfcare_sync_preserves_explicit_legacy_repair(db_session):
         external_system="selfcare",
         repair_legacy_merge_sources=True,
         subscriber_number="100009541",
+        target_person_id=canonical_person.id,
     )
     db_session.refresh(subscriber)
 

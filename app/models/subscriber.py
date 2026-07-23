@@ -269,9 +269,31 @@ class Subscriber(Base):
     projects = relationship("Project", back_populates="subscriber")
 
     @property
+    def authoritative_name(self) -> str | None:
+        """Return the customer name projected by the authoritative provider."""
+        if str(self.external_system or "").lower() != "selfcare":
+            return None
+        metadata = self.sync_metadata if isinstance(self.sync_metadata, dict) else {}
+        name = str(metadata.get("selfcare_name") or "").strip()
+        return name or None
+
+    @property
+    def authoritative_location(self) -> str | None:
+        """Return the provider-owned service location label, when available."""
+        if str(self.external_system or "").lower() != "selfcare":
+            return None
+        metadata = self.sync_metadata if isinstance(self.sync_metadata, dict) else {}
+        location = str(metadata.get("selfcare_location") or "").strip()
+        return location or None
+
+    @property
     def display_name(self) -> str:
         """Display name for UI."""
-        if self.person:
+        if self.authoritative_name:
+            return self.authoritative_name
+        person_status = getattr(getattr(self.person, "status", None), "value", None) if self.person else None
+        is_selfcare = str(self.external_system or "").lower() == "selfcare"
+        if self.person and (not is_selfcare or (self.person.is_active and person_status != "archived")):
             return f"{self.person.first_name} {self.person.last_name}"
         if self.organization:
             return self.organization.name
@@ -280,6 +302,11 @@ class Subscriber(Base):
     @property
     def service_address(self) -> str | None:
         """Formatted service address."""
+        if str(self.external_system or "").lower() == "selfcare":
+            metadata = self.sync_metadata if isinstance(self.sync_metadata, dict) else {}
+            authoritative_address = str(metadata.get("selfcare_address") or "").strip()
+            if authoritative_address:
+                return authoritative_address
         parts = [
             self.service_address_line1,
             self.service_address_line2,
