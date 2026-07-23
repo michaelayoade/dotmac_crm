@@ -137,6 +137,61 @@ def test_selfcare_mapper_handles_null_lifecycle_fields_and_preserves_splynx_meta
     assert mapped["sync_metadata"]["source"] == "selfcare"
 
 
+def test_selfcare_mapper_projects_authoritative_name_address_and_location(db_session):
+    mapped = selfcare.map_customer_to_subscriber_data(
+        db_session,
+        {
+            "id": "4ca63b3f-6fa3-41fd-baa4-c345286fe179",
+            "subscriber_number": "100009541",
+            "name": "2dotcom Solutions (Harry Adetoyi)",
+            "address": ("Katampe road opp junior secondary school, Mpape, Abuja, Nigeria, None, Abuja, None, None, NG"),
+            "location": "Eagle FM",
+            "status": "active",
+        },
+        include_remote_details=False,
+    )
+
+    assert mapped["sync_metadata"]["selfcare_name"] == "2dotcom Solutions (Harry Adetoyi)"
+    assert mapped["sync_metadata"]["selfcare_address"] == (
+        "Katampe road opp junior secondary school, Mpape, Abuja, Nigeria, NG"
+    )
+    assert mapped["sync_metadata"]["selfcare_location"] == "Eagle FM"
+    assert mapped["service_address_line1"] == ("Katampe road opp junior secondary school, Mpape, Abuja, Nigeria, NG")
+    assert "None" not in mapped["service_address_line1"]
+
+
+def test_stage_authoritative_projection_updates_only_local_sub_projection(db_session, monkeypatch):
+    subscriber = Subscriber(
+        external_system="selfcare",
+        external_id="4ca63b3f-6fa3-41fd-baa4-c345286fe179",
+        subscriber_number="100009541",
+        service_address_line1="Old service address",
+        sync_metadata={"source": "selfcare"},
+    )
+    db_session.add(subscriber)
+    db_session.commit()
+    monkeypatch.setattr(
+        selfcare,
+        "fetch_customer",
+        lambda db, subscriber_id: {
+            "id": subscriber_id,
+            "subscriber_number": "100009541",
+            "name": "2dotcom Solutions (Harry Adetoyi)",
+            "address": "Katampe road, Mpape, Abuja, None, Abuja",
+            "location": "Eagle FM",
+            "status": "active",
+        },
+    )
+
+    result = selfcare.stage_authoritative_subscriber_projection(db_session, subscriber)
+
+    assert result["authoritative_projection_fields_updated"] >= 2
+    assert subscriber.authoritative_name == "2dotcom Solutions (Harry Adetoyi)"
+    assert subscriber.service_address == "Katampe road, Mpape, Abuja"
+    assert subscriber.authoritative_location == "Eagle FM"
+    assert subscriber.person_id is None
+
+
 def test_fetch_customers_paginates(db_session, monkeypatch):
     monkeypatch.setattr(
         selfcare.settings_spec,

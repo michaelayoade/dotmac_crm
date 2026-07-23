@@ -71,10 +71,61 @@ def reopen_due_snoozed_conversations_task():
 
 
 @celery_app.task(name="app.tasks.crm_inbox.send_reply_reminders")
-def send_reply_reminders_task():
-    # Temporary operational safety switch: disable heavy reminder scanning.
-    # Keep this task as a no-op while inbox ingestion backlog is being cleared.
-    return 0
+def send_reply_reminders_task(limit: int = 100):
+    """Process the indexed response-obligation due queue."""
+    import logging
+    import time
+
+    from app.metrics import observe_job
+    from app.services.crm.inbox.response_obligations import process_due_response_obligations
+
+    logger = logging.getLogger(__name__)
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    try:
+        result = process_due_response_obligations(session, limit=limit)
+        logger.info(
+            "CRM_RESPONSE_OBLIGATIONS_DUE_COMPLETE processed=%s notified=%s escalated=%s missing_recipients=%s",
+            result["processed"],
+            result["notified"],
+            result["escalated"],
+            result["missing_recipients"],
+        )
+        return result
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("crm_response_obligations_due", status, time.monotonic() - start)
+
+
+@celery_app.task(name="app.tasks.crm_inbox.reconcile_response_obligations")
+def reconcile_response_obligations_task(limit: int = 200):
+    """Repair missing or stale response decisions in bounded batches."""
+    import logging
+    import time
+
+    from app.metrics import observe_job
+    from app.services.crm.inbox.response_obligations import reconcile_response_obligations
+
+    logger = logging.getLogger(__name__)
+    start = time.monotonic()
+    status = "success"
+    session = SessionLocal()
+    try:
+        reconciled = reconcile_response_obligations(session, limit=limit)
+        logger.info("CRM_RESPONSE_OBLIGATIONS_RECONCILED count=%s", reconciled)
+        return {"reconciled": reconciled}
+    except Exception:
+        status = "error"
+        session.rollback()
+        raise
+    finally:
+        session.close()
+        observe_job("crm_response_obligations_reconcile", status, time.monotonic() - start)
 
 
 @celery_app.task(name="app.tasks.crm_inbox.escalate_expired_ai_intake_conversations")

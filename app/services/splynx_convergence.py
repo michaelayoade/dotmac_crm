@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.models.person import Person
 from app.models.subscriber import Subscriber
 from app.services.common import coerce_uuid
+from app.services.external_systems import selfcare_subscriber_number_for_splynx_id
 
 
 def _expected_selfcare_number(external_id: object) -> str | None:
@@ -25,10 +26,7 @@ def _expected_selfcare_number(external_id: object) -> str | None:
     dotmac_sub numbers migrated subscribers as ``100`` + zero-padded
     splynx_customer_id (e.g. 17897 -> 100017897).
     """
-    raw = str(external_id or "").strip()
-    if not raw.isdigit():
-        return None
-    return "100" + raw.zfill(6)
+    return selfcare_subscriber_number_for_splynx_id(external_id)
 
 
 def _people_metadata_stats(db: Session) -> dict[str, int]:

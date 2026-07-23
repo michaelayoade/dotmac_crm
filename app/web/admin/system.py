@@ -94,6 +94,7 @@ from app.services.common import coerce_uuid
 from app.services.crm.campaign_senders import campaign_senders
 from app.services.crm.campaign_smtp_configs import campaign_smtp_configs
 from app.services.settings_cache import get_settings_redis
+from app.services.weekly_reporting import configuration as weekly_reporting_configuration
 from app.web.templates import Jinja2Templates
 
 templates = Jinja2Templates(directory="templates")
@@ -544,6 +545,13 @@ def _enforcement_specs() -> list[settings_spec.SettingSpec]:
     return specs
 
 
+def _generic_settings_specs(domain: SettingDomain) -> list[settings_spec.SettingSpec]:
+    specs = settings_spec.list_specs(domain)
+    if domain == SettingDomain.notification:
+        return [spec for spec in specs if spec.key not in weekly_reporting_configuration.CUSTOM_SETTING_KEYS]
+    return specs
+
+
 def _build_settings_context(db: Session, domain_value: str | None) -> dict:
     if domain_value == ENFORCEMENT_DOMAIN:
         enforcement_sections: list[dict] = []
@@ -622,7 +630,7 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
             "campaign_senders": senders,
             "campaign_smtp_profiles": smtp_profiles,
         }
-    domain_specs = settings_spec.list_specs(selected_domain)
+    domain_specs = _generic_settings_specs(selected_domain)
     service = settings_spec.DOMAIN_SETTINGS_SERVICE.get(selected_domain)
     existing = {}
     if service:
@@ -686,6 +694,8 @@ def _build_settings_context(db: Session, domain_value: str | None) -> dict:
         "settings_by_key": settings_by_key,
         "sections": sections,
     }
+    if selected_domain == SettingDomain.notification:
+        context["weekly_reporting"] = weekly_reporting_configuration.get_settings_snapshot(db)
     if selected_domain == SettingDomain.projects:
         from app.services import dispatch as dispatch_service
         from app.services.regions import REGION_OPTIONS
@@ -4087,6 +4097,110 @@ def settings_overview(
     )
 
 
+def _weekly_reporting_settings_redirect(*, saved: str | None = None, error: str | None = None) -> RedirectResponse:
+    query: dict[str, str] = {"domain": "notification"}
+    if saved:
+        query["weekly_reporting_saved"] = saved
+    if error:
+        query["weekly_reporting_error"] = error
+    return RedirectResponse(url=f"/admin/system/settings?{urlencode(query)}", status_code=303)
+
+
+def _enqueue_weekly_reporting():
+    from app.tasks.reports import run_weekly_inbound_reporting
+
+    return run_weekly_inbound_reporting.delay()
+
+
+@router.post(
+    "/settings/weekly-reporting",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+def weekly_reporting_save_schedule(
+    enabled: bool = Form(False),
+    schedule_day: str = Form(...),
+    schedule_time: str = Form(...),
+    timezone: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    try:
+        weekly_reporting_configuration.save_schedule(
+            db,
+            enabled=enabled,
+            schedule_day=schedule_day,
+            schedule_time=schedule_time,
+            timezone=timezone,
+        )
+    except ValueError as exc:
+        return _weekly_reporting_settings_redirect(error=str(exc))
+    return _weekly_reporting_settings_redirect(saved="schedule")
+
+
+@router.post(
+    "/settings/weekly-reporting/run",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+def weekly_reporting_run():
+    """Queue the existing Weekly Reporting workflow for asynchronous execution."""
+    try:
+        _enqueue_weekly_reporting()
+    except Exception:
+        logger.exception("weekly_reporting_manual_enqueue_failed")
+        return _weekly_reporting_settings_redirect(error="Unable to queue Weekly Reporting. Please try again.")
+    return _weekly_reporting_settings_redirect(saved="run-requested")
+
+
+@router.post(
+    "/settings/weekly-reporting/recipients",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+def weekly_reporting_add_recipient(
+    email: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    try:
+        weekly_reporting_configuration.add_recipient(db, email)
+    except ValueError as exc:
+        return _weekly_reporting_settings_redirect(error=str(exc))
+    return _weekly_reporting_settings_redirect(saved="recipient-added")
+
+
+@router.post(
+    "/settings/weekly-reporting/recipients/{recipient_index}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+def weekly_reporting_update_recipient(
+    recipient_index: int,
+    email: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    try:
+        weekly_reporting_configuration.update_recipient(db, recipient_index, email)
+    except ValueError as exc:
+        return _weekly_reporting_settings_redirect(error=str(exc))
+    return _weekly_reporting_settings_redirect(saved="recipient-updated")
+
+
+@router.post(
+    "/settings/weekly-reporting/recipients/{recipient_index}/remove",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_permission("system:settings:write"))],
+)
+def weekly_reporting_remove_recipient(
+    recipient_index: int,
+    db: Session = Depends(get_db),
+):
+    try:
+        weekly_reporting_configuration.remove_recipient(db, recipient_index)
+    except ValueError as exc:
+        return _weekly_reporting_settings_redirect(error=str(exc))
+    return _weekly_reporting_settings_redirect(saved="recipient-removed")
+
+
 @router.get(
     "/settings/domain-numbering",
     response_class=HTMLResponse,
@@ -4224,7 +4338,7 @@ async def settings_update(
                     "csrf_token": get_csrf_token(request),
                 },
             )
-        specs = settings_spec.list_specs(selected_domain)
+        specs = _generic_settings_specs(selected_domain)
         service = settings_spec.DOMAIN_SETTINGS_SERVICE.get(selected_domain)
         if not service:
             errors.append("Settings service not configured for this domain.")

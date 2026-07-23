@@ -99,38 +99,6 @@ def _referrer_subscriber_id(db: Session, referrer_person_id) -> str | None:
     return None
 
 
-def _emit_referral_event(db: Session, referral: Referral, event_type: str) -> None:
-    """Push a referral lifecycle event to dotmac_sub to hydrate its local mirror.
-
-    Best-effort: the sub reconciles periodically, so a failed push never breaks
-    the referral flow. Carries the sub subscriber id (the mirror's mapping key).
-    """
-    try:
-        from app.services import selfcare
-
-        subscriber_id = _referrer_subscriber_id(db, referral.referrer_person_id)
-        if not subscriber_id:
-            return  # referrer not linked to a sub account; nothing to mirror
-        capture = referral.metadata_.get("capture", {}) if isinstance(referral.metadata_, dict) else {}
-        payload = {
-            "subscriber_id": subscriber_id,
-            "referral_id": str(referral.id),
-            "status": referral.status.value,
-            "referred_name": capture.get("name") if isinstance(capture, dict) else None,
-            "amount": str(referral.reward_amount) if referral.reward_amount is not None else None,
-            "currency": referral.reward_currency,
-            "created_at": referral.created_at.isoformat() if referral.created_at else None,
-        }
-        selfcare.notify_referral_event(db, event_type, payload)
-    except Exception as exc:  # - mirror push must never break referrals
-        logger.warning(
-            "referral_event_emit_failed referral_id=%s event=%s error=%s",
-            getattr(referral, "id", None),
-            event_type,
-            exc,
-        )
-
-
 class Referrals:
     @staticmethod
     def program(db: Session) -> dict:
@@ -299,7 +267,6 @@ class Referrals:
             referred.id,
             ref_code.code,
         )
-        _emit_referral_event(db, referral, "referral.captured")
         return referral
 
     @staticmethod
@@ -349,7 +316,6 @@ class Referrals:
             referral.referrer_person_id,
             referral.reward_amount,
         )
-        _emit_referral_event(db, referral, "referral.qualified")
         return referral
 
     @staticmethod
@@ -375,7 +341,6 @@ class Referrals:
             referral.status = ReferralStatus.rewarded
             db.commit()
             db.refresh(referral)
-            _emit_referral_event(db, referral, "referral.rewarded")
             return referral
 
         amount = referral.reward_amount or Decimal("0")
@@ -422,7 +387,6 @@ class Referrals:
             referral.reward_amount,
             (referral.metadata_ or {}).get("reward_credit_id"),
         )
-        _emit_referral_event(db, referral, "referral.rewarded")
         return referral
 
     @staticmethod

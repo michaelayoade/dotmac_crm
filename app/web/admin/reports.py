@@ -7005,6 +7005,7 @@ def crm_performance_report(
     inbox_stats = {"messages": {"total": 0, "inbound": 0, "outbound": 0, "by_channel": {}, "by_email_inbox": {}}}
     agent_stats: list[dict[str, Any]] = []
     trend_data: list[dict[str, Any]] = []
+    performance_summary = {"total_conversations": 0, "resolved_conversations": 0, "resolution_rate": 0.0}
 
     if report_ready:
         # Get inbox KPIs
@@ -7027,6 +7028,15 @@ def crm_performance_report(
             channel_type=channel_type,
         )
 
+        performance_summary = crm_reports_service.crm_performance_summary(
+            db=db,
+            start_at=start_dt,
+            end_at=end_dt,
+            agent_id=agent_id,
+            team_id=team_id,
+            channel_type=channel_type,
+        )
+
         # Get conversation trend data
         trend_data = crm_reports_service.conversation_trend(
             db=db,
@@ -7038,12 +7048,12 @@ def crm_performance_report(
         )
 
     # Summary stats
-    total_conversations = sum(agent["total_conversations"] for agent in agent_stats)
+    total_conversations = int(performance_summary.get("total_conversations") or 0)
     total_assignments = sum(int(agent.get("total_assignments") or 0) for agent in agent_stats)
     total_first_responses = sum(int(agent.get("first_response_count") or 0) for agent in agent_stats)
     total_unanswered_assignments = sum(int(agent.get("unanswered_assignments") or 0) for agent in agent_stats)
-    resolved_conversations = sum(agent["resolved_conversations"] for agent in agent_stats)
-    resolution_rate = resolved_conversations / total_conversations * 100 if total_conversations > 0 else 0
+    resolved_conversations = int(performance_summary.get("resolved_conversations") or 0)
+    resolution_rate = float(performance_summary.get("resolution_rate") or 0.0)
 
     # Weighted average FRT across agents (weight by conversations with a measured first response)
     total_team_response_minutes = sum(

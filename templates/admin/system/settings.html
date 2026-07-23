@@ -805,6 +805,124 @@
         </div>
     </form>
 
+    {# ── Notification: Weekly Reporting ── #}
+    {% if domain == "notification" and weekly_reporting %}
+    <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 225ms">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div class="flex items-start gap-3">
+                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/10 to-sky-500/10 dark:from-indigo-500/20 dark:to-sky-500/20">
+                    <svg class="h-5 w-5 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2a4 4 0 014-4h4m0 0l-3-3m3 3l-3 3M5 4h6a2 2 0 012 2v2M5 4a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-2"/></svg>
+                </div>
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Weekly Reporting</h2>
+                    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Automatically generate and email the approved Weekly Sales and Support inbound experience reports.</p>
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex w-fit items-center rounded-lg px-2.5 py-1 text-xs font-semibold {% if weekly_reporting.enabled %}bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400{% else %}bg-slate-500/10 text-slate-600 dark:bg-slate-500/20 dark:text-slate-400{% endif %}">
+                    {{ "Enabled" if weekly_reporting.enabled else "Disabled" }}
+                </span>
+                <form method="POST" action="/admin/system/settings/weekly-reporting/run">
+                    {% include "components/forms/csrf_input.html" %}
+                    {{ submit_button("Generate & Email Now", loading_label="Queueing...", size="sm") }}
+                </form>
+            </div>
+        </div>
+
+        {% if request.query_params.get('weekly_reporting_error') %}
+        <div class="mt-5 rounded-xl border border-red-200/60 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800/60 dark:bg-red-900/20 dark:text-red-300">
+            {{ request.query_params.get('weekly_reporting_error') }}
+        </div>
+        {% elif request.query_params.get('weekly_reporting_saved') == 'run-requested' %}
+        <div class="mt-5 rounded-xl border border-emerald-200/60 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:text-emerald-300">
+            Weekly Reporting was queued and will run asynchronously using the current configuration.
+        </div>
+        {% elif request.query_params.get('weekly_reporting_saved') %}
+        <div class="mt-5 rounded-xl border border-emerald-200/60 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-900/20 dark:text-emerald-300">
+            Weekly Reporting configuration saved.
+        </div>
+        {% endif %}
+
+        <form method="POST" action="/admin/system/settings/weekly-reporting" class="mt-6 grid gap-4 lg:grid-cols-4">
+            {% include "components/forms/csrf_input.html" %}
+            <div class="lg:col-span-4">
+                <label class="flex items-center gap-3 rounded-xl border border-slate-200/60 bg-slate-50/50 px-4 py-3 dark:border-slate-700/60 dark:bg-slate-700/30">
+                    <input type="checkbox" name="enabled" value="true" {% if weekly_reporting.enabled %}checked{% endif %}
+                           class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700">
+                    <span>
+                        <span class="block text-sm font-semibold text-slate-800 dark:text-slate-200">Enable automated Weekly Reporting</span>
+                        <span class="block text-xs text-slate-500 dark:text-slate-400">When disabled, the scheduled execution logs the reason and generates no reports or email.</span>
+                    </span>
+                </label>
+            </div>
+            <div>
+                <label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Execution day</label>
+                <select name="schedule_day" required class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                    {% for day in weekly_reporting.weekday_options %}
+                    <option value="{{ day }}" {% if day == weekly_reporting.schedule_day %}selected{% endif %}>{{ day | title }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Execution time</label>
+                <input type="time" name="schedule_time" value="{{ weekly_reporting.schedule_time }}" required
+                       class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+            </div>
+            <div>
+                <label class="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">Timezone</label>
+                <input type="text" name="timezone" value="{{ weekly_reporting.timezone }}" required list="weekly-reporting-timezones"
+                       class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                <datalist id="weekly-reporting-timezones"><option value="Africa/Lagos"><option value="UTC"></datalist>
+            </div>
+            <div class="flex items-end">
+                {{ submit_button("Save Weekly Schedule", loading_label="Saving...", full_width=true) }}
+            </div>
+        </form>
+
+        <div class="mt-8 border-t border-slate-200/60 pt-6 dark:border-slate-700/60">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Report recipients</h3>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Every configured address receives both validated PDF reports. There is no recipient limit.</p>
+                </div>
+                <form method="POST" action="/admin/system/settings/weekly-reporting/recipients" class="flex w-full gap-2 sm:w-auto">
+                    {% include "components/forms/csrf_input.html" %}
+                    <input type="email" name="email" required autocomplete="email" placeholder="recipient@example.com"
+                           class="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white sm:w-72">
+                    {{ submit_button("Add Recipient", loading_label="Adding...", size="sm") }}
+                </form>
+            </div>
+
+            <div class="mt-4 overflow-hidden rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                {% if weekly_reporting.recipients %}
+                <div class="divide-y divide-slate-200/60 dark:divide-slate-700/60">
+                    {% for recipient in weekly_reporting.recipients %}
+                    <div class="flex flex-col gap-3 bg-white p-3 dark:bg-slate-800 sm:flex-row sm:items-center">
+                        <form method="POST" action="/admin/system/settings/weekly-reporting/recipients/{{ loop.index0 }}" class="flex min-w-0 flex-1 gap-2">
+                            {% include "components/forms/csrf_input.html" %}
+                            <input type="email" name="email" value="{{ recipient }}" required
+                                   class="min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white">
+                            <button type="submit" class="rounded-lg px-3 py-2 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-900/20">Save</button>
+                        </form>
+                        <form method="POST" action="/admin/system/settings/weekly-reporting/recipients/{{ loop.index0 }}/remove">
+                            {% include "components/forms/csrf_input.html" %}
+                            <button type="submit" onclick="return confirm('Remove this Weekly Reporting recipient?')"
+                                    class="w-full rounded-lg px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20 sm:w-auto">Remove</button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="bg-slate-50/50 px-4 py-8 text-center dark:bg-slate-700/20">
+                    <p class="text-sm font-medium text-slate-600 dark:text-slate-300">No recipients configured</p>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Reports will be archived, but email delivery will be skipped with a warning.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     {# ── Comms: Ticket Types + Sales Details + Banking ── #}
     {% if domain == "comms" %}
     <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 250ms">

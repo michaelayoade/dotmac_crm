@@ -266,7 +266,7 @@ def _active_unpaid_invoice_summary(billing_payload: dict[str, Any] | None) -> di
 
 def _enrich_cached_payment_and_invoice_fields(db: Session, rows: list[dict[str, Any]]) -> None:
     try:
-        latest_payments = _latest_payment_by_customer(selfcare.fetch_payments(db, limit=10000))
+        latest_payments = _latest_payment_by_customer(selfcare.fetch_payments(db, max_rows=10000))
     except Exception:
         latest_payments = {}
     for row in rows:

@@ -23,7 +23,7 @@ from app.models.crm.conversation import Conversation, Message
 from app.models.crm.enums import ChannelType, MessageDirection
 from app.models.domain_settings import SettingDomain
 from app.models.material_request import MaterialRequest
-from app.models.person import Person
+from app.models.person import Person, PersonStatus
 from app.models.rbac import PersonRole, Role
 from app.models.service_team import ServiceTeam
 from app.models.subscriber import Subscriber
@@ -1874,6 +1874,8 @@ def ticket_customer_lookup(
     def _format_subscriber_location(subscriber: Subscriber | None) -> str | None:
         if not subscriber:
             return None
+        if subscriber.authoritative_location:
+            return subscriber.authoritative_location
         parts = [
             subscriber.service_city,
             subscriber.service_region,
@@ -1898,7 +1900,29 @@ def ticket_customer_lookup(
         except Exception:
             subscriber = None
         if subscriber and not person and subscriber.person_id:
-            person = db.get(Person, subscriber.person_id)
+            linked_person = db.get(Person, subscriber.person_id)
+            linked_name = (
+                linked_person.display_name
+                or " ".join(part for part in [linked_person.first_name, linked_person.last_name] if part)
+                if linked_person
+                else ""
+            )
+            normalized_linked_name = re.sub(r"[^a-z0-9]+", " ", linked_name.casefold()).strip()
+            normalized_authoritative_name = re.sub(
+                r"[^a-z0-9]+",
+                " ",
+                str(subscriber.authoritative_name or "").casefold(),
+            ).strip()
+            identity_agrees = (
+                not normalized_authoritative_name or normalized_linked_name == normalized_authoritative_name
+            )
+            if (
+                linked_person
+                and linked_person.is_active
+                and linked_person.status != PersonStatus.archived
+                and identity_agrees
+            ):
+                person = linked_person
 
     if person:
         name = person.display_name or f"{person.first_name} {person.last_name}".strip()
@@ -1912,6 +1936,18 @@ def ticket_customer_lookup(
             "address": _format_person_address(person),
             "organization": person.organization.name if person.organization else None,
             "region": person.region,
+        }
+    elif subscriber and subscriber.authoritative_name:
+        customer = {
+            "id": None,
+            "name": subscriber.authoritative_name,
+            "email": None,
+            "phone": None,
+            "street": subscriber.service_address,
+            "location": _format_subscriber_location(subscriber),
+            "address": subscriber.service_address,
+            "organization": subscriber.organization.name if subscriber.organization else None,
+            "region": subscriber.service_region,
         }
 
     subscriber_data = None

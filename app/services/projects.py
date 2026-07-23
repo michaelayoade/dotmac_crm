@@ -1022,49 +1022,6 @@ def build_portal_project_payload(project: Project) -> dict:
     }
 
 
-def _project_subscriber_id(db: Session, project: Project) -> str | None:
-    """Resolve a project's dotmac_sub subscriber id (for webhook dispatch)."""
-    if not project.subscriber_id:
-        return None
-    sub = db.get(Subscriber, project.subscriber_id)
-    if sub is not None and getattr(sub, "is_active", True) and sub.external_system == "selfcare" and sub.external_id:
-        return str(sub.external_id)
-    return None
-
-
-def _emit_project_to_sub(db: Session, project: Project, event_type: str) -> None:
-    """Push a project lifecycle event to dotmac_sub to hydrate its installation
-    mirror. Best-effort: the sub reconciles periodically, so a failed push never
-    breaks the project flow."""
-    try:
-        from app.services import selfcare
-
-        subscriber_id = _project_subscriber_id(db, project)
-        if not subscriber_id:
-            return
-        selfcare.notify_project_event(
-            db,
-            event_type,
-            {
-                "subscriber_id": subscriber_id,
-                "project_id": str(project.id),
-                "name": project.name,
-                "status": project.status.value if project.status else None,
-                "project_type": project.project_type.value if project.project_type else None,
-                "region": project.region,
-                "completed_at": project.completed_at.isoformat() if project.completed_at else None,
-                "created_at": project.created_at.isoformat() if project.created_at else None,
-            },
-        )
-    except Exception as exc:  # - mirror push must never break projects
-        logger.warning(
-            "project_event_emit_failed project_id=%s event=%s error=%s",
-            getattr(project, "id", None),
-            event_type,
-            exc,
-        )
-
-
 class Projects(ListResponseMixin):
     PROJECT_TYPE_DURATIONS: ClassVar[dict[ProjectType, int]] = {
         ProjectType.air_fiber_installation: 3,
@@ -1247,7 +1204,6 @@ class Projects(ListResponseMixin):
             project_id=project.id,
             subscriber_id=project.subscriber_id,
         )
-        _emit_project_to_sub(db, project, "project.created")
 
         # In-app notifications for internal project roles.
         # Project has already been committed above, so failures here won't roll back creation.
@@ -1517,7 +1473,6 @@ class Projects(ListResponseMixin):
                 subscriber_id=project.subscriber_id,
             )
             _notify_customer_project_completed(db, project)
-            _emit_project_to_sub(db, project, "project.completed")
         elif new_status == ProjectStatus.canceled and previous_status != ProjectStatus.canceled:
             emit_event(
                 db,
@@ -1531,7 +1486,6 @@ class Projects(ListResponseMixin):
                 project_id=project.id,
                 subscriber_id=project.subscriber_id,
             )
-            _emit_project_to_sub(db, project, "project.canceled")
         elif previous_status != new_status or len(data) > 1:
             # Emit generic update if status changed or other fields updated
             emit_event(
@@ -1546,7 +1500,6 @@ class Projects(ListResponseMixin):
                 project_id=project.id,
                 subscriber_id=project.subscriber_id,
             )
-            _emit_project_to_sub(db, project, "project.updated")
 
         if "project_template_id" in data:
             new_template_id = str(project.project_template_id) if project.project_template_id else None
@@ -2081,8 +2034,6 @@ class ProjectTasks(ListResponseMixin):
                 event_payload,
                 project_id=task.project_id,
             )
-            if project:
-                _emit_project_to_sub(db, project, "project_task.completed")
         elif previous_status != task.status or bool(changed_fields):
             emit_event(
                 db,
@@ -2090,9 +2041,6 @@ class ProjectTasks(ListResponseMixin):
                 event_payload,
                 project_id=task.project_id,
             )
-            project = db.get(Project, task.project_id)
-            if project:
-                _emit_project_to_sub(db, project, "project_task.updated")
         return task
 
     @staticmethod

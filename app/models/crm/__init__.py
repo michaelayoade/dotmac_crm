@@ -30,6 +30,7 @@ from app.models.crm.enums import (
     MessageDirection,
     MessageStatus,
     QuoteStatus,
+    ResponseObligationState,
 )
 from app.models.crm.macro import CrmConversationMacro
 from app.models.crm.message_template import CrmMessageTemplate
@@ -42,6 +43,7 @@ from app.models.crm.referral import (
     ReferralRewardStatus,
     ReferralStatus,
 )
+from app.models.crm.response_obligation import ResponseObligation
 from app.models.crm.sales import CrmQuoteLineItem, Lead, Pipeline, PipelineStage, Quote
 from app.models.crm.team import CrmAgent, CrmAgentTeam, CrmRoutingRule, CrmTeam, CrmTeamChannel
 
@@ -98,6 +100,8 @@ __all__ = [
     "ReferralCode",
     "ReferralRewardStatus",
     "ReferralStatus",
+    "ResponseObligation",
+    "ResponseObligationState",
     "SocialComment",
     "SocialCommentPlatform",
     "SocialCommentReply",

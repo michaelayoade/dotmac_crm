@@ -26,17 +26,16 @@ from sqlalchemy.orm import Session
 from app.db import get_request_id
 from app.models.audit import AuditActorType, AuditEvent
 from app.models.domain_settings import SettingDomain
-from app.models.person import Gender, PartyStatus, Person
+from app.models.person import Gender, PartyStatus, Person, PersonStatus
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.services import settings_spec
 from app.services.common import coerce_uuid
+from app.services.person_identity import is_placeholder_email
 from app.services.secrets import resolve_secret
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CUSTOMER_WEBHOOK_PATH = "/api/v1/webhooks/crm/customers"
-DEFAULT_REFERRAL_WEBHOOK_PATH = "/api/v1/webhooks/crm/referrals"
-DEFAULT_PROJECT_WEBHOOK_PATH = "/api/v1/webhooks/crm/projects"
 DEFAULT_WORK_ORDER_WEBHOOK_PATH = "/api/v1/webhooks/crm/work-orders"
 DEFAULT_QUOTE_WEBHOOK_PATH = "/api/v1/webhooks/crm/quotes"
 DEFAULT_CHAT_WEBHOOK_PATH = "/api/v1/webhooks/crm/chat"
@@ -687,6 +686,10 @@ def create_account_credit(
 
 _PAGINATION_MAX_PAGES = 500
 _PAGINATION_MAX_ROWS = 200_000
+# Finance scans are bounded: sub holds >120k transactions and >95k payments, and
+# unbounded bulk listing there is a known pool-starvation trigger. This keeps the
+# volume the offset/limit call shape used to request before sub capped per_page.
+_FINANCE_SCAN_MAX_ROWS = 5_000
 # sub clamps per_page to 500 (dotmac_sub app/api/crm.py). Requesting more means
 # the effective page size (<=500) is smaller than requested, so a full page
 # reads as "short" and the short-page heuristic stops early — silently dropping
@@ -694,7 +697,13 @@ _PAGINATION_MAX_ROWS = 200_000
 _SUB_MAX_PER_PAGE = 500
 
 
-def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def _list_paginated(
+    db: Session,
+    path: str,
+    params: dict[str, Any] | None = None,
+    *,
+    max_rows: int | None = None,
+) -> list[dict[str, Any]]:
     """Page through a Selfcare list endpoint.
 
     Termination is driven off response metadata (``meta.total`` / ``meta.last_page``)
@@ -737,6 +746,9 @@ def _list_paginated(db: Session, path: str, params: dict[str, Any] | None = None
                 raise SelfcareProviderError(f"Selfcare pagination repeated data on page {page} for {path}")
             seen_page_fingerprints.add(fingerprint)
         rows.extend(batch)
+        if max_rows is not None and len(rows) >= max_rows:
+            logger.info("SELFCARE_API_PAGE_BOUND_REACHED path=%s rows=%d bound=%d", path, len(rows), max_rows)
+            return rows[:max_rows]
         logger.info(
             "SELFCARE_API_PAGE path=%s page=%d batch=%d accumulated=%d total=%d last_page=%s",
             path,
@@ -911,14 +923,20 @@ def fetch_ncc_subscriber_report(
     return data if isinstance(data, dict) else {}
 
 
-def fetch_transactions(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
-    rows = _rows(_request_json(db, "GET", "/finance/transactions", params={"offset": offset, "limit": limit}))
-    return _warn_if_truncated(rows, limit, "/finance/transactions")
+def fetch_transactions(db: Session, *, max_rows: int = _FINANCE_SCAN_MAX_ROWS) -> list[dict[str, Any]]:
+    """Every finance transaction, paged.
+
+    Sub caps ``per_page`` at 500 and does not read ``offset`` at all, so the
+    previous ``offset``/``limit`` call shape both 400'd on the cap and, had it
+    passed, would have re-read page 1 forever. ``_list_paginated`` owns the
+    clamp, the page walk and the repeated-page guard.
+    """
+    return _list_paginated(db, "/finance/transactions", max_rows=max_rows)
 
 
-def fetch_payments(db: Session, *, offset: int = 0, limit: int = 5000) -> list[dict[str, Any]]:
-    rows = _rows(_request_json(db, "GET", "/finance/payments", params={"offset": offset, "limit": limit}))
-    return _warn_if_truncated(rows, limit, "/finance/payments")
+def fetch_payments(db: Session, *, max_rows: int = _FINANCE_SCAN_MAX_ROWS) -> list[dict[str, Any]]:
+    """Every finance payment, paged. See :func:`fetch_transactions`."""
+    return _list_paginated(db, "/finance/payments", max_rows=max_rows)
 
 
 def fetch_customer_payments(
@@ -975,6 +993,38 @@ def _coalesce_str(*values: object) -> str | None:
         if text and text != "0000-00-00":
             return text
     return None
+
+
+_EMPTY_ADDRESS_PARTS = frozenset({"-", "n/a", "na", "nil", "none", "null", "unknown"})
+
+
+def _normalize_selfcare_address(value: object) -> str | None:
+    """Clean placeholder components from Sub's formatted address projection."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parts: list[str] = []
+    seen: set[str] = set()
+    for raw_part in text.split(","):
+        part = " ".join(raw_part.split()).strip()
+        normalized = part.casefold()
+        if not part or normalized in _EMPTY_ADDRESS_PARTS or normalized in seen:
+            continue
+        seen.add(normalized)
+        parts.append(part)
+    return ", ".join(parts) or None
+
+
+def _split_service_address(value: str | None) -> tuple[str | None, str | None]:
+    """Fit a formatted provider address into the two CRM varchar columns."""
+    if not value:
+        return None, None
+    if len(value) <= 120:
+        return value, None
+    split_at = value.rfind(",", 0, 121)
+    if split_at < 1:
+        split_at = 120
+    return value[:split_at].rstrip(", ") or None, value[split_at:].lstrip(", ")[:120] or None
 
 
 def _parse_selfcare_datetime(value: object) -> datetime | None:
@@ -1167,9 +1217,23 @@ def _resolve_person_for_selfcare_customer(
     *,
     existing_subscriber: Subscriber | None = None,
 ) -> Person | None:
+    def is_current(person: Person | None) -> bool:
+        return bool(person and person.is_active and person.status != PersonStatus.archived)
+
+    def unique_current(query) -> Person | None:
+        candidates = (
+            query.filter(
+                Person.is_active.is_(True),
+                Person.status != PersonStatus.archived,
+            )
+            .limit(2)
+            .all()
+        )
+        return candidates[0] if len(candidates) == 1 else None
+
     if existing_subscriber and existing_subscriber.person_id:
         person = db.get(Person, existing_subscriber.person_id)
-        if person is not None:
+        if is_current(person):
             return person
 
     metadata_value = customer.get("metadata")
@@ -1177,23 +1241,18 @@ def _resolve_person_for_selfcare_customer(
     crm_person_id = str(customer.get("crm_person_id") or metadata.get("crm_person_id") or "").strip()
     if crm_person_id:
         person = db.get(Person, coerce_uuid(crm_person_id))
-        if person is not None:
+        if is_current(person):
             return person
 
     selfcare_id = str(customer.get("id") or customer.get("uuid") or customer.get("subscriber_id") or "").strip()
     if selfcare_id:
-        person = (
-            db.query(Person)
-            .filter(Person.metadata_["selfcare_id"].as_string() == selfcare_id)
-            .order_by(Person.updated_at.desc(), Person.created_at.desc())
-            .first()
-        )
+        person = unique_current(db.query(Person).filter(Person.metadata_["selfcare_id"].as_string() == selfcare_id))
         if person is not None:
             return person
 
     email = str(customer.get("email") or "").strip().lower()
-    if email:
-        return db.query(Person).filter(func.lower(Person.email) == email).first()
+    if email and not is_placeholder_email(email):
+        return unique_current(db.query(Person).filter(func.lower(Person.email) == email))
     return None
 
 
@@ -1422,11 +1481,17 @@ def map_customer_to_subscriber_data(
         or (primary_service or {}).get("end_date")
     )
     metadata = dict(existing_sync_metadata or {})
+    authoritative_name = _coalesce_str(customer.get("name"), customer.get("full_name"), customer.get("display_name"))
+    authoritative_address = _normalize_selfcare_address(customer.get("address"))
+    authoritative_location = _coalesce_str(customer.get("location"))
     selfcare_metadata = {
         "selfcare_id": external_id or None,
         "selfcare_subscriber_number": _coalesce_str(
             customer.get("subscriber_number"), customer.get("login"), customer.get("account_number")
         ),
+        "selfcare_name": authoritative_name,
+        "selfcare_address": authoritative_address,
+        "selfcare_location": authoritative_location,
         "invoiced_until": _coalesce_str(customer.get("invoiced_until"), (billing or {}).get("invoiced_until")),
         "total_paid": _normalize_decimal_str(customer.get("total_paid") or (billing or {}).get("total_paid")),
         "last_transaction_date": _coalesce_str(
@@ -1442,6 +1507,10 @@ def map_customer_to_subscriber_data(
         "source": "selfcare",
     }
     metadata.update({key: value for key, value in selfcare_metadata.items() if value is not None and value != ""})
+    explicit_address_line1 = _coalesce_str(
+        customer.get("street"), customer.get("street_1"), customer.get("address_line1")
+    )
+    authoritative_line1, authoritative_line2 = _split_service_address(authoritative_address)
 
     data: dict[str, Any] = {
         "subscriber_number": _coalesce_str(customer.get("subscriber_number"), customer.get("login")),
@@ -1452,10 +1521,9 @@ def map_customer_to_subscriber_data(
         "service_speed": _extract_speed(primary_service or customer, description),
         "balance": balance,
         "currency": _coalesce_str(customer.get("currency"), customer.get("currency_code")) or "NGN",
-        "service_address_line1": _coalesce_str(
-            customer.get("street"), customer.get("street_1"), customer.get("address_line1")
-        ),
-        "service_address_line2": _coalesce_str(customer.get("address_line2")),
+        "service_address_line1": explicit_address_line1 or authoritative_line1,
+        "service_address_line2": _coalesce_str(customer.get("address_line2"))
+        or (authoritative_line2 if not explicit_address_line1 else None),
         "service_city": _coalesce_str(customer.get("city"), customer.get("service_city")),
         "service_region": _coalesce_str(
             customer.get("state"),
@@ -1477,6 +1545,44 @@ def map_customer_to_subscriber_data(
         "sync_metadata": metadata,
     }
     return {key: value for key, value in data.items() if value is not None and value != ""}
+
+
+def stage_authoritative_subscriber_projection(db: Session, subscriber: Subscriber) -> dict[str, int]:
+    """Stage one live Sub name/address projection without committing it."""
+    if str(subscriber.external_system or "").lower() != "selfcare" or not subscriber.external_id:
+        raise ValueError("subscriber must be owned by selfcare and have an external id")
+    customer = fetch_customer(db, str(subscriber.external_id))
+    if not customer:
+        raise SelfcareProviderError("authoritative Selfcare subscriber was not found")
+    remote_number = _coalesce_str(customer.get("subscriber_number"), customer.get("login"))
+    if remote_number and subscriber.subscriber_number and remote_number != subscriber.subscriber_number:
+        raise ValueError("authoritative subscriber number does not match the requested CRM subscriber")
+
+    mapped = map_customer_to_subscriber_data(
+        db,
+        customer,
+        include_remote_details=False,
+        existing_sync_metadata=dict(subscriber.sync_metadata or {}),
+    )
+    projection_fields = (
+        "service_address_line1",
+        "service_address_line2",
+        "service_city",
+        "service_region",
+        "service_postal_code",
+        "service_country_code",
+        "sync_metadata",
+        "last_synced_at",
+    )
+    changed = 0
+    for field_name in projection_fields:
+        if field_name not in mapped:
+            continue
+        value = mapped[field_name]
+        if getattr(subscriber, field_name) != value:
+            setattr(subscriber, field_name, value)
+            changed += 1
+    return {"authoritative_projection_fields_updated": changed}
 
 
 def sync_subscribers_from_selfcare_data(
@@ -1873,46 +1979,6 @@ def _customer_url(config: dict[str, Any]) -> str:
     return f"{config['base_url']}{path}"
 
 
-def _referral_url(config: dict[str, Any]) -> str:
-    base = str(config["base_url"]).rstrip("/")
-    return f"{base}{DEFAULT_REFERRAL_WEBHOOK_PATH}"
-
-
-def notify_referral_event(db: Session, event_type: str, payload: dict[str, Any]) -> bool:
-    """Push a referral lifecycle event to dotmac_sub (best-effort).
-
-    Hydrates the sub's local referral mirror in near-real-time;
-    ``referral.captured`` / ``referral.qualified`` / ``referral.rewarded``. The
-    sub's periodic reconcile is the backstop, so a failed push is logged, not
-    raised. Signed with the same selfcare webhook secret as customer events.
-    """
-    config = _get_config(db)
-    if not config:
-        return False
-
-    raw_body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    headers = {
-        "Content-Type": "application/json",
-        "X-Webhook-Event": event_type,
-        "X-Webhook-Signature-256": _sign_payload(config["webhook_secret"], raw_body),
-    }
-
-    import requests
-
-    try:
-        response = requests.post(  # nosec B113 - timeout is config-driven.
-            _referral_url(config),
-            data=raw_body,
-            headers=headers,
-            timeout=config["timeout_seconds"],
-        )
-        response.raise_for_status()
-        return True
-    except Exception as exc:  # - best-effort; reconcile is the backstop
-        logger.warning("selfcare_referral_notify_failed event=%s error=%s", event_type, str(exc))
-        return False
-
-
 def _chat_url(config: dict[str, Any]) -> str:
     base = str(config["base_url"]).rstrip("/")
     return f"{base}{DEFAULT_CHAT_WEBHOOK_PATH}"
@@ -2027,46 +2093,6 @@ def notify_field_chat_message(
             work_order_id,
             str(exc),
         )
-        return False
-
-
-def _project_url(config: dict[str, Any]) -> str:
-    base = str(config["base_url"]).rstrip("/")
-    return f"{base}{DEFAULT_PROJECT_WEBHOOK_PATH}"
-
-
-def notify_project_event(db: Session, event_type: str, payload: dict[str, Any]) -> bool:
-    """Push a project lifecycle event to dotmac_sub (best-effort).
-
-    Hydrates the sub's installation-tracker mirror in near-real-time
-    (``project.created/updated/completed/canceled``, ``project_task.*``). The
-    sub's periodic reconcile is the backstop, so a failed push is logged, not
-    raised. Signed with the same selfcare webhook secret as customer events.
-    """
-    config = _get_config(db)
-    if not config:
-        return False
-
-    raw_body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    headers = {
-        "Content-Type": "application/json",
-        "X-Webhook-Event": event_type,
-        "X-Webhook-Signature-256": _sign_payload(config["webhook_secret"], raw_body),
-    }
-
-    import requests
-
-    try:
-        response = requests.post(  # nosec B113 - timeout is config-driven.
-            _project_url(config),
-            data=raw_body,
-            headers=headers,
-            timeout=config["timeout_seconds"],
-        )
-        response.raise_for_status()
-        return True
-    except Exception as exc:  # - best-effort; reconcile is the backstop
-        logger.warning("selfcare_project_notify_failed event=%s error=%s", event_type, str(exc))
         return False
 
 

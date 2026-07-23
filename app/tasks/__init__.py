@@ -21,6 +21,7 @@ from app.tasks.crm_inbox import (
     cleanup_old_outbox_task,
     process_outbox_queue_task,
     reassign_stale_ai_handoffs_task,
+    reconcile_response_obligations_task,
     reopen_due_snoozed_conversations_task,
     run_two_queue_dispatch_task,
     send_outbound_message_task,
@@ -60,7 +61,7 @@ from app.tasks.intelligence import (
 from app.tasks.notifications import deliver_notification_queue
 from app.tasks.oauth import check_token_health, refresh_expiring_tokens
 from app.tasks.performance import compute_weekly_scores, generate_flagged_reviews, update_goal_progress
-from app.tasks.reports import send_scheduled_ncc_report
+from app.tasks.reports import run_weekly_inbound_reporting, send_scheduled_ncc_report
 from app.tasks.subscriber_outreach import (
     resolve_stale_offline_outreach_conversations_task,
     run_daily_offline_outreach_task,
@@ -113,6 +114,7 @@ __all__ = [
     "prune_snoozes",
     "reassign_stale_ai_handoffs_task",
     "reconcile_churning_retention_customers_to_selfcare",
+    "reconcile_response_obligations_task",
     "reconcile_subscriber_identity",
     "redrive_failed_erp_pushes",
     "refresh_billing_risk_cache",
@@ -129,6 +131,7 @@ __all__ = [
     "run_integration_job",
     "run_scheduled_analysis",
     "run_two_queue_dispatch_task",
+    "run_weekly_inbound_reporting",
     "send_daily_sla_violation_report",
     "send_outbound_message_task",
     "send_outbox_item_task",

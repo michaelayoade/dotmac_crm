@@ -66,8 +66,8 @@ def update_notification_settings(
     db: Session,
     *,
     reminder_delay_seconds: str,
-    reminder_repeat_enabled: str | None,
-    reminder_repeat_interval_seconds: str,
+    response_escalation_team_seconds: str,
+    response_escalation_operations_seconds: str,
     notification_auto_dismiss_seconds: str,
     ai_assignment_retry_interval_seconds: str,
     auto_resolve_enabled: str | None = None,
@@ -83,10 +83,13 @@ def update_notification_settings(
                 error_detail="Not authorized to update notification settings",
             )
         reminder_delay = _coerce_int("crm_inbox_reply_reminder_delay_seconds", reminder_delay_seconds)
-        repeat_enabled = bool(reminder_repeat_enabled)
-        reminder_repeat_interval = _coerce_int(
-            "crm_inbox_reply_reminder_repeat_interval_seconds",
-            reminder_repeat_interval_seconds,
+        team_escalation_seconds = _coerce_int(
+            "crm_inbox_response_escalation_team_seconds",
+            response_escalation_team_seconds,
+        )
+        operations_escalation_seconds = _coerce_int(
+            "crm_inbox_response_escalation_operations_seconds",
+            response_escalation_operations_seconds,
         )
         auto_dismiss_seconds = _coerce_int(
             "crm_inbox_notification_auto_dismiss_seconds",
@@ -111,14 +114,14 @@ def update_notification_settings(
                 ),
             )
 
-        spec = settings_spec.get_spec(SettingDomain.notification, "crm_inbox_reply_reminder_repeat_enabled")
+        spec = settings_spec.get_spec(SettingDomain.notification, "crm_inbox_response_escalation_team_seconds")
         if spec:
-            value_text, value_json = settings_spec.normalize_for_db(spec, repeat_enabled)
+            value_text, value_json = settings_spec.normalize_for_db(spec, team_escalation_seconds)
             settings_service.upsert_by_key(
                 db,
-                "crm_inbox_reply_reminder_repeat_enabled",
+                "crm_inbox_response_escalation_team_seconds",
                 DomainSettingUpdate(
-                    value_type=SettingValueType.boolean,
+                    value_type=SettingValueType.integer,
                     value_text=value_text,
                     value_json=_coerce_value_json(value_json),
                 ),
@@ -126,13 +129,13 @@ def update_notification_settings(
 
         spec = settings_spec.get_spec(
             SettingDomain.notification,
-            "crm_inbox_reply_reminder_repeat_interval_seconds",
+            "crm_inbox_response_escalation_operations_seconds",
         )
         if spec:
-            value_text, value_json = settings_spec.normalize_for_db(spec, reminder_repeat_interval)
+            value_text, value_json = settings_spec.normalize_for_db(spec, operations_escalation_seconds)
             settings_service.upsert_by_key(
                 db,
-                "crm_inbox_reply_reminder_repeat_interval_seconds",
+                "crm_inbox_response_escalation_operations_seconds",
                 DomainSettingUpdate(
                     value_type=SettingValueType.integer,
                     value_text=value_text,

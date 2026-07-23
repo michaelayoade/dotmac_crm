@@ -67,6 +67,8 @@ from app.models.crm import (  # noqa: F401
     PipelineStage,
     Quote,
     QuoteStatus,
+    ResponseObligation,
+    ResponseObligationState,
     SocialComment,
     SocialCommentPlatform,
     SocialCommentReply,

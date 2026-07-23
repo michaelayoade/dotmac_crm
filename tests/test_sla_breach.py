@@ -4,7 +4,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from app.models.crm.conversation import Conversation
-from app.models.crm.enums import ConversationPriority, ConversationStatus
+from app.models.crm.enums import ConversationPriority, ConversationStatus, ResponseObligationState
+from app.models.crm.response_obligation import ResponseObligation
 from app.models.crm.team import CrmAgent
 from app.models.person import Person
 from app.services.crm.inbox.sla import (
@@ -94,6 +95,17 @@ class TestFindResponseBreaches:
         # Medium SLA = 480 min = 8h; created 10h ago -> breached
         created = datetime.now(UTC) - timedelta(hours=10)
         conv = _make_conversation(db_session, person.id, priority=ConversationPriority.medium, created_at=created)
+        db_session.add(
+            ResponseObligation(
+                conversation_id=conv.id,
+                state=ResponseObligationState.awaiting_first_response,
+                latest_inbound_at=created,
+                response_due_at=created + timedelta(minutes=480),
+                next_escalation_at=created + timedelta(minutes=480),
+                owner_scope="unassigned",
+            )
+        )
+        db_session.flush()
 
         targets = {"urgent": 60, "high": 240, "medium": 480, "low": 1440, "none": 1440}
         breaches = find_response_breaches(db_session, targets)

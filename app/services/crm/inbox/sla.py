@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.crm.conversation import Conversation
-from app.models.crm.enums import ConversationStatus
+from app.models.crm.enums import ConversationStatus, ResponseObligationState
+from app.models.crm.response_obligation import ResponseObligation
 from app.models.domain_settings import SettingDomain
 from app.services import settings_spec
 
@@ -52,25 +53,26 @@ def _priority_value(conv: Conversation) -> str:
 
 
 def find_response_breaches(db: Session, targets_minutes: dict[str, int]) -> list[Conversation]:
-    """Find open/pending conversations that have breached response SLA."""
+    """Read response breaches from the authoritative obligation decision."""
+    del targets_minutes  # Targets are applied by the response-policy owner.
     now = datetime.now(UTC)
-    candidates = (
+    return (
         db.query(Conversation)
+        .join(ResponseObligation, ResponseObligation.conversation_id == Conversation.id)
         .filter(
             Conversation.status.in_([ConversationStatus.open, ConversationStatus.pending]),
-            Conversation.first_response_at.is_(None),
             Conversation.is_active.is_(True),
+            ResponseObligation.state.in_(
+                [
+                    ResponseObligationState.awaiting_first_response,
+                    ResponseObligationState.awaiting_follow_up,
+                ]
+            ),
+            ResponseObligation.response_due_at.isnot(None),
+            ResponseObligation.response_due_at <= now,
         )
         .all()
     )
-    breached: list[Conversation] = []
-    for conv in candidates:
-        priority = _priority_value(conv)
-        threshold_minutes = targets_minutes.get(priority, 1440)
-        deadline = conv.created_at + timedelta(minutes=threshold_minutes)
-        if now > deadline:
-            breached.append(conv)
-    return breached
 
 
 def find_resolution_breaches(db: Session, targets_minutes: dict[str, int]) -> list[Conversation]:
@@ -101,7 +103,11 @@ def find_resolution_breaches(db: Session, targets_minutes: dict[str, int]) -> li
 
 
 def check_and_alert_breaches(db: Session) -> dict:
-    """Run SLA breach check and create in-app alerts. Returns stats."""
+    """Observe response breaches and alert legacy resolution-SLA breaches.
+
+    Response consequences are exclusively owned by
+    ``process_due_response_obligations`` so two schedulers cannot double-alert.
+    """
     from app.models.notification import Notification, NotificationChannel, NotificationStatus
 
     targets = get_sla_targets(db)
@@ -110,34 +116,6 @@ def check_and_alert_breaches(db: Session) -> dict:
 
     alerted_response = 0
     alerted_resolution = 0
-
-    for conv in response_breaches:
-        metadata = conv.metadata_ if isinstance(conv.metadata_, dict) else {}
-        if metadata.get("sla_response_breach_alerted_at"):
-            continue
-        metadata["sla_response_breach_alerted_at"] = datetime.now(UTC).isoformat()
-        conv.metadata_ = metadata
-        flag_modified(conv, "metadata_")
-
-        recipient = _resolve_notification_recipient(db, conv)
-        if recipient:
-            elapsed_hours = round((datetime.now(UTC) - conv.created_at).total_seconds() / 3600, 1)
-            db.add(
-                Notification(
-                    channel=NotificationChannel.push,
-                    recipient=recipient,
-                    subject=f"SLA Breach: Response overdue ({elapsed_hours}h)",
-                    body=(
-                        f'Conversation "{conv.subject or "No subject"}" '
-                        f"(priority: {_priority_value(conv)}) has no first response "
-                        f"after {elapsed_hours} hours.\n"
-                        f"Open: /admin/crm/inbox?conversation_id={conv.id}"
-                    ),
-                    status=NotificationStatus.delivered,
-                    sent_at=datetime.now(UTC),
-                )
-            )
-            alerted_response += 1
 
     for conv in resolution_breaches:
         metadata = conv.metadata_ if isinstance(conv.metadata_, dict) else {}

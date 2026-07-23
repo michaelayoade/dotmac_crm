@@ -227,18 +227,18 @@ def _fetch_customers_page(config: dict[str, Any], offset: int, limit: int) -> li
     )
 
 
-def _fetch_transactions_page(config: dict[str, Any], offset: int, limit: int) -> list[dict[str, Any]]:
+def _fetch_all_transactions(config: dict[str, Any]) -> list[dict[str, Any]]:
     db = config.get("_db")
     if not isinstance(db, Session):
         return []
-    return selfcare.fetch_transactions(db, offset=offset, limit=limit)
+    return selfcare.fetch_transactions(db)
 
 
-def _fetch_payments_page(config: dict[str, Any], offset: int, limit: int) -> list[dict[str, Any]]:
+def _fetch_all_payments(config: dict[str, Any]) -> list[dict[str, Any]]:
     db = config.get("_db")
     if not isinstance(db, Session):
         return []
-    return selfcare.fetch_payments(db, offset=offset, limit=limit)
+    return selfcare.fetch_payments(db)
 
 
 def _cached(cache_key: tuple[Any, ...], loader):
@@ -643,27 +643,15 @@ def build_customer_uptime_compensation(db: Session, customer_id: str, month: str
 
 
 def _fetch_recent_transactions(db: Session) -> list[dict[str, Any]]:
-    config = _config(db)
-    limit = _page_limit()
-    rows: list[dict[str, Any]] = []
-    for offset in range(_transaction_start_offset(), _transaction_end_offset() + 1, limit):
-        batch = _fetch_transactions_page(config, offset, limit)
-        rows.extend(batch)
-        if len(batch) < limit:
-            break
-    return rows
+    # The offset window this used to walk was never honoured: sub ignores
+    # ``offset`` entirely, so the loop re-read the first page. The client now
+    # pages the endpoint properly and returns the full set.
+    return _fetch_all_transactions(_config(db))
 
 
 def _fetch_recent_payments(db: Session) -> list[dict[str, Any]]:
-    config = _config(db)
-    limit = _page_limit()
-    rows: list[dict[str, Any]] = []
-    for offset in range(_payment_start_offset(), _payment_end_offset() + 1, limit):
-        batch = _fetch_payments_page(config, offset, limit)
-        rows.extend(batch)
-        if len(batch) < limit:
-            break
-    return rows
+    # See _fetch_recent_transactions: the offset window was never honoured.
+    return _fetch_all_payments(_config(db))
 
 
 def _month_extension_transactions(

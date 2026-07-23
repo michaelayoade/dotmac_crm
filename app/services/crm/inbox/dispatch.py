@@ -163,7 +163,8 @@ def backfill_unresolved(db: Session, *, limit: int = 500) -> dict[str, int]:
             .first()
         )
         metadata = conversation.metadata_ if isinstance(conversation.metadata_, dict) else {}
-        ai_state = metadata.get("ai_intake") if isinstance(metadata.get("ai_intake"), dict) else {}
+        raw_ai_state = metadata.get("ai_intake")
+        ai_state = raw_ai_state if isinstance(raw_ai_state, dict) else {}
         department = str(ai_state.get("department") or "")
         team_name = ""
         if assignment and assignment.team_id:
@@ -431,7 +432,10 @@ def manager_assign_head(db: Session, *, conversation_id: str, agent_id: str, act
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found or inactive")
     presence = db.query(AgentPresence).filter(AgentPresence.agent_id == agent.id).first()
-    if presence_service.effective_status(presence) not in {AgentPresenceStatus.online, AgentPresenceStatus.away}:
+    if presence is None or presence_service.effective_status(presence) not in {
+        AgentPresenceStatus.online,
+        AgentPresenceStatus.away,
+    }:
         raise HTTPException(status_code=409, detail="Agent is offline or unavailable")
     _assign_entry(db, entry, agent, actor_id=actor_id)
     log_conversation_action(
