@@ -1,7 +1,7 @@
 """add durable two-queue CRM dispatch entries
 
 Revision ID: aaa2026072301
-Revises: zz3e4f5g6h7i
+Revises: sc2026072201
 Create Date: 2026-07-23 00:00:00.000000
 """
 
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "aaa2026072301"
-down_revision = "zz3e4f5g6h7i"
+down_revision = "sc2026072201"
 branch_labels = None
 depends_on = None
 
