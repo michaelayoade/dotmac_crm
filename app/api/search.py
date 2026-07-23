@@ -25,6 +25,24 @@ def search_people(
     return typeahead_service.people_response(db, q, limit)
 
 
+@router.get("/ticket-customers", response_model=ListResponse[TypeaheadItem])
+def search_ticket_customers(
+    q: str = Query(default=""),
+    limit: int = Query(default=20, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    return typeahead_service.ticket_people_response(db, q, limit)
+
+
+@router.get("/ticket-subscribers", response_model=ListResponse[TypeaheadItem])
+def search_ticket_subscribers(
+    q: str = Query(default=""),
+    limit: int = Query(default=20, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    return typeahead_service.ticket_subscribers_response(db, q, limit)
+
+
 @router.get("/technicians", response_model=ListResponse[TypeaheadItem])
 def search_technicians(
     q: str = Query(default=""),

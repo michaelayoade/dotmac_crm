@@ -26,10 +26,11 @@ from sqlalchemy.orm import Session
 from app.db import get_request_id
 from app.models.audit import AuditActorType, AuditEvent
 from app.models.domain_settings import SettingDomain
-from app.models.person import Gender, PartyStatus, Person
+from app.models.person import Gender, PartyStatus, Person, PersonStatus
 from app.models.subscriber import Subscriber, SubscriberStatus
 from app.services import settings_spec
 from app.services.common import coerce_uuid
+from app.services.person_identity import is_placeholder_email
 from app.services.secrets import resolve_secret
 
 logger = logging.getLogger(__name__)
@@ -1184,9 +1185,23 @@ def _resolve_person_for_selfcare_customer(
     *,
     existing_subscriber: Subscriber | None = None,
 ) -> Person | None:
+    def is_current(person: Person | None) -> bool:
+        return bool(person and person.is_active and person.status != PersonStatus.archived)
+
+    def unique_current(query) -> Person | None:
+        candidates = (
+            query.filter(
+                Person.is_active.is_(True),
+                Person.status != PersonStatus.archived,
+            )
+            .limit(2)
+            .all()
+        )
+        return candidates[0] if len(candidates) == 1 else None
+
     if existing_subscriber and existing_subscriber.person_id:
         person = db.get(Person, existing_subscriber.person_id)
-        if person is not None:
+        if is_current(person):
             return person
 
     metadata_value = customer.get("metadata")
@@ -1194,23 +1209,18 @@ def _resolve_person_for_selfcare_customer(
     crm_person_id = str(customer.get("crm_person_id") or metadata.get("crm_person_id") or "").strip()
     if crm_person_id:
         person = db.get(Person, coerce_uuid(crm_person_id))
-        if person is not None:
+        if is_current(person):
             return person
 
     selfcare_id = str(customer.get("id") or customer.get("uuid") or customer.get("subscriber_id") or "").strip()
     if selfcare_id:
-        person = (
-            db.query(Person)
-            .filter(Person.metadata_["selfcare_id"].as_string() == selfcare_id)
-            .order_by(Person.updated_at.desc(), Person.created_at.desc())
-            .first()
-        )
+        person = unique_current(db.query(Person).filter(Person.metadata_["selfcare_id"].as_string() == selfcare_id))
         if person is not None:
             return person
 
     email = str(customer.get("email") or "").strip().lower()
-    if email:
-        return db.query(Person).filter(func.lower(Person.email) == email).first()
+    if email and not is_placeholder_email(email):
+        return unique_current(db.query(Person).filter(func.lower(Person.email) == email))
     return None
 
 
