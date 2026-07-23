@@ -3517,6 +3517,9 @@ def reassign_stale_ai_handoffs(db: Session, *, limit: int = 200) -> dict[str, An
         .filter(Conversation.first_response_at.is_(None))
         .filter(ConversationAssignment.is_active.is_(True))
         .filter(ConversationAssignment.agent_id.isnot(None))
+        # A manager's assignment is authoritative, including when the manager
+        # deliberately assigns outside the routed team.
+        .filter(ConversationAssignment.assigned_by_id.is_(None))
         .order_by(ConversationAssignment.assigned_at.asc())
         .limit(limit)
         .all()
@@ -3551,6 +3554,36 @@ def reassign_stale_ai_handoffs(db: Session, *, limit: int = 200) -> dict[str, An
                 team_id=str(team_id),
                 exclude_agent_id=str(assignment.agent_id) if assignment.agent_id else None,
             )
+
+            # Assignment changes serialize on the conversation row.  Re-read
+            # the active assignment after choosing a candidate so a manager
+            # reassignment made while this worker was selecting cannot be
+            # overwritten by the automatic handoff recovery.
+            locked_conversation = (
+                db.query(Conversation).filter(Conversation.id == conversation.id).with_for_update().one_or_none()
+            )
+            if locked_conversation is None:
+                skipped += 1
+                continue
+            current_assignment = (
+                db.query(ConversationAssignment)
+                .filter(ConversationAssignment.conversation_id == locked_conversation.id)
+                .filter(ConversationAssignment.is_active.is_(True))
+                .populate_existing()
+                .with_for_update()
+                .one_or_none()
+            )
+            if (
+                current_assignment is None
+                or current_assignment.id != assignment.id
+                or current_assignment.assigned_by_id is not None
+            ):
+                skipped += 1
+                continue
+
+            conversation = locked_conversation
+            assignment = current_assignment
+            state = _state(conversation)
             now = _now()
             state["missed_handoff_reassigned_at"] = _serialize_timestamp(now)
             state["missed_handoff_previous_agent_id"] = str(assignment.agent_id) if assignment.agent_id else None
