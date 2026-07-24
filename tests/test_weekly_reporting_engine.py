@@ -6,7 +6,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.orm import sessionmaker
 
+from app.models.notification import DeliveryStatus, Notification, NotificationDelivery, NotificationStatus
+from app.services import email as email_service
 from app.services.weekly_reporting import delivery, engine
 from app.services.weekly_reporting.configuration import WeeklyReportingConfig
 from app.services.weekly_reporting.period import previous_complete_week
@@ -205,6 +208,11 @@ def test_professional_email_contains_period_timestamp_and_both_attachments(tmp_p
         return True, None
 
     monkeypatch.setattr(delivery.email_service, "send_email", fake_send_email)
+    monkeypatch.setattr(
+        delivery,
+        "_record_delivery_tracking",
+        lambda **kwargs: {"status": "recorded", "record_count": len(kwargs["recipients"])},
+    )
     result = delivery.deliver_reports(
         object(),
         config=_config(recipients=("reports@example.com", "ops@example.com")),
@@ -231,6 +239,144 @@ def test_professional_email_contains_period_timestamp_and_both_attachments(tmp_p
         delivery.SUPPORT_PDF_NAME,
     }
     assert sent["track"] is False
+    assert sent["capture_smtp_response"] is True
+
+
+def test_weekly_reporting_smtp_submission_retains_response_and_message_id(monkeypatch):
+    class SubmissionSMTP:
+        def ehlo_or_helo_if_needed(self):
+            return None
+
+        def starttls(self):
+            return None
+
+        def login(self, username, password):
+            del username, password
+
+        def mail(self, from_email):
+            assert from_email == "reports@dotmac.example"
+            return 250, b"sender accepted"
+
+        def rcpt(self, recipient):
+            assert recipient == "recipient@example.com"
+            return 250, b"recipient accepted"
+
+        def data(self, message):
+            assert "Weekly report" in message
+            return 250, b"OK queued as zepto-message-123"
+
+        def quit(self):
+            return None
+
+    monkeypatch.setattr(
+        email_service,
+        "_get_smtp_config",
+        lambda db: {
+            "host": "smtp.zeptomail.com",
+            "port": 587,
+            "username": None,
+            "password": None,
+            "use_tls": False,
+            "use_ssl": False,
+            "from_email": "reports@dotmac.example",
+            "from_name": "DotMac Omni Reporting",
+        },
+    )
+    monkeypatch.setattr(email_service, "_create_smtp_client", lambda *args, **kwargs: SubmissionSMTP())
+
+    ok, debug = email_service.send_email(
+        db=None,
+        to_email="recipient@example.com",
+        subject="Weekly report",
+        body_html="<p>Weekly report</p>",
+        track=False,
+        capture_smtp_response=True,
+    )
+
+    assert ok is True
+    assert debug == {
+        "smtp_response_code": "250",
+        "smtp_response": "OK queued as zepto-message-123",
+        "provider_message_id": "zepto-message-123",
+        "smtp_host": "smtp.zeptomail.com",
+    }
+
+
+def test_read_only_reporting_session_uses_separate_write_session_for_tracking(
+    db_session,
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / delivery.SALES_PDF_NAME).write_bytes(b"sales")
+    (tmp_path / delivery.SUPPORT_PDF_NAME).write_bytes(b"support")
+
+    class ReadOnlySession:
+        def __init__(self):
+            self.statements: list[str] = []
+            self.rolled_back = False
+            self.closed = False
+
+        def execute(self, statement):
+            self.statements.append(str(statement))
+
+        def rollback(self):
+            self.rolled_back = True
+
+        def close(self):
+            self.closed = True
+
+    read_only_session = ReadOnlySession()
+    tracking_session_factory = sessionmaker(
+        bind=db_session.connection(),
+        autoflush=False,
+        autocommit=False,
+    )
+    send_dbs: list[object] = []
+
+    def fake_send_email(**kwargs):
+        send_dbs.append(kwargs["db"])
+        return True, {
+            "smtp_response_code": "250",
+            "smtp_response": "OK queued as zepto-message-456",
+            "provider_message_id": "zepto-message-456",
+            "smtp_host": "smtp.zeptomail.com",
+        }
+
+    monkeypatch.setattr(engine, "SessionLocal", lambda: read_only_session)
+    monkeypatch.setattr(delivery, "SessionLocal", tracking_session_factory)
+    monkeypatch.setattr(delivery.email_service, "send_email", fake_send_email)
+
+    result = engine._deliver_read_only(
+        config=_config(recipients=("reports@example.com", "ops@example.com")),
+        archive_dir=tmp_path,
+        summary={
+            "reporting_period": "13 July 2026 - 19 July 2026",
+            "conversations_analysed": 759,
+            "sales_conversations": 45,
+            "support_conversations": 580,
+            "active_inboxes": 6,
+        },
+        generated_at=datetime(2026, 7, 20, 7, 5, tzinfo=UTC),
+    )
+
+    db_session.expire_all()
+    notifications = db_session.query(Notification).order_by(Notification.recipient).all()
+    deliveries = db_session.query(NotificationDelivery).all()
+
+    assert result["status"] == "sent"
+    assert result["tracking_status"] == "recorded"
+    assert send_dbs == [read_only_session]
+    assert read_only_session.statements == ["SET TRANSACTION READ ONLY"]
+    assert read_only_session.rolled_back is True
+    assert read_only_session.closed is True
+    assert [item.recipient for item in notifications] == ["ops@example.com", "reports@example.com"]
+    assert all(item.status == NotificationStatus.sending for item in notifications)
+    assert all(item.status != NotificationStatus.delivered for item in notifications)
+    assert len(deliveries) == 2
+    assert all(item.status == DeliveryStatus.accepted for item in deliveries)
+    assert all(item.provider == "zeptomail" for item in deliveries)
+    assert all(item.provider_message_id == "zepto-message-456" for item in deliveries)
+    assert all(item.response_code == "250" for item in deliveries)
 
 
 def test_generator_import_failure_is_logged(tmp_path, monkeypatch):

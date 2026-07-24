@@ -115,7 +115,12 @@ def _coerce_int(value: object | None, default: int) -> int:
     return default
 
 
-def _weekly_reporting_crontab(db, *, now_utc: datetime | None = None) -> crontab:
+def _weekly_reporting_crontab(
+    db,
+    *,
+    scheduler_timezone: str,
+    now_utc: datetime | None = None,
+) -> crontab:
     day = (
         str(resolve_value(db, SettingDomain.notification, "weekly_reporting_schedule_day") or "monday").strip().lower()
     )
@@ -133,6 +138,14 @@ def _weekly_reporting_crontab(db, *, now_utc: datetime | None = None) -> crontab
         zone = ZoneInfo(timezone_value)
     except ZoneInfoNotFoundError:
         zone = ZoneInfo("Africa/Lagos")
+    try:
+        scheduler_zone = ZoneInfo(scheduler_timezone)
+    except ZoneInfoNotFoundError:
+        logger.warning(
+            "Invalid Celery scheduler timezone %r; using UTC for Weekly Reporting.",
+            scheduler_timezone,
+        )
+        scheduler_zone = ZoneInfo("UTC")
 
     now = now_utc or datetime.now(UTC)
     if now.tzinfo is None:
@@ -143,12 +156,12 @@ def _weekly_reporting_crontab(db, *, now_utc: datetime | None = None) -> crontab
     local_occurrence = datetime.combine(occurrence_date, local_time, tzinfo=zone)
     if local_occurrence <= local_now:
         local_occurrence += timedelta(days=7)
-    utc_occurrence = local_occurrence.astimezone(UTC)
-    utc_day = utc_occurrence.strftime("%A").lower()
+    scheduler_occurrence = local_occurrence.astimezone(scheduler_zone)
+    scheduler_day = scheduler_occurrence.strftime("%A").lower()
     return crontab(
-        minute=str(utc_occurrence.minute),
-        hour=str(utc_occurrence.hour),
-        day_of_week=utc_day,
+        minute=str(scheduler_occurrence.minute),
+        hour=str(scheduler_occurrence.hour),
+        day_of_week=scheduler_day,
     )
 
 
@@ -241,10 +254,18 @@ def get_celery_config() -> dict:
     return config
 
 
-def build_beat_schedule() -> dict:
+def build_beat_schedule(*, scheduler_timezone: str | None = None) -> dict:
     schedule: dict[str, dict] = {}
     session = SessionLocal()
     try:
+        effective_scheduler_timezone = scheduler_timezone or _effective_str(
+            session,
+            SettingDomain.scheduler,
+            "timezone",
+            "CELERY_TIMEZONE",
+            "UTC",
+        )
+        effective_scheduler_timezone = effective_scheduler_timezone or "UTC"
         enabled = _effective_bool(session, SettingDomain.gis, "sync_enabled", "GIS_SYNC_ENABLED", True)
         interval_minutes = _effective_int(
             session,
@@ -367,7 +388,10 @@ def build_beat_schedule() -> dict:
 
         schedule["weekly_reporting"] = {
             "task": "app.tasks.reports.run_weekly_inbound_reporting",
-            "schedule": _weekly_reporting_crontab(session),
+            "schedule": _weekly_reporting_crontab(
+                session,
+                scheduler_timezone=effective_scheduler_timezone,
+            ),
         }
 
         billing_risk_cache_enabled = _effective_bool(
