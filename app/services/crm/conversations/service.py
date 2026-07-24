@@ -816,6 +816,19 @@ def assign_conversation(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    # The two-queue dispatcher is the sole assignment owner for supported
+    # customer channels. Manager assignment enters through its explicit FIFO
+    # action, never through this generic legacy service.
+    from app.services.crm.inbox import dispatch as queue_dispatch
+
+    if queue_dispatch.enabled(db):
+        channel = get_reply_channel_type(db, conversation_id)
+        if channel in queue_dispatch.SUPPORTED_CHANNELS:
+            raise HTTPException(
+                status_code=409,
+                detail="Dispatch-managed conversations must be assigned through the FIFO queue owner",
+            )
+
     agent_value = (agent_id or "").strip()
     team_value = (team_id or "").strip()
     agent_uuid = coerce_uuid(agent_value) if agent_value else None
@@ -958,6 +971,14 @@ def unassign_conversation(
     conversation_id: str,
 ) -> None:
     """Remove active assignment from a conversation."""
+    from app.services.crm.inbox import dispatch as queue_dispatch
+
+    if queue_dispatch.enabled(db):
+        entry = queue_dispatch.active_entry(db, conversation_id)
+        if entry is not None:
+            raise HTTPException(
+                status_code=409, detail="Use the queue requeue action for dispatch-managed conversations"
+            )
     ended_at = _now()
     db.query(ConversationAssignment).filter(
         ConversationAssignment.conversation_id == coerce_uuid(conversation_id),

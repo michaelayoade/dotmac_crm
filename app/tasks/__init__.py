@@ -18,6 +18,7 @@ from app.tasks.campaigns import (
 )
 from app.tasks.crm_inbox import (
     backfill_two_queue_dispatch_task,
+    check_two_queue_cutover_readiness_task,
     cleanup_old_outbox_task,
     process_outbox_queue_task,
     reassign_stale_ai_handoffs_task,
@@ -90,6 +91,7 @@ __all__ = [
     "backfill_two_queue_dispatch_task",
     "capture_data_health_baseline",
     "check_token_health",
+    "check_two_queue_cutover_readiness_task",
     "cleanup_bandwidth_hot_data",
     "cleanup_old_outbox_task",
     "compute_weekly_scores",

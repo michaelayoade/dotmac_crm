@@ -334,16 +334,28 @@ def run_two_queue_dispatch_task(limit: int = 200):
 
 
 @celery_app.task(name="app.tasks.crm_inbox.backfill_two_queue_dispatch")
-def backfill_two_queue_dispatch_task(limit: int = 500):
-    """Idempotent cutover backfill; invoke once before enabling customer notices."""
+def backfill_two_queue_dispatch_task(mode: str = "dry_run", batch_size: int = 500):
+    """Explicit, safe cutover backfill; default mode never writes or contacts customers."""
     from app.services.crm.inbox import dispatch as queue_dispatch
 
     session = SessionLocal()
     try:
-        return queue_dispatch.backfill_unresolved(session, limit=limit)
+        return queue_dispatch.backfill_unresolved(session, mode=mode, batch_size=batch_size)
     except Exception:
         session.rollback()
         raise
+    finally:
+        session.close()
+
+
+@celery_app.task(name="app.tasks.crm_inbox.check_two_queue_cutover_readiness")
+def check_two_queue_cutover_readiness_task():
+    """Read-only cutover gate; safe to run while the feature remains disabled."""
+    from app.services.crm.inbox import dispatch as queue_dispatch
+
+    session = SessionLocal()
+    try:
+        return queue_dispatch.cutover_readiness(session)
     finally:
         session.close()
 
