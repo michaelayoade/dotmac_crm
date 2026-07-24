@@ -2,6 +2,7 @@ import base64
 import contextlib
 import logging
 import os
+import re
 import smtplib
 from email import encoders
 from email.mime.base import MIMEBase
@@ -20,6 +21,11 @@ from app.services.branding import get_branding
 from app.services.settings_spec import resolve_value
 
 logger = logging.getLogger(__name__)
+
+_SMTP_MESSAGE_ID_PATTERNS = (
+    re.compile(r"\bqueued\s+as\s+<?([^<>\s]+)>?", re.IGNORECASE),
+    re.compile(r"\bmessage[- ]?id\s*[:=]\s*<?([^<>\s]+)>?", re.IGNORECASE),
+)
 
 
 def _env_value(name: str) -> str | None:
@@ -120,6 +126,60 @@ def _create_smtp_client(host: str, port: int, use_ssl: bool, timeout: float | No
     return smtplib.SMTP(host, port, timeout=timeout_value)
 
 
+def _smtp_response_text(response: bytes | str) -> str:
+    if isinstance(response, bytes):
+        return response.decode("utf-8", errors="replace")
+    return str(response)
+
+
+def _smtp_provider_message_id(response_body: str) -> str | None:
+    for pattern in _SMTP_MESSAGE_ID_PATTERNS:
+        match = pattern.search(response_body)
+        if match:
+            return match.group(1)[:200]
+    return None
+
+
+def _sendmail_with_submission_response(
+    server: smtplib.SMTP,
+    *,
+    from_email: str,
+    recipients: list[str],
+    message: str,
+) -> dict:
+    """Submit an SMTP message while retaining the final DATA response."""
+    server.ehlo_or_helo_if_needed()
+    response_code, response = server.mail(from_email)
+    if response_code != 250:
+        raise smtplib.SMTPSenderRefused(response_code, response, from_email)
+
+    refused: dict[str, tuple[int, bytes]] = {}
+    accepted_recipients = 0
+    for recipient in recipients:
+        response_code, response = server.rcpt(recipient)
+        if response_code not in (250, 251):
+            refused[recipient] = (response_code, response)
+        else:
+            accepted_recipients += 1
+    if not accepted_recipients:
+        raise smtplib.SMTPRecipientsRefused(refused)
+
+    response_code, response = server.data(message)
+    if response_code != 250:
+        raise smtplib.SMTPDataError(response_code, response)
+    response_body = _smtp_response_text(response)
+    result: dict[str, object] = {
+        "smtp_response_code": str(response_code),
+        "smtp_response": response_body,
+    }
+    provider_message_id = _smtp_provider_message_id(response_body)
+    if provider_message_id:
+        result["provider_message_id"] = provider_message_id
+    if refused:
+        result["refused"] = refused
+    return result
+
+
 def send_email_with_config(
     config: dict,
     to_email: str,
@@ -197,6 +257,7 @@ def send_email(
     in_reply_to: str | None = None,
     references: str | None = None,
     attachments: list[dict] | None = None,
+    capture_smtp_response: bool = False,
 ) -> tuple[bool, dict | None]:
     """
     Send an email via SMTP.
@@ -263,16 +324,31 @@ def send_email(
             server.login(config["username"], config["password"])
 
         recipients = [to_email, *(cc_emails or []), *(bcc_emails or [])]
-        send_result = server.sendmail(str(config["from_email"]), recipients, msg.as_string())
-        server.quit()
+        if capture_smtp_response:
+            debug = _sendmail_with_submission_response(
+                server,
+                from_email=str(config["from_email"]),
+                recipients=recipients,
+                message=msg.as_string(),
+            )
+            debug["smtp_host"] = host
+            send_result = debug.get("refused") or {}
+        else:
+            send_result = server.sendmail(str(config["from_email"]), recipients, msg.as_string())
+            debug = None
+        if capture_smtp_response:
+            with contextlib.suppress(smtplib.SMTPException, OSError):
+                server.quit()
+        else:
+            server.quit()
 
         if notification and db:
             notification.status = NotificationStatus.delivered
             db.commit()
 
-        debug = None
         if send_result:
-            debug = {"refused": send_result}
+            if debug is None:
+                debug = {"refused": send_result}
             logger.warning("SMTP sendmail refused recipients: %s", send_result)
         logger.info("Email sent successfully to %s", to_email)
         return True, debug
@@ -283,13 +359,36 @@ def send_email(
             notification.status = NotificationStatus.failed
             notification.last_error = "SMTP authentication failed"
             db.commit()
-        return False, {"error": "SMTP authentication failed"}
+        debug = {"error": "SMTP authentication failed"}
+        if capture_smtp_response:
+            debug.update(
+                {
+                    "smtp_response_code": str(exc.smtp_code),
+                    "smtp_response": _smtp_response_text(exc.smtp_error),
+                    "smtp_host": str(config["host"]),
+                }
+            )
+        return False, debug
     except Exception as e:
         logger.error(f"Failed to send email to {to_email}: {e}")
         if notification and db:
             notification.status = NotificationStatus.failed
             notification.last_error = str(e)
             db.commit()
+        if capture_smtp_response and isinstance(e, smtplib.SMTPRecipientsRefused):
+            return False, {
+                "error": "SMTP rejected all recipients",
+                "refused": e.recipients,
+                "smtp_host": str(config["host"]),
+            }
+        if capture_smtp_response and isinstance(e, smtplib.SMTPResponseException):
+            response_body = _smtp_response_text(e.smtp_error)
+            return False, {
+                "error": response_body,
+                "smtp_response_code": str(e.smtp_code),
+                "smtp_response": response_body,
+                "smtp_host": str(config["host"]),
+            }
         return False, {"error": str(e)}
 
 

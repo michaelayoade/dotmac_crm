@@ -380,7 +380,14 @@ def run_weekly_reporting(
                 recipients=config.recipients,
                 subject=str(delivery["subject"]),
             )
-            record["status"] = "completed"
+            if delivery.get("tracking_status") == "failed":
+                record["status"] = "completed_with_warnings"
+                record["warnings"].append(
+                    "Email was accepted by SMTP, but delivery tracking could not be persisted: "
+                    f"{delivery.get('tracking_error') or 'unknown tracking error'}"
+                )
+            else:
+                record["status"] = "completed"
             return record
     except Exception as exc:
         record["status"] = "failed"
