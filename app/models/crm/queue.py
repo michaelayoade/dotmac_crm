@@ -49,6 +49,9 @@ class ConversationQueueEntry(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     classification_attempts: Mapped[int] = mapped_column(default=0, nullable=False)
     notification_ledger: Mapped[dict | None] = mapped_column(JSON, default=dict)
+    # Kept separately from the immutable event ledger.  A transfer starts a
+    # fresh position-notice cycle for its destination queue.
+    position_tracking: Mapped[dict | None] = mapped_column(JSON, default=dict)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
@@ -69,3 +72,22 @@ class ConversationQueueEvent(Base):
     actor_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("people.id"))
     payload: Mapped[dict | None] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class ConversationQueueDispatchState(Base):
+    """One durable round-robin cursor per logical queue.
+
+    Dispatchers lock this tiny row *before* looking at a queue head.  It is
+    consequently both the FIFO mutex and the durable round-robin cursor.
+    """
+
+    __tablename__ = "crm_conversation_queue_dispatch_states"
+
+    queue_type: Mapped[ConversationQueueType] = mapped_column(Enum(ConversationQueueType), primary_key=True)
+    round_robin_cursor_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("crm_agents.id")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )

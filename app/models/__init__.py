@@ -44,6 +44,7 @@ from app.models.crm import (  # noqa: F401
     Conversation,
     ConversationAssignment,
     ConversationLabel,
+    ConversationQueueDispatchState,
     ConversationQueueEntry,
     ConversationQueueEvent,
     ConversationQueueState,

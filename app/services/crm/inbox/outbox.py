@@ -119,6 +119,43 @@ def enqueue_outbound_message(
     return outbox
 
 
+def enqueue_outbound_message_in_transaction(
+    db: Session,
+    *,
+    payload: InboxSendRequest,
+    author_id: str | None,
+    idempotency_key: str,
+    priority: int = 0,
+    trace_id: str | None = None,
+) -> OutboxMessage:
+    """Stage an outbox item without committing the caller's transaction.
+
+    Queue state and its customer notice must become durable together; delivery
+    is deliberately left to the scheduled outbox worker after locks release.
+    """
+    existing = db.query(OutboxMessage).filter(OutboxMessage.idempotency_key == idempotency_key).first()
+    if existing:
+        return existing
+    payload_data = json.loads(payload.model_dump_json())
+    if trace_id:
+        payload_data.setdefault("metadata", {})
+        if isinstance(payload_data["metadata"], dict):
+            payload_data["metadata"]["trace_id"] = trace_id
+    outbox = OutboxMessage(
+        conversation_id=coerce_uuid(str(payload.conversation_id)),
+        channel_type=payload.channel_type,
+        status=STATUS_QUEUED,
+        attempts=0,
+        next_attempt_at=_now(),
+        payload=payload_data,
+        author_id=coerce_uuid(author_id) if author_id else None,
+        idempotency_key=idempotency_key,
+        priority=priority,
+    )
+    db.add(outbox)
+    return outbox
+
+
 def process_outbox_item(db: Session, outbox_id: str) -> OutboxMessage:
     outbox = (
         db.query(OutboxMessage)

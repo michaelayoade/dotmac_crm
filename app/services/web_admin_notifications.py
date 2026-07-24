@@ -52,6 +52,7 @@ def _supports_view_action(notification: Notification) -> bool:
         or normalized.startswith("mentioned in ")
         or normalized.startswith("infrastructure alert ")
         or normalized.startswith("crm response ")
+        or normalized.startswith("missed crm queue response")
     )
 
 
