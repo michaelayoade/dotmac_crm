@@ -2035,6 +2035,57 @@ def test_billing_risk_visible_enrichment_falls_back_to_invoiced_until_without_bl
     assert enriched[0]["blocked_date"] == "2024-04-18"
 
 
+def test_billing_risk_enrichment_skips_refetch_when_live_data_inlined(monkeypatch):
+    """Regression: when the Selfcare list endpoint already inlined a subscriber's
+    services/billing (fetch_customers include=services,billing), enrichment must
+    NOT re-fetch per subscriber -- even with balance 0 / empty plan / 0 MRR, which
+    previously forced a fetch for nearly every paid-up row and tripped Selfcare's
+    api_sync_pressure rate limiter."""
+
+    class FakeSession:
+        def close(self):
+            return None
+
+    billing_risk_service.clear_live_splynx_cache()
+    monkeypatch.setattr(billing_risk_service, "SessionLocal", lambda: FakeSession())
+
+    calls = {"billing": 0, "services": 0}
+
+    def _count_billing(_db, _external_id):
+        calls["billing"] += 1
+        return {}
+
+    def _count_services(_db, _external_id):
+        calls["services"] += 1
+        return []
+
+    monkeypatch.setattr(selfcare_service, "fetch_customer_billing", _count_billing)
+    monkeypatch.setattr(selfcare_service, "fetch_customer_internet_services", _count_services)
+
+    rows = [
+        {
+            "name": "Paid Up Customer",
+            "_external_id": "99999",
+            "subscriber_status": "Suspended",
+            "risk_segment": "Suspended",
+            "billing_start_date": "2024-01-15",
+            "blocked_date": "",
+            "invoiced_until": "2024-04-18",
+            "balance": 0.0,  # paid up -- previously forced a re-fetch
+            "mrr_total": 0.0,  # previously forced a re-fetch
+            "plan": "",  # previously forced a re-fetch
+            "_has_live_billing": True,
+            "_has_live_services": True,
+        }
+    ]
+
+    enriched = billing_risk_service.enrich_billing_risk_rows(rows)
+
+    assert calls["billing"] == 0, "must not re-fetch /billing when inlined"
+    assert calls["services"] == 0, "must not re-fetch /services when inlined"
+    assert enriched[0]["_external_id"] == "99999"
+
+
 def test_get_live_blocked_dates_prefers_splynx_blocking_date(monkeypatch):
     class FakeSession:
         def close(self):
