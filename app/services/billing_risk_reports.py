@@ -1444,6 +1444,14 @@ def get_billing_risk_table(
                 "ticket_subscriber_id": subscriber_id_key,
                 "_subscriber_uuid": subscriber_id_key,
                 "_external_id": external_id_value,
+                # fetch_customers(include=services,billing) already inlined this
+                # subscriber's billing/services, so enrich_billing_risk_rows can
+                # trust it instead of a per-subscriber re-fetch. That re-fetch was
+                # the N+1 that tripped Selfcare's api_sync_pressure limiter: it
+                # fired whenever balance <= 0, but balance 0 means paid-up, not
+                # missing data.
+                "_has_live_billing": isinstance(embedded_billing, Mapping),
+                "_has_live_services": isinstance(customer.get("services"), list),
                 "_subscriber_number": str(mapped.get("subscriber_number") or ""),
                 "_last_synced_at": "",
                 "_customer_last_update": customer_last_update,
@@ -1735,16 +1743,24 @@ def enrich_billing_risk_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
             str(entry.get("subscriber_status") or "").strip().lower() == "active"
             and str(entry.get("risk_segment") or "").strip() == "Due Soon"
         )
-        needs_services = (
+        # Only fall back to a per-subscriber fetch when the Selfcare list endpoint
+        # did NOT already inline this subscriber's services/billing. Previously the
+        # `balance <= 0` clauses forced a fetch for nearly every row (0 = paid up),
+        # re-requesting data the bulk response already carried.
+        needs_services = not entry.get("_has_live_services") and (
             not str(entry.get("plan") or "").strip()
             or not str(entry.get("billing_start_date") or "").strip()
             or _amount(entry.get("mrr_total")) <= 0
             or _amount(entry.get("balance")) <= 0
         )
-        needs_billing = not is_active_overdue and (
-            not str(entry.get("billing_start_date") or "").strip()
-            or not str(entry.get("blocked_date") or "").strip()
-            or _amount(entry.get("balance")) <= 0
+        needs_billing = (
+            not entry.get("_has_live_billing")
+            and not is_active_overdue
+            and (
+                not str(entry.get("billing_start_date") or "").strip()
+                or not str(entry.get("blocked_date") or "").strip()
+                or _amount(entry.get("balance")) <= 0
+            )
         )
         sub_db = SessionLocal()
         try:
