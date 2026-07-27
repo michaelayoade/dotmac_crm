@@ -14,6 +14,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # This repo had no server-side secret guard at all: its pre-commit hooks are
+  # local `poetry run` entries scoped to ^(app|tests)/.*\.py$, and pre-commit
+  # never ran in CI — so nothing here would have stopped a key being committed.
+  # One was: configs/openvpn/mikrotik.conf carried a live OpenVPN CA + server
+  # private key (the same key as dotmac_sub, byte for byte), committed
+  # 2026-01-26 and public until 2026-07-27.
+  #
+  # The scan keys on content, not paths: a PEM header with no encoded body is a
+  # placeholder and passes, real key material fails. There is no allowlist to
+  # add a path to, which is the specific way the equivalent guard in dotmac_sub
+  # was defeated — the offending file was simply added to the hook's exclude
+  # list. Kept as its own job so it cannot be disabled by editing lint config.
+  secret-scan:
+    name: Private Key Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan tracked files for private key material
+        run: bash scripts/ci/scan_private_keys.sh
+
   test:
     runs-on: ubuntu-latest
     strategy:

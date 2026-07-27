@@ -1,4 +1,17 @@
 repos:
+  # Every hook below is scoped to ^(app|tests)/.*\.py$, so nothing in this repo
+  # inspected config, docs or generated output — which is how a live OpenVPN
+  # private key sat in configs/ for five months. This runs on every file.
+  #
+  # If it fires on a real key: rotate the key, then remove it. Do NOT add the
+  # path to `exclude:` — that is exactly what happened in dotmac_sub. The CI
+  # job `secret-scan` re-checks by content and has no allowlist, so excluding a
+  # path here will not make the pipeline green anyway.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: detect-private-key
+
   - repo: local
     hooks:
       - id: ruff-check

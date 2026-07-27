@@ -94,3 +94,9 @@ static/avatars/
 nohup.out
 mypy.txt
 reports/*.csv
+
+# Generated VPN/PKI server configs — these embed CA + server PRIVATE KEYS.
+# Regenerable at provisioning time; never commit them. A committed one leaked
+# publicly here and in dotmac_sub from 2026-01-26 until 2026-07-27.
+/configs/openvpn/
+/configs/**/*.conf
