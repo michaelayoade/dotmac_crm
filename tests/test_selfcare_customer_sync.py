@@ -7,7 +7,11 @@ from app.models.sales_order import SalesOrder
 from app.models.subscriber import Subscriber
 from app.services.events.handlers.selfcare_customer import SelfcareCustomerHandler
 from app.services.events.types import Event, EventType
-from app.services.selfcare import SelfcareCustomerIdentity, build_customer_payload
+from app.services.selfcare import (
+    SelfcareCustomerIdentity,
+    build_customer_payload,
+    create_customer,
+)
 from app.services.subscriber import subscriber as subscriber_service
 
 
@@ -68,10 +72,46 @@ def test_build_customer_payload_contains_selfcare_identity(db_session):
 
     assert payload["first_name"] == "Ada"
     assert payload["last_name"] == "Lovelace"
-    assert payload["status"] == "new"
     assert payload["crm_person_id"] == str(person.id)
-    assert payload["metadata"]["source"] == "dotmac_omni"
-    assert payload["metadata"]["crm_project_id"] == "project-1"
+    assert payload["crm_project_id"] == "project-1"
+    assert "status" not in payload
+    assert "metadata" not in payload
+
+
+def test_create_customer_uses_authenticated_idempotent_command(db_session, monkeypatch):
+    person = _make_person(db_session)
+    calls = []
+
+    def fake_request(db, method, path, **kwargs):
+        calls.append((db, method, path, kwargs))
+        return {
+            "data": {
+                "id": "5e939804-84c7-47a9-bae1-77627fc218d2",
+                "subscriber_number": "SUB-00123",
+                "outcome": "created",
+            }
+        }
+
+    monkeypatch.setattr("app.services.selfcare._request_json", fake_request)
+
+    identity = create_customer(
+        db_session,
+        person,
+        project_id="project-1",
+        quote_id="quote-1",
+        sales_order_id="sales-order-1",
+    )
+
+    assert identity is not None
+    assert identity.selfcare_id == "5e939804-84c7-47a9-bae1-77627fc218d2"
+    assert identity.subscriber_number == "SUB-00123"
+    _, method, path, kwargs = calls[0]
+    assert method == "POST"
+    assert path == "/subscribers"
+    assert kwargs["idempotent"] is True
+    assert kwargs["idempotency_key"].startswith(f"crm-subscriber:{person.id}:")
+    assert kwargs["json_body"]["crm_person_id"] == str(person.id)
+    assert "metadata" not in kwargs["json_body"]
 
 
 @patch("app.services.events.handlers.selfcare_customer.ensure_person_customer")

@@ -267,6 +267,27 @@ def test_post_retried_when_idempotent(monkeypatch):
     assert calls["n"] == 3  # idempotent=True opts the POST into retry
 
 
+def test_idempotency_key_is_sent_as_request_header(monkeypatch):
+    seen = {}
+
+    def handler(method, url, **kwargs):
+        seen.update(kwargs.get("headers") or {})
+        return _Resp(200)
+
+    _patch_request(monkeypatch, handler)
+
+    selfcare._request_json(
+        None,
+        "POST",
+        "/subscribers",
+        json_body={"crm_person_id": "person-1"},
+        idempotent=True,
+        idempotency_key="crm-subscriber:person-1:fingerprint",
+    )
+
+    assert seen["Idempotency-Key"] == "crm-subscriber:person-1:fingerprint"
+
+
 def test_record_payment_retries_transient_failure(monkeypatch):
     """record_payment targets sub's DB-race-safe /crm/payments, so it opts into
     retry — a transient 503 no longer drops the payment."""
