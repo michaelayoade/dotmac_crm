@@ -356,10 +356,77 @@ services:
       - nominatim_data:/var/lib/postgresql/14/main
       - nominatim_flatnode:/var/lib/nominatim/flatnode
 
+  # ===========================================================================
+  # Observability agents
+  # ===========================================================================
+  #
+  # This app already exposed /metrics and already had GlitchTip wiring in
+  # app/monitoring.py — but nothing collected either, so the deployment did not
+  # appear in Grafana or Loki at all. These two agents close that gap.
+  #
+  # Both sit behind the `observability` compose profile so a developer running
+  # `docker compose up` locally does not start shipping to production. Enable on
+  # a real host by setting COMPOSE_PROFILES=observability in .env, which makes
+  # the ordinary `docker compose up -d` include them with no extra flags to
+  # remember (and no way to silently forget them on a redeploy).
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: dotmac_omni_promtail
+    restart: unless-stopped
+    profiles: [observability]
+    # -config.expand-env resolves the ${...} placeholders in the config from
+    # this container's environment, so the push URL and host labels come from
+    # .env rather than being baked into a tracked file.
+    command: -config.file=/etc/promtail/config.yml -config.expand-env=true
+    environment:
+      LOKI_PUSH_URL: ${LOKI_PUSH_URL:-http://LOKI_PUSH_URL-is-unset.invalid/loki/api/v1/push}
+      DEPLOY_HOST: ${DEPLOY_HOST:-DEPLOY_HOST-is-unset}
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
+    volumes:
+      - ./config/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      # Read-only docker socket: promtail only needs to discover and tail
+      # containers, never to control them.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - promtail_positions:/positions
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  vmagent:
+    image: victoriametrics/vmagent:v1.96.0
+    container_name: dotmac_omni_vmagent
+    restart: unless-stopped
+    profiles: [observability]
+    command:
+      - -promscrape.config=/etc/vmagent/config.yml
+      - -promscrape.config.strictParse=false
+      - -remoteWrite.url=${VM_REMOTE_WRITE_URL:-http://VM_REMOTE_WRITE_URL-is-unset.invalid/api/v1/write}
+      # Buffer locally when the central endpoint is unreachable rather than
+      # dropping samples and leaving an unexplained hole in the series.
+      - -remoteWrite.tmpDataPath=/vmagent-data
+      - -remoteWrite.maxDiskUsagePerURL=512MB
+    environment:
+      DEPLOY_ENV: ${DEPLOY_ENV:-production}
+    volumes:
+      - ./config/vmagent/config.yml:/etc/vmagent/config.yml:ro
+      - vmagent_data:/vmagent-data
+    depends_on:
+      - app
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 # =============================================================================
 # Volumes
 # =============================================================================
 volumes:
+  promtail_positions:
+  vmagent_data:
   dotmac_omni_db_data:
   redis_data:
   openbao_data:

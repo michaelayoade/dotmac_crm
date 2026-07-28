@@ -1,0 +1,130 @@
+# Promtail: ship this host's container logs to the central Dotmac Observability
+# Loki (observability.dotmac.io). The application already emits structured logs
+# and exposes /metrics; nothing was collecting them, which is why this stack did
+# not appear in Grafana at all.
+#
+# Requires promtail to run with `-config.expand-env=true` (set in the compose
+# command) so the ${...} values below resolve from the environment. Unlike the
+# dotmac_sub config this file hardcodes no IP — the push URL and the host labels
+# come from .env, so a rebuilt or relocated host does not need a config edit.
+#
+# Container naming note: this repo's compose sets container_name to dotmac_omni_*
+# (not dotmac_crm_*). Log queries and dashboards must use the omni names.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /positions/positions.yaml
+
+clients:
+  - url: ${LOKI_PUSH_URL}
+    external_labels:
+      # `app` distinguishes this deployment in Loki. Kept as dotmac_crm to match
+      # the repository, while `container`/`service` below carry the omni names
+      # the containers actually run under.
+      app: dotmac_crm
+      host: ${DEPLOY_HOST}
+      environment: ${DEPLOY_ENV}
+
+scrape_configs:
+  # Everything in this compose project except the services with dedicated jobs
+  # below, so a new service is observable the moment it is added rather than
+  # silently uncollected.
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/?dotmac_omni_.*'
+        action: keep
+
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        regex: 'app|celery-worker|celery-beat'
+        action: drop
+
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/?(.*)'
+        target_label: container
+
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: service
+
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        target_label: project
+
+    pipeline_stages:
+      - drop:
+          older_than: 24h
+      - regex:
+          expression: '(?P<level>DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|FATAL)'
+      - labels:
+          level:
+
+  # FastAPI app.
+  - job_name: app
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        regex: app
+        action: keep
+
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/?(.*)'
+        target_label: container
+
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: service
+
+      # dotmac_sub's equivalent job omitted this, which meant {project="dotmac_sub"}
+      # returned nothing for the app and workers — the single most confusing
+      # thing about querying those logs. Set it here from the start.
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        target_label: project
+
+    pipeline_stages:
+      - drop:
+          older_than: 24h
+      - regex:
+          expression: '(?P<level>DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)'
+      - regex:
+          expression: '"(?P<method>GET|POST|PUT|DELETE|PATCH|OPTIONS)\s+(?P<path>[^\s]+)\s+HTTP/[^"]+"\s+(?P<status>\d+)'
+      - labels:
+          level:
+          method:
+          status:
+
+  # Celery worker and beat.
+  - job_name: celery
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        regex: 'celery-worker|celery-beat'
+        action: keep
+
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/?(.*)'
+        target_label: container
+
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: service
+
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        target_label: project
+
+    pipeline_stages:
+      - drop:
+          older_than: 24h
+      - regex:
+          expression: '\[(?P<level>\w+)/(?P<worker>[^\]]+)\]'
+      - regex:
+          expression: 'Task\s+(?P<task_name>[^\s\[]+)'
+      - labels:
+          level:
+          task_name:
