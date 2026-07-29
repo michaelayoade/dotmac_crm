@@ -398,6 +398,7 @@ def _request_json(
     params: dict[str, Any] | None = None,
     json_body: dict[str, Any] | None = None,
     idempotent: bool = False,
+    idempotency_key: str | None = None,
 ) -> Any:
     """Issue one logical request via the shared integration engine.
 
@@ -478,6 +479,7 @@ def _request_json(
             url,
             params=params,
             json_data=json_body,
+            idempotency_key=idempotency_key,
             handler_kwargs={
                 "method": method_u,
                 "path": path,
@@ -1929,19 +1931,8 @@ def build_customer_payload(
     quote_id: str | None = None,
     sales_order_id: str | None = None,
 ) -> dict[str, Any]:
-    """Build the selfcare subscriber-create webhook payload."""
+    """Build the explicit dotmac_sub subscriber-provisioning command."""
     first_name, last_name = _split_name(person)
-    metadata = {
-        "source": "dotmac_omni",
-        "crm_person_id": str(person.id),
-        "crm_project_id": project_id,
-        "crm_quote_id": quote_id,
-        "crm_sales_order_id": sales_order_id,
-        "date_of_birth": person.date_of_birth.isoformat() if person.date_of_birth else None,
-        "gender": person.gender.value if person.gender else None,
-        "nin": person.nin or None,
-        "synced_at": datetime.now(UTC).isoformat(),
-    }
     return {
         "crm_person_id": str(person.id),
         "crm_project_id": project_id,
@@ -1961,8 +1952,6 @@ def build_customer_payload(
         "region": person.region or "",
         "postal_code": person.postal_code or "",
         "country_code": person.country_code or "",
-        "status": "new",
-        "metadata": metadata,
     }
 
 
@@ -2184,40 +2173,33 @@ def create_customer(
     quote_id: str | None = None,
     sales_order_id: str | None = None,
 ) -> SelfcareCustomerIdentity | None:
-    """Create or reuse a subscriber/customer in selfcare and return its ID."""
-    config = _get_config(db)
-    if not config:
-        return None
-
+    """Provision or exactly reuse a subscriber through dotmac_sub's command API."""
     payload = build_customer_payload(
         person,
         project_id=project_id,
         quote_id=quote_id,
         sales_order_id=sales_order_id,
     )
-    raw_body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    headers = {
-        "Content-Type": "application/json",
-        "X-Webhook-Event": "customer.accepted",
-        "X-Webhook-Signature-256": _sign_payload(config["webhook_secret"], raw_body),
-    }
-
-    import requests
+    fingerprint = hashlib.sha256(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()[:24]
+    idempotency_key = f"crm-subscriber:{person.id}:{fingerprint}"
 
     try:
-        response = requests.post(  # nosec B113 - timeout is config-driven.
-            _customer_url(config),
-            data=raw_body,
-            headers=headers,
-            timeout=config["timeout_seconds"],
+        data = _request_json(
+            db,
+            "POST",
+            "/subscribers",
+            json_body=payload,
+            idempotent=True,
+            idempotency_key=idempotency_key,
         )
-        response.raise_for_status()
-        data = response.json()
     except Exception as exc:
         logger.error("selfcare_create_customer_failed error=%s", str(exc))
         return None
 
-    identity = _parse_customer_identity(data)
+    row = _unwrap_data(data)
+    identity = _parse_customer_identity(row if isinstance(row, dict) else {})
     if not identity:
         logger.error("selfcare_create_customer_no_id response=%s", data)
         return None
