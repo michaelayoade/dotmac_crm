@@ -1724,13 +1724,13 @@ def queue_classification_report(
     end_date: str | None = Query(None),
 ):
     """Queue-wait statistics and issue-classification breakdown for chat conversations."""
-    from app.services.crm import reports as crm_reports
+    from app.services.crm.reports import issue_classification_breakdown, queue_wait_metrics
 
     user = get_current_user(request)
     start_dt, end_dt = _parse_date_range(period_days, start_date, end_date)
 
-    queue = crm_reports.queue_wait_metrics(db, start_dt, end_dt)
-    classification = crm_reports.issue_classification_breakdown(db, start_dt, end_dt)
+    queue = queue_wait_metrics(db, start_dt, end_dt)
+    classification = issue_classification_breakdown(db, start_dt, end_dt)
 
     return templates.TemplateResponse(
         "admin/reports/queue_classification.html",
