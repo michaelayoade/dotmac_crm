@@ -1711,46 +1711,6 @@ def churn_report_redirect():
 
 
 # =============================================================================
-# Chat Queue & Classification Report
-# =============================================================================
-
-
-@router.get("/queue", response_class=HTMLResponse)
-def queue_classification_report(
-    request: Request,
-    db: Session = Depends(get_db),
-    period_days: int = Query(7, ge=1, le=365),
-    start_date: str | None = Query(None),
-    end_date: str | None = Query(None),
-):
-    """Queue-wait statistics and issue-classification breakdown for chat conversations."""
-    from app.services.crm.reports import issue_classification_breakdown, queue_wait_metrics
-
-    user = get_current_user(request)
-    start_dt, end_dt = _parse_date_range(period_days, start_date, end_date)
-
-    queue = queue_wait_metrics(db, start_dt, end_dt)
-    classification = issue_classification_breakdown(db, start_dt, end_dt)
-
-    return templates.TemplateResponse(
-        "admin/reports/queue_classification.html",
-        {
-            "request": request,
-            "user": user,
-            "current_user": user,
-            "sidebar_stats": get_sidebar_stats(db),
-            "active_page": "queue-report",
-            "active_menu": "reports",
-            "queue": queue,
-            "classification": classification,
-            "period_days": period_days,
-            "start_date": start_date or "",
-            "end_date": end_date or "",
-        },
-    )
-
-
-# =============================================================================
 # Network Infrastructure Report (real data)
 # =============================================================================
 
