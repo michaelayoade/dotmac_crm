@@ -330,7 +330,9 @@ def _fetch_customer_billing_with_config(config: dict[str, Any], customer_id: str
     return data if isinstance(data, dict) else {}
 
 
-def _fetch_service_extensions_page(config: dict[str, Any], page: int, per_page: int) -> tuple[list[dict[str, Any]], dict]:
+def _fetch_service_extensions_page(
+    config: dict[str, Any], page: int, per_page: int
+) -> tuple[list[dict[str, Any]], dict]:
     db = config.get("_db")
     if not isinstance(db, Session):
         return [], {}
@@ -828,7 +830,9 @@ def _month_extension_transactions(
 
 def _transaction_service_prices(transactions: list[dict[str, Any]]) -> dict[str, Decimal]:
     prices: dict[str, Decimal] = {}
-    for row in sorted(transactions, key=lambda item: (str(item.get("date") or ""), _stable_id_sort_value(item.get("id")))):
+    for row in sorted(
+        transactions, key=lambda item: (str(item.get("date") or ""), _stable_id_sort_value(item.get("id")))
+    ):
         service_id = str(row.get("service_id") or "").strip()
         price = _money(row.get("price"))
         if service_id and price > 0 and not _is_extension_transaction(row):
@@ -904,11 +908,7 @@ def _fetch_local_customer_map(db: Session, customer_ids: set[str]) -> dict[str, 
 def _live_price_from_payloads(services: list[dict[str, Any]], billing: dict[str, Any]) -> tuple[str, Decimal]:
     service = _select_active_service(services) or {}
     plan = str(
-        service.get("description")
-        or service.get("name")
-        or service.get("tariff_name")
-        or service.get("plan")
-        or ""
+        service.get("description") or service.get("name") or service.get("tariff_name") or service.get("plan") or ""
     ).strip()
     price = _money(
         service.get("unit_price")
@@ -955,7 +955,9 @@ def _fetch_live_payment_billing_map(config: dict[str, Any], customer_ids: list[s
                 "live_billing_source": "selfcare_subscriber_billing",
             }
         except Exception as exc:
-            logger.warning("payment_classification_live_billing_lookup_failed customer_id=%s error=%s", customer_id, exc)
+            logger.warning(
+                "payment_classification_live_billing_lookup_failed customer_id=%s error=%s", customer_id, exc
+            )
             return customer_id, None
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1258,7 +1260,9 @@ def _latest_extension_for_customer(db: Session, customer_id: Any) -> dict[str, A
     return (
         sorted(
             matches,
-            key=lambda item: str((item["extension"] or {}).get("applied_at") or (item["extension"] or {}).get("created_at") or ""),
+            key=lambda item: str(
+                (item["extension"] or {}).get("applied_at") or (item["extension"] or {}).get("created_at") or ""
+            ),
             reverse=True,
         )[0]
         if matches

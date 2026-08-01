@@ -474,7 +474,9 @@ def get_billing_risk_table(
             if not external_id:
                 continue
             sync_metadata = subscriber.sync_metadata if isinstance(subscriber.sync_metadata, Mapping) else {}
-            status_value = subscriber.status.value if isinstance(subscriber.status, SubscriberStatus) else subscriber.status
+            status_value = (
+                subscriber.status.value if isinstance(subscriber.status, SubscriberStatus) else subscriber.status
+            )
             display_name = (
                 str(getattr(person, "display_name", "") or "").strip()
                 or " ".join(
@@ -1275,11 +1277,13 @@ def get_billing_risk_table(
         billing_payload: Mapping[str, Any] | None,
         cached_subscriber: Mapping[str, Any],
     ) -> str:
-        mapped_sync_metadata = (
-            mapped_payload.get("sync_metadata") if isinstance(mapped_payload.get("sync_metadata"), Mapping) else {}
+        mapped_sync_metadata_value = mapped_payload.get("sync_metadata")
+        mapped_sync_metadata: Mapping[str, Any] = (
+            mapped_sync_metadata_value if isinstance(mapped_sync_metadata_value, Mapping) else {}
         )
-        cached_sync_metadata = (
-            cached_subscriber.get("sync_metadata") if isinstance(cached_subscriber.get("sync_metadata"), Mapping) else {}
+        cached_sync_metadata_value = cached_subscriber.get("sync_metadata")
+        cached_sync_metadata: Mapping[str, Any] = (
+            cached_sync_metadata_value if isinstance(cached_sync_metadata_value, Mapping) else {}
         )
 
         def _field_value(*keys: str) -> str:
@@ -1360,10 +1364,9 @@ def get_billing_risk_table(
             continue
         mapped = map_customer_to_subscriber_data(db, dict(customer), include_remote_details=False)
         cached_subscriber = _cached_subscriber_row(customer)
-        cached_sync_metadata = (
-            cached_subscriber.get("sync_metadata")
-            if isinstance(cached_subscriber.get("sync_metadata"), Mapping)
-            else {}
+        cached_sync_metadata_value = cached_subscriber.get("sync_metadata")
+        cached_sync_metadata: Mapping[str, Any] = (
+            cached_sync_metadata_value if isinstance(cached_sync_metadata_value, Mapping) else {}
         )
         cached_suspended_at = _coerce_datetime_utc(cached_subscriber.get("suspended_at"))
         status_raw = str(mapped.get("status") or "unknown").strip().lower()
@@ -1382,9 +1385,7 @@ def get_billing_risk_table(
         subscription_billing_mode_value = str(
             customer.get("subscription_billing_mode")
             or customer.get("subscriptionBillingMode")
-            or (
-                embedded_billing.get("subscription_billing_mode") if isinstance(embedded_billing, Mapping) else ""
-            )
+            or (embedded_billing.get("subscription_billing_mode") if isinstance(embedded_billing, Mapping) else "")
             or (embedded_billing.get("subscriptionBillingMode") if isinstance(embedded_billing, Mapping) else "")
             or cached_sync_metadata.get("subscription_billing_mode")
             or ""

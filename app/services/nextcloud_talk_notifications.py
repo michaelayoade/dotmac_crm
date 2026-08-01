@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urljoin, urlsplit
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -10,6 +11,7 @@ from app.models.domain_settings import SettingDomain
 from app.models.nextcloud_talk_notification import NextcloudTalkNotificationRoom
 from app.models.notification import Notification
 from app.models.person import Person
+from app.services import email as email_service
 from app.services.common import coerce_uuid
 from app.services.nextcloud_talk import (
     NextcloudTalkClient,
@@ -159,7 +161,41 @@ def _extract_room_token(room_payload: dict) -> str | None:
     return None
 
 
-def _render_agent_notification_message(payload: dict) -> str:
+def _url_origin(url: str) -> tuple[str, str, int] | None:
+    try:
+        parsed = urlsplit(url)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            return None
+        if parsed.username is not None or parsed.password is not None:
+            return None
+        port = parsed.port
+    except ValueError:
+        return None
+    if port is None:
+        port = 443 if parsed.scheme.lower() == "https" else 80
+    return parsed.scheme.lower(), parsed.hostname.lower(), port
+
+
+def _resolve_public_target_url(target_url: object, *, app_url: str) -> str | None:
+    if not isinstance(target_url, str):
+        return None
+    raw_target = target_url.strip()
+    raw_app_url = app_url.strip()
+    if not raw_target or not raw_app_url:
+        return None
+    if "\\" in raw_target or any(character.isspace() or ord(character) < 32 for character in raw_target):
+        return None
+
+    app_origin = _url_origin(raw_app_url)
+    if app_origin is None:
+        return None
+    resolved = urljoin(f"{raw_app_url.rstrip('/')}/", raw_target)
+    if _url_origin(resolved) != app_origin:
+        return None
+    return resolved
+
+
+def _render_agent_notification_message(payload: dict, *, app_url: str = "") -> str:
     title = str(payload.get("title") or "Notification").strip()
     subtitle = str(payload.get("subtitle") or "").strip()
     preview = str(payload.get("preview") or "").strip()
@@ -171,6 +207,10 @@ def _render_agent_notification_message(payload: dict) -> str:
         parts.append(headline)
     if preview:
         parts.append(preview)
+    if payload.get("ticket_id") or payload.get("ticket_number"):
+        target_url = _resolve_public_target_url(payload.get("target_url"), app_url=app_url)
+        if target_url:
+            parts.append(f"Open ticket: {target_url}")
     if kind:
         parts.append(f"Type: {kind}")
     return "\n".join(parts).strip() or "Notification"
@@ -484,7 +524,10 @@ def forward_agent_notification(db: Session, *, person_id: str, payload: dict) ->
     return _send_to_person(
         db,
         person=person,
-        message=_render_agent_notification_message(payload),
+        message=_render_agent_notification_message(
+            payload,
+            app_url=email_service.get_app_url(db),
+        ),
     )
 
 

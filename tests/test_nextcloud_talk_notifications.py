@@ -33,6 +33,63 @@ def _configure_talk_notifications(db_session) -> None:
     )
 
 
+def test_render_ticket_notification_includes_absolute_link_from_relative_target():
+    message = nextcloud_talk_notifications._render_agent_notification_message(
+        {
+            "kind": "mention",
+            "title": "Mentioned in ticket",
+            "subtitle": "Ticket 22519 · billing issue",
+            "preview": "@System Admin (Group) please look into this",
+            "target_url": "/admin/support/tickets/22519",
+            "ticket_id": "ticket-id",
+            "ticket_number": "22519",
+        },
+        app_url="https://crm.dotmac.io/",
+    )
+
+    assert message == (
+        "Mentioned in ticket: Ticket 22519 · billing issue\n"
+        "@System Admin (Group) please look into this\n"
+        "Open ticket: https://crm.dotmac.io/admin/support/tickets/22519\n"
+        "Type: mention"
+    )
+
+
+def test_render_ticket_notification_keeps_safe_absolute_target():
+    message = nextcloud_talk_notifications._render_agent_notification_message(
+        {
+            "title": "Mentioned in ticket",
+            "target_url": "https://crm.dotmac.io/admin/support/tickets/22519",
+            "ticket_id": "ticket-id",
+        },
+        app_url="https://crm.dotmac.io",
+    )
+
+    assert "Open ticket: https://crm.dotmac.io/admin/support/tickets/22519" in message
+
+
+def test_render_ticket_notification_omits_missing_target():
+    message = nextcloud_talk_notifications._render_agent_notification_message(
+        {"title": "Mentioned in ticket", "ticket_id": "ticket-id"},
+        app_url="https://crm.dotmac.io",
+    )
+
+    assert "Open ticket:" not in message
+
+
+def test_render_ticket_notification_omits_external_target():
+    message = nextcloud_talk_notifications._render_agent_notification_message(
+        {
+            "title": "Mentioned in ticket",
+            "target_url": "https://malicious.example/admin/support/tickets/22519",
+            "ticket_id": "ticket-id",
+        },
+        app_url="https://crm.dotmac.io",
+    )
+
+    assert "Open ticket:" not in message
+
+
 def test_forward_agent_notification_reuses_room(db_session, person, monkeypatch):
     _configure_talk_notifications(db_session)
 
@@ -57,8 +114,20 @@ def test_forward_agent_notification_reuses_room(db_session, person, monkeypatch)
         "app.services.nextcloud_talk.NextcloudTalkClient.post_message",
         _fake_post_message,
     )
+    monkeypatch.setattr(
+        "app.services.nextcloud_talk_notifications.email_service.get_app_url",
+        lambda _db: "https://crm.dotmac.io",
+    )
 
-    payload = {"title": "Mentioned", "subtitle": "Inbox", "preview": "You were mentioned", "kind": "mention"}
+    payload = {
+        "title": "Mentioned in ticket",
+        "subtitle": "Ticket 22519",
+        "preview": "You were mentioned",
+        "kind": "mention",
+        "target_url": "/admin/support/tickets/22519",
+        "ticket_id": "ticket-id",
+        "ticket_number": "22519",
+    }
     first = nextcloud_talk_notifications.forward_agent_notification(
         db_session,
         person_id=str(person.id),
@@ -76,6 +145,7 @@ def test_forward_agent_notification_reuses_room(db_session, person, monkeypatch)
     assert len(sent["messages"]) == 2
     assert sent["messages"][0][0] == "room-token-1"
     assert sent["messages"][1][0] == "room-token-1"
+    assert "Open ticket: https://crm.dotmac.io/admin/support/tickets/22519" in sent["messages"][0][1]
 
     rows = db_session.query(NextcloudTalkNotificationRoom).all()
     assert len(rows) == 1

@@ -128,5 +128,5 @@ def test_material_request_detail_renders_checkbox_serial_picker():
     )
 
     assert "data-serial-options" in html
-    assert "data-input-name=\"serial_numbers_" in html
+    assert 'data-input-name="serial_numbers_' in html
     assert "data-serial-help" in html
