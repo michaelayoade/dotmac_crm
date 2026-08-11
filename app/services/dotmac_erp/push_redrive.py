@@ -1,16 +1,15 @@
-"""Re-drive ERP money pushes stuck in failed or stale in-flight sync states.
+"""Re-drive non-material ERP money pushes stuck in failed or stale states.
 
-Audit item D1: a crm->erp money push (material request, purchase order,
-purchase invoice) that fails after the CRM-side write must never be
+Audit item D1: a crm->erp money push (purchase order or purchase invoice)
+that fails after the CRM-side write must never be
 terminal-invisible. Each push flow persists an ``erp_sync_status`` marker on
 the row that owns the push intent; this sweep finds rows whose marker says
 ``failed`` -- or that have sat in ``pending``/``retrying`` longer than the
 configured staleness threshold -- and re-enqueues the per-row sync task.
 
-Re-driving is safe because every push uses a deterministic idempotency key
-(``po-wo-{work_order_id}``, ``pinv-{invoice_id}``, and the material-request
-key) and ERP keeps idempotency records, so a duplicate push is a no-op on the
-ERP side.
+CRM material delivery is permanently retired in favour of Selfcare. Re-driving
+is safe because each remaining push uses a deterministic idempotency key and
+ERP keeps idempotency records, so a duplicate push is a no-op on the ERP side.
 
 Expense flows are intentionally excluded -- they have their own status-poll
 machinery.
@@ -33,7 +32,6 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.models.domain_settings import SettingDomain
-from app.models.material_request import MaterialRequest, MaterialRequestERPSyncStatus
 from app.models.vendor import VendorPurchaseInvoice
 from app.models.workforce import WorkOrder
 from app.services import settings_spec
@@ -48,7 +46,6 @@ ERP_SYNC_FAILED = "failed"
 ERP_SYNC_RETRYING = "retrying"
 ERP_SYNC_NOT_CONFIGURED = "not_configured"
 
-MATERIAL_REQUEST_SYNC_TASK = "app.tasks.integrations.sync_material_request_to_erp"
 PURCHASE_ORDER_SYNC_TASK = "app.tasks.integrations.sync_purchase_order_to_erp"
 PURCHASE_INVOICE_SYNC_TASK = "app.tasks.integrations.sync_purchase_invoice_to_erp"
 
@@ -66,44 +63,6 @@ def _knob_int(session: Session, key: str, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return parsed if parsed > 0 else default
-
-
-def _redrive_material_requests(session: Session, cutoff: datetime, budget: int, send_task: SendTask) -> tuple[int, int]:
-    if budget <= 0:
-        return 0, 0
-    rows = (
-        session.query(MaterialRequest)
-        .filter(MaterialRequest.is_active.is_(True))
-        .filter(
-            or_(
-                MaterialRequest.erp_sync_status == MaterialRequestERPSyncStatus.failed,
-                and_(
-                    MaterialRequest.erp_sync_status.in_(
-                        [MaterialRequestERPSyncStatus.pending, MaterialRequestERPSyncStatus.retrying]
-                    ),
-                    MaterialRequest.updated_at < cutoff,
-                ),
-            )
-        )
-        .order_by(MaterialRequest.updated_at.asc())
-        .limit(budget)
-        .all()
-    )
-    enqueued = 0
-    errors = 0
-    for mr in rows:
-        mr.erp_sync_status = MaterialRequestERPSyncStatus.pending
-        session.commit()
-        try:
-            send_task(MATERIAL_REQUEST_SYNC_TASK, args=[str(mr.id)])
-            enqueued += 1
-        except Exception as exc:
-            mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
-            mr.erp_sync_error = f"Re-drive enqueue failed: {exc}"[:500]
-            session.commit()
-            errors += 1
-            logger.warning("ERP_PUSH_REDRIVE_ENQUEUE_FAILED kind=material_request id=%s", mr.id, exc_info=True)
-    return enqueued, errors
 
 
 def _redrive_purchase_orders(session: Session, cutoff: datetime, budget: int, send_task: SendTask) -> tuple[int, int]:
@@ -198,18 +157,16 @@ def redrive_failed_erp_pushes(session: Session, *, send_task: SendTask | None = 
     cutoff = datetime.now(UTC) - timedelta(minutes=stale_minutes)
 
     budget = limit
-    mr_enqueued, mr_errors = _redrive_material_requests(session, cutoff, budget, send_task)
-    budget -= mr_enqueued + mr_errors
     po_enqueued, po_errors = _redrive_purchase_orders(session, cutoff, budget, send_task)
     budget -= po_enqueued + po_errors
     pinv_enqueued, pinv_errors = _redrive_purchase_invoices(session, cutoff, budget, send_task)
 
-    total = mr_enqueued + po_enqueued + pinv_enqueued
-    enqueue_errors = mr_errors + po_errors + pinv_errors
+    total = po_enqueued + pinv_enqueued
+    enqueue_errors = po_errors + pinv_errors
     logger.info(
         "ERP_PUSH_REDRIVE_COMPLETE material_requests=%d purchase_orders=%d purchase_invoices=%d "
         "enqueue_errors=%d stale_minutes=%d limit=%d",
-        mr_enqueued,
+        0,
         po_enqueued,
         pinv_enqueued,
         enqueue_errors,
@@ -217,7 +174,7 @@ def redrive_failed_erp_pushes(session: Session, *, send_task: SendTask | None = 
         limit,
     )
     return {
-        "material_requests": mr_enqueued,
+        "material_requests": 0,
         "purchase_orders": po_enqueued,
         "purchase_invoices": pinv_enqueued,
         "enqueue_errors": enqueue_errors,

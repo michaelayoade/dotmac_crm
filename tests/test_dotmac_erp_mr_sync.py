@@ -327,6 +327,13 @@ class TestFactory:
 
 
 class TestMaterialRequestSyncTask:
+    @pytest.fixture(autouse=True)
+    def _legacy_task_behavior_for_existing_tests(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_retirement.CRM_MATERIAL_ERP_INTEGRATION_RETIRED",
+            False,
+        )
+
     def test_task_marks_synced_and_records_stats(self, db_session, full_mr, monkeypatch):
         from app.tasks.integrations import sync_material_request_to_erp
 
@@ -527,3 +534,33 @@ class TestMaterialRequestSyncTask:
         assert result["failed"] == 1
         assert refreshed_mr.erp_sync_status == MaterialRequestERPSyncStatus.not_configured
         assert "not configured" in (refreshed_mr.erp_sync_error or "")
+
+
+class TestRetiredMaterialRequestTaskEntrypoints:
+    def test_submission_task_is_a_retired_noop(self):
+        from app.tasks.integrations import sync_material_request_to_erp
+
+        result = sync_material_request_to_erp.run("material-request-id")
+
+        assert result["success"] is False
+        assert result["retired"] is True
+        assert result["material_request_id"] == "material-request-id"
+
+    def test_single_status_task_is_a_retired_noop(self):
+        from app.tasks.integrations import refresh_material_request_erp_status
+
+        result = refresh_material_request_erp_status.run("material-request-id")
+
+        assert result["success"] is False
+        assert result["retired"] is True
+        assert result["material_request_id"] == "material-request-id"
+
+    def test_batch_status_task_is_a_retired_noop(self):
+        from app.tasks.integrations import refresh_pending_material_request_erp_statuses
+
+        result = refresh_pending_material_request_erp_statuses.run(limit=10)
+
+        assert result["success"] is False
+        assert result["retired"] is True
+        assert result["refreshed"] == 0
+        assert result["failed"] == 0

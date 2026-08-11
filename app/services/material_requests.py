@@ -111,6 +111,18 @@ _TERMINAL_STATUSES = {
 
 
 def _enqueue_erp_sync(db: Session, mr: MaterialRequest) -> MaterialRequest:
+    from app.services.dotmac_erp.material_retirement import (
+        CRM_MATERIAL_ERP_INTEGRATION_RETIRED,
+        CRM_MATERIAL_ERP_RETIREMENT_REASON,
+    )
+
+    if CRM_MATERIAL_ERP_INTEGRATION_RETIRED:
+        mr.erp_sync_status = MaterialRequestERPSyncStatus.not_configured
+        mr.erp_sync_error = CRM_MATERIAL_ERP_RETIREMENT_REASON
+        db.commit()
+        db.refresh(mr)
+        return mr
+
     mr.erp_sync_status = MaterialRequestERPSyncStatus.pending
     mr.erp_sync_error = None
     db.commit()
@@ -497,9 +509,13 @@ class MaterialRequests(ListResponseMixin):
             if destination_uuid == source_uuid:
                 raise HTTPException(status_code=400, detail="Source and destination warehouse cannot be the same")
 
-        _validate_items_exist_in_erp(db, mr)
+        from app.services.dotmac_erp.material_retirement import CRM_MATERIAL_ERP_INTEGRATION_RETIRED
+
+        if not CRM_MATERIAL_ERP_INTEGRATION_RETIRED:
+            _validate_items_exist_in_erp(db, mr)
         _apply_serial_numbers(mr, serial_numbers_by_item)
-        _validate_serial_numbers_in_erp(db, mr, source_location)
+        if not CRM_MATERIAL_ERP_INTEGRATION_RETIRED:
+            _validate_serial_numbers_in_erp(db, mr, source_location)
 
         mr.source_location_id = source_uuid
         mr.destination_location_id = destination_uuid

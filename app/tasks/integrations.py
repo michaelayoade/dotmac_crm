@@ -693,6 +693,14 @@ def sync_material_request_to_erp(self, material_request_id: str):
     Returns:
         Dict with sync result
     """
+    from app.services.dotmac_erp.material_retirement import (
+        CRM_MATERIAL_ERP_INTEGRATION_RETIRED,
+        retired_material_result,
+    )
+
+    if CRM_MATERIAL_ERP_INTEGRATION_RETIRED:
+        return retired_material_result(material_request_id=material_request_id)
+
     from app.services.dotmac_erp import (
         DotMacERPAuthError,
         DotMacERPError,
@@ -924,6 +932,14 @@ def sync_material_request_to_erp(self, material_request_id: str):
 )
 def refresh_material_request_erp_status(self, material_request_id: str):
     """Refresh ERP-side material request stock/fulfillment status."""
+    from app.services.dotmac_erp.material_retirement import (
+        CRM_MATERIAL_ERP_INTEGRATION_RETIRED,
+        retired_material_result,
+    )
+
+    if CRM_MATERIAL_ERP_INTEGRATION_RETIRED:
+        return retired_material_result(material_request_id=material_request_id)
+
     from app.services.dotmac_erp import (
         DotMacERPAuthError,
         DotMacERPError,
@@ -1096,6 +1112,21 @@ def refresh_material_request_erp_status(self, material_request_id: str):
 )
 def refresh_pending_material_request_erp_statuses(limit: int = 50):
     """Refresh ERP status for issued material requests still awaiting ERP-side completion."""
+    from app.services.dotmac_erp.material_retirement import (
+        CRM_MATERIAL_ERP_INTEGRATION_RETIRED,
+        CRM_MATERIAL_ERP_RETIREMENT_REASON,
+    )
+
+    if CRM_MATERIAL_ERP_INTEGRATION_RETIRED:
+        return {
+            "success": False,
+            "retired": True,
+            "refreshed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "errors": [CRM_MATERIAL_ERP_RETIREMENT_REASON],
+        }
+
     from app.models.material_request import MaterialRequest, MaterialRequestERPSyncStatus, MaterialRequestStatus
     from app.services.dotmac_erp import DotMacERPError, DotMacERPTransientError, record_material_request_sync_result
     from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
