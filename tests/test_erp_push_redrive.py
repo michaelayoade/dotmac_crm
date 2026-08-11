@@ -19,7 +19,6 @@ from app.services.dotmac_erp.push_redrive import (
     ERP_SYNC_PENDING,
     ERP_SYNC_RETRYING,
     ERP_SYNC_SYNCED,
-    MATERIAL_REQUEST_SYNC_TASK,
     PURCHASE_INVOICE_SYNC_TASK,
     PURCHASE_ORDER_SYNC_TASK,
     redrive_failed_erp_pushes,
@@ -83,7 +82,7 @@ def _invoice(db, status, *, updated_at=None):
 
 
 class TestRedriveFailedErpPushes:
-    def test_redrives_failed_rows_of_each_kind_by_task_name(self, db_session):
+    def test_skips_retired_material_flow_but_redrives_other_kinds(self, db_session):
         mr = _material_request(db_session, MaterialRequestERPSyncStatus.failed)
         wo = _work_order(db_session, ERP_SYNC_FAILED)
         invoice = _invoice(db_session, ERP_SYNC_FAILED)
@@ -91,13 +90,12 @@ class TestRedriveFailedErpPushes:
 
         result = redrive_failed_erp_pushes(db_session, send_task=send_task)
 
-        assert result["total"] == 3
-        assert result["material_requests"] == 1
+        assert result["total"] == 2
+        assert result["material_requests"] == 0
         assert result["purchase_orders"] == 1
         assert result["purchase_invoices"] == 1
         assert result["enqueue_errors"] == 0
         calls = {c.args[0]: c.kwargs["args"] for c in send_task.call_args_list}
-        assert calls[MATERIAL_REQUEST_SYNC_TASK] == [str(mr.id)]
         assert calls[PURCHASE_ORDER_SYNC_TASK] == [str(wo.id), str(wo.erp_po_quote_id)]
         assert calls[PURCHASE_INVOICE_SYNC_TASK] == [str(invoice.id)]
         # Re-driven rows are re-marked pending so the next sweep skips them
@@ -105,7 +103,7 @@ class TestRedriveFailedErpPushes:
         db_session.refresh(mr)
         db_session.refresh(wo)
         db_session.refresh(invoice)
-        assert mr.erp_sync_status == MaterialRequestERPSyncStatus.pending
+        assert mr.erp_sync_status == MaterialRequestERPSyncStatus.failed
         assert wo.erp_sync_status == ERP_SYNC_PENDING
         assert invoice.erp_sync_status == ERP_SYNC_PENDING
 
@@ -160,6 +158,7 @@ class TestRedriveFailedErpPushes:
         result = redrive_failed_erp_pushes(db_session, send_task=send_task)
 
         assert result["total"] == 2
+        assert result["material_requests"] == 0
         assert result["limit"] == 2
         assert send_task.call_count == 2
 

@@ -460,13 +460,6 @@ def build_beat_schedule(*, scheduler_timezone: str | None = None) -> dict:
             interval_seconds=max(work_outcome_reconcile_interval, 600),
         )
 
-        pending_mr_refresh_enabled = _effective_bool(
-            session,
-            SettingDomain.integration,
-            "dotmac_erp_material_request_status_refresh_enabled",
-            "DOTMAC_ERP_MATERIAL_REQUEST_STATUS_REFRESH_ENABLED",
-            True,
-        )
         pending_mr_refresh_interval = _effective_int(
             session,
             SettingDomain.integration,
@@ -478,7 +471,7 @@ def build_beat_schedule(*, scheduler_timezone: str | None = None) -> dict:
             session,
             name="dotmac_erp_material_request_status_refresh",
             task_name="app.tasks.integrations.refresh_pending_material_request_erp_statuses",
-            enabled=pending_mr_refresh_enabled,
+            enabled=False,
             interval_seconds=max(pending_mr_refresh_interval, 120),
         )
 

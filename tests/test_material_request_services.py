@@ -250,6 +250,13 @@ class TestMaterialRequestCRUD:
 
 
 class TestMaterialRequestStatusTransitions:
+    @pytest.fixture(autouse=True)
+    def _legacy_material_integration_for_existing_transition_tests(self, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_retirement.CRM_MATERIAL_ERP_INTEGRATION_RETIRED",
+            False,
+        )
+
     def test_submit(self, db_session, person, ticket):
         mr = MaterialRequest(ticket_id=ticket.id, requested_by_person_id=person.id)
         db_session.add(mr)
@@ -293,7 +300,13 @@ class TestMaterialRequestStatusTransitions:
             )
         assert approved.collected_by_person_id == person.id
 
-    def test_approve_enqueues_erp_sync(self, db_session, person, ticket, inventory_location):
+    def test_approve_does_not_enqueue_retired_erp_sync(
+        self, db_session, person, ticket, inventory_location, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_retirement.CRM_MATERIAL_ERP_INTEGRATION_RETIRED",
+            True,
+        )
         mr = _make_mr(db_session, person, ticket)
         with patch("app.tasks.integrations.sync_material_request_to_erp.delay") as delay_mock:
             approved = material_requests.approve(
@@ -303,8 +316,9 @@ class TestMaterialRequestStatusTransitions:
                 source_location_id=str(inventory_location.id),
             )
 
-        delay_mock.assert_called_once_with(str(mr.id))
-        assert approved.erp_sync_status == MaterialRequestERPSyncStatus.pending
+        delay_mock.assert_not_called()
+        assert approved.erp_sync_status == MaterialRequestERPSyncStatus.not_configured
+        assert "retired" in (approved.erp_sync_error or "").lower()
 
     def test_approve_saves_selected_serial_numbers(
         self, db_session, person, ticket, inventory_item, inventory_location
@@ -388,7 +402,11 @@ class TestMaterialRequestStatusTransitions:
         assert exc.value.status_code == 400
         assert "exactly 1 serial" in str(exc.value.detail)
 
-    def test_approve_marks_sync_failed_when_enqueue_fails(self, db_session, person, ticket, inventory_location):
+    def test_approve_never_calls_legacy_queue(self, db_session, person, ticket, inventory_location, monkeypatch):
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_retirement.CRM_MATERIAL_ERP_INTEGRATION_RETIRED",
+            True,
+        )
         mr = _make_mr(db_session, person, ticket)
         with patch(
             "app.tasks.integrations.sync_material_request_to_erp.delay",
@@ -402,10 +420,16 @@ class TestMaterialRequestStatusTransitions:
             )
 
         assert approved.status == MaterialRequestStatus.issued
-        assert approved.erp_sync_status == MaterialRequestERPSyncStatus.failed
-        assert "queue unavailable" in (approved.erp_sync_error or "")
+        assert approved.erp_sync_status == MaterialRequestERPSyncStatus.not_configured
+        assert "retired" in (approved.erp_sync_error or "").lower()
 
-    def test_retry_erp_sync_marks_pending_and_enqueues(self, db_session, person, ticket, inventory_location):
+    def test_retry_erp_sync_does_not_enqueue_retired_flow(
+        self, db_session, person, ticket, inventory_location, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_retirement.CRM_MATERIAL_ERP_INTEGRATION_RETIRED",
+            True,
+        )
         mr = _make_mr(db_session, person, ticket)
         with patch("app.tasks.integrations.sync_material_request_to_erp.delay"):
             approved = material_requests.approve(
@@ -421,11 +445,17 @@ class TestMaterialRequestStatusTransitions:
         with patch("app.tasks.integrations.sync_material_request_to_erp.delay") as delay_mock:
             retried = material_requests.retry_erp_sync(db_session, str(approved.id))
 
-        delay_mock.assert_called_once_with(str(approved.id))
-        assert retried.erp_sync_status == MaterialRequestERPSyncStatus.pending
-        assert retried.erp_sync_error is None
+        delay_mock.assert_not_called()
+        assert retried.erp_sync_status == MaterialRequestERPSyncStatus.not_configured
+        assert "retired" in (retried.erp_sync_error or "").lower()
 
-    def test_retry_erp_sync_records_enqueue_failure(self, db_session, person, ticket, inventory_location):
+    def test_retry_erp_sync_ignores_legacy_queue_failure(
+        self, db_session, person, ticket, inventory_location, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "app.services.dotmac_erp.material_retirement.CRM_MATERIAL_ERP_INTEGRATION_RETIRED",
+            True,
+        )
         mr = _make_mr(db_session, person, ticket)
         with patch("app.tasks.integrations.sync_material_request_to_erp.delay"):
             approved = material_requests.approve(
@@ -441,8 +471,8 @@ class TestMaterialRequestStatusTransitions:
         ):
             retried = material_requests.retry_erp_sync(db_session, str(approved.id))
 
-        assert retried.erp_sync_status == MaterialRequestERPSyncStatus.failed
-        assert "queue unavailable" in (retried.erp_sync_error or "")
+        assert retried.erp_sync_status == MaterialRequestERPSyncStatus.not_configured
+        assert "retired" in (retried.erp_sync_error or "").lower()
 
     def test_approve_requires_source_warehouse(self, db_session, person, ticket):
         mr = _make_mr(db_session, person, ticket)
