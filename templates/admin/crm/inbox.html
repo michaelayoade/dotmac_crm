@@ -441,7 +441,7 @@
                 </button>
                 {% if manager_panel.can_view %}
                     <button type="button"
-                            @click="showManagerPanel = !showManagerPanel"
+                            @click="toggleManagerPanel()"
                             :class="showManagerPanel ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'"
                             aria-label="Customer relations manager dashboard"
                             data-inbox-tooltip="Manager dashboard"
@@ -494,6 +494,11 @@
             <div class="min-h-0 flex-1 overflow-y-auto p-4 overscroll-contain">
                 {% set manager_panel = manager_panel or {} %}
                 {% set manager_channel_stats = manager_panel.channel_stats or {} %}
+                <div x-show="managerPanelLoading" x-cloak class="mb-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                    <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="9" stroke="currentColor" stroke-width="3"></circle><path class="opacity-75" fill="currentColor" d="M21 12a9 9 0 00-9-9v3a6 6 0 016 6h3z"></path></svg>
+                    Loading manager dashboard
+                </div>
+                <div x-show="managerPanelError" x-cloak class="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300" x-text="managerPanelError"></div>
                 <div class="grid grid-cols-2 gap-2">
                     <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-500/30 dark:bg-emerald-500/10">
                         <p class="text-[11px] font-semibold uppercase text-emerald-700 dark:text-emerald-300">Online Agents</p>
@@ -1699,6 +1704,9 @@ function inboxController() {
         stats: {{ (stats or {}) | tojson }},
         assignmentCounts: {{ (assignment_counts or {}) | tojson }},
         managerPanel: {{ (manager_panel or {}) | tojson }},
+        managerPanelLoaded: false,
+        managerPanelLoading: false,
+        managerPanelError: '',
         showInboxStats: true,
         showManagerPanel: false,
         summaryCountsRefreshTimer: null,
@@ -2194,6 +2202,37 @@ function inboxController() {
             if (!this.assignmentCounts || typeof this.assignmentCounts !== 'object') return 0;
             const value = this.assignmentCounts[key];
             return Number.isFinite(Number(value)) ? Number(value) : 0;
+        },
+        toggleManagerPanel() {
+            this.showManagerPanel = !this.showManagerPanel;
+            if (this.showManagerPanel) {
+                this.loadManagerPanel();
+            }
+        },
+        async loadManagerPanel(force = false) {
+            if (!this.managerPanel?.can_view || this.managerPanelLoading) return;
+            if (this.managerPanelLoaded && !force) return;
+            this.managerPanelLoading = true;
+            this.managerPanelError = '';
+            try {
+                const resp = await fetch('/admin/crm/inbox/manager-panel', {
+                    headers: { 'Accept': 'application/json' },
+                    credentials: 'same-origin',
+                });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const payload = await resp.json();
+                if (payload && typeof payload === 'object') {
+                    this.managerPanel = payload;
+                    this.managerPanelLoaded = true;
+                    return;
+                }
+                throw new Error('Invalid response');
+            } catch (error) {
+                console.error('Failed to load manager dashboard', error);
+                this.managerPanelError = 'Manager dashboard could not load. Please try again.';
+            } finally {
+                this.managerPanelLoading = false;
+            }
         },
         managerMetric(key) {
             if (!key || !this.managerPanel || typeof this.managerPanel !== 'object') return 0;

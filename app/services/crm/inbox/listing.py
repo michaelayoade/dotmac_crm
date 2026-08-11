@@ -21,7 +21,7 @@ from app.services.crm.inbox.conversation_status import reopen_due_snoozed_conver
 from app.services.crm.inbox.queries import list_inbox_conversations
 from app.services.crm.inbox.search import normalize_search
 
-INBOX_LIST_CACHE_SCHEMA = 3
+INBOX_LIST_CACHE_SCHEMA = 4
 DEFAULT_INBOX_PAGE_SIZE = 50
 
 
@@ -97,6 +97,41 @@ def _hydrate_conversations_raw(db: Session, payload: list[dict]) -> list[tuple[A
             )
         )
     return hydrated
+
+
+def _can_use_active_first_page_fast_path(
+    *,
+    channel: str | None,
+    status: str | None,
+    priority: str | None,
+    outbox_status_filter: str | None,
+    search: str | None,
+    assignment_filter: str,
+    target_id: str | None,
+    filter_agent_id: str | None,
+    assigned_from: datetime | None,
+    assigned_to: datetime | None,
+    sort_by: str | None,
+    missing: str | None,
+    offset: int,
+    target_is_comment: bool,
+) -> bool:
+    return bool(
+        offset == 0
+        and not channel
+        and not status
+        and not priority
+        and not outbox_status_filter
+        and not search
+        and not assignment_filter
+        and not (target_id or "").strip()
+        and not filter_agent_id
+        and assigned_from is None
+        and assigned_to is None
+        and not sort_by
+        and not missing
+        and not target_is_comment
+    )
 
 
 async def load_inbox_list(
@@ -228,26 +263,53 @@ async def load_inbox_list(
     has_more = False
     next_offset: int | None = None
     if not target_is_comment:
-        conversations_raw = list_inbox_conversations(
-            db,
-            channel=channel_enum,
-            status=status_enum,
-            statuses=status_enums,
-            priority=priority_enum,
-            outbox_status=outbox_status_filter,
+        fast_path_active_first_page = _can_use_active_first_page_fast_path(
+            channel=channel,
+            status=status,
+            priority=priority,
+            outbox_status_filter=outbox_status_filter,
             search=normalized_search,
-            assignment=assignment_filter,
-            assigned_person_id=assigned_person_id,
-            channel_target_id=target_id,
-            exclude_superseded_resolved=exclude_superseded,
+            assignment_filter=assignment_filter,
+            target_id=target_id,
             filter_agent_id=filter_agent_id,
             assigned_from=assigned_from,
             assigned_to=assigned_to,
             sort_by=sort_by,
             missing=missing,
-            limit=safe_limit + 1,
             offset=safe_offset,
+            target_is_comment=target_is_comment,
         )
+        if fast_path_active_first_page:
+            conversations_raw = list_inbox_conversations(
+                db,
+                statuses=[ConversationStatus.open, ConversationStatus.pending],
+                exclude_superseded_resolved=False,
+                limit=safe_limit + 1,
+                offset=0,
+            )
+            if len(conversations_raw) <= safe_limit:
+                conversations_raw = []
+        if not conversations_raw:
+            conversations_raw = list_inbox_conversations(
+                db,
+                channel=channel_enum,
+                status=status_enum,
+                statuses=status_enums,
+                priority=priority_enum,
+                outbox_status=outbox_status_filter,
+                search=normalized_search,
+                assignment=assignment_filter,
+                assigned_person_id=assigned_person_id,
+                channel_target_id=target_id,
+                exclude_superseded_resolved=exclude_superseded,
+                filter_agent_id=filter_agent_id,
+                assigned_from=assigned_from,
+                assigned_to=assigned_to,
+                sort_by=sort_by,
+                missing=missing,
+                limit=safe_limit + 1,
+                offset=safe_offset,
+            )
         if len(conversations_raw) > safe_limit:
             has_more = True
             conversations_raw = conversations_raw[:safe_limit]

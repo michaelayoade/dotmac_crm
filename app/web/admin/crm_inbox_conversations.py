@@ -97,6 +97,58 @@ async def inbox_summary_counts(
             )
 
 
+@router.get("/inbox/manager-panel", response_class=JSONResponse)
+async def inbox_manager_panel(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Lazy manager dashboard payload for the CRM inbox."""
+    from app.services.crm.inbox import cache as inbox_cache
+    from app.services.crm.inbox.page_context import build_inbox_manager_panel_context
+    from app.web.admin._auth_helpers import get_current_user
+
+    started_at = monotonic()
+    cache_hit = False
+    try:
+        current_user = get_current_user(request)
+        current_roles = _get_current_roles(request)
+        current_scopes = [
+            str(scope)
+            for scope in [
+                *((current_user or {}).get("scopes") or []),
+                *((current_user or {}).get("permissions") or []),
+            ]
+        ]
+        cache_key = inbox_cache.build_summary_counts_key(
+            {
+                "kind": "manager_panel",
+                "person_id": (current_user or {}).get("person_id"),
+                "roles": sorted(str(role) for role in current_roles),
+                "scopes": sorted(current_scopes),
+            }
+        )
+        cached_payload = inbox_cache.get(cache_key)
+        if isinstance(cached_payload, dict):
+            cache_hit = True
+            return JSONResponse(cached_payload)
+        payload = build_inbox_manager_panel_context(
+            db,
+            current_user=current_user,
+            current_roles=current_roles,
+        )
+        inbox_cache.set(cache_key, payload, inbox_cache.SUMMARY_COUNTS_TTL_SECONDS)
+        return JSONResponse(payload)
+    finally:
+        duration_ms = (monotonic() - started_at) * 1000.0
+        if duration_ms >= _HOT_ENDPOINT_LOG_THRESHOLD_MS:
+            logger.info(
+                "crm_inbox_manager_panel_slow cache_hit=%s duration_ms=%.2f request_id=%s",
+                cache_hit,
+                duration_ms,
+                getattr(request.state, "request_id", None),
+            )
+
+
 @router.get("/inbox/conversations", response_class=HTMLResponse)
 async def inbox_conversations_partial(
     request: Request,

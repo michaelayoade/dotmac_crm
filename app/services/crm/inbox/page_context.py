@@ -577,6 +577,49 @@ def _build_manager_panel_context(
     }
 
 
+def build_inbox_manager_panel_context(
+    db: Session,
+    *,
+    current_user: dict | None,
+    current_roles: list[str] | None = None,
+) -> dict:
+    current_roles = current_roles or list((current_user or {}).get("roles") or [])
+    current_scopes = [
+        str(scope)
+        for scope in [
+            *((current_user or {}).get("scopes") or []),
+            *((current_user or {}).get("permissions") or []),
+        ]
+    ]
+    can_view_manager = can_view_manager_dashboard(current_roles, current_scopes)
+    if not can_view_manager:
+        return {"can_view": False, "can_reassign": False}
+
+    assigned_person_id = (current_user or {}).get("person_id")
+    inbox_timezone, _date_format, _time_format, _week_start = (
+        resolve_company_time_prefs(db)
+    )
+    stats, channel_stats = load_inbox_stats(db, timezone=inbox_timezone)
+    assignment_counts = get_assignment_counts(db, assigned_person_id=assigned_person_id)
+    assignment_options = crm_service.get_agent_team_options(db)
+    manager_conversations = _load_manager_active_conversations(
+        db,
+        stats=stats,
+        assignment_counts=assignment_counts,
+        agent_availability=assignment_options.get("agent_availability"),
+    )
+    return _build_manager_panel_context(
+        agents=assignment_options.get("agents") or [],
+        agent_labels=assignment_options.get("agent_labels"),
+        agent_availability=assignment_options.get("agent_availability"),
+        stats=stats,
+        assignment_counts=assignment_counts,
+        channel_stats=channel_stats,
+        conversations=manager_conversations,
+        current_user=current_user,
+    )
+
+
 def _load_assignment_activity(
     db: Session,
     *,
@@ -920,28 +963,11 @@ async def build_inbox_page_context(
         ]
     ]
     can_view_manager = can_view_manager_dashboard(current_roles, current_scopes)
-    manager_panel = {"can_view": False, "can_reassign": False}
-    if can_view_manager:
-        manager_conversations = conversations
-        try:
-            manager_conversations = _load_manager_active_conversations(
-                db,
-                stats=stats,
-                assignment_counts=assignment_counts,
-                agent_availability=assignment_options.get("agent_availability"),
-            )
-        except Exception:
-            logger.debug("Failed to load complete manager active conversation list.", exc_info=True)
-        manager_panel = _build_manager_panel_context(
-            agents=assignment_options.get("agents") or [],
-            agent_labels=assignment_options.get("agent_labels"),
-            agent_availability=assignment_options.get("agent_availability"),
-            stats=stats,
-            assignment_counts=assignment_counts,
-            channel_stats=channel_stats,
-            conversations=manager_conversations,
-            current_user=current_user,
-        )
+    manager_panel = {
+        "can_view": can_view_manager,
+        "can_reassign": can_view_manager
+        and can_assign_conversation(current_roles, current_scopes),
+    }
     templates = _load_message_template_choices(db) if selected_conversation else []
     macros = (
         _load_macro_choices(db, str(current_agent_id) if current_agent_id else None) if selected_conversation else []
