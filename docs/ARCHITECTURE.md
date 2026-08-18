@@ -115,6 +115,14 @@ Boundary expectations:
   deterministic rule exists (for example, a designated primary subscriber).
 - Event payloads and operational tables should **prefer subscriber_id** and treat
   legacy fields like `account_id`/`subscription_id` as compatibility only.
+- CRM does not connect to ERPNext. The legacy one-time ERPNext importer,
+  credential form, connection test and provider client are retired. Historical
+  `erpnext_id` values remain correlation data only; they cannot authorize a
+  fetch or select a writer.
+- Dotmac ERP is an independent application peer. Its versioned service API is
+  the only ERP synchronization boundary CRM may call directly; provider
+  connector packages, provider credentials and provider retry engines belong
+  to the independently deployed Dotmac Integrator.
 
 This boundary keeps identity consistent when the operations app is separated
 from the billing/subscription system.
