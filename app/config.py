@@ -155,11 +155,6 @@ class Settings:
     s3_region: str = field(default_factory=lambda: os.getenv("S3_REGION", "us-east-1"))
     s3_public_url: str = field(default_factory=lambda: os.getenv("S3_PUBLIC_URL", "http://localhost:9000"))
 
-    # ERPNext integration settings
-    erpnext_url: str | None = field(default_factory=lambda: os.getenv("ERPNEXT_URL"))
-    erpnext_api_key: str | None = field(default_factory=lambda: os.getenv("ERPNEXT_API_KEY"))
-    erpnext_api_secret: str | None = field(default_factory=lambda: os.getenv("ERPNEXT_API_SECRET"))
-
     # Cookie security settings
     cookie_secure: bool = field(default_factory=lambda: _env_bool("COOKIE_SECURE", default=False))
     metrics_token: str = field(default_factory=lambda: os.getenv("METRICS_TOKEN", ""))

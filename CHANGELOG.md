@@ -17,6 +17,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - **CRM reply reminders**: Replaced the disabled no-op Celery task and retired the heavy message-table reminder scan.
 
+### Removed
+- **Legacy ERPNext importer**: Removed CRM's provider credentials, connection
+  test, direct Frappe client, one-time import routes and UI. Historical
+  `erpnext_id` fields remain correlation data; Dotmac ERP's versioned API is
+  the supported application-to-application synchronization boundary.
+
 ---
 
 ## [2026-02-28]
