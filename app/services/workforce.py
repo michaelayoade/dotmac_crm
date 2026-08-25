@@ -400,7 +400,7 @@ def emit_work_order_status_events(
     """Emit the domain events for a work order status change.
 
     Shared by the admin update path and the field-app transition service so
-    ERP sync, webhooks, notifications, and automation always fire regardless
+    Webhooks, notifications, and automation always fire regardless
     of which surface changed the status.
     """
     new_status = work_order.status

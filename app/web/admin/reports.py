@@ -4347,7 +4347,6 @@ def ncc_regulatory_pack(
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
     as_of: str | None = Query(None),
-    year: int | None = Query(None),
     statuses: str | None = Query(None),
     reseller_id: str | None = Query(None),
     access_capacity_gbps: str | None = Query(None),
@@ -4355,19 +4354,16 @@ def ncc_regulatory_pack(
     points_of_presence: str | None = Query(None),
     data_usage_tb: str | None = Query(None),
 ) -> JSONResponse:
-    """The full NCC regulatory pack — ① complaints (native), ② subscribers
-    (dotmac_sub), ③ year-end financials + staff (dotmac_erp) — in one payload.
+    """The NCC regulatory pack: CRM complaints plus Sub subscribers/capacity.
 
     The complaints window defaults to the current NCC quarter; ``as_of`` is the
-    subscriber period-end and ``year`` the annual financials/staff year (both
-    default to the complaints window when omitted). External sections degrade
-    gracefully so the pack always returns.
+    subscriber period-end. The external section degrades gracefully so the
+    pack always returns.
     """
     from app.services import ncc_regulatory_pack as pack_service
 
     start_dt, end_dt, _, _ = _parse_ncc_window(start_date, end_date)
     resolved_as_of = (as_of or "").strip() or end_dt.date().isoformat()
-    resolved_year = year or end_dt.year
     capacity = {
         "access_capacity_gbps": access_capacity_gbps,
         "unutilized_capacity_mbps": unutilized_capacity_mbps,
@@ -4379,7 +4375,6 @@ def ncc_regulatory_pack(
         start_dt=start_dt,
         end_dt=end_dt,
         as_of=resolved_as_of,
-        year=resolved_year,
         statuses=statuses,
         reseller_id=reseller_id,
         capacity=capacity,
@@ -4402,7 +4397,6 @@ def ncc_regulatory_pack_pdf(
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
     as_of: str | None = Query(None),
-    year: int | None = Query(None),
 ) -> Response:
     """Download the NCC regulatory pack as a table-based PDF."""
     from app.services import ncc_regulatory_pack as pack_service
@@ -4410,13 +4404,11 @@ def ncc_regulatory_pack_pdf(
 
     start_dt, end_dt, start_value, end_value = _parse_ncc_window(start_date, end_date)
     as_of_value = (as_of or "").strip() or end_dt.date().isoformat()
-    year_value = year or end_dt.year
     pack = pack_service.build_regulatory_pack(
         db,
         start_dt=start_dt,
         end_dt=end_dt,
         as_of=as_of_value,
-        year=year_value,
     )
     html = templates.get_template("admin/reports/ncc_regulatory_pack_pdf.html").render(
         {
@@ -4425,7 +4417,6 @@ def ncc_regulatory_pack_pdf(
             "window_start": start_value,
             "window_end": end_value,
             "as_of_value": as_of_value,
-            "year_value": year_value,
             "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         }
     )
@@ -4468,9 +4459,8 @@ def ncc_regulatory_pack_page(
     start_date: str | None = Query(None),
     end_date: str | None = Query(None),
     as_of: str | None = Query(None),
-    year: int | None = Query(None),
 ):
-    """Human-readable view of the NCC regulatory pack — all three returns and
+    """Human-readable view of the NCC regulatory pack — both returns and
     their per-source availability in one page, with a link to the JSON export.
     """
     from app.services import ncc_regulatory_pack as pack_service
@@ -4478,19 +4468,16 @@ def ncc_regulatory_pack_page(
     user = get_current_user(request)
     start_dt, end_dt, start_value, end_value = _parse_ncc_window(start_date, end_date)
     as_of_value = (as_of or "").strip() or end_dt.date().isoformat()
-    year_value = year or end_dt.year
     pack = pack_service.build_regulatory_pack(
         db,
         start_dt=start_dt,
         end_dt=end_dt,
         as_of=as_of_value,
-        year=year_value,
     )
     export_params = {
         "start_date": start_value,
         "end_date": end_value,
         "as_of": as_of_value,
-        "year": year_value,
     }
     return templates.TemplateResponse(
         "admin/reports/ncc_regulatory_pack.html",
@@ -4505,7 +4492,6 @@ def ncc_regulatory_pack_page(
             "window_start": start_value,
             "window_end": end_value,
             "as_of_value": as_of_value,
-            "year_value": year_value,
             "export_url": f"/admin/reports/ncc/regulatory-pack?{urlencode(export_params)}",
             "export_filename": _ncc_regulatory_pack_filename(start_dt, end_dt, "json"),
             "pdf_export_url": f"/admin/reports/ncc/regulatory-pack.pdf?{urlencode(export_params)}",

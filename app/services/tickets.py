@@ -1164,7 +1164,7 @@ def notify_ticket_sla_breach(db: Session, clock: SlaClock) -> None:
     Mirrors ``projects.notify_project_task_sla_breach`` for tickets (which the
     breach detector previously skipped entirely): flag the ticket, notify the
     Ticket Manager / Site Project Coordinator / assignee (in-app + email), and
-    emit ``ticket_escalated`` so webhook/ERP escalation also fires. Idempotent —
+    emit ``ticket_escalated`` so webhook escalation also fires. Idempotent —
     a metadata flag ensures one escalation per breach. Does not commit; the
     caller (the detector task) owns the transaction.
     """
@@ -1231,8 +1231,8 @@ def notify_ticket_sla_breach(db: Session, clock: SlaClock) -> None:
                 )
             )
 
-    # Fire the escalation event even with no role recipients so webhook/ERP sync
-    # still react to the breach.
+    # Fire the escalation event even with no role recipients so webhooks still
+    # react to the breach.
     emit_event(
         db,
         EventType.ticket_escalated,

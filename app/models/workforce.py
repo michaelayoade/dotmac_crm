@@ -69,14 +69,11 @@ class WorkOrder(Base):
     # call-on-arrival, parking, …) — surfaced in the field job detail.
     access_notes: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSON)
-    # ERP purchase-order push tracking (audit D1): the work order owns the PO
-    # push intent (idempotency key po-wo-{id}). Values mirror
-    # MaterialRequestERPSyncStatus; see app/services/dotmac_erp/push_redrive.py.
+    # Read-only evidence from the retired ERP purchase-order push runtime.
     erp_sync_status: Mapped[str | None] = mapped_column(String(40), index=True)
     erp_sync_error: Mapped[str | None] = mapped_column(String(500))
     erp_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # Quote the PO push was enqueued with, so the re-drive sweep can re-enqueue
-    # the sync task with the same args.
+    # Historical quote correlation used by the retired ERP push.
     erp_po_quote_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

@@ -214,18 +214,16 @@ def get_dispatcher() -> EventDispatcher:
 def _initialize_handlers(dispatcher: EventDispatcher) -> None:
     """Initialize and register all event handlers."""
     from app.services.events.handlers.automation import AutomationHandler
-    from app.services.events.handlers.erp_sync import ERPSyncHandler
     from app.services.events.handlers.notification import NotificationHandler
     from app.services.events.handlers.selfcare_customer import SelfcareCustomerHandler
     from app.services.events.handlers.webhook import WebhookHandler
 
     dispatcher.register_handler(WebhookHandler())
     dispatcher.register_handler(NotificationHandler())
-    dispatcher.register_handler(ERPSyncHandler())
     dispatcher.register_handler(SelfcareCustomerHandler())
     dispatcher.register_handler(AutomationHandler())  # Must be last
 
-    logger.info("Event handlers initialized: webhook, notification, erp_sync, selfcare_customer, automation")
+    logger.info("Event handlers initialized: webhook, notification, selfcare_customer, automation")
 
 
 def emit_event(

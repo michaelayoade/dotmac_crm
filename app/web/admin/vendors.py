@@ -401,7 +401,6 @@ async def vendor_create(request: Request, db: Session = Depends(get_db)):
         "license_number": _form_str_opt(form.get("license_number")),
         "service_area": _form_str_opt(form.get("service_area")),
         "notes": _form_str_opt(form.get("notes")),
-        "erp_id": _form_str_opt(form.get("erp_id")),
     }
     user_payload: dict[str, str | None] | None = None
     if create_user:
@@ -441,7 +440,6 @@ async def vendor_create(request: Request, db: Session = Depends(get_db)):
         license_number = payload.get("license_number") if isinstance(payload.get("license_number"), str) else None
         service_area = payload.get("service_area") if isinstance(payload.get("service_area"), str) else None
         notes = payload.get("notes") if isinstance(payload.get("notes"), str) else None
-        erp_id = payload.get("erp_id") if isinstance(payload.get("erp_id"), str) else None
         data = VendorCreate(
             name=str(payload.get("name") or "").strip(),
             code=code,
@@ -452,7 +450,6 @@ async def vendor_create(request: Request, db: Session = Depends(get_db)):
             service_area=service_area,
             notes=notes,
             is_active=is_active,
-            erp_id=erp_id,
         )
     except ValidationError as exc:
         context = _base_context(request, db, active_page="vendors")
@@ -566,7 +563,6 @@ async def vendor_update(vendor_id: str, request: Request, db: Session = Depends(
         "license_number": _form_str_opt(form.get("license_number")),
         "service_area": _form_str_opt(form.get("service_area")),
         "notes": _form_str_opt(form.get("notes")),
-        "erp_id": _form_str_opt(form.get("erp_id")),
     }
     try:
         update_code = payload.get("code") if isinstance(payload.get("code"), str) else None
@@ -578,7 +574,6 @@ async def vendor_update(vendor_id: str, request: Request, db: Session = Depends(
         )
         update_service_area = payload.get("service_area") if isinstance(payload.get("service_area"), str) else None
         update_notes = payload.get("notes") if isinstance(payload.get("notes"), str) else None
-        update_erp_id = payload.get("erp_id") if isinstance(payload.get("erp_id"), str) else None
         data = VendorUpdate(
             name=payload.get("name") if isinstance(payload.get("name"), str) else None,
             code=update_code,
@@ -589,7 +584,6 @@ async def vendor_update(vendor_id: str, request: Request, db: Session = Depends(
             service_area=update_service_area,
             notes=update_notes,
             is_active=is_active,
-            erp_id=update_erp_id,
         )
     except ValidationError as exc:
         context = _base_context(request, db, active_page="vendors")
@@ -1280,7 +1274,7 @@ def vendor_purchase_invoice_approve(
         )
 
     try:
-        approved_invoice = vendor_service.vendor_purchase_invoices.approve(
+        vendor_service.vendor_purchase_invoices.approve(
             db,
             invoice_id=invoice_id,
             reviewer_person_id=reviewer_person_id,
@@ -1292,38 +1286,6 @@ def vendor_purchase_invoice_approve(
             url=_append_query_param(success_redirect, "invoice_error_detail", detail),
             status_code=303,
         )
-
-    from app.services.dotmac_erp.push_redrive import ERP_SYNC_FAILED, ERP_SYNC_PENDING
-
-    if not (approved_invoice.erp_purchase_order_id or "").strip():
-        # Leave a swept "pending" marker: once the PO lands in ERP the
-        # re-drive sweep picks this invoice up, so the miss is not terminal.
-        approved_invoice.erp_sync_status = ERP_SYNC_PENDING
-        approved_invoice.erp_sync_error = "ERP sync not queued: no ERP purchase order linked to the project yet"
-        db.commit()
-        detail = urlquote(
-            "Purchase invoice approved, but ERP sync was not queued because no ERP PO is linked to the project.",
-            safe="",
-        )
-        redirect_url = _append_query_param(success_redirect, "invoice_action", "approved")
-        redirect_url = _append_query_param(redirect_url, "invoice_error_detail", detail)
-        return RedirectResponse(url=redirect_url, status_code=303)
-
-    approved_invoice.erp_sync_status = ERP_SYNC_PENDING
-    approved_invoice.erp_sync_error = None
-    db.commit()
-    try:
-        from app.tasks.integrations import sync_purchase_invoice_to_erp
-
-        sync_purchase_invoice_to_erp.apply_async(args=[invoice_id], countdown=2, priority=5)
-    except Exception as exc:
-        approved_invoice.erp_sync_status = ERP_SYNC_FAILED
-        approved_invoice.erp_sync_error = f"ERP sync enqueue failed: {exc}"[:500]
-        db.commit()
-        detail = urlquote(f"Purchase invoice approved, but ERP sync could not be queued: {exc}", safe="")
-        redirect_url = _append_query_param(success_redirect, "invoice_action", "approved")
-        redirect_url = _append_query_param(redirect_url, "invoice_error_detail", detail)
-        return RedirectResponse(url=redirect_url, status_code=303)
 
     return RedirectResponse(url=_append_query_param(success_redirect, "invoice_action", "approved"), status_code=303)
 

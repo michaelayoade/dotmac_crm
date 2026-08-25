@@ -35,7 +35,6 @@ def render_pack():
             window_start="2026-04-01",
             window_end="2026-06-30",
             as_of_value="2026-06-30",
-            year_value=2026,
             export_url="/admin/reports/ncc/regulatory-pack?x=1",
         )
 
@@ -45,7 +44,7 @@ def render_pack():
 def _full_pack() -> dict:
     return {
         "meta": {
-            "sources": {"complaints": True, "subscribers": True, "financials": True, "staff": True},
+            "sources": {"complaints": True, "subscribers": True},
             "complete": True,
         },
         "complaints": {
@@ -78,41 +77,13 @@ def _full_pack() -> dict:
                 "network_capacity": {"points_of_presence": 28, "data_usage_tb": "2760.96"},
             },
         },
-        "financials": {
-            "available": True,
-            "financials": {
-                "summary": {
-                    "total_revenue": "N100",
-                    "total_operating_expenses": "N80",
-                    "net_income": "N20",
-                    "total_assets": "N500",
-                    "total_liabilities": "N300",
-                    "total_equity": "N200",
-                    "is_balanced": True,
-                },
-                "note": "erp chart-of-accounts basis",
-            },
-        },
-        "staff": {
-            "available": True,
-            "staff": {
-                "total_active": 4,
-                "by_category": {
-                    "MANAGERIAL": {
-                        "nigerian": {"male": 1, "female": 1, "other": 0},
-                        "expatriate": {"male": 0, "female": 0, "other": 0},
-                        "unknown": {"male": 0, "female": 0, "other": 0},
-                    }
-                },
-            },
-        },
     }
 
 
 def _degraded_pack() -> dict:
     return {
         "meta": {
-            "sources": {"complaints": True, "subscribers": False, "financials": False, "staff": False},
+            "sources": {"complaints": True, "subscribers": False},
             "complete": False,
         },
         "complaints": {
@@ -124,21 +95,16 @@ def _degraded_pack() -> dict:
             "resolved_total": 0,
         },
         "subscribers": {"available": False, "error": "sub unreachable"},
-        "financials": {"available": False, "error": "dotmac_erp is not configured"},
-        "staff": {"available": False, "error": "dotmac_erp is not configured"},
     }
 
 
-def test_page_renders_all_sections_when_available(render_pack):
+def test_page_renders_both_sections_when_available(render_pack):
     html = render_pack(_full_pack())
     assert "① Quarterly Complaints" in html
     assert "② Quarterly Subscriber" in html
-    assert "Section F" in html and "Section G" in html
     # section data surfaces
     assert "42" in html  # active subscriptions
     assert "Lagos" in html
-    assert "N100" in html  # revenue
-    assert "MANAGERIAL" in html.upper()
     assert "Total active internet subscriptions" in html
     assert "Active internet service provisions - Corporate" in html
     assert "Active internet service provisions - Individual" in html
@@ -159,7 +125,6 @@ def test_page_renders_degradation_notices(render_pack):
     # ① still renders, upstream errors surface verbatim
     assert "① Quarterly Complaints" in html
     assert "sub unreachable" in html
-    assert "dotmac_erp is not configured" in html
     assert "Unavailable" in html
 
 

@@ -5,10 +5,8 @@ import io
 from datetime import UTC, date, datetime, time, timedelta
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session, selectinload
 
 from app.csrf import get_csrf_token
@@ -28,7 +26,7 @@ from app.schemas.material_request import (
     MaterialRequestUpdate,
 )
 from app.services.audit_helpers import log_audit_event
-from app.services.auth_dependencies import require_any_permission, require_permission
+from app.services.auth_dependencies import require_permission
 from app.services.common import coerce_uuid
 from app.services.material_requests import (
     ResolveError,
@@ -190,101 +188,6 @@ def _parse_material_request_items(
             )
         )
     return items
-
-
-def _load_available_serials_from_erp_db(
-    db: Session,
-    *,
-    item_code: str,
-    warehouse_code: str,
-    limit: int,
-    offset: int,
-) -> dict:
-    """Temporary ERP DB fallback while the ERP serial API is not exposed."""
-    bind = db.get_bind()
-    source_url = bind.url if isinstance(bind, Engine) else bind.engine.url
-    erp_url = source_url.set(database="son_erp")
-    engine = create_engine(erp_url, pool_pre_ping=True)
-
-    item_query = text(
-        """
-        select item_id, item_code, item_name, track_serial_numbers
-        from inv.item
-        where item_code = :item_code or item_name = :item_code
-        order by case when item_code = :item_code then 0 else 1 end, item_name
-        limit 1
-        """
-    )
-    warehouse_query = text(
-        """
-        select warehouse_id, warehouse_code, warehouse_name
-        from inv.warehouse
-        where warehouse_code = :warehouse_code or warehouse_name = :warehouse_code
-        order by case when warehouse_code = :warehouse_code then 0 else 1 end, warehouse_name
-        limit 1
-        """
-    )
-    serial_query = text(
-        """
-        select serial_number, status, updated_at
-        from inv.inventory_serial
-        where item_id = :item_id
-          and warehouse_id = :warehouse_id
-          and is_active is true
-          and upper(status) = 'AVAILABLE'
-        order by serial_number
-        limit :limit_plus_one offset :offset
-        """
-    )
-
-    try:
-        with engine.connect() as conn:
-            item = conn.execute(item_query, {"item_code": item_code}).mappings().first()
-            warehouse = conn.execute(warehouse_query, {"warehouse_code": warehouse_code}).mappings().first()
-            if item is None or warehouse is None:
-                return {
-                    "item_code": item_code,
-                    "warehouse_code": warehouse_code,
-                    "track_serial_numbers": bool(item["track_serial_numbers"]) if item else False,
-                    "serials": [],
-                    "limit": limit,
-                    "offset": offset,
-                    "has_more": False,
-                }
-
-            rows = (
-                conn.execute(
-                    serial_query,
-                    {
-                        "item_id": item["item_id"],
-                        "warehouse_id": warehouse["warehouse_id"],
-                        "limit_plus_one": limit + 1,
-                        "offset": offset,
-                    },
-                )
-                .mappings()
-                .all()
-            )
-    finally:
-        engine.dispose()
-
-    visible_rows = rows[:limit]
-    return {
-        "item_code": item["item_code"],
-        "warehouse_code": warehouse["warehouse_code"],
-        "track_serial_numbers": bool(item["track_serial_numbers"]),
-        "serials": [
-            {
-                "serial_number": row["serial_number"],
-                "status": row["status"],
-                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
-            }
-            for row in visible_rows
-        ],
-        "limit": limit,
-        "offset": offset,
-        "has_more": len(rows) > limit,
-    }
 
 
 def _csv_response(data: list[dict[str, str]], filename: str) -> Response:
@@ -641,49 +544,6 @@ def material_request_create(
     return RedirectResponse(url=f"/admin/operations/material-requests/{mr.id}", status_code=303)
 
 
-@router.get(
-    "/serials/available",
-    response_class=JSONResponse,
-    dependencies=[Depends(require_any_permission("inventory:read", "inventory:write"))],
-)
-def material_request_available_serials(
-    item_code: str = Query(..., min_length=1),
-    warehouse_code: str = Query(..., min_length=1),
-    limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db),
-):
-    from app.services.dotmac_erp import DotMacERPError, DotMacERPNotFoundError
-    from app.services.dotmac_erp.material_request_sync import dotmac_erp_material_request_sync
-
-    try:
-        sync_service = dotmac_erp_material_request_sync(db)
-    except ValueError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    try:
-        data = sync_service.client.list_available_serials(
-            item_code=item_code,
-            warehouse_code=warehouse_code,
-            limit=limit,
-            offset=offset,
-        )
-        return JSONResponse(data)
-    except DotMacERPNotFoundError:
-        data = _load_available_serials_from_erp_db(
-            db,
-            item_code=item_code,
-            warehouse_code=warehouse_code,
-            limit=limit,
-            offset=offset,
-        )
-        return JSONResponse(data)
-    except DotMacERPError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    finally:
-        sync_service.close()
-
-
 @router.get("/{mr_id}/edit", response_class=HTMLResponse)
 def material_request_edit(request: Request, mr_id: str, db: Session = Depends(get_db)):
     mr = material_requests.get(db, mr_id)
@@ -817,64 +677,6 @@ async def material_request_approve(
         entity_id=mr_id,
         actor_id=str(person_id) if person_id else None,
         metadata={"collected_by_person_id": collected_by_person_id} if collected_by_person_id else None,
-    )
-
-    return RedirectResponse(url=f"/admin/operations/material-requests/{mr_id}", status_code=303)
-
-
-@router.post("/{mr_id}/retry-erp-sync", dependencies=[Depends(require_permission("inventory:write"))])
-def material_request_retry_erp_sync(request: Request, mr_id: str, db: Session = Depends(get_db)):
-    from app.web.admin._auth_helpers import get_current_user
-
-    current_user = get_current_user(request)
-    mr = material_requests.retry_erp_sync(db, mr_id)
-
-    log_audit_event(
-        db=db,
-        request=request,
-        action="retry_erp_sync",
-        entity_type="material_request",
-        entity_id=mr_id,
-        actor_id=str(current_user.get("person_id")) if current_user else None,
-        metadata={
-            "erp_sync_status": mr.erp_sync_status.value if mr.erp_sync_status else None,
-            "erp_material_status": mr.erp_material_status,
-        },
-    )
-
-    return RedirectResponse(url=f"/admin/operations/material-requests/{mr_id}", status_code=303)
-
-
-@router.post("/{mr_id}/refresh-erp-status", dependencies=[Depends(require_permission("inventory:write"))])
-def material_request_refresh_erp_status(request: Request, mr_id: str, db: Session = Depends(get_db)):
-    from app.models.material_request import MaterialRequestERPSyncStatus
-    from app.tasks.integrations import refresh_material_request_erp_status
-    from app.web.admin._auth_helpers import get_current_user
-
-    current_user = get_current_user(request)
-    mr = material_requests.get(db, mr_id)
-    try:
-        mr.erp_sync_status = MaterialRequestERPSyncStatus.pending
-        mr.erp_sync_error = None
-        db.commit()
-        db.refresh(mr)
-        refresh_material_request_erp_status.delay(str(mr.id))
-    except Exception as exc:
-        mr.erp_sync_status = MaterialRequestERPSyncStatus.failed
-        mr.erp_sync_error = f"ERP status refresh enqueue failed: {exc}"[:500]
-        db.commit()
-
-    log_audit_event(
-        db=db,
-        request=request,
-        action="refresh_erp_status",
-        entity_type="material_request",
-        entity_id=mr_id,
-        actor_id=str(current_user.get("person_id")) if current_user else None,
-        metadata={
-            "erp_sync_status": mr.erp_sync_status.value if mr.erp_sync_status else None,
-            "erp_material_status": mr.erp_material_status,
-        },
     )
 
     return RedirectResponse(url=f"/admin/operations/material-requests/{mr_id}", status_code=303)

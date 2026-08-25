@@ -20,7 +20,7 @@ FIB-SC-001 ×2, PP-24-001 ×2, ONT-GP-100 ×2, CAB-DR-100 ×2, CON-SCAPC-1 ×2
 
 `\d inventory_items` shows an empty `Indexes:` section — no unique constraint on
 `sku`. Two inventory items can share a SKU, which breaks SKU-based lookups,
-reporting, and ERP sync expectations.
+reporting and any historical external correlation.
 
 **Suggested fix:** Add a unique constraint/index on `sku` (partial unique index
 allowing multiple NULLs if SKU is optional), plus de-dupe existing data via
@@ -53,9 +53,9 @@ error-prone and unusable without copying IDs from another screen.
 - Detail page links to the originating ticket (#9), shows items with SKU/qty,
   priority, requester, timestamps.
 - **State transition works:** clicking "Submit for Approval" moved Draft →
-  Submitted, revealed the "Issue Settings" panel (warehouse selectors + "Issue &
-  Sync to ERP") and the Reject/Cancel actions, and recorded a "Submitted"
-  timestamp.
+  Submitted, revealed the "Issue Settings" panel and the Reject/Cancel actions,
+  and recorded a "Submitted" timestamp. The direct ERP action visible during
+  this QA snapshot has since been retired.
 
 ---
 

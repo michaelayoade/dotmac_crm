@@ -14,7 +14,6 @@ class ServiceTeamBase(BaseModel):
     team_type: ServiceTeamType
     region: str | None = Field(default=None, max_length=80)
     manager_person_id: UUID | None = None
-    erp_department: str | None = Field(default=None, max_length=120)
     is_active: bool = True
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
@@ -29,7 +28,6 @@ class ServiceTeamUpdate(BaseModel):
     team_type: ServiceTeamType | None = None
     region: str | None = Field(default=None, max_length=80)
     manager_person_id: UUID | None = None
-    erp_department: str | None = Field(default=None, max_length=120)
     is_active: bool | None = None
     metadata_: dict | None = Field(default=None, serialization_alias="metadata")
 
@@ -37,6 +35,7 @@ class ServiceTeamUpdate(BaseModel):
 class ServiceTeamRead(ServiceTeamBase):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
     id: UUID
+    erp_department: str | None = None
     created_at: datetime
     updated_at: datetime
 

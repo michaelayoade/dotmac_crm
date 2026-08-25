@@ -247,7 +247,7 @@ def test_detail_lifecycle_tracks_as_built_and_billing(
     assert lc["as_built"]["status"] == "submitted"
     assert lc["billing"]["status"] == "submitted"
     assert lc["billing"]["invoice_number"] == "PINV-2001"
-    assert lc["billing"]["erp_synced"] is False
+    assert "erp_synced" not in lc["billing"]
 
 
 def test_staff_token_rejected_on_vendor_routes(db_session, person):

@@ -120,10 +120,11 @@
             </div>
         </div>
 
-        <!-- ERP sync panel -->
+        {% if er.erp_sync_status or er.erp_expense_claim_id or er.erp_claim_number or er.erp_claim_status or er.erp_synced_at or er.erp_sync_error %}
+        <!-- Read-only evidence retained from the retired ERP caller. -->
         <div class="space-y-6">
             <div class="rounded-2xl border border-slate-200/60 bg-white p-6 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
-                <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">ERP Expense Claim</h2>
+                <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Historical ERP Evidence</h2>
                 <dl class="mt-4 space-y-4">
                     <div>
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Sync Status</dt>
@@ -152,22 +153,9 @@
                     </div>
                     {% endif %}
                 </dl>
-                <div class="mt-6 flex flex-col gap-2">
-                    {% if er.status.value == 'submitted' and (not er.erp_sync_status or er.erp_sync_status.value in ['failed', 'not_configured']) %}
-                    <form method="POST" action="/admin/operations/expense-requests/{{ er.id }}/retry-erp-sync">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <button type="submit" class="w-full rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-500">Retry ERP Sync</button>
-                    </form>
-                    {% endif %}
-                    {% if er.erp_expense_claim_id and er.status.value in ['submitted', 'approved'] %}
-                    <form method="POST" action="/admin/operations/expense-requests/{{ er.id }}/refresh-erp-status">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <button type="submit" class="w-full rounded-xl border border-amber-200 bg-white px-4 py-2 text-sm font-semibold text-amber-700 shadow-sm transition hover:bg-amber-50 dark:border-amber-500/30 dark:bg-slate-800 dark:text-amber-300 dark:hover:bg-amber-500/10">Refresh Claim Status</button>
-                    </form>
-                    {% endif %}
-                </div>
             </div>
         </div>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

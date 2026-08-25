@@ -137,7 +137,7 @@ POST  /field/projects/{id}/as-built            GeoJSON LineString + photos + rep
 1. Validate caller may transition (primary tech or `assigned_to`; helpers may not).
 2. Check `client_event_id` — if seen, return the original result (idempotent replay).
 3. Delegate to `workflow.transition_work_order()` — this is what sets `started_at`/`completed_at` and starts/stops **SLA clocks** (`app/services/workflow.py`). Do not set status directly.
-4. Let the existing event dispatcher fire (`work_order_completed` → webhooks, notifications, **ERP sync** (10s dedup window), automation; survey Celery task polls completed WOs every 60s — all free if we use the real path).
+4. Let the existing event dispatcher fire (`work_order_completed` → webhooks, notifications, automation; survey Celery task polls completed WOs every 60s — all free if we use the real path).
 5. Persist `WorkOrderEvent` (GPS, client + server timestamps).
 6. Write an `AuditEvent` (service-layer writes bypass the web-route audit logging otherwise).
 7. Enforce the **completion gate** (configurable per work type via `DomainSetting`): ≥1 photo and signature-or-fallback before `completed`.
@@ -200,7 +200,7 @@ Visual language: "Industrial Modern, outdoors" — Outfit/Plus Jakarta fonts, te
 
 **Execution:** customer absent/refuses signature → fallback path (reason + premises photo) · multi-day jobs (`hold` overnight; auto-stop worklog on hold) · two techs on one job (helpers log time/notes but cannot transition; server-side worklog overlap checks) · GPS/camera permission denied (app functions; transitions recorded without coordinates and flagged) · job with no resolvable coordinates (text address + Maps search handoff).
 
-**Platform/ops:** ERP sync — mobile-created records leave `erp_id` null for the sync service to claim; rapid transitions coalesce inside ERP's 10s dedup window · ticket coupling is one-way (WO completion does not close the linked ticket — surfaced to dispatcher, not auto-closed) · vendor as-built rejection requires a fresh submission — app pre-fills from the rejected route · force-upgrade path via `/field/config` min-version.
+**Platform/ops:** External delivery leaves through provider-neutral typed contracts and Integrator; legacy `erp_id` fields are read-only correlation evidence, never claimed by a CRM sync service · ticket coupling is one-way (WO completion does not close the linked ticket — surfaced to dispatcher, not auto-closed) · vendor as-built rejection requires a fresh submission — app pre-fills from the rejected route · force-upgrade path via `/field/config` min-version.
 
 ---
 

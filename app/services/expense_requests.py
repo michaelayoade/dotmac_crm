@@ -1,13 +1,11 @@
-"""Expense request workflows.
+"""CRM-local expense request workflows.
 
-Field technicians raise expense requests in the CRM; approval and payment
-happen in DotMac ERP. Submitted requests are pushed to ERP as expense claims
-and their claim status is mirrored back onto the CRM row.
+Historical ERP claim and synchronization fields remain read-only evidence for
+requests processed before the direct application integration was retired.
 """
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, date, datetime, time, timedelta
 
 from fastapi import HTTPException
@@ -33,34 +31,12 @@ from app.services.common import (
 from app.services.numbering import generate_number
 from app.services.response import ListResponseMixin
 
-logger = logging.getLogger(__name__)
-
 _TERMINAL_STATUSES = {
     ExpenseRequestStatus.approved,
     ExpenseRequestStatus.rejected,
     ExpenseRequestStatus.paid,
     ExpenseRequestStatus.canceled,
 }
-
-
-def _enqueue_erp_sync(db: Session, er: ExpenseRequest) -> ExpenseRequest:
-    er.erp_sync_status = ExpenseRequestERPSyncStatus.pending
-    er.erp_sync_error = None
-    db.commit()
-    db.refresh(er)
-
-    try:
-        from app.tasks.integrations import sync_expense_request_to_erp
-
-        sync_expense_request_to_erp.delay(str(er.id))
-    except Exception as exc:
-        er.erp_sync_status = ExpenseRequestERPSyncStatus.failed
-        er.erp_sync_error = f"ERP sync enqueue failed: {exc}"[:500]
-        db.commit()
-        db.refresh(er)
-        logger.debug("ERP sync enqueue failed for expense request.", exc_info=True)
-
-    return er
 
 
 class ExpenseRequests(ListResponseMixin):
@@ -120,7 +96,7 @@ class ExpenseRequests(ListResponseMixin):
 
         db.commit()
         db.refresh(er)
-        return _enqueue_erp_sync(db, er)
+        return er
 
     @staticmethod
     def get(db: Session, er_id: str) -> ExpenseRequest:
@@ -196,14 +172,7 @@ class ExpenseRequests(ListResponseMixin):
         er.submitted_at = datetime.now(UTC)
         db.commit()
         db.refresh(er)
-        return _enqueue_erp_sync(db, er)
-
-    @staticmethod
-    def retry_erp_sync(db: Session, er_id: str) -> ExpenseRequest:
-        er = get_or_404(db, ExpenseRequest, er_id, options=[selectinload(ExpenseRequest.items)])
-        if er.status != ExpenseRequestStatus.submitted:
-            raise HTTPException(status_code=400, detail="Only submitted expense requests can be synced to ERP")
-        return _enqueue_erp_sync(db, er)
+        return er
 
     @staticmethod
     def cancel(db: Session, er_id: str) -> ExpenseRequest:
@@ -213,11 +182,9 @@ class ExpenseRequests(ListResponseMixin):
         if er.erp_expense_claim_id or er.erp_sync_status == ExpenseRequestERPSyncStatus.synced:
             raise HTTPException(
                 status_code=400,
-                detail="This expense request already reached ERP; cancel or reject the claim in ERP instead",
+                detail="Historical ERP evidence marks this request as externally submitted; resolve it in its system of record",
             )
         er.status = ExpenseRequestStatus.canceled
-        er.erp_sync_status = None
-        er.erp_sync_error = None
         db.commit()
         db.refresh(er)
         return er

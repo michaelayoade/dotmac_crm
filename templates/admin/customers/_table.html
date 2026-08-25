@@ -63,7 +63,7 @@
                                     {{ customer.name }}
                                 </p>
                                 {% if customer.erp_customer_id %}
-                                <p class="truncate text-[11px] text-slate-500 dark:text-slate-400">Customer ID: {{ customer.erp_customer_id }}</p>
+                                <p class="truncate text-[11px] text-slate-500 dark:text-slate-400">Historical ERP ID: {{ customer.erp_customer_id }}</p>
                                 {% endif %}
                                 {% if customer.type == 'person' and customer.email %}
                                 <p class="truncate text-xs text-slate-500 dark:text-slate-400">{{ customer.email }}</p>

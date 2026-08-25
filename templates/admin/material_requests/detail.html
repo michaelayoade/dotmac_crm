@@ -213,27 +213,6 @@
                             {% endfor %}
                             </select>
                         </div>
-                    {% if mr.items %}
-                    <div class="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-900/30" data-serial-section hidden>
-                        <div class="flex items-center justify-between gap-3">
-                            <h3 class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Serial Numbers</h3>
-                            <span class="text-xs text-slate-400 dark:text-slate-500">Loaded from ERP</span>
-                        </div>
-                        {% for line in mr.items %}
-                        {% set line_code = line.item.sku if line.item else '' %}
-                        <div class="serial-picker" data-item-code="{{ line_code or '' }}" data-quantity="{{ line.quantity }}" data-item-name="{{ line.item.name if line.item else 'Item' }}" hidden>
-                            <label for="serial_numbers_{{ line.id }}" class="block text-xs font-medium text-slate-600 dark:text-slate-300">
-                                {{ line.item.name if line.item else 'Item' }}{% if line_code %} ({{ line_code }}){% endif %}
-                            </label>
-                            <select id="serial_numbers_{{ line.id }}" name="serial_numbers_{{ line.id }}" multiple disabled
-                                    class="mt-1 block h-24 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
-                                <option value="">Select a warehouse to load serials</option>
-                            </select>
-                            <p class="mt-1 text-xs text-slate-400 dark:text-slate-500" data-serial-help>Needed only if this ERP item tracks serial numbers.</p>
-                        </div>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
                     <div>
                         <label for="collected_by_person_id" class="block text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Collected By</label>
                         <select id="collected_by_person_id" name="collected_by_person_id"
@@ -247,17 +226,17 @@
                             {% endfor %}
                         </select>
                     </div>
-                    {{ submit_button("Issue & Sync to ERP", color="emerald", size="sm") }}
+                    {{ submit_button("Issue", color="emerald", size="sm") }}
                 </form>
             </div>
             {% endif %}
 
             {% set erp_sync = mr.erp_sync_status.value if mr.erp_sync_status else '' %}
             {% set erp_material = mr.erp_material_status or '' %}
-            {% if erp_sync or erp_material or mr.erp_material_request_id or sv in ['issued', 'approved'] %}
+            {% if erp_sync or erp_material or mr.erp_material_request_id or mr.erp_synced_at or mr.erp_sync_error %}
             <div class="animate-fade-in-up rounded-2xl border border-slate-200/60 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-800" style="animation-delay: 70ms;">
                 <div class="flex items-center gap-3 border-b border-slate-200/60 px-5 py-4 dark:border-slate-700/60">
-                    <h2 class="font-semibold text-slate-900 dark:text-white">ERP Status</h2>
+                    <h2 class="font-semibold text-slate-900 dark:text-white">Historical ERP Evidence</h2>
                 </div>
                 <div class="space-y-4 p-5">
                     {% if erp_sync %}
@@ -315,22 +294,6 @@
                         <dt class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Last Error</dt>
                         <dd class="mt-1.5 break-words rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{{ mr.erp_sync_error }}</dd>
                     </div>
-                    {% endif %}
-                    {% if sv in ['issued', 'approved'] and (mr.erp_material_request_id or erp_material) %}
-                    <form method="POST" action="/admin/operations/material-requests/{{ mr.id }}/refresh-erp-status">
-                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-                        <button type="submit" class="inline-flex w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
-                            Refresh ERP Status
-                        </button>
-                    </form>
-                    {% endif %}
-                    {% if sv in ['issued', 'approved'] and erp_sync in ['failed', 'retrying', 'not_configured', ''] %}
-                    <form method="POST" action="/admin/operations/material-requests/{{ mr.id }}/retry-erp-sync">
-                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-                        <button type="submit" class="inline-flex w-full items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-700 transition hover:bg-teal-100 dark:border-teal-500/30 dark:bg-teal-500/15 dark:text-teal-300 dark:hover:bg-teal-500/25">
-                            Retry ERP Sync
-                        </button>
-                    </form>
                     {% endif %}
                 </div>
             </div>
@@ -431,142 +394,4 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-{{ super() }}
-{% if (mr.status.value if mr.status else 'draft') == 'submitted' %}
-<script>
-(() => {
-    const initSerialPickers = () => {
-    const sourceSelect = document.getElementById('source_location_id');
-    const issueForm = document.querySelector('#issue-form form');
-    const pickers = Array.from(document.querySelectorAll('.serial-picker'));
-    const serialSection = document.querySelector('[data-serial-section]');
-    if (!sourceSelect || !issueForm || pickers.length === 0 || issueForm.dataset.serialPickerInitialized === 'true') {
-        return;
-    }
-    issueForm.dataset.serialPickerInitialized = 'true';
-
-    const selectedWarehouseCode = () => {
-        const option = sourceSelect?.selectedOptions?.[0];
-        return option?.dataset?.warehouseCode || '';
-    };
-
-    const setSelectMessage = (select, message) => {
-        select.innerHTML = '';
-        const option = document.createElement('option');
-        option.value = '';
-        option.textContent = message;
-        select.appendChild(option);
-    };
-
-    const updateSerialSectionVisibility = () => {
-        if (!serialSection) {
-            return;
-        }
-        serialSection.hidden = !pickers.some((picker) => !picker.hidden);
-    };
-
-    const setPickerVisible = (picker, visible) => {
-        picker.hidden = !visible;
-        updateSerialSectionVisibility();
-    };
-
-    const loadSerials = async () => {
-        const warehouseCode = selectedWarehouseCode();
-        for (const picker of pickers) {
-            const itemCode = picker.dataset.itemCode || '';
-            const quantity = Number.parseInt(picker.dataset.quantity || '0', 10);
-            const select = picker.querySelector('select');
-            const help = picker.querySelector('[data-serial-help]');
-            if (!select || !help) {
-                continue;
-            }
-            select.disabled = true;
-            select.required = false;
-            setSelectMessage(select, warehouseCode ? 'Loading serials...' : 'Select a warehouse to load serials');
-            help.textContent = 'Needed only if this ERP item tracks serial numbers.';
-
-            if (!warehouseCode || !itemCode) {
-                setPickerVisible(picker, false);
-                continue;
-            }
-
-            try {
-                const params = new URLSearchParams({ item_code: itemCode, warehouse_code: warehouseCode, limit: '500' });
-                const response = await fetch(`/admin/operations/material-requests/serials/available?${params.toString()}`, {
-                    headers: { 'Accept': 'application/json' },
-                });
-                if (!response.ok) {
-                    throw new Error('Serials could not be loaded');
-                }
-                const data = await response.json();
-                const serials = Array.isArray(data.serials) ? data.serials : [];
-                if (!data.track_serial_numbers && serials.length === 0) {
-                    setPickerVisible(picker, false);
-                    continue;
-                }
-                setPickerVisible(picker, true);
-                if (serials.length === 0) {
-                    setSelectMessage(select, 'No available serials in this warehouse');
-                    help.textContent = data.track_serial_numbers
-                        ? 'ERP requires serials for this item, but none are available in this warehouse.'
-                        : 'ERP has no available serials for this item and warehouse.';
-                    continue;
-                }
-                select.innerHTML = '';
-                for (const serial of serials) {
-                    const option = document.createElement('option');
-                    option.value = serial.serial_number;
-                    option.textContent = serial.serial_number;
-                    select.appendChild(option);
-                }
-                select.disabled = false;
-                select.required = Boolean(data.track_serial_numbers) && quantity > 0;
-                help.textContent = data.track_serial_numbers
-                    ? `Select ${quantity} serial number${quantity === 1 ? '' : 's'} for this line.`
-                    : 'Available ERP serials for this selected item. Selection is optional.';
-            } catch (error) {
-                setPickerVisible(picker, true);
-                setSelectMessage(select, 'Unable to load serials from ERP');
-                help.textContent = 'Check ERP connection or enter after serials are available.';
-            }
-        }
-    };
-
-    for (const picker of pickers) {
-        setPickerVisible(picker, false);
-    }
-
-    sourceSelect?.addEventListener('change', loadSerials);
-    issueForm?.addEventListener('submit', (event) => {
-        for (const picker of pickers) {
-            const select = picker.querySelector('select');
-            if (!select || select.disabled || !select.required) {
-                continue;
-            }
-            const quantity = Number.parseInt(picker.dataset.quantity || '0', 10);
-            const selected = Array.from(select.selectedOptions).filter((option) => option.value).length;
-            if (selected !== quantity) {
-                event.preventDefault();
-                select.setCustomValidity(`Select exactly ${quantity} serial number${quantity === 1 ? '' : 's'}.`);
-                select.reportValidity();
-                return;
-            }
-            select.setCustomValidity('');
-        }
-    });
-    loadSerials();
-    };
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initSerialPickers);
-    } else {
-        initSerialPickers();
-    }
-    document.body?.addEventListener('htmx:afterSettle', initSerialPickers);
-})();
-</script>
-{% endif %}
 {% endblock %}

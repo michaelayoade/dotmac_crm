@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.schemas.common import ListResponse
-from app.schemas.expense_request import ExpenseCategoryRead, ExpenseRequestRead
+from app.schemas.expense_request import ExpenseRequestRead
 from app.schemas.field import FieldAttachmentRead, FieldExpenseRequestCreate
 from app.schemas.typeahead import TypeaheadItem
 from app.services import typeahead as typeahead_service
@@ -31,14 +31,6 @@ def list_field_expense_requests(
         offset=offset,
     )
     return list_response(items, limit, offset)
-
-
-@router.get("/categories", response_model=list[ExpenseCategoryRead])
-def list_field_expense_categories(
-    auth=Depends(require_user_auth),
-    db: Session = Depends(get_db),
-):
-    return field_expense_requests.list_categories(db)
 
 
 @router.get("/vendors", response_model=ListResponse[TypeaheadItem])

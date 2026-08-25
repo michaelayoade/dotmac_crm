@@ -1,4 +1,4 @@
-"""Tests for deepened variation workflow, geo input, and ERP sync triggers."""
+"""Tests for deepened variation workflow and geo input."""
 
 import contextlib
 from decimal import Decimal
@@ -229,40 +229,6 @@ class TestVariationEvents:
         assert len(calls) == 1
         payload = calls[0][0][2]
         assert payload["status"] == "rejected"
-
-
-# ---------------------------------------------------------------------------
-# ERP sync handler — variation_approved triggers project sync
-# ---------------------------------------------------------------------------
-
-
-class TestVariationERPSync:
-    def test_variation_approved_triggers_project_sync(self):
-        from app.services.events.handlers.erp_sync import ERPSyncHandler
-        from app.services.events.types import Event, EventType
-
-        handler = ERPSyncHandler()
-        event = Event(
-            event_type=EventType.variation_approved,
-            payload={
-                "variation_id": "aaa-bbb-ccc",
-                "project_id": "proj-123",
-                "idempotency_key": "variation:aaa-bbb-ccc:v1",
-            },
-            project_id="proj-123",
-        )
-        entity_type, entity_id = handler._extract_entity_info(event)
-        assert entity_type == "project"
-        assert entity_id == "proj-123"
-
-    def test_variation_submitted_not_in_sync_events(self):
-        from app.services.events.handlers.erp_sync import ERP_SYNC_EVENT_TYPES
-        from app.services.events.types import EventType
-
-        # Only approved triggers sync, not submitted or rejected
-        assert EventType.variation_approved in ERP_SYNC_EVENT_TYPES
-        assert EventType.variation_submitted not in ERP_SYNC_EVENT_TYPES
-        assert EventType.variation_rejected not in ERP_SYNC_EVENT_TYPES
 
 
 # ---------------------------------------------------------------------------

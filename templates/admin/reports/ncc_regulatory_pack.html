@@ -48,7 +48,7 @@
 {% block content %}
 {% set meta = pack.meta %}
 <div class="space-y-6">
-  {% call page_header("NCC Regulatory Pack", "All three NCC returns assembled from CRM, dotmac_sub and dotmac_erp in one view.", color="indigo", color2="violet") %}
+  {% call page_header("NCC Regulatory Pack", "CRM complaints and Sub subscriber/capacity returns in one view.", color="indigo", color2="violet") %}
     <a href="{{ export_url }}"
        class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600">
       Download JSON
@@ -57,7 +57,7 @@
 
   {# ── Filters ─────────────────────────────────────────────────────────── #}
   <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
-    <form method="get" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+    <form method="get" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
       <div>
         <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Complaints from</label>
         <input type="date" name="start_date" value="{{ window_start }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
@@ -69,10 +69,6 @@
       <div>
         <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Subscribers as-of</label>
         <input type="date" name="as_of" value="{{ as_of_value }}" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
-      </div>
-      <div>
-        <label class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Financial year</label>
-        <input type="number" name="year" value="{{ year_value }}" min="2000" max="2100" class="block w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-600 dark:bg-slate-700/50 dark:text-white">
       </div>
       <div class="flex gap-2">
         <button type="submit" class="inline-flex items-center rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40">Apply</button>
@@ -95,8 +91,6 @@
         {% set src = meta.sources %}
         <span class="text-xs font-medium text-slate-500 dark:text-slate-400">① Complaints</span> {{ availability_pill(src.complaints) }}
         <span class="text-xs font-medium text-slate-500 dark:text-slate-400">② Subscribers</span> {{ availability_pill(src.subscribers) }}
-        <span class="text-xs font-medium text-slate-500 dark:text-slate-400">③ Financials</span> {{ availability_pill(src.financials) }}
-        <span class="text-xs font-medium text-slate-500 dark:text-slate-400">③ Staff</span> {{ availability_pill(src.staff) }}
       </div>
     </div>
   </section>
@@ -254,87 +248,5 @@
     {% endif %}
   </section>
 
-  {# ── ③ Annual Year-End: Section F Financials ─────────────────────────── #}
-  {% set financials = pack.financials %}
-  <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
-    <div class="mb-4 flex items-center justify-between gap-3">
-      <h3 class="font-display text-lg font-semibold text-slate-900 dark:text-white">③ Section F — Financials <span class="text-xs font-normal text-slate-400">from dotmac_erp</span></h3>
-      {{ availability_pill(financials.available) }}
-    </div>
-    {% if financials.available %}
-      {% set summary = financials.financials.summary %}
-      <div class="overflow-x-auto rounded-xl border border-slate-200/70 dark:border-slate-700/60">
-        <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
-          <tbody class="divide-y divide-slate-100 dark:divide-slate-700/60">
-            {% set rows = [
-              ("Total revenue", summary.total_revenue),
-              ("Total operating expenses", summary.total_operating_expenses),
-              ("Net income", summary.net_income),
-              ("Total assets", summary.total_assets),
-              ("Total liabilities", summary.total_liabilities),
-              ("Total equity", summary.total_equity)
-            ] %}
-            {% for label, value in rows %}
-            <tr>
-              <td class="px-3 py-2 text-slate-700 dark:text-slate-300">{{ label }}</td>
-              <td class="px-3 py-2 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-white">{{ value if value else '—' }}</td>
-            </tr>
-            {% endfor %}
-            <tr>
-              <td class="px-3 py-2 text-slate-700 dark:text-slate-300">Balanced</td>
-              <td class="px-3 py-2 text-right">{{ availability_pill(summary.is_balanced) if summary.is_balanced is not none else '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      {% if financials.financials.note %}
-      <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">{{ financials.financials.note }}</p>
-      {% endif %}
-    {% else %}
-      {{ unavailable_notice(financials) }}
-    {% endif %}
-  </section>
-
-  {# ── ③ Annual Year-End: Section G Staff ──────────────────────────────── #}
-  {% set staff = pack.staff %}
-  <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm dark:border-slate-700/60 dark:bg-slate-800">
-    <div class="mb-4 flex items-center justify-between gap-3">
-      <h3 class="font-display text-lg font-semibold text-slate-900 dark:text-white">③ Section G — Staff Head-count <span class="text-xs font-normal text-slate-400">from dotmac_erp</span></h3>
-      {{ availability_pill(staff.available) }}
-    </div>
-    {% if staff.available %}
-      <div class="mb-4 rounded-xl bg-slate-50 p-4 dark:bg-slate-700/40 sm:w-48">
-        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Total active staff</p>
-        <p class="mt-1 font-display text-2xl font-bold tabular-nums text-slate-900 dark:text-white">{{ staff.staff.total_active }}</p>
-      </div>
-      <div class="overflow-x-auto rounded-xl border border-slate-200/70 dark:border-slate-700/60">
-        <table class="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
-          <thead class="bg-slate-50 dark:bg-slate-700/40">
-            <tr>
-              <th scope="col" class="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Category</th>
-              <th scope="col" class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Nigerian (M/F/O)</th>
-              <th scope="col" class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Expatriate (M/F/O)</th>
-              <th scope="col" class="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Unknown (M/F/O)</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100 dark:divide-slate-700/60">
-            {% for category, nationalities in staff.staff.by_category.items() %}
-            <tr>
-              <td class="px-3 py-2 font-medium text-slate-700 dark:text-slate-300">{{ category | replace('_', ' ') | title }}</td>
-              {% for nat in ['nigerian', 'expatriate', 'unknown'] %}
-              {% set cell = nationalities.get(nat, {}) %}
-              <td class="px-3 py-2 text-right font-mono tabular-nums text-slate-900 dark:text-white">{{ cell.get('male', 0) }} / {{ cell.get('female', 0) }} / {{ cell.get('other', 0) }}</td>
-              {% endfor %}
-            </tr>
-            {% else %}
-            <tr><td colspan="4" class="px-3 py-2 text-slate-400 dark:text-slate-500">No staff data</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% else %}
-      {{ unavailable_notice(staff) }}
-    {% endif %}
-  </section>
 </div>
 {% endblock %}
