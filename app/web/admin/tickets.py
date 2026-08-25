@@ -3035,15 +3035,6 @@ def ticket_detail(
         .all()
     )
 
-    # Fetch expense totals from ERP (cached to avoid blocking)
-    expense_totals = None
-    try:
-        from app.services.dotmac_erp.cache import get_cached_expense_totals
-
-        expense_totals = get_cached_expense_totals(db, "ticket", str(ticket.id))
-    except Exception:
-        logger.debug("ERP expense totals unavailable for ticket.", exc_info=True)
-
     # Fetch material requests linked to this ticket
     ticket_material_requests = []
     try:
@@ -3149,7 +3140,6 @@ def ticket_detail(
             "relationship_notice": relationship_notice,
             "related_outage_context": related_outage_context,
             "merged_sources": merged_sources,
-            "expense_totals": expense_totals,
             "material_requests": ticket_material_requests,
             "linked_work_orders": linked_work_orders,
             "ticket_attachments": ticket_attachments,

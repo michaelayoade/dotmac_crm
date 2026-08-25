@@ -1,7 +1,6 @@
 """The retired legacy ERPNext importer cannot return through another adapter.
 
-Dotmac ERP is the supported application-to-application sync peer.  CRM's old
-one-time ERPNext importer was a separate provider runtime: it accepted provider
+CRM's old one-time ERPNext importer was a provider runtime: it accepted provider
 credentials, tested them from a web request, called Frappe directly, and wrote
 CRM domain rows.  Retiring it means deleting that executable boundary while
 preserving ``erpnext_id`` only as historical correlation data.
@@ -70,9 +69,7 @@ def _runtime_violations(paths: list[Path]) -> list[str]:
 
 
 def test_the_legacy_erpnext_import_runtime_is_absent() -> None:
-    assert not list(LEGACY_PACKAGE.glob("*.py")), (
-        "the legacy ERPNext provider client/importer still exists; Dotmac ERP is the supported app-to-app sync peer"
-    )
+    assert not list(LEGACY_PACKAGE.glob("*.py")), "the legacy ERPNext provider client/importer still exists"
     assert not list(LEGACY_TEMPLATE.rglob("*")), "the retired ERPNext credential/import surface is still published"
 
     sources = sorted((ROOT / "app").rglob("*.py"))

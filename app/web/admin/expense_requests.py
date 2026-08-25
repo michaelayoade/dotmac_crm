@@ -1,8 +1,7 @@
-"""Admin expense request monitoring web routes.
+"""Admin routes for CRM-local expense requests.
 
-Expense requests are raised by field technicians in the field app and
-approved/paid in DotMac ERP; these pages give operations visibility plus
-ERP sync controls (retry push, refresh claim status, cancel before sync).
+Historical ERP fields remain visible as audit evidence for requests processed
+before the direct application integration was retired.
 """
 
 from datetime import date
@@ -135,66 +134,6 @@ def expense_request_detail(request: Request, er_id: str, db: Session = Depends(g
     er = expense_requests.get(db, er_id)
     context = _base_ctx(request, db, er=er)
     return templates.TemplateResponse("admin/expense_requests/detail.html", context)
-
-
-@router.post("/{er_id}/retry-erp-sync", dependencies=_WRITE)
-def expense_request_retry_erp_sync(request: Request, er_id: str, db: Session = Depends(get_db)):
-    from app.web.admin._auth_helpers import get_current_user
-
-    current_user = get_current_user(request)
-    er = expense_requests.retry_erp_sync(db, er_id)
-
-    log_audit_event(
-        db=db,
-        request=request,
-        action="retry_erp_sync",
-        entity_type="expense_request",
-        entity_id=er_id,
-        actor_id=str(current_user.get("person_id")) if current_user else None,
-        metadata={
-            "erp_sync_status": er.erp_sync_status.value if er.erp_sync_status else None,
-            "erp_claim_status": er.erp_claim_status,
-        },
-    )
-
-    return RedirectResponse(url=f"/admin/operations/expense-requests/{er_id}", status_code=303)
-
-
-@router.post("/{er_id}/refresh-erp-status", dependencies=_WRITE)
-def expense_request_refresh_erp_status(request: Request, er_id: str, db: Session = Depends(get_db)):
-    from app.models.expense_request import ExpenseRequestERPSyncStatus
-    from app.tasks.integrations import refresh_expense_request_erp_status
-    from app.web.admin._auth_helpers import get_current_user
-
-    current_user = get_current_user(request)
-    er = expense_requests.get(db, er_id)
-    if not er.erp_expense_claim_id:
-        raise HTTPException(status_code=400, detail="This expense request has not reached ERP yet")
-    try:
-        er.erp_sync_status = ExpenseRequestERPSyncStatus.pending
-        er.erp_sync_error = None
-        db.commit()
-        db.refresh(er)
-        refresh_expense_request_erp_status.delay(str(er.id))
-    except Exception as exc:
-        er.erp_sync_status = ExpenseRequestERPSyncStatus.failed
-        er.erp_sync_error = f"ERP status refresh enqueue failed: {exc}"[:500]
-        db.commit()
-
-    log_audit_event(
-        db=db,
-        request=request,
-        action="refresh_erp_status",
-        entity_type="expense_request",
-        entity_id=er_id,
-        actor_id=str(current_user.get("person_id")) if current_user else None,
-        metadata={
-            "erp_sync_status": er.erp_sync_status.value if er.erp_sync_status else None,
-            "erp_claim_status": er.erp_claim_status,
-        },
-    )
-
-    return RedirectResponse(url=f"/admin/operations/expense-requests/{er_id}", status_code=303)
 
 
 @router.post("/{er_id}/cancel", dependencies=_WRITE)

@@ -1050,7 +1050,6 @@ class VendorPurchaseInvoices(ListResponseMixin):
             vendor_id=coerce_uuid(vendor_id),
             currency=quote.currency,
             tax_rate_percent=_coerce_vat_rate_percent(quote.vat_rate_percent),
-            erp_purchase_order_id=(project.erp_purchase_order_id or None),
             created_by_person_id=coerce_uuid(created_by_person_id) if created_by_person_id else None,
         )
         db.add(invoice)
@@ -1226,7 +1225,6 @@ class VendorPurchaseInvoices(ListResponseMixin):
         if invoice.status not in {VendorPurchaseInvoiceStatus.submitted, VendorPurchaseInvoiceStatus.under_review}:
             raise HTTPException(status_code=400, detail="Only submitted purchase invoices can be approved")
         _recalculate_purchase_invoice_totals(db, invoice)
-        invoice.erp_purchase_order_id = invoice.project.erp_purchase_order_id or invoice.erp_purchase_order_id
         invoice.status = VendorPurchaseInvoiceStatus.approved
         invoice.reviewed_at = _now()
         invoice.reviewed_by_person_id = coerce_uuid(reviewer_person_id)
@@ -1790,8 +1788,6 @@ class AsBuiltRoutes(ListResponseMixin):
         as_built.report_file_path = str(report_path)
         as_built.report_file_name = filename
         as_built.report_generated_at = _now()
-        as_built.erp_sync_status = "pending"
-
         db.commit()
         db.refresh(as_built)
 

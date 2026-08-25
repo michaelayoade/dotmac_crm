@@ -40,7 +40,7 @@ class ExpenseRequestERPSyncStatus(enum.Enum):
 
 
 class ExpenseRequest(Base):
-    """A field expense request; approval and payment happen in DotMac ERP."""
+    """A CRM-local field expense request with preserved legacy ERP evidence."""
 
     __tablename__ = "expense_requests"
     __table_args__ = (

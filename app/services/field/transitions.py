@@ -3,8 +3,8 @@
 This service composes the existing engines rather than replacing them:
 - ``workflow.transition_work_order()`` owns status changes, transition rules,
   and ``started_at``/``completed_at`` timestamps.
-- ``workforce.emit_work_order_status_events()`` owns domain events (ERP sync,
-  webhooks, surveys, automation all hang off those).
+- ``workforce.emit_work_order_status_events()`` owns domain events (webhooks,
+  surveys, and automation all hang off those).
 
 What this layer adds: caller authorization (primary tech only), offline
 idempotency via ``client_event_id``, GPS-stamped ``WorkOrderEvent`` facts,

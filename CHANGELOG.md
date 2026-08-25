@@ -18,10 +18,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **CRM reply reminders**: Replaced the disabled no-op Celery task and retired the heavy message-table reminder scan.
 
 ### Removed
+- **Direct Dotmac ERP runtime**: Retired CRM's ERP service client, credentials,
+  schedules, retries, checkpoints, admin controls, bidirectional domain sync,
+  and NCC Finance/HR collectors. Persisted task rows are disabled and stored
+  settings are redacted/deactivated; historical ERP identifiers and result
+  columns remain read-only audit/correlation evidence.
 - **Legacy ERPNext importer**: Removed CRM's provider credentials, connection
   test, direct Frappe client, one-time import routes and UI. Historical
-  `erpnext_id` fields remain correlation data; Dotmac ERP's versioned API is
-  the supported application-to-application synchronization boundary.
+  `erpnext_id` fields remain correlation data.
 
 ---
 

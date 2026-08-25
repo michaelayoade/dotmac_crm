@@ -29,9 +29,9 @@
             </select>
         </div>
         <div>
-            <label for="erp_status" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">ERP Status</label>
+            <label for="erp_status" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Historical ERP Status</label>
             <select id="erp_status" name="erp_status" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                <option value="" {% if not filter_erp_status %}selected{% endif %}>All ERP statuses</option>
+                <option value="" {% if not filter_erp_status %}selected{% endif %}>All historical statuses</option>
                 <option value="pending_approval" {% if filter_erp_status == 'pending_approval' %}selected{% endif %}>Pending approval</option>
                 <option value="approved" {% if filter_erp_status == 'approved' %}selected{% endif %}>Approved</option>
                 <option value="paid" {% if filter_erp_status == 'paid' %}selected{% endif %}>Paid</option>

@@ -94,7 +94,7 @@ def test_purchase_invoice_create_allows_one_invoice_per_vendor_project(db_sessio
     assert "already exists" in str(excinfo.value.detail).lower()
 
 
-def test_purchase_invoice_inherits_project_erp_po_id(db_session, project):
+def test_purchase_invoice_does_not_copy_historical_erp_po_id(db_session, project):
     vendor, installation_project, quote = _setup_vendor_project_quote(db_session, project)
     _submit_quote(db_session, str(vendor.id), str(quote.id), quote.id)
     installation_project.erp_purchase_order_id = "PO-2026-00045"
@@ -107,7 +107,7 @@ def test_purchase_invoice_inherits_project_erp_po_id(db_session, project):
         created_by_person_id=None,
     )
 
-    assert invoice.erp_purchase_order_id == "PO-2026-00045"
+    assert invoice.erp_purchase_order_id is None
 
 
 def test_purchase_invoice_submit_requires_line_items_even_with_attachment(db_session, project, monkeypatch):

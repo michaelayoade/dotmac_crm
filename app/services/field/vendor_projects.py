@@ -142,8 +142,6 @@ def _lifecycle_map(db: Session, project_ids: list, vendor_uuid) -> dict:
                     "currency": inv.currency,
                     # Settlement is via ERPNext, not a local paid flag: "synced"
                     # means the purchase invoice reached ERP for payment.
-                    "erp_synced": inv.erp_synced_at is not None,
-                    "erp_synced_at": inv.erp_synced_at,
                 }
                 if inv
                 else None

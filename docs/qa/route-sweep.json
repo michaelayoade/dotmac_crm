@@ -119,10 +119,6 @@
       "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/connectors/new"
     },
     {
-      "u": "/admin/integrations/dotmac-erp",
-      "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/dotmac-erp"
-    },
-    {
       "u": "/admin/integrations/erpnext",
       "err": "TypeError: Failed to execute 'fetch' on 'Window': Failed to parse URL from /admin/integrations/erpnext"
     },

@@ -68,10 +68,3 @@ class ExpenseRequestRead(ExpenseRequestBase):
     created_at: datetime
     updated_at: datetime
     items: list[ExpenseRequestItemRead] = []
-
-
-class ExpenseCategoryRead(BaseModel):
-    category_code: str
-    category_name: str
-    requires_receipt: bool = False
-    max_amount_per_claim: Decimal | None = None

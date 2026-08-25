@@ -2177,15 +2177,6 @@ def project_detail(request: Request, project_ref: str, db: Session = Depends(get
         except Exception:
             assigned_vendor = None
 
-    # Fetch expense totals from ERP (cached to avoid blocking)
-    expense_totals = None
-    try:
-        from app.services.dotmac_erp.cache import get_cached_expense_totals
-
-        expense_totals = get_cached_expense_totals(db, "project", str(project.id))
-    except Exception:
-        logger.debug("ERP expense totals unavailable for project.", exc_info=True)
-
     # Fetch material requests linked to this project
     project_material_requests = []
     try:
@@ -2227,7 +2218,6 @@ def project_detail(request: Request, project_ref: str, db: Session = Depends(get
             "comments": comments,
             "activities": activities,
             "assigned_vendor": assigned_vendor,
-            "expense_totals": expense_totals,
             "material_requests": project_material_requests,
             "linked_work_orders": linked_work_orders,
             "customer_name": customer_name,

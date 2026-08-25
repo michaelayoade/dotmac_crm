@@ -119,10 +119,15 @@ Boundary expectations:
   credential form, connection test and provider client are retired. Historical
   `erpnext_id` values remain correlation data only; they cannot authorize a
   fetch or select a writer.
-- Dotmac ERP is an independent application peer. Its versioned service API is
-  the only ERP synchronization boundary CRM may call directly; provider
-  connector packages, provider credentials and provider retry engines belong
-  to the independently deployed Dotmac Integrator.
+- CRM has no direct Dotmac ERP caller runtime. The client, credentials,
+  schedules, retries, checkpoints, admin controls and NCC Finance/HR collectors
+  are retired. Historical ERP identifiers and sync-result columns are retained
+  as read-only audit/correlation evidence; they cannot select a writer or
+  authorize a fetch. The retirement migration disables persisted task rows and
+  redacts/deactivates every stored `dotmac_erp_*` setting, so deleting source
+  does not leave Beat work or credential material live. Future
+  cross-application exchange is provider-neutral, typed data synchronization
+  through the independently deployed Integrator.
 
 This boundary keeps identity consistent when the operations app is separated
 from the billing/subscription system.

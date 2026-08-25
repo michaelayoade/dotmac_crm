@@ -28,7 +28,6 @@
     "/admin/integrations/channels/new",
     "/admin/integrations/connectors",
     "/admin/integrations/connectors/new",
-    "/admin/integrations/dotmac-erp",
     "/admin/integrations/erpnext",
     "/admin/integrations/jobs",
     "/admin/integrations/jobs/new",

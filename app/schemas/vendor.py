@@ -28,7 +28,6 @@ class VendorBase(BaseModel):
     service_area: str | None = None
     is_active: bool = True
     notes: str | None = None
-    erp_id: str | None = Field(default=None, max_length=100)
 
 
 class VendorCreate(VendorBase):
@@ -45,13 +44,13 @@ class VendorUpdate(BaseModel):
     service_area: str | None = None
     is_active: bool | None = None
     notes: str | None = None
-    erp_id: str | None = Field(default=None, max_length=100)
 
 
 class VendorRead(VendorBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    erp_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -66,7 +65,6 @@ class InstallationProjectBase(BaseModel):
     status: InstallationProjectStatus = InstallationProjectStatus.draft
     bidding_open_at: datetime | None = None
     bidding_close_at: datetime | None = None
-    erp_purchase_order_id: str | None = None
     approved_quote_id: UUID | None = None
     created_by_person_id: UUID | None = None
     notes: str | None = None
@@ -86,7 +84,6 @@ class InstallationProjectUpdate(BaseModel):
     status: InstallationProjectStatus | None = None
     bidding_open_at: datetime | None = None
     bidding_close_at: datetime | None = None
-    erp_purchase_order_id: str | None = None
     approved_quote_id: UUID | None = None
     notes: str | None = None
     is_active: bool | None = None
@@ -96,6 +93,7 @@ class InstallationProjectRead(InstallationProjectBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    erp_purchase_order_id: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -138,8 +136,6 @@ class VendorBillingState(BaseModel):
     invoice_number: str | None = None
     total: float | None = None
     currency: str | None = None
-    erp_synced: bool = False
-    erp_synced_at: datetime | None = None
 
 
 class VendorProjectLifecycle(BaseModel):
@@ -282,10 +278,6 @@ class VendorPurchaseInvoiceCreate(BaseModel):
 class VendorPurchaseInvoiceUpdate(BaseModel):
     tax_rate_percent: Decimal | None = Field(default=None, ge=0, le=100)
     review_notes: str | None = None
-    erp_purchase_order_id: str | None = None
-    erp_purchase_invoice_id: str | None = None
-    erp_sync_error: str | None = None
-    erp_synced_at: datetime | None = None
 
 
 class VendorPurchaseInvoiceTaxRateUpdateRequest(BaseModel):

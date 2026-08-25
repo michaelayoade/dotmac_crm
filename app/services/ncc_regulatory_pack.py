@@ -1,21 +1,16 @@
 """NCC regulatory-pack aggregator.
 
-Assembles the three NCC (Nigerian Communications Commission) returns from the
-three DotMac systems into one payload, so a compliance officer produces the
-filing from a single view instead of stitching three tools together:
+Assembles the CRM-owned complaints return and Sub-owned subscriber/capacity
+return into one payload:
 
   ① Quarterly Complaints        — native (CRM tickets, ``_build_ncc_records``)
   ② Quarterly Subscriber/Capacity — dotmac_sub via the ``/crm`` bearer API
-  ③ Annual Year-End Section F/G  — dotmac_erp via the ``/sync/crm`` service API
-
-The CRM is the system-of-record and owns ① natively; ② and ③ are fetched from
-their owning systems. Those external sections degrade gracefully — if sub or
-erp is unreachable or not configured, that section carries
+The CRM is the system-of-record and owns ① natively; ② is fetched from its
+owning system. The external section degrades gracefully — if Sub is
+unreachable or not configured, that section carries
 ``{"available": False, "error": ...}`` rather than failing the whole pack, so
 the ① native return always renders and the officer can see exactly which
 upstream is missing.
-
-Only the annual return's narrative pages (③'s free-text) stay manual.
 """
 
 from __future__ import annotations
@@ -32,24 +27,6 @@ from sqlalchemy.orm import Session
 from app.db import SessionLocal
 
 logger = logging.getLogger(__name__)
-
-_STAFF_HEADCOUNT_FALLBACK: dict[str, Any] = {
-    "total_active": 170,
-    "by_category": {
-        "MANAGERIAL": {
-            "nigerian": {"male": 14, "female": 5, "other": 3},
-        },
-        "SENIOR_TECHNICAL": {
-            "nigerian": {"male": 32, "female": 1, "other": 16},
-        },
-        "JUNIOR_TECHNICAL": {
-            "nigerian": {"male": 9, "female": 6, "other": 29},
-        },
-        "OTHER": {
-            "nigerian": {"male": 22, "female": 14, "other": 19},
-        },
-    },
-}
 
 _EXCLUDED_SUBSCRIBER_STATES = {"anambra", "oyo"}
 _ABUJA_STATE_KEYS = {"abuja", "fct", "federal capital territory"}
@@ -260,64 +237,6 @@ def subscribers_section(
         sub_db.close()
 
 
-# ── ③ Year-End Section F/G (dotmac_erp) ─────────────────────────────────────
-def _build_erp_client(db: Session):
-    """Build a configured ERP client from integration settings, or None."""
-    from app.models.domain_settings import SettingDomain
-    from app.services import settings_spec
-    from app.services.dotmac_erp.client import DotMacERPClient
-    from app.services.secrets import resolve_setting_secret
-
-    base_url = settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_base_url")
-    token = resolve_setting_secret(settings_spec.resolve_value(db, SettingDomain.integration, "dotmac_erp_token"))
-    if not base_url or not token:
-        return None
-    return DotMacERPClient(base_url=str(base_url), token=str(token))
-
-
-def financials_section(db: Session, *, year: int | None = None) -> dict[str, Any]:
-    """Fetch the NCC year-end Section F financials (③F ) from dotmac_erp."""
-    client = _build_erp_client(db)
-    if client is None:
-        return {"available": False, "error": "dotmac_erp is not configured"}
-    try:
-        with client:
-            data = client.get_ncc_financials(year=year)
-        if not data:
-            return {"available": False, "error": "erp returned empty financials"}
-        return {"available": True, "financials": data}
-    except Exception as exc:
-        logger.warning("NCC pack: financials section unavailable: %s", exc)
-        return {"available": False, "error": str(exc)}
-
-
-def _staff_has_classified_headcount(data: dict[str, Any]) -> bool:
-    """Return true when ERP sent non-zero Nigerian headcount by category."""
-    for nationalities in (data.get("by_category") or {}).values():
-        nigerian = nationalities.get("nigerian") or {}
-        if any(int(nigerian.get(gender) or 0) > 0 for gender in ("male", "female", "other")):
-            return True
-    return False
-
-
-def staff_section(db: Session) -> dict[str, Any]:
-    """Fetch the NCC year-end Section G staff head-count (③G ) from dotmac_erp."""
-    client = _build_erp_client(db)
-    if client is None:
-        return {"available": False, "error": "dotmac_erp is not configured"}
-    try:
-        with client:
-            data = client.get_ncc_staff_headcount()
-        if not data:
-            return {"available": True, "staff": _STAFF_HEADCOUNT_FALLBACK}
-        if not _staff_has_classified_headcount(data):
-            return {"available": True, "staff": _STAFF_HEADCOUNT_FALLBACK}
-        return {"available": True, "staff": data}
-    except Exception as exc:
-        logger.warning("NCC pack: staff section unavailable: %s", exc)
-        return {"available": False, "error": str(exc)}
-
-
 # ── The pack ────────────────────────────────────────────────────────────────
 def build_regulatory_pack(
     db: Session,
@@ -325,16 +244,15 @@ def build_regulatory_pack(
     start_dt: datetime,
     end_dt: datetime,
     as_of: str | None = None,
-    year: int | None = None,
     statuses: str | None = None,
     reseller_id: str | None = None,
     capacity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Assemble the full NCC regulatory pack from all three systems.
+    """Assemble the NCC regulatory pack from CRM and Sub.
 
     ``start_dt``/``end_dt`` bound the quarterly complaints return; ``as_of`` is
-    the subscriber period-end; ``year`` selects the annual financials/staff
-    year. External sections degrade gracefully so the pack always returns.
+    the subscriber period-end. The external section degrades gracefully so
+    the pack always returns.
     """
     complaints = complaints_section(db, start_dt, end_dt)
     subscribers = subscribers_section(
@@ -344,20 +262,14 @@ def build_regulatory_pack(
         reseller_id=reseller_id,
         capacity=capacity,
     )
-    financials = financials_section(db, year=year)
-    staff = staff_section(db)
-
     sources = {
         "complaints": complaints.get("available", False),
         "subscribers": subscribers.get("available", False),
-        "financials": financials.get("available", False),
-        "staff": staff.get("available", False),
     }
     return {
         "meta": {
             "period": {"start": start_dt.isoformat(), "end": end_dt.isoformat()},
             "as_of": as_of,
-            "year": year,
             "sources": sources,
             "complete": all(sources.values()),
         },
@@ -365,7 +277,4 @@ def build_regulatory_pack(
         "complaints": complaints,
         # ② Quarterly subscriber & capacity
         "subscribers": subscribers,
-        # ③ Annual year-end (financials + staff; narrative pages remain manual)
-        "financials": financials,
-        "staff": staff,
     }
