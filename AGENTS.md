@@ -18,6 +18,10 @@ This file provides short, high-signal guidance for Codex when working in this re
 - Add dark mode variants for any new UI classes.
 
 ## Validation
+- Never run ad-hoc tests, benchmark runs, dependency builds, or scratch
+  containers on Seabone. Use only the explicitly named dotmac-observe
+  throwaway-test host, one bounded container at a time. Production restores and
+  ETL data never move to dotmac-observe.
 - Python lint/format: `ruff check app/ tests/ --fix && ruff format app/ tests/`
 - Type check: `mypy app/`
 - Security scan: `bandit -r app -q`

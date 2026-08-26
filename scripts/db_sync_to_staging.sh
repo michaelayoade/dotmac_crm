@@ -30,6 +30,8 @@ RUN_COMPOSE_RESTART="${RUN_COMPOSE_RESTART:-1}"
 STAGING_MIGRATE_COMMAND="${STAGING_MIGRATE_COMMAND:-}"
 SYNC_TMP_DIR="${SYNC_TMP_DIR:-/tmp/dotmac-staging-sync}"
 SYNC_LOCK_FILE="${SYNC_LOCK_FILE:-/tmp/dotmac-staging-sync.lock}"
+STAGING_HOST_LOCK_FILE="${STAGING_HOST_LOCK_FILE:-/var/lock/dotmac_staging_heavy.lock}"
+STAGING_ADMISSION_COMMAND="${STAGING_ADMISSION_COMMAND:-/home/dotmac/projects/dotmac_sub/scripts/staging_host_admission.py}"
 SYNC_LABEL="${SYNC_LABEL:-dotmac_staging_refresh}"
 RESTORE_NICE_LEVEL="${RESTORE_NICE_LEVEL:-10}"
 RESTORE_IONICE_CLASS="${RESTORE_IONICE_CLASS:-2}"
@@ -88,6 +90,8 @@ on_exit() {
 trap on_exit EXIT
 
 require_command docker
+require_command flock
+require_command python3
 
 if [[ ! -d "${ROOT_DIR}" ]]; then
   log "Missing root directory: ${ROOT_DIR}"
@@ -98,6 +102,23 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   log "Missing env file: ${ENV_FILE}"
   exit 1
 fi
+
+# This restore shares Seabone's disk with CRM, ERP, and Sub staging. Acquire the
+# cross-repository lock before the repo-specific sync lock and before any dump.
+if ! { exec 8>"${STAGING_HOST_LOCK_FILE}"; } 2>/dev/null; then
+  log "Cannot open host-wide lock ${STAGING_HOST_LOCK_FILE}."
+  exit 1
+fi
+if ! flock -n 8; then
+  log "Another staging deploy, restore, or maintenance operation is active."
+  exit 1
+fi
+if [[ ! -f "${STAGING_ADMISSION_COMMAND}" ]]; then
+  log "Missing shared staging admission owner: ${STAGING_ADMISSION_COMMAND}."
+  exit 1
+fi
+STAGING_DB_CONTAINER="${TARGET_DB_CONTAINER}" \
+  python3 "${STAGING_ADMISSION_COMMAND}"
 
 mkdir -p "${SYNC_TMP_DIR}"
 
