@@ -5,6 +5,7 @@ Celery tasks for HTTP delivery.
 """
 
 import logging
+from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
@@ -17,6 +18,13 @@ from app.models.webhook import (
 from app.services.events.types import Event, EventType
 
 logger = logging.getLogger(__name__)
+
+_SELFCARE_CHAT_WEBHOOK_PATHS = frozenset(
+    {
+        "/api/v1/webhooks/crm/chat",
+        "/api/v1/webhooks/crm/field-chat",
+    }
+)
 
 
 # Mapping from EventType to WebhookEventType
@@ -78,6 +86,26 @@ EVENT_TYPE_TO_WEBHOOK = {
 }
 
 
+def _is_redundant_selfcare_chat_subscription(
+    subscription: WebhookSubscription, webhook_event_type: WebhookEventType
+) -> bool:
+    """Skip legacy generic chat subscriptions that duplicate selfcare.notify_*.
+
+    Agent replies already call ``selfcare.notify_chat_message`` /
+    ``notify_field_chat_message`` directly. Registering the same sub chat wakeup
+    URL as a generic ``message_outbound`` webhook signs a different event
+    envelope and fails sub's dedicated receiver authentication. Keep the generic
+    webhook bus for real third-party endpoints, but never deliver this internal
+    wakeup path through it.
+    """
+    if webhook_event_type != WebhookEventType.message_outbound:
+        return False
+    endpoint = subscription.endpoint
+    if not endpoint or not endpoint.url:
+        return False
+    return urlparse(endpoint.url).path.rstrip("/") in _SELFCARE_CHAT_WEBHOOK_PATHS
+
+
 class WebhookHandler:
     """Handler that creates webhook deliveries for subscribed endpoints."""
 
@@ -116,6 +144,12 @@ class WebhookHandler:
             # Verify endpoint is active
             if not subscription.endpoint or not subscription.endpoint.is_active:
                 logger.debug(f"Skipping inactive endpoint for subscription {subscription.id}")
+                continue
+            if _is_redundant_selfcare_chat_subscription(subscription, webhook_event_type):
+                logger.info(
+                    "Skipping redundant selfcare chat generic webhook subscription %s",
+                    subscription.id,
+                )
                 continue
 
             delivery = WebhookDelivery(

@@ -366,6 +366,45 @@ def test_outbound_message_creates_webhook_delivery(db_session):
     mock_delay.assert_called_once_with(str(delivery.id))
 
 
+def test_outbound_message_skips_redundant_selfcare_chat_webhook(db_session):
+    endpoint = WebhookEndpoint(
+        name="DotMac Sub - chat push",
+        url="https://selfcare.dotmac.io/api/v1/webhooks/crm/chat",
+        secret="s3cr3t",
+        is_active=True,
+    )
+    db_session.add(endpoint)
+    db_session.flush()
+    db_session.add(
+        WebhookSubscription(
+            endpoint_id=endpoint.id,
+            event_type=WebhookEventType.message_outbound,
+            is_active=True,
+        )
+    )
+    db_session.commit()
+
+    event = Event(
+        event_type=EventType.message_outbound,
+        payload={
+            "conversation_id": "conv-1",
+            "subscriber_id": "sub-1",
+            "preview": "Reply",
+        },
+    )
+    with patch("app.tasks.webhooks.deliver_webhook.delay") as mock_delay:
+        WebhookHandler().handle(db_session, event)
+        db_session.commit()
+
+    count = (
+        db_session.query(WebhookDelivery)
+        .filter(WebhookDelivery.event_type == WebhookEventType.message_outbound)
+        .count()
+    )
+    assert count == 0
+    mock_delay.assert_not_called()
+
+
 def test_deliver_webhook_retries_when_row_not_visible():
     """A not-yet-committed row triggers a short retry, not a silent drop."""
     from celery.exceptions import Retry
