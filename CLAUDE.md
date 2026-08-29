@@ -209,9 +209,15 @@ Full design context: `.impeccable.md`
 
 ## Cross-repo notes
 
-dotmac_crm is the **system-of-record** for work orders / projects / quotes /
-tickets; `dotmac_sub` mirrors them via webhook + reconcile. CRM enforces `ruff
-format` (not just `ruff check`); PRs need a `version:*` label; merge on green.
+CRM is **not** the system of record for customer-sales Leads, Pipelines,
+opportunity Stages or Quotes. Sub is the current authority under its approved
+Sales-to-Service SOT; the target reusable `dotmac-sales` owner stops at an
+accepted Quote. CRM is parity/migration/retirement evidence only. Projects,
+work orders and tickets follow their own checked-in SOTs; this guide does not
+reassign them. See `docs/sales-authority-retirement.md`.
+
+CRM enforces `ruff format` (not just `ruff check`); PRs need a `version:*`
+label; merge on green.
 
 <!-- Personal cross-repo notes; a no-op for anyone who doesn't have the file. -->
 @~/.claude/shared/dotmac.md

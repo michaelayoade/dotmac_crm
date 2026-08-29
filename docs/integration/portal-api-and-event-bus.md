@@ -4,6 +4,16 @@
 **Owners:** Platform (CRM) + Selfcare (sub)
 **Scope:** Surface CRM customer-lifecycle features (referrals, projects, work orders, field service, quotes) inside the customer mobile app, and consolidate all CRM↔sub data exchange onto one contract.
 
+> **Sales authority correction — 2026-08-17:** this draft's claims that CRM
+> owns customer-sales Quotes are superseded. Sub is the current sales authority;
+> the target `dotmac-sales` owner stops at an accepted Quote and emits a
+> product-neutral handoff. Sections describing CRM Quote acceptance or
+> `quote.accepted` transport are historical interface proposals, not authority
+> or implementation instructions. See
+> [`../sales-authority-retirement.md`](../sales-authority-retirement.md). This
+> correction does not decide the owners of the other domains in this RFC and
+> does not authorize connector-transport changes.
+
 ---
 
 ## 1. Why

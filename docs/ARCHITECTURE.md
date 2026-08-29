@@ -59,6 +59,24 @@ DotMac CRM is an **omni-channel field service and CRM platform** designed for te
 
 ## 2. System Overview
 
+### 2.0 Sales authority and retirement boundary
+
+The application still contains local CRM Pipeline, Stage, Lead, Quote and Quote
+line tables, services and routes. They are legacy migration surfaces, **not the
+sales source of truth**. Sub is the current authority under its approved
+Sales-to-Service SOT and is the qualifying implementation source for the
+Starter-owned `dotmac-sales` module.
+
+The reusable boundary stops at an accepted, immutable Quote and a versioned
+product-neutral handoff. It excludes SalesOrder rows, customer-account
+conversion, projects, work orders, billing and service activation. CRM's exact
+writer/caller inventory and removal gates are
+[`sales-authority-retirement.md`](sales-authority-retirement.md).
+
+Campaign/audience, Inbox/conversations, connector transport, consent and
+customer-retention case management are outside that sales ruling. Their
+presence as Lead callers does not transfer their ownership into sales.
+
 ### High-Level Architecture
 
 ```
